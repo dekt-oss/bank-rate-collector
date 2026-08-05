@@ -6,6 +6,10 @@ config.yaml
 data/snapshots/
 data/overrides.json
 data/inbox/
+data/raw/
+data/exports/
+data/backups/
+data/*.sqlite3
 
 # 파이썬 기본
 __pycache__/
