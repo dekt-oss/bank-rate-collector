@@ -25,7 +25,10 @@ from rate_monitor.collectors.finlife import parser
 from rate_monitor.domain.enums import SourceRole, TrustLevel
 from rate_monitor.domain.schemas import CollectionRequest, ParsedRateRow, RawArtifactData
 
-BASE_URL = "http://finlife.fss.or.kr/finlifeapi"
+# 2026-08-05 실측: http로 요청하면 서버가 307로 https에 리다이렉트한다.
+# 공식 문서는 http를 안내하지만 실제 종단점은 https다. 평문으로 인증키를
+# 보내지 않도록 처음부터 https로 요청한다.
+BASE_URL = "https://finlife.fss.or.kr/finlifeapi"
 API_KEY_ENV = "FINLIFE_API_KEY"
 
 # 명세서 v3.1 §9 / v3 §15.3 request_interval_seconds
@@ -64,7 +67,9 @@ class FinlifeAdapter:
 
         artifacts: list[RawArtifactData] = []
         timeout = httpx.Timeout(READ_TIMEOUT, connect=CONNECT_TIMEOUT)
-        async with httpx.AsyncClient(timeout=timeout) as client:
+        # httpx는 urllib과 달리 리다이렉트를 기본으로 따라가지 않는다.
+        # P0 스크립트(urllib)가 조용히 https로 따라가던 것을 여기서 명시한다.
+        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
             for service in services:
                 for group in groups:
                     artifacts.extend(await self._fetch_all_pages(client, service, group))

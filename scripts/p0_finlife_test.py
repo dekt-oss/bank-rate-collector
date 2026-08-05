@@ -18,7 +18,7 @@ import urllib.request
 from datetime import UTC, datetime
 from pathlib import Path
 
-API_URL = "http://finlife.fss.or.kr/finlifeapi/depositProductsSearch.json"
+API_URL = "https://finlife.fss.or.kr/finlifeapi/depositProductsSearch.json"
 RAW_DIR = Path("data/raw/p0/finlife")
 
 
