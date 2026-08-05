@@ -62,7 +62,21 @@ def build_summary(db_path: Path) -> dict[str, Any]:
             "       (SELECT COUNT(*) FROM collection_runs)  AS runs",
         )[0]
 
-        run_id = latest_run[0]["id"] if latest_run else None
+        # 수집원마다 마지막 실행을 쓴다.
+        #
+        # 예전에는 전체에서 가장 최근 실행 하나만 봤다. 수집원이 하나일 때는
+        # 맞았지만 저축은행 다음에 새마을금고를 돌리면 저축은행 수치가
+        # 화면에서 통째로 사라진다.
+        latest_by_source = _rows(
+            conn,
+            "SELECT r.id, r.source_id FROM collection_runs r"
+            "  JOIN (SELECT source_id, MAX(started_at) AS started_at"
+            "          FROM collection_runs GROUP BY source_id) latest"
+            "    ON latest.source_id = r.source_id"
+            "   AND latest.started_at = r.started_at",
+        )
+        run_ids = [r["id"] for r in latest_by_source]
+        placeholders = ",".join("?" for _ in run_ids)
 
         # 기간별 금리 분포. base_rate는 0 패딩 문자열이라 사전순 == 수치순이다.
         by_term = _rows(
@@ -74,11 +88,11 @@ def build_summary(db_path: Path) -> dict[str, Any]:
             "       MAX(o.max_rate)         AS max_rate_top"
             "  FROM rate_observations o"
             "  JOIN product_variants v ON v.id = o.variant_id"
-            " WHERE o.run_id = ?"
+            f" WHERE o.run_id IN ({placeholders})"
             " GROUP BY v.term_months"
             " ORDER BY v.term_months",
-            (run_id,),
-        ) if run_id else []
+            tuple(run_ids),
+        ) if run_ids else []
 
         top_rates = _rows(
             conn,
@@ -93,10 +107,69 @@ def build_summary(db_path: Path) -> dict[str, Any]:
             "  JOIN product_variants v ON v.id = o.variant_id"
             "  JOIN products p         ON p.id = v.product_id"
             "  JOIN institutions i     ON i.id = p.institution_id"
-            " WHERE o.run_id = ? AND o.validation_status != 'error'"
+            f" WHERE o.run_id IN ({placeholders}) AND o.validation_status != 'error'"
             " ORDER BY o.base_rate DESC LIMIT 15",
-            (run_id,),
-        ) if run_id else []
+            tuple(run_ids),
+        ) if run_ids else []
+
+        # 구·군별 집계 — 이 프로젝트의 목적이다.
+        #
+        # 구는 institutions.address에서 두 번째 토막을 떼어 만든다
+        # ("부산 중구 대청로 101-1" → "중구"). 행정구역 공식 코드가
+        # 확보되기 전까지의 파생값이므로 화면에도 그렇게 표기한다.
+        #
+        # 저축은행은 여기 잡히지 않는다. finlife가 주소를 주지 않아
+        # institutions.address가 NULL이기 때문이다. 의도한 결과다 —
+        # 저축은행 금리는 본점 기준이라 구 단위로 말할 수 없다.
+        by_district = _rows(
+            conn,
+            "SELECT TRIM(SUBSTR(i.address, INSTR(i.address, ' ') + 1,"
+            "            INSTR(SUBSTR(i.address, INSTR(i.address, ' ') + 1), ' ')))"
+            "         AS sigungu,"
+            "       i.sector                  AS sector,"
+            "       COUNT(DISTINCT i.id)      AS institutions,"
+            "       COUNT(*)                  AS observations,"
+            "       MAX(o.base_rate)          AS base_max"
+            "  FROM rate_observations o"
+            "  JOIN product_variants v ON v.id = o.variant_id"
+            "  JOIN products p         ON p.id = v.product_id"
+            "  JOIN institutions i     ON i.id = p.institution_id"
+            f" WHERE o.run_id IN ({placeholders})"
+            "   AND i.address IS NOT NULL AND i.address != ''"
+            "   AND o.validation_status != 'error'"
+            " GROUP BY sigungu, i.sector"
+            " ORDER BY base_max DESC",
+            tuple(run_ids),
+        ) if run_ids else []
+
+        # 구·군별 최고금리 상품. 12개월 기준으로 좁힌다.
+        district_top = _rows(
+            conn,
+            "SELECT sigungu, institution, product, term_months, base_rate,"
+            "       source_effective_at FROM ("
+            "  SELECT TRIM(SUBSTR(i.address, INSTR(i.address, ' ') + 1,"
+            "              INSTR(SUBSTR(i.address, INSTR(i.address, ' ') + 1), ' ')))"
+            "           AS sigungu,"
+            "         i.canonical_name AS institution,"
+            "         p.name           AS product,"
+            "         v.term_months    AS term_months,"
+            "         o.base_rate      AS base_rate,"
+            "         o.source_effective_at AS source_effective_at,"
+            "         ROW_NUMBER() OVER ("
+            "           PARTITION BY TRIM(SUBSTR(i.address, INSTR(i.address, ' ') + 1,"
+            "                     INSTR(SUBSTR(i.address, INSTR(i.address, ' ') + 1), ' ')))"
+            "           ORDER BY o.base_rate DESC) AS rn"
+            "    FROM rate_observations o"
+            "    JOIN product_variants v ON v.id = o.variant_id"
+            "    JOIN products p         ON p.id = v.product_id"
+            "    JOIN institutions i     ON i.id = p.institution_id"
+            f"   WHERE o.run_id IN ({placeholders})"
+            "     AND i.address IS NOT NULL AND i.address != ''"
+            "     AND o.validation_status != 'error'"
+            "     AND v.term_months = 12"
+            ") WHERE rn = 1 ORDER BY base_rate DESC",
+            tuple(run_ids),
+        ) if run_ids else []
 
         reviews = _rows(
             conn,
@@ -136,6 +209,8 @@ def build_summary(db_path: Path) -> dict[str, Any]:
         "runs": runs,
         "totals": totals,
         "by_term": by_term,
+        "by_district": by_district,
+        "district_top": district_top,
         "top_rates": top_rates,
         "reviews": reviews,
         "review_samples": review_samples,

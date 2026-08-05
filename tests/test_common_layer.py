@@ -44,7 +44,7 @@ from rate_monitor.services.collection_service import collect_source
 
 @pytest.fixture
 def factory(tmp_path: Path):
-    engine = create_db_engine(f"sqlite+pysqlite:///{tmp_path / 'test.sqlite3'}")
+    engine = create_db_engine(tmp_path / "test.sqlite3")
     m.Base.metadata.create_all(engine)
     return make_session_factory(engine)
 

@@ -10,11 +10,12 @@ import sys
 from pathlib import Path
 
 from rate_monitor.collectors.finlife.adapter import FinlifeAdapter
+from rate_monitor.collectors.kfcc.adapter import KfccAdapter
 from rate_monitor.db.session import DEFAULT_DB_PATH, create_db_engine, make_session_factory
 from rate_monitor.domain.schemas import CollectionRequest
 from rate_monitor.services.collection_service import DEFAULT_RAW_ROOT, collect_source
 
-ADAPTERS = {"finlife": FinlifeAdapter}
+ADAPTERS = {"finlife": FinlifeAdapter, "kfcc": KfccAdapter}
 
 
 def _finlife_request(args: argparse.Namespace) -> CollectionRequest:
