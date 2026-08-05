@@ -1,0 +1,13 @@
+# 인증키 포함 설정 (실제 값 — 절대 커밋 금지)
+config.yaml
+.env
+
+# 수집 데이터 — 레포에 안 올라감, 로컬에만 존재
+data/snapshots/
+data/overrides.json
+data/inbox/
+
+# 파이썬 기본
+__pycache__/
+*.pyc
+.venv/

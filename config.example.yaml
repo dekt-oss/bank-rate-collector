@@ -1,0 +1,11 @@
+finlife:
+  api_key: "발급받은_키를_여기_붙여넣기"
+
+regions:
+  - sido: "부산"
+    sigungu: "전체"   # 부산 전 구·군
+
+paths:
+  snapshots: "./data/snapshots"
+  overrides: "./data/overrides.json"
+  inbox: "./data/inbox"
