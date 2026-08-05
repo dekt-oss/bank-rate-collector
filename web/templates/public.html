@@ -147,7 +147,11 @@
   .fields { display: flex; flex-wrap: wrap; gap: 10px; }
   .field { display: flex; flex-direction: column; gap: 4px; flex: 1 1 130px; }
   .field label { font-size: 11px; color: var(--ink-3); font-weight: 600; }
-  input[type="search"], input[type="number"], select {
+  .stale-note {
+    margin: 9px 0 0; font-size: 11.5px; line-height: 1.6; color: var(--ink-2);
+  }
+  .stale-note b { color: var(--warn); }
+  input[type="search"], input[type="number"], input[type="date"], select {
     font: inherit; font-size: 13.5px; padding: 6px 8px;
     background: var(--surface-2); color: var(--ink);
     border: 1px solid var(--line); border-radius: 3px; width: 100%;
@@ -222,6 +226,7 @@
     background: var(--crit-bg); color: var(--crit); vertical-align: 1px;
   }
   .tag.sec { background: var(--accent-bg); color: var(--accent-ink); }
+  .tag.warn { background: var(--warn-bg); color: var(--warn); }
   .empty { text-align: center; color: var(--ink-3); padding: 30px; }
   .more { text-align: center; padding: 14px; }
 
@@ -257,6 +262,22 @@
   <section class="panel">
     <h2>조회 조건 <button type="button" id="reset">조건 초기화</button></h2>
     <div class="groups" id="groups"></div>
+    <!-- 공시일은 다른 항목과 성격이 다르다. 값이 수백 가지라 체크박스로는
+         못 쓰고, "최근 것만"이 실제로 필요한 조건이다. -->
+    <div class="group">
+      <div class="lbl">공시일
+        <a data-clear="asOf" role="button" tabindex="0">전체</a>
+      </div>
+      <div class="checks" id="asof-presets"></div>
+      <div class="fields" style="margin-top:8px">
+        <div class="field">
+          <label for="dfrom">이 날짜 이후</label>
+          <input type="date" id="dfrom">
+        </div>
+      </div>
+      <p class="stale-note" id="stale-note"></p>
+    </div>
+
     <div class="group" style="border-right:0">
       <div class="lbl">검색 · 범위</div>
       <div class="fields">
@@ -370,9 +391,38 @@
   ];
   const state = {
     picked: Object.fromEntries(GROUPS.map((g) => [g.key, new Set()])),
-    q: "", rmin: null, tmin: null, tmax: null,
+    q: "", rmin: null, tmin: null, tmax: null, dfrom: null,
     sort: "base", dir: -1, shown: 100,
   };
+
+  // ── 공시일 ───────────────────────────────────────────────────────
+  //
+  // 원천마다 성격이 다르다. 새마을금고·신협은 조회 시점에 화면을 통째로
+  // 다시 그려서 전부 오늘 날짜이고, 저축은행중앙회는 저축은행이 금리를
+  // 마지막으로 제출한 날이 그대로 남아 2015년 것도 섞여 있다.
+  //
+  // 그 행이 "없어진 상품"인지 "금리가 오래 안 바뀐 상품"인지는 이 데이터로
+  // 구분할 수 없다. 다만 조회한 날 화면에 나왔으므로 공시 자체는 살아 있다.
+  // 그래서 **기본값은 전체**로 두고, 오래된 것이 몇 건인지 눈에 보이게 한다.
+  // 조용히 숨기면 그것대로 왜곡이다.
+  const asOfDates = ALL.map((r) => r.asOf).filter(Boolean).sort();
+  const latestAsOf = asOfDates.at(-1) || null;
+  const daysBetween = (a, b) =>
+    Math.round((Date.parse(b) - Date.parse(a)) / 86400000);
+  // 오늘이 아니라 **데이터의 최신 공시일**을 기준으로 센다. 보는 시점이
+  // 언제든 같은 결과가 나와야 한다.
+  const STALE_DAYS = 365;
+  const isStale = (r) =>
+    r.asOf && latestAsOf && daysBetween(r.asOf, latestAsOf) > STALE_DAYS;
+
+  const shiftDays = (iso, days) => {
+    const d = new Date(iso + "T00:00:00Z");
+    d.setUTCDate(d.getUTCDate() - days);
+    return d.toISOString().slice(0, 10);
+  };
+  const PRESETS = latestAsOf
+    ? [7, 30, 90, 365].map((d) => ({ days: d, from: shiftDays(latestAsOf, d) }))
+    : [];
 
   const countsOf = (key) => {
     const c = new Map();
@@ -382,6 +432,27 @@
       c.set(v, (c.get(v) || 0) + 1);
     });
     return c;
+  };
+
+  const renderAsOf = () => {
+    $("asof-presets").innerHTML = PRESETS.map((p) => {
+      const n = ALL.filter((r) => r.asOf && r.asOf >= p.from).length;
+      return `<label>
+        <input type="radio" name="asof" data-from="${p.from}"
+               ${state.dfrom === p.from ? "checked" : ""}>
+        최근 ${p.days === 365 ? "1년" : p.days + "일"}
+        <span class="n">${num(n)}</span>
+      </label>`;
+    }).join("");
+    $("dfrom").value = state.dfrom || "";
+
+    const stale = ALL.filter(isStale).length;
+    $("stale-note").innerHTML = stale
+      ? `공시일이 1년 넘게 갱신되지 않은 행이 <b>${num(stale)}건</b> 있습니다. `
+        + `전부 저축은행 공시이고, 상품이 없어진 것인지 금리가 오래 바뀌지 `
+        + `않은 것인지는 이 자료로 구분할 수 없습니다. 표에 <span class="tag warn">`
+        + `오래됨</span> 표식을 붙였습니다.`
+      : "모든 행이 최근 1년 안에 갱신되었습니다.";
   };
 
   const renderGroups = () => {
@@ -410,6 +481,9 @@
       const picked = state.picked[g.key];
       if (picked.size && !picked.has(String(r[g.key]))) return false;
     }
+    // 공시일이 없는 행은 날짜 조건을 걸면 빠진다. 모르는 값을 통과시키면
+    // "최근 것만" 골랐는데 언제 것인지 모르는 행이 섞여 든다.
+    if (state.dfrom != null && !(r.asOf && r.asOf >= state.dfrom)) return false;
     if (state.rmin != null && !(r.base >= state.rmin)) return false;
     if (state.tmin != null && !(r.term >= state.tmin)) return false;
     if (state.tmax != null && !(r.term <= state.tmax)) return false;
@@ -448,7 +522,9 @@
     { key: "scope", label: "가입제한", cls: "dim",
       cell: (r) => esc(SCOPE_KO[r.scope] || r.scope) },
     { key: "source", label: "수집원", cls: "dim", cell: (r) => esc(r.source) },
-    { key: "asOf", label: "공시일", cls: "dim num", cell: (r) => esc(r.asOf || "—") },
+    { key: "asOf", label: "공시일", cls: "dim num",
+      cell: (r) => (r.asOf ? esc(r.asOf) : "—")
+        + (isStale(r) ? '<span class="tag warn">오래됨</span>' : "") },
   ];
 
   const renderHead = () => {
@@ -498,7 +574,7 @@
   // BOM을 붙여야 엑셀이 한글을 깨지 않고 연다.
   const HEAD = ["권역", "기관", "시도", "구·군", "상품", "상품유형", "가입기간(개월)",
                 "지급방식", "이자방식", "가입채널", "기본금리(%)", "최고금리(%)",
-                "가입제한", "수집원", "공시기준일"];
+                "가입제한", "수집원", "공시기준일", "1년내갱신"];
   const flat = (r) => [
     SECTOR_KO[r.sector] || r.sector, r.institution, r.region || "", r.district || "",
     r.product, TYPE_KO[r.type] || r.type, r.term,
@@ -506,6 +582,7 @@
     r.base == null ? "" : r.base.toFixed(2),
     r.max == null ? "" : r.max.toFixed(2),
     SCOPE_KO[r.scope] || r.scope, r.source, r.asOf || "",
+    isStale(r) ? "아니오" : "예",
   ];
   const cell = (v) => {
     const s = v == null ? "" : String(v);
@@ -581,8 +658,13 @@
   $("groups").addEventListener("click", (e) => {
     const clear = e.target.closest("[data-clear]");
     if (!clear) return;
-    state.picked[clear.dataset.clear].clear();
-    renderGroups();
+    if (clear.dataset.clear === "asOf") {
+      state.dfrom = null;
+      renderAsOf();
+    } else {
+      state.picked[clear.dataset.clear].clear();
+      renderGroups();
+    }
     redraw();
   });
   $("head").addEventListener("click", (e) => {
@@ -604,6 +686,18 @@
     redraw();
   });
   numberField("rmin", "rmin");
+  $("asof-presets").addEventListener("change", (e) => {
+    const radio = e.target.closest("input[name=asof]");
+    if (!radio) return;
+    state.dfrom = radio.dataset.from;
+    renderAsOf();
+    redraw();
+  });
+  $("dfrom").addEventListener("change", (e) => {
+    state.dfrom = e.target.value || null;
+    renderAsOf();
+    redraw();
+  });
   numberField("tmin", "tmin");
   numberField("tmax", "tmax");
 
@@ -611,9 +705,10 @@
   $("reset").addEventListener("click", () => {
     GROUPS.forEach((g) => state.picked[g.key].clear());
     Object.assign(state, { q: "", rmin: null, tmin: null, tmax: null,
-                           sort: "base", dir: -1, shown: 100 });
-    ["q", "rmin", "tmin", "tmax"].forEach((id) => { $(id).value = ""; });
+                           dfrom: null, sort: "base", dir: -1, shown: 100 });
+    ["q", "rmin", "tmin", "tmax", "dfrom"].forEach((id) => { $(id).value = ""; });
     renderGroups();
+    renderAsOf();
     render();
   });
   $("dl-view").addEventListener("click", () =>
@@ -624,6 +719,7 @@
     download(`rate-monitor_all_${stamp}.csv`, toCsv(ALL), "text/csv;charset=utf-8"));
 
   renderGroups();
+  renderAsOf();
   render();
 })();
 </script>

@@ -1,75 +1,141 @@
-# 원천 정찰: 지역농축협 (`nh_local`) — **미완**
+# 원천 정찰: 지역농축협 (`nh_local`)
 
-정찰 실행: 2026-08-05, `scripts/p1d_cu_nh_recon.py` + 직접 탐침
+정찰 실행: 2026-08-05 (1차 `scripts/p1d_cu_nh_recon.py`, 2차 직접 탐침)
 기계 판독 보고서: `docs/source-recon/cu-nh-recon.json`
 
-**이 문서는 실패 기록이다.** 수집 경로를 찾지 못했다. 찾은 척하지 않는다.
+---
+
+## 1. 결론 — 중앙 수집이 새마을금고·신협처럼은 안 된다
+
+**지역농축협은 조합마다 독립 법인이고 각자 홈페이지에 금리를 공시한다.**
+중앙회가 운영하는 조합별 금리비교 공시 화면이 없다.
+
+새마을금고(`kfcc.co.kr/map`)와 신협(`cu.co.kr/cu/ad/inrstCmpr`)은 중앙회가
+전국 조합의 금리를 한 화면에 모아 준다. 그래서 요청 몇십 번이면 전국이
+끝난다. 농축협에는 그에 대응하는 화면이 **없다.**
+
+이건 "못 찾았다"가 아니라 **구조가 다르다**는 근거가 셋 있다 (§2).
 
 ---
 
-## 1. 결론
+## 2. 근거
 
-**지역농축협의 조합별 수신금리를 한곳에서 비교하는 공식 화면을 찾지 못했다.**
+### 2.1 금감원의 협회별 비교공시 목록에 농협이 없다
 
-새마을금고(`kfcc.co.kr/map`)와 신협(`cu.co.kr/cu/ad/inrstCmpr`)에는 중앙회가
-운영하는 조합별 금리비교 공시가 있다. 농축협에서 그에 대응하는 화면을
-2026-08-05 정찰로는 찾지 못했다.
+`finlife.fss.or.kr/finlife/main/contents.do?menuNo=700025`는 금감원이
+정리한 협회별 비교공시 링크 모음이다. 여기 실린 수신금리 비교공시는 셋뿐이다.
 
-**없다고 단정하지 않는다.** 못 찾은 것과 없는 것은 다르다.
+| 협회 | 링크 |
+|---|---|
+| 은행연합회 | `portal.kfb.or.kr/compare/receiving_search.php` |
+| 저축은행중앙회 | `fsb.or.kr/ratedepo_0100.act` |
+| 신협 | `cu.co.kr/cu/ad/inrstCmpr/findInrst15CmprList.do` |
+
+**농협도 새마을금고도 없다.** (새마을금고는 이 목록 밖에서 따로 찾았다.)
+규제기관이 정리한 디렉터리에 없다는 것은 중앙 비교공시가 제도적으로
+존재하지 않는다는 뜻에 가깝다.
+
+### 2.2 조합마다 자기 도메인에 따로 공시한다
+
+검색으로 확인한 실제 사례:
+
+```
+aylc.nonghyup.com/user/indexSub.do?codyMenuSeq=12524706&siteId=aylc
+sjanh.nonghyup.com/user/indexSub.do?codyMenuSeq=27577790&siteId=sjanh
+```
+
+`siteId`가 조합마다 다르고, `codyMenuSeq`(메뉴 일련번호)도 조합마다 다르다.
+**조합 코드만 알면 되는 구조가 아니다** — 조합마다 메뉴 번호를 따로 알아야
+금리 화면에 닿는다.
+
+### 2.3 중앙 화면은 있지만 "특판" 목록이다
+
+`mmall.nonghyup.com/servlet/SFDPM0130R.view?Type=D` (NH모바일웹 농·축협)
+
+폼의 주석이 그 화면의 성격을 밝힌다.
+
+```html
+<input id="channelType" value="2" />  <!-- 채널구분 (1:전체 2:비대면 3:대면) -->
+<input id="MOtbrc"      value=""  />  <!-- 조회사무소 -->
+<input id="io_tr_ds"    value=""  />  <!-- 거래구분
+     01: 특판목록조회  03: 판매예정특판목록조회
+     04: 판매중특판목록조회  05: 특판정보상세조회(특판일련번호) -->
+```
+
+**전부 특판(특별판매) 조회다.** 정규 금리표가 아니다. 그리고 조회사무소를
+비우고 부르면 "판매중인 상품이 없습니다"만 돌아온다.
+
+`SFDPM0130R.view`를 POST로 여러 조합(`io_tr_ds` 01·04, `channelType` 1)
+으로 불러봤지만 같은 화면 껍데기(46,587바이트)가 그대로 왔고 금리 숫자는
+0개였다. `SFDPM0132R`·`SFDPM0130P`는 404다.
 
 ---
 
-## 2. 두드려본 곳
+## 3. 두드려본 곳 전체
 
 | URL | 결과 |
 |---|---|
-| `https://www.nonghyup.com/` | 200, 389바이트. 리다이렉트 껍데기 |
-| `https://www.nonghyup.com/robots.txt` | 200, 6,299바이트 |
-| `https://www.nonghyup.com/servlet/CRPMSP0011R.view` | **404** |
-| `https://www.nonghyup.com/service/branch.do` | **404** |
-| `https://www.nonghyup.com/index.do` | **404** |
-| `https://www.nonghyup.com/pr/disclosure.do` | **404** |
-| `https://www.nhbank.com/` | 200, 2,473바이트. 리다이렉트 껍데기 |
-| `https://www.nhbank.com/nhbank.html` | 200이지만 제목이 `Error 404 \| NH 농협은행` — **소프트 404** |
-| `https://banking.nonghyup.com/nhbank.html` | 200, 69,825바이트. 인터넷뱅킹 로그인 화면 |
-| `https://banking.nonghyup.com/servlet/IPDPP0011I.view` | **404** |
-
-인터넷뱅킹 화면에서 찾은 금리 관련 링크는 세 개뿐이고, 전부 조합별 비교가
-아니었다 (`금융상품몰`은 `javascript:void(0)`, `경영공시`는 NH농협은행 것).
-
----
-
-## 3. 왜 어려운가 — 확인한 사실
+| `www.nonghyup.com/` | 200, 389바이트. 리다이렉트 껍데기 |
+| `www.nonghyup.com/servlet/CRPMSP0011R.view` | 404 |
+| `www.nonghyup.com/service/branch.do` | 404 |
+| `www.nonghyup.com/index.do` | 404 |
+| `www.nonghyup.com/pr/disclosure.do` | 404 |
+| `www.nhbank.com/` | 200, 2,473바이트. 리다이렉트 껍데기 |
+| `www.nhbank.com/nhbank.html` | 200이지만 제목이 `Error 404` — 소프트 404 |
+| `banking.nonghyup.com/nhbank.html` | 200. 인터넷뱅킹 로그인 화면 |
+| `banking.nonghyup.com/servlet/IPDPP0011I.view` | 404 |
+| `mmall.nonghyup.com/servlet/SFDPM0130R.view?Type=D` | 200. **특판 화면** (§2.3) |
+| `mmall.nonghyup.com/servlet/SFDPM0132R.view` | 404 |
+| `finlife.../contents.do?menuNo=700025` | 200. 협회 목록에 농협 없음 (§2.1) |
 
 **NH농협은행과 지역농축협은 다른 기관이다.** 앞의 것은 은행(제1금융권)이고
-`banking.nonghyup.com`이 그 창구다. 우리가 필요한 것은 **상호금융**인
-지역농축협이고, 이것은 새마을금고·신협과 같은 제2금융권 상호금융이다.
-
-금감원 finlife의 권역코드에도 지역농축협은 없다. 지금 쓰는 `030300`은
-저축은행이고, 은행은 `020000`이다.
+`banking.nonghyup.com`이 그 창구다. 우리가 필요한 것은 상호금융인
+지역농축협이고, 새마을금고·신협과 같은 제2금융권이다.
 
 ---
 
-## 4. 다음에 시도할 것 — 우선순위 순
+## 4. 그래서 무엇을 할 수 있나 — 선택지와 비용
 
-1. **농협중앙회 상호금융 부문 사이트를 따로 찾는다.** `nonghyup.com`이
-   경제지주·금융지주로 갈려 있어 상호금융 공시가 다른 도메인일 가능성이 있다.
-2. **금융상품한눈에의 "협회별 비교 공시"** —
-   `https://finlife.fss.or.kr/finlife/main/contents.do?menuNo=700025`에
-   협회별 공시 링크 모음이 있다. 여기에 상호금융 항목이 있는지 본다.
-   이번 정찰에서 링크만 확인하고 내용을 열어보지 않았다.
-3. **개별 조합 홈페이지**. 조합마다 따로 공시한다면 중앙 수집이 불가능하고,
-   그 경우 이 원천은 `coverage_status: none`으로 남긴다.
+### 선택지 A. 조합별 수집 (비용 큼)
+
+전국 지역농축협은 1,100곳이 넘는다. 조합마다 `siteId`와 `codyMenuSeq`를
+알아내야 하고, 화면 구조도 조합마다 다를 수 있다. 새마을금고가 요청
+2,537회로 끝나는 것과 비교하면 **자릿수가 다른 일**이다.
+
+먼저 필요한 것: 조합 목록(코드+도메인)을 주는 화면. 아직 못 찾았다.
+
+### 선택지 B. 특판만 수집 (범위 좁음)
+
+`mmall.nonghyup.com`의 특판 화면은 조회사무소를 지정하면 동작할 가능성이
+있다. 다만 **특판은 정규 금리가 아니다.** 다른 원천과 같은 축에 놓고
+비교하면 왜곡이다. 이 프로젝트의 비교표에 넣으려면 특판임을 명시해야 한다.
+
+### 선택지 C. 하지 않는다 (지금의 권고)
+
+농축협 없이도 부산 구·군 단위 비교는 새마을금고로 성립한다. 신협이
+지역+최고금리를 주고, 저축은행 두 원천이 전국 참고값을 준다.
+
+농축협을 넣어 얻는 것보다 드는 비용이 크고, 무엇보다 **조합별로 흩어진 것을
+우리가 모아 "농축협 금리"라고 부르면 그 자체가 만들어낸 집계**가 된다.
+다른 원천은 중앙회가 스스로 모아 공시한 것을 옮기는 것이라 성격이 다르다.
 
 ---
 
 ## 5. 현재 상태
 
 ```
-policy_status    unknown     (사이트를 특정하지 못해 약관 확인 자체가 불가)
+policy_status    unknown     (수집 대상 사이트를 특정하지 못해 약관 확인 불가)
 coverage_status  none
 수집기            없음
 ```
 
-명세서 v3 §19의 세로 절단 4는 **착수하지 못했다.** 정찰이 선행 조건인데
-그 정찰이 끝나지 않았다.
+명세서 v3 §19의 세로 절단 4는 **착수하지 않는다.** 정찰 결과가 "중앙 원천이
+없다"이므로, 착수 여부 자체가 판단 대상이다 (§4).
+
+## 6. 다시 볼 만한 단서
+
+- **NH올원뱅크·콕뱅크 앱**에 전국 지역농협 금리 비교 기능이 있다고 알려져
+  있다. 앱이 부르는 API가 웹에서도 열려 있다면 선택지 A의 비용이 크게
+  줄어든다. 앱 트래픽을 볼 수단이 없어 이번에는 확인하지 못했다.
+- 조합 목록을 주는 화면(`SFBCM4120P` 영업점 상세 팝업이 `brCode`를 받는다)
+  이 있으니, 그 코드 체계를 알면 조합 열거가 가능할 수도 있다.
