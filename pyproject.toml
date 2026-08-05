@@ -30,13 +30,16 @@ packages = ["src/rate_monitor"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests", "src"]
-addopts = "--doctest-modules"
+# migrations/env.py는 alembic 런타임 컨텍스트가 있어야 import되므로 doctest 수집에서 뺀다.
+addopts = "--doctest-modules --ignore=src/rate_monitor/db/migrations"
 pythonpath = ["src"]
 
 [tool.ruff]
 line-length = 100
 src = ["src", "tests"]
 target-version = "py312"
+# alembic이 생성한 마이그레이션은 손으로 고치지 않으므로 린트에서 뺀다.
+extend-exclude = ["src/rate_monitor/db/migrations/versions"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]
