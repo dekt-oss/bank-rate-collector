@@ -1,0 +1,590 @@
+{
+  "captured_at": "2026-08-05T08:55:42.798294+00:00",
+  "base": "https://www.fsb.or.kr",
+  "query_date": "2026-08-05",
+  "area": "YN_Busan",
+  "screens": [
+    {
+      "screen": "ratedepo_0100",
+      "label": "정기예금",
+      "shape": "term",
+      "page": {
+        "status": 200,
+        "path": "data/raw/p1b/fsb/ratedepo_0100_20260805T085544Z.html",
+        "sha256": "36afb4dd71d07c625e2892195816a4a0fc0fdbba4d0ce6451ac3ee8cffb94a22",
+        "bytes": 118878
+      },
+      "page_title": "상품공시 - 정기예금",
+      "dimensions": {
+        "terms": [
+          {
+            "value": "1",
+            "label": "1개월"
+          },
+          {
+            "value": "3",
+            "label": "3개월"
+          },
+          {
+            "value": "6",
+            "label": "6개월"
+          },
+          {
+            "value": "12",
+            "label": "12개월"
+          },
+          {
+            "value": "24",
+            "label": "24개월"
+          },
+          {
+            "value": "36",
+            "label": "36개월"
+          }
+        ],
+        "join_locations": [
+          {
+            "value": "1",
+            "label": "영업점(창구방문)"
+          },
+          {
+            "value": "2",
+            "label": "인터넷"
+          },
+          {
+            "value": "3",
+            "label": "스마트폰"
+          },
+          {
+            "value": "4",
+            "label": "모집인"
+          },
+          {
+            "value": "5",
+            "label": "전화(텔레뱅킹)"
+          },
+          {
+            "value": "9",
+            "label": "기타"
+          }
+        ],
+        "join_locations_anytime": [],
+        "areas": [
+          {
+            "value": "",
+            "label": "지역전체"
+          },
+          {
+            "value": "YN_Kangwon",
+            "label": "강원"
+          },
+          {
+            "value": "YN_Kyungki",
+            "label": "경기"
+          },
+          {
+            "value": "YN_Kyungnam",
+            "label": "경남"
+          },
+          {
+            "value": "YN_Kyungbuk",
+            "label": "경북"
+          },
+          {
+            "value": "YN_Kwangju",
+            "label": "광주"
+          },
+          {
+            "value": "YN_Deaku",
+            "label": "대구"
+          },
+          {
+            "value": "YN_Deajeon",
+            "label": "대전"
+          },
+          {
+            "value": "YN_Busan",
+            "label": "부산"
+          },
+          {
+            "value": "YN_Seoul",
+            "label": "서울"
+          },
+          {
+            "value": "YN_Saejong",
+            "label": "세종"
+          },
+          {
+            "value": "YN_Ulsan",
+            "label": "울산"
+          },
+          {
+            "value": "YN_Incheon",
+            "label": "인천"
+          },
+          {
+            "value": "YN_Jeonnam",
+            "label": "전남"
+          },
+          {
+            "value": "YN_Jeonbuk",
+            "label": "전북"
+          },
+          {
+            "value": "YN_Jeju",
+            "label": "제주"
+          },
+          {
+            "value": "YN_Chungnam",
+            "label": "충남"
+          },
+          {
+            "value": "YN_Chungbuk",
+            "label": "충북"
+          }
+        ]
+      },
+      "notice": [
+        "정보 이용시 유의사항 본 화면에 고시된 금리는 저축은행의 본점 기준이며, 좀 더 자세한 지점별 금리는 해당 저축은행으로 연락하시기 바랍니다.",
+        "영업 정지된 저축은행 금리는 제공되지 않습니다.",
+        "중앙회와 각 저축은행은 최신 정보를 제공하기 위해 적극 노력하고 있으나 저축은행의 적금 상품별 금리ㆍ수수료, 기타 거래조건이 수시로 변경됨에 따라 공시가 지연되는 경우도 있으므로,보다 정확한 최신 정보를 파악하기 위해서는 관련 저축은행에 반드시 문의하시기 바랍니다 예금 금리는 약정 이율을 기준으로 공시하였습니다.",
+        "선택상품비교 레이어 인쇄하기 레이어 닫기 공동구매 광고심의 SBLAW포털 자율규제위원회 자회사 소식 개인정보처리방침 신용정보활용체제 위치기반서비스 이용약관 보호금융상품등록부 영상정보처리기기 운영방침 예금자보호제도 이메일 무단수집거부 금리보기 (우 04130) 지번주소 : 서울특별시 마포구 공덕동 168 11~13층 / 도로명주소 : 서울특별시 마포구 마포대로 163 11~13층 대표번호 : 02-3978-600 / 02-3978-800 | 금융사기 신고 야간콜센터 : 02-3978-800 | FDS 거래차단 문의 : 1544-3061 COPYRIGHT (C) 2019 KOREA FEDERATION OF SAVINGS BANKS. ALL RIGHTS RESERVED. 이메일 무단수집거부 우리 저축은행중앙회 회원에게 무차별적으로 보내지는 타사"
+      ],
+      "data": {
+        "endpoint": "https://www.fsb.or.kr/ratedepo_0100_01.jct",
+        "status": 200,
+        "request": {
+          "REG_DATE": "2026-08-05",
+          "CHG_DATE": "2026-08-05",
+          "AREA": "YN_Busan",
+          "SELECT_YEAR": "2026",
+          "SELECT_MONTH": "08",
+          "SELECT_DAY": "05",
+          "TB_SEQ1": "",
+          "TB_SEQ2": "",
+          "TB_SEQ3": "",
+          "ORDERBY": "",
+          "JOIN_LOCATION": "1|2|3|4|5|9",
+          "CHK_MONTH": "12",
+          "END_NUM": "10",
+          "START_NUM": "1",
+          "SEARCH_CODE": "",
+          "SEARCH_SELECT_IN": "",
+          "SEARCH_TEXT_IN": ""
+        },
+        "path": "data/raw/p1b/fsb/ratedepo_0100_01_20260805T085547Z.json",
+        "sha256": "cdbb41de9f841a36c123ca371e838531b529a1e4bc756e618a26ebaed1c2008a",
+        "bytes": 11943,
+        "top_level_keys": [
+          "COMMON_HEAD",
+          "DAN12",
+          "DAN24",
+          "DAN36",
+          "DAN6",
+          "REC"
+        ],
+        "record_count": 10,
+        "total_count": "67",
+        "record_fields": [
+          "BANK_NAME",
+          "CHG_DATE",
+          "CNT",
+          "ETC_NOTE_MATTER",
+          "EXPIRE_INTRST_RATE",
+          "FINAN_COMP_CODE",
+          "FINAN_COMP_SUBMIT_DATE",
+          "FINAN_PROD_CODE",
+          "JOIN_LIMIT_CODE",
+          "JOIN_LOCATION",
+          "JOIN_TARGET",
+          "JUNG_12M_BOK",
+          "JUNG_12M_DAN",
+          "OWNER",
+          "PRODUCT_NAME",
+          "PRODUCT_URL",
+          "REG_DATE",
+          "RNUM",
+          "SEQ",
+          "SHEET_NUM",
+          "START_DATE",
+          "STATUS",
+          "SUBMIT_MONTH",
+          "SWEETENER",
+          "TB_SEQ",
+          "TEL",
+          "TOP_12M_BOK",
+          "TOP_12M_DAN",
+          "URL"
+        ],
+        "sample": {
+          "FINAN_COMP_CODE": "0013002",
+          "JUNG_12M_DAN": "3.8",
+          "TOP_12M_DAN": "3.8",
+          "CNT": "67",
+          "FINAN_PROD_CODE": "BNK1003",
+          "TB_SEQ": "868751",
+          "ETC_NOTE_MATTER": "없음",
+          "JOIN_LOCATION": "1,2,3",
+          "URL": "http://www.bnksb.com/",
+          "STATUS": "U",
+          "OWNER": "경영기획부, 0517131215",
+          "TOP_12M_BOK": "3.8",
+          "JOIN_LIMIT_CODE": "1",
+          "JOIN_TARGET": "제한없음",
+          "PRODUCT_URL": "https://www.bnksb.com/sub.do?code=02_prod0104",
+          "SWEETENER": "없음",
+          "REG_DATE": "2026-08-05 17:43:22.0",
+          "START_DATE": "20260729",
+          "PRODUCT_NAME": "삼삼한정기예금(회전정기예금)(1년단위 변동금리)",
+          "JUNG_12M_BOK": "3.8",
+          "RNUM": "1",
+          "SUBMIT_MONTH": "202607",
+          "EXPIRE_INTRST_RATE": "* 1개월내 \n : 당초 약정이율 또는 만기시 동일상품 동일계약기간의 신규 약정이율(단리) 중 낮은 이율 적용\n* 1개월이후\n : 보통예금 금리 적용",
+          "FINAN_COMP_SUBMIT_DATE": "20260729",
+          "CHG_DATE": "2026-07-29 00:00:00.0",
+          "TEL": "16449988",
+          "SHEET_NUM": "2",
+          "SEQ": "2    ",
+          "BANK_NAME": "BNK                 "
+        }
+      }
+    },
+    {
+      "screen": "rateinst_0100",
+      "label": "정기적금",
+      "shape": "term",
+      "page": {
+        "status": 200,
+        "path": "data/raw/p1b/fsb/rateinst_0100_20260805T085549Z.html",
+        "sha256": "0d0b48f086485b88be0ba3f9e319e88eb2fef4c4598e1f541128945b718cc90a",
+        "bytes": 118951
+      },
+      "page_title": "상품공시 - 정기적금",
+      "dimensions": {
+        "terms": [
+          {
+            "value": "1",
+            "label": "1개월"
+          },
+          {
+            "value": "3",
+            "label": "3개월"
+          },
+          {
+            "value": "6",
+            "label": "6개월"
+          },
+          {
+            "value": "12",
+            "label": "12개월"
+          },
+          {
+            "value": "24",
+            "label": "24개월"
+          },
+          {
+            "value": "36",
+            "label": "36개월"
+          }
+        ],
+        "join_locations": [
+          {
+            "value": "1",
+            "label": "영업점(창구방문)"
+          },
+          {
+            "value": "2",
+            "label": "인터넷"
+          },
+          {
+            "value": "3",
+            "label": "스마트폰"
+          },
+          {
+            "value": "4",
+            "label": "모집인"
+          },
+          {
+            "value": "5",
+            "label": "전화(텔레뱅킹)"
+          },
+          {
+            "value": "9",
+            "label": "기타"
+          }
+        ],
+        "join_locations_anytime": [],
+        "areas": [
+          {
+            "value": "",
+            "label": "지역전체"
+          },
+          {
+            "value": "YN_Kangwon",
+            "label": "강원"
+          },
+          {
+            "value": "YN_Kyungki",
+            "label": "경기"
+          },
+          {
+            "value": "YN_Kyungnam",
+            "label": "경남"
+          },
+          {
+            "value": "YN_Kyungbuk",
+            "label": "경북"
+          },
+          {
+            "value": "YN_Kwangju",
+            "label": "광주"
+          },
+          {
+            "value": "YN_Deaku",
+            "label": "대구"
+          },
+          {
+            "value": "YN_Deajeon",
+            "label": "대전"
+          },
+          {
+            "value": "YN_Busan",
+            "label": "부산"
+          },
+          {
+            "value": "YN_Seoul",
+            "label": "서울"
+          },
+          {
+            "value": "YN_Saejong",
+            "label": "세종"
+          },
+          {
+            "value": "YN_Ulsan",
+            "label": "울산"
+          },
+          {
+            "value": "YN_Incheon",
+            "label": "인천"
+          },
+          {
+            "value": "YN_Jeonnam",
+            "label": "전남"
+          },
+          {
+            "value": "YN_Jeonbuk",
+            "label": "전북"
+          },
+          {
+            "value": "YN_Jeju",
+            "label": "제주"
+          },
+          {
+            "value": "YN_Chungnam",
+            "label": "충남"
+          },
+          {
+            "value": "YN_Chungbuk",
+            "label": "충북"
+          }
+        ]
+      },
+      "notice": [
+        "정보 이용시 유의사항 본 화면에 고시된 금리는 저축은행의 본점 기준이며, 좀 더 자세한 지점별 금리는 해당 저축은행으로 연락하시기 바랍니다.",
+        "영업 정지된 저축은행 금리는 제공되지 않습니다.",
+        "중앙회와 각 저축은행은 최신 정보를 제공하기 위해 적극 노력하고 있으나 저축은행의 적금 상품별 금리ㆍ수수료, 기타 거래조건이 수시로 변경됨에 따라 공시가 지연되는 경우도 있으므로,보다 정확한 최신 정보를 파악하기 위해서는 관련 저축은행에 반드시 문의하시기 바랍니다 선택상품비교 레이어 인쇄하기 레이어 닫기 공동구매 광고심의 SBLAW포털 자율규제위원회 자회사 소식 개인정보처리방침 신용정보활용체제 위치기반서비스 이용약관 보호금융상품등록부 영상정보처리기기 운영방침 예금자보호제도 이메일 무단수집거부 금리보기 (우 04130) 지번주소 : 서울특별시 마포구 공덕동 168 11~13층 / 도로명주소 : 서울특별시 마포구 마포대로 163 11~13층 대표번호 : 02-3978-600 / 02-3978-800 | 금융사기 신고 야간콜센터 : 02-3978-800 | FDS 거래차단 문의 : 1544-3061 COPYRIGHT (C) 2019 KOREA FEDERATION OF SAVINGS BANKS. ALL RIGHTS RESERVED. 이메일 무단수집거부 우리 저축은행중앙회 회원에게 무차별적으로 보내지는 타사의 메일을 차단하기 위해, 본 웹사이트에 게시된 이"
+      ],
+      "data": {
+        "endpoint": "https://www.fsb.or.kr/rateinst_0100_01.jct",
+        "status": 200,
+        "request": {
+          "REG_DATE": "2026-08-05",
+          "CHG_DATE": "2026-08-05",
+          "AREA": "YN_Busan",
+          "SELECT_YEAR": "2026",
+          "SELECT_MONTH": "08",
+          "SELECT_DAY": "05",
+          "TB_SEQ1": "",
+          "TB_SEQ2": "",
+          "TB_SEQ3": "",
+          "ORDERBY": "",
+          "JOIN_LOCATION": "1|2|3|4|5|9",
+          "CHK_MONTH": "12",
+          "END_NUM": "10",
+          "START_NUM": "1",
+          "SEARCH_CODE": "",
+          "SEARCH_SELECT_IN": "",
+          "SEARCH_TEXT_IN": ""
+        },
+        "path": "data/raw/p1b/fsb/rateinst_0100_01_20260805T085552Z.json",
+        "sha256": "2544349c774d967c3883acc16763fb9476da86ed685426a59772df5ef8e07f09",
+        "bytes": 12640,
+        "top_level_keys": [
+          "COMMON_HEAD",
+          "DAN12",
+          "DAN24",
+          "DAN36",
+          "DAN6",
+          "REC"
+        ],
+        "record_count": 10,
+        "total_count": "56",
+        "record_fields": [
+          "BANK_CODE",
+          "BANK_NAME",
+          "CHG_DATE",
+          "CNT",
+          "ETC_NOTE_MATTER",
+          "EXPIRE_INTRST_RATE",
+          "FINAN_COMP_CODE",
+          "FINAN_COMP_SUBMIT_DATE",
+          "FINAN_PROD_CODE",
+          "JOIN_LIMIT_CODE",
+          "JOIN_LOCATION",
+          "JOIN_TARGET",
+          "JUNG_12M_BOK",
+          "JUNG_12M_DAN",
+          "OWNER",
+          "PRODUCT_NAME",
+          "PRODUCT_URL",
+          "REG_DATE",
+          "RNUM",
+          "SEQ",
+          "SHEET_NUM",
+          "START_DATE",
+          "STATUS",
+          "SUBMIT_MONTH",
+          "SWEETENER",
+          "TB_SEQ",
+          "TEL",
+          "TOP_12M_BOK",
+          "TOP_12M_DAN",
+          "TOP_CREDIT",
+          "URL"
+        ],
+        "sample": {
+          "FINAN_COMP_CODE": "0013002",
+          "JUNG_12M_DAN": "6",
+          "TOP_12M_DAN": "6",
+          "CNT": "56",
+          "FINAN_PROD_CODE": "BNK5003",
+          "TB_SEQ": "868753",
+          "ETC_NOTE_MATTER": "* 월1만원이상~30만원 이하, 모바일뱅킹 전용상품, 신규가입일 당시 영업점 및 인터넷 홈페이지에 고시한 계약기간별 기본 이율 적용, 가입한도 달성시 해당일 판매마감(가입한도: 400좌)",
+          "JOIN_LOCATION": "3",
+          "URL": "http://www.bnksb.com/",
+          "STATUS": "U",
+          "OWNER": "경영기획부, 0517131215",
+          "TOP_12M_BOK": "6",
+          "JOIN_LIMIT_CODE": "2",
+          "BANK_CODE": "fb219",
+          "JOIN_TARGET": "* 부산,울산, 경남 지역의 사회적 배려 대상자 (장애인, 기초생활수급자, 차상위계층, 한부모가족지원 대상자, 다문화 가족)",
+          "PRODUCT_URL": "https://www.bnksb.com//?code=02_prod0204",
+          "SWEETENER": "* 부산,울산, 경남 지역의 사회적 배려 대상자 (장애인, 기초생활수급자, 차상위계층, 한부모가족지원 대상자, 다문화 가족)",
+          "REG_DATE": "2026-08-05 17:43:22.0",
+          "START_DATE": "20260601",
+          "PRODUCT_NAME": "BNK동행적금",
+          "JUNG_12M_BOK": "6",
+          "RNUM": "1",
+          "SUBMIT_MONTH": "202605",
+          "EXPIRE_INTRST_RATE": "* 1개월내 \n : 당초 약정이율 또는 만기시 동일상품 동일계약기간의 신규 약정이율(단리) 중 낮은 이율 적용\n* 1개월이후\n : 보통예금 금리 적용",
+          "FINAN_COMP_SUBMIT_DATE": "20260601",
+          "CHG_DATE": "2026-06-01 00:00:00.0",
+          "TEL": "16449988",
+          "SHEET_NUM": "3",
+          "TOP_CREDIT": "300000",
+          "SEQ": "00001",
+          "BANK_NAME": "BNK                 "
+        }
+      }
+    },
+    {
+      "screen": "ratanym_0100",
+      "label": "입출금자유예금",
+      "shape": "anytime",
+      "page": {
+        "status": 200,
+        "path": "data/raw/p1b/fsb/ratanym_0100_20260805T085554Z.html",
+        "sha256": "bc972451fe325d666ed168763c4b619276813fbcf992d5155356dfad02dfc8c4",
+        "bytes": 120525
+      },
+      "page_title": "상품공시 - 입출금자유예금",
+      "dimensions": {
+        "terms": [],
+        "join_locations": [],
+        "join_locations_anytime": [
+          {
+            "value": "1",
+            "label": "영업점(창구방문)"
+          },
+          {
+            "value": "2",
+            "label": "인터넷"
+          },
+          {
+            "value": "3",
+            "label": "스마트폰"
+          },
+          {
+            "value": "4",
+            "label": "모집인"
+          },
+          {
+            "value": "5",
+            "label": "전화(텔레뱅킹)"
+          },
+          {
+            "value": "9",
+            "label": "기타"
+          }
+        ],
+        "areas": []
+      },
+      "notice": [],
+      "data": {
+        "endpoint": "https://www.fsb.or.kr/ratanym_0100.jct",
+        "status": 200,
+        "request": {
+          "ORDERBY": "",
+          "RATE_HIGH": "",
+          "RATE_HIGH_UPPER": "",
+          "DEPO_INTS_PRVS_MTHD_CD": "",
+          "JOIN_LOCATION": "1|2|3|4|5|9",
+          "END_NUM": "10",
+          "START_NUM": "1",
+          "SEARCH_SELECT_IN": "",
+          "SEARCH_TEXT_IN": ""
+        },
+        "path": "data/raw/p1b/fsb/ratanym_0100_20260805T085556Z.json",
+        "sha256": "cbdb89598a527efef4a122b188cb10da1d3c8232337cdb0a236f6474ea71fb4b",
+        "bytes": 54,
+        "top_level_keys": [
+          "COMMON_HEAD"
+        ],
+        "record_count": 0,
+        "total_count": null,
+        "record_fields": [],
+        "sample": null
+      }
+    }
+  ],
+  "area_comparison": [
+    {
+      "area": "(지역전체)",
+      "status": 200,
+      "total_count": "397",
+      "avg_12m_simple": "3.8"
+    },
+    {
+      "area": "YN_Busan",
+      "status": 200,
+      "total_count": "67",
+      "avg_12m_simple": "3.8"
+    },
+    {
+      "area": "YN_Seoul",
+      "status": 200,
+      "total_count": "163",
+      "avg_12m_simple": "3.8"
+    }
+  ]
+}
