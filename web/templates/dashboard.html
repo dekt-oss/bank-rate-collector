@@ -1,4 +1,4 @@
-<title>부산 수신금리 비교 · rate-monitor</title>
+<title>수신금리 지역별 비교 · rate-monitor</title>
 <style>
   /* ── 토큰 ────────────────────────────────────────────────
      중립색은 accent(#2D5F7C, 공시문서의 남청색) 쪽으로 살짝 기울여
@@ -236,7 +236,7 @@
     border-bottom: 0;
   }
 
-  /* ── 부산 구·군 커버리지 ── */
+  /* ── 구·군 커버리지 ── */
   .gu-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(158px, 1fr)); gap: 8px; }
   .gu {
     background: var(--surface);
@@ -385,7 +385,7 @@
 <div class="wrap">
   <header class="masthead">
     <div>
-      <h1>부산 2금융권 수신금리 — 구·군별 비교</h1>
+      <h1>2금융권 수신금리 — 지역별 비교</h1>
       <p class="sub" id="sub-line"></p>
     </div>
     <div class="stamp" id="stamp"></div>
@@ -396,7 +396,8 @@
   <section class="finder">
     <h2>금리 찾기</h2>
 
-    <div class="chips" id="district-chips" role="group" aria-label="구·군 선택"></div>
+    <!-- 시도를 고르면 그 안의 구·군 칩으로 바뀐다. 전국 비교 → 지역 세부. -->
+    <div class="chips" id="district-chips" role="group" aria-label="지역 선택"></div>
 
     <div class="controls">
       <div class="field">
@@ -478,7 +479,7 @@
   </section>
 
   <section>
-    <h2>부산 구·군별 — 새마을금고</h2>
+    <h2>구·군별 — 새마을금고</h2>
     <p class="muted" id="district-note"></p>
     <div class="scroll">
       <table>
@@ -557,7 +558,7 @@
     return `<span class="pill ${cls}">${esc(s)}</span>`;
   };
 
-  $("sub-line").textContent = "부산 16개 구·군 / 저축은행 · 새마을금고 · 신협 · 지역농축협";
+  $("sub-line").textContent = "지역별 비교 / 저축은행 · 새마을금고 · 신협 · 지역농축협";
   $("stamp").innerHTML = `생성 ${esc(when(data.generated_at))}<br>`
     + `명세서 v3.1<br>dekt-oss/bank-rate-collector`;
 
@@ -585,8 +586,11 @@
     : `<tr><td colspan="6" class="empty">수집 실행 없음</td></tr>`;
 
   // 구·군별. 12개월 최고 상품을 구별로 붙여 한 줄에 보여준다.
+  // 구 이름은 전국에서 겹친다. 시도까지 붙여야 서울 중구와 부산 중구가
+  // 서로의 최고금리를 덮어쓰지 않는다.
+  const districtKey = (r) => `${r.sido || ""}|${r.sigungu || ""}`;
   const topByDistrict = {};
-  (data.district_top || []).forEach((r) => { topByDistrict[r.sigungu] = r; });
+  (data.district_top || []).forEach((r) => { topByDistrict[districtKey(r)] = r; });
   const districts = data.by_district || [];
   $("district-note").textContent = districts.length
     ? "최고 기본금리는 일반 가입 가능한 지역금고 기준이다. 직장금고는 해당 직장 "
@@ -596,13 +600,13 @@
     : "";
   $("by-district").innerHTML = districts.length
     ? districts.map((r) => {
-        const top = topByDistrict[r.sigungu];
+        const top = topByDistrict[districtKey(r)];
         const wp = Number(r.workplace_institutions || 0);
         // 직장금고를 포함하면 대표값보다 높아지는 구는 그 사실을 같이 보여준다.
         const higher = r.base_max_including_workplace
           && Number(r.base_max_including_workplace) > Number(r.base_max || 0);
         return `<tr>
-        <td>${esc(r.sigungu)}</td>
+        <td>${esc(r.sigungu)}<span class="muted"> ${esc(r.sido || "")}</span></td>
         <td class="num">${num(r.institutions)}</td>
         <td class="num">${num(r.observations)}</td>
         <td class="num">${rate(r.base_max)}</td>
@@ -691,6 +695,7 @@
   const ALL = T.rows.map((r) => ({
     sector: look("sector", r[col.sector]),
     institution: look("institution", r[col.institution]),
+    region: look("region", r[col.region]),
     district: look("district", r[col.district]),
     product: look("product", r[col.product]),
     productType: look("product_type", r[col.product_type]),
@@ -706,7 +711,7 @@
   }));
 
   const uniq = (fn) => [...new Set(ALL.map(fn).filter((v) => v != null))];
-  const state = { district: "", q: "", sector: "", type: "", term: "",
+  const state = { region: "", district: "", q: "", sector: "", type: "", term: "",
                   sort: "rate-desc", workplace: false, zero: false, shown: 60 };
 
   // 선택 상자 채우기 — 값은 데이터에서 나온다. 목록을 코드에 박지 않는다.
@@ -721,29 +726,53 @@
   fill($("f-term"), uniq((r) => r.term).sort((a, b) => a - b),
        (v) => `${v}개월`, "전체");
 
-  // 구 칩. 각 구의 최고금리를 함께 적어, 고르는 동시에 비교가 되게 한다.
+  // 지역 칩. 각 지역의 최고금리를 함께 적어, 고르는 동시에 비교가 되게 한다.
   // 직장금고는 대표값에서 뺀다 — 일반 이용자가 가입할 수 없다.
-  const districtBest = {};
-  ALL.forEach((r) => {
-    if (!r.district || r.scope === "workplace_members" || r.base == null) return;
-    if (!(r.district in districtBest) || r.base > districtBest[r.district]) {
-      districtBest[r.district] = r.base;
-    }
-  });
-  const districts = Object.keys(districtBest).sort(
-    (a, b) => districtBest[b] - districtBest[a]);
+  //
+  // 두 단계로 판다. 아무것도 안 고르면 시도를 늘어놓아 전국을 비교하고,
+  // 시도를 고르면 그 안의 구·군으로 바뀐다. 구 이름은 전국에서 겹치기 때문에
+  // (중구만 해도 여섯 도시에 있다) 구를 바로 늘어놓을 수 없다.
+  const best = (keyOf, within) => {
+    const out = {};
+    ALL.forEach((r) => {
+      if (r.scope === "workplace_members" || r.base == null) return;
+      if (within && r.region !== within) return;
+      const key = keyOf(r);
+      if (!key) return;
+      if (!(key in out) || r.base > out[key]) out[key] = r.base;
+    });
+    return out;
+  };
+  const regionBest = best((r) => r.region, null);
 
   const renderChips = () => {
-    const chip = (value, text, rate) => `<button type="button" class="chip"
-        data-district="${esc(value)}" aria-pressed="${state.district === value}">
+    const chip = (kind, value, text, rate, pressed) => `<button type="button"
+        class="chip" data-${kind}="${esc(value)}" aria-pressed="${pressed}">
         ${esc(text)}${rate == null ? "" : `<span class="r">${rate.toFixed(2)}%</span>`}
       </button>`;
+
+    if (!state.region) {
+      const regions = Object.keys(regionBest).sort(
+        (a, b) => regionBest[b] - regionBest[a]);
+      $("district-chips").innerHTML =
+        regions.map((v) => chip("region", v, v, regionBest[v], false)).join("")
+        || `<span class="muted">지역 데이터 없음</span>`;
+      return;
+    }
+
+    const districtBest = best((r) => r.district, state.region);
+    const districts = Object.keys(districtBest).sort(
+      (a, b) => districtBest[b] - districtBest[a]);
     $("district-chips").innerHTML =
-      chip("", "부산 전체", null)
-      + districts.map((d) => chip(d, d, districtBest[d])).join("");
+      chip("region", "", "← 전국", null, false)
+      + chip("district", "", `${state.region} 전체`, regionBest[state.region],
+             state.district === "")
+      + districts.map((v) =>
+          chip("district", v, v, districtBest[v], state.district === v)).join("");
   };
 
   const matches = (r) => {
+    if (state.region && r.region !== state.region) return false;
     if (state.district && r.district !== state.district) return false;
     if (state.sector && r.sector !== state.sector) return false;
     if (state.type && r.productType !== state.type) return false;
@@ -751,7 +780,9 @@
     if (!state.workplace && r.scope === "workplace_members") return false;
     if (!state.zero && !(r.base > 0)) return false;
     if (state.q) {
-      const hay = `${r.institution} ${r.product} ${r.district || ""}`.toLowerCase();
+      const hay =
+        `${r.institution} ${r.product} ${r.region || ""} ${r.district || ""}`
+          .toLowerCase();
       if (!hay.includes(state.q)) return false;
     }
     return true;
@@ -778,7 +809,9 @@
       ? slice.map((r) => `<tr>
           <td>${esc(r.institution)}${
             r.scope === "workplace_members" ? '<span class="tag">직장금고</span>' : ""}</td>
-          <td>${r.district ? esc(r.district) : '<span class="muted">본점 기준</span>'}</td>
+          <td>${r.district
+            ? `${esc(r.district)}<span class="muted"> ${esc(r.region || "")}</span>`
+            : '<span class="muted">본점 기준</span>'}</td>
           <td>${esc(r.product)}${
             r.pay ? ` <span class="muted">${esc(r.pay)}</span>` : ""}</td>
           <td class="num">${r.term == null ? "—" : r.term}</td>
@@ -796,16 +829,19 @@
   //
   // 정적 페이지라 서버가 없다. 화면에 실린 데이터로 브라우저에서 만든다.
   // BOM을 붙여야 엑셀이 한글을 깨지 않고 연다.
-  const CSV_HEAD = ["권역", "기관", "구·군", "상품", "상품유형", "가입기간(개월)",
-                    "지급방식", "이자방식", "가입채널", "기본금리(%)", "최고금리(%)",
-                    "가입제한", "수집원", "공시기준일"];
+  // export_service.CSV_HEADERS와 같은 열 순서다. 둘이 어긋나면 화면에서 받은
+  // 파일과 산출물 파일이 다른 모양이 된다.
+  const CSV_HEAD = ["권역", "기관", "시도", "구·군", "상품", "상품유형",
+                    "가입기간(개월)", "지급방식", "이자방식", "가입채널",
+                    "기본금리(%)", "최고금리(%)", "가입제한", "수집원", "공시기준일"];
   const csvCell = (v) => {
     const s = v == null ? "" : String(v);
     return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
   const toCsv = (rows) => "﻿" + [CSV_HEAD.join(",")].concat(
     rows.map((r) => [
-      SECTOR_KO[r.sector] || r.sector, r.institution, r.district || "",
+      SECTOR_KO[r.sector] || r.sector, r.institution,
+      r.region || "", r.district || "",
       r.product, TYPE_KO[r.productType] || r.productType, r.term,
       r.pay || "", r.interest || "", r.channel || "",
       r.base == null ? "" : r.base.toFixed(2),
@@ -829,9 +865,15 @@
   // ── 연결 ────────────────────────────────────────────────────────────
   const reset = () => { state.shown = 60; render(); };
   $("district-chips").addEventListener("click", (e) => {
-    const chip = e.target.closest("[data-district]");
+    const chip = e.target.closest("[data-region],[data-district]");
     if (!chip) return;
-    state.district = chip.dataset.district;
+    if (chip.dataset.region !== undefined) {
+      // 시도를 바꾸면 이전 시도의 구 선택은 뜻이 없어진다.
+      state.region = chip.dataset.region;
+      state.district = "";
+    } else {
+      state.district = chip.dataset.district;
+    }
     reset();
   });
   $("q").addEventListener("input", (e) => {
@@ -850,8 +892,9 @@
   });
   $("more").addEventListener("click", () => { state.shown += 120; render(); });
   $("reset").addEventListener("click", () => {
-    Object.assign(state, { district: "", q: "", sector: "", type: "", term: "",
-                           sort: "rate-desc", workplace: false, zero: false, shown: 60 });
+    Object.assign(state, { region: "", district: "", q: "", sector: "", type: "",
+                           term: "", sort: "rate-desc", workplace: false,
+                           zero: false, shown: 60 });
     $("q").value = "";
     ["f-sector", "f-type", "f-term"].forEach((id) => { $(id).value = ""; });
     $("f-sort").value = "rate-desc";
@@ -860,10 +903,10 @@
     render();
   });
   $("dl-view").addEventListener("click", () => {
-    download(`부산금리_조회결과_${stamp}.csv`, toCsv(current));
+    download(`수신금리_조회결과_${stamp}.csv`, toCsv(current));
   });
   $("dl-all").addEventListener("click", () => {
-    download(`부산금리_전체_${stamp}.csv`, toCsv(ALL));
+    download(`수신금리_전체_${stamp}.csv`, toCsv(ALL));
   });
 
   render();

@@ -5,8 +5,17 @@ fetch()만 담당한다. 파싱은 parser가, 저장은 오케스트레이터가
 
 두 단계로 돈다 (docs/source-recon/kfcc.md).
 
-    1. 구·군마다 목록      GET /map/list.do?r1=&r2=
+    1. 지역마다 목록       GET /map/list.do?r1={지역}&r2=
     2. 금고마다 상품군별   GET /map/goods_19.do?OPEN_TRMID=&gubuncode=
+
+`r2`를 비우면 그 지역 전체가 한 번에 온다 (2026-08-05 실측: 부산 = 273점포
+137금고, 1회). 그래서 시군구 목록을 들고 다닐 필요가 없다. 예전에는 부산
+16개 구를 config에 적어두고 16회를 돌았는데, 목록을 손으로 관리해야 했고
+"부산"이 코드 구조에 박히는 원인이었다. 지금은 부산이 수집 단위가 아니라
+`config/regions.yaml`의 수집 범위 하나일 뿐이고, 전국도 같은 경로로 돈다.
+
+`r1`은 행정구역 시도가 아니라 사이트의 지역본부 묶음이다. 수집 범위를 고르는
+데만 쓰고, 지역 표시는 언제나 점포 주소에서 뽑는다 (`parser.split_region`).
 
 금리는 `gmgoCd`당 한 번만 받는다. 점포 수만큼 복제하지 않는다 (v3 §7.3.4-6).
 부산 기준 점포 273개 대비 금고 137개라 요청이 절반으로 줄고 중복 행도 안 생긴다.
@@ -56,8 +65,11 @@ READ_TIMEOUT = 20.0
 # 수집 대상 상품군. 요구불(12)은 단계금액 구간 파싱이 따로 필요해 미룬다.
 DEFAULT_GROUPS = ("13", "14")
 
-# 폭주 방지. 부산 실측은 목록 16 + 금고 137 × 상품군 2 = 290회다.
-MAX_REQUESTS = 1200
+# 폭주 방지.
+#   부산  = 목록   1 + 금고   137 × 2 =   275회 (약 5분)
+#   전국  = 목록  17 + 금고 1,260 × 2 = 2,537회 (약 42분)
+# 전국을 다 돌고도 남을 만큼만 둔다. 이 값에 닿았다면 원천 구조가 바뀐 것이다.
+MAX_REQUESTS = 4000
 
 # 새마을금고는 차단 시 200이 아니라 400에 이 문구를 실어 보낸 이력이 있다.
 # finlife처럼 403/429만 보면 이 경우를 놓친다.
@@ -91,23 +103,35 @@ class KfccAdapter:
 
     # ── 지역 ────────────────────────────────────────────────────────────
 
-    def _load_regions(self, request: CollectionRequest) -> tuple[str, list[str]]:
-        """수집 대상 구·군을 정한다.
+    def _load_regions(self, request: CollectionRequest) -> list[str]:
+        """수집할 `r1` 지역 목록을 정한다.
 
-        요청이 구·군을 지정하면 그것만, 아니면 config의 전체를 쓴다.
-        지역 목록을 코드에 박지 않는다 (v3 §7.3.4-8).
+        고르는 순서는 세 가지다.
+
+            1. `request.regions`        — 지역을 직접 지정 (예: 부산)
+            2. `request.options["scope"]` — config의 수집 범위 이름 (예: 수도권)
+            3. config의 `default_scope`
+
+        지역 목록을 코드에 박지 않는다 (v3 §7.3.4-8). 어느 경로로 오든 값은
+        config가 아는 것이어야 하고, 모르는 값은 조용히 넘기지 않는다.
         """
         config = yaml.safe_load(self._regions_path.read_text(encoding="utf-8"))
-        sido = config["kfcc_r1"]
-        available = [entry["kfcc_r2"] for entry in config["sigungu"]]
-        if not request.regions:
-            return sido, available
+        scopes = {s["name"]: list(s["kfcc_r1"]) for s in config["scopes"]}
+        known = {region for regions in scopes.values() for region in regions}
 
-        wanted = list(request.regions)
-        unknown = [r for r in wanted if r not in available]
-        if unknown:
-            raise ValueError(f"config에 없는 구·군: {unknown}")
-        return sido, wanted
+        if request.regions:
+            unknown = [r for r in request.regions if r not in known]
+            if unknown:
+                raise ValueError(f"config에 없는 지역: {unknown}")
+            # 같은 지역을 두 번 적어도 두 번 돌지 않는다.
+            return list(dict.fromkeys(request.regions))
+
+        name = request.options.get("scope") or config["default_scope"]
+        if name not in scopes:
+            raise ValueError(
+                f"config에 없는 수집 범위: {name!r} (가능: {sorted(scopes)})"
+            )
+        return scopes[name]
 
     # ── 요청 ────────────────────────────────────────────────────────────
 
@@ -124,11 +148,14 @@ class KfccAdapter:
         return body
 
     async def fetch(self, request: CollectionRequest) -> list[RawArtifactData]:
-        sido, districts = self._load_regions(request)
+        regions = self._load_regions(request)
         groups = tuple(request.options.get("groups") or DEFAULT_GROUPS)
 
         artifacts: list[RawArtifactData] = []
-        seen_hashes: set[bytes] = set()
+        # raw_artifacts에 UNIQUE(run_id, sha256)이 있다. 두 응답이 바이트
+        # 단위로 같으면 저장에서 IntegrityError가 난다. 목록·금리 양쪽 모두
+        # 여기서 거른다.
+        seen_bodies: set[bytes] = set()
         requests_made = 0
 
         timeout = httpx.Timeout(connect=CONNECT_TIMEOUT, read=READ_TIMEOUT,
@@ -138,22 +165,26 @@ class KfccAdapter:
             follow_redirects=True,
             headers={"User-Agent": USER_AGENT},
         ) as client:
-            # 1단계: 구·군 목록. 금고 대표 행을 모은다.
+            # 1단계: 지역 목록. `r2`를 비워 지역 전체를 한 번에 받는다.
             outlets: dict[str, dict[str, str]] = {}
             # 금고마다 **모든** 점포를 모은다. 대표 하나만 두면 두 구에 걸친
             # 금고가 한쪽 구에서 사라진다 (부산 실측 3건).
             directory: dict[str, list[dict[str, str]]] = {}
-            for district in districts:
-                params = {"r1": sido, "r2": district}
+            for region in regions:
+                params = {"r1": region, "r2": ""}
                 body = await self._get(client, f"{BASE_URL}/map/list.do", params)
                 requests_made += 1
-                artifacts.append(
-                    self._artifact(
-                        body,
-                        filename=f"list_{sido}_{district}.html",
-                        meta={"kind": "list", "r1": sido, "r2": district},
+                if body not in seen_bodies:
+                    seen_bodies.add(body)
+                    artifacts.append(
+                        self._artifact(
+                            body,
+                            filename=f"list_{region}.html",
+                            meta={"kind": "list", "r1": region, "r2": ""},
+                        )
                     )
-                )
+                # 저장을 걸렀더라도 명부는 읽는다. 중복은 저장 계층의 제약이지
+                # 데이터가 필요 없다는 뜻이 아니다.
                 for row in parser.parse_list(body.decode("utf-8", "replace")):
                     # 금고 대표 행은 먼저 본 것을 쓴다. 금리는 금고 단위라
                     # 어느 점포 행을 쓰든 같다.
@@ -177,11 +208,9 @@ class KfccAdapter:
                     requests_made += 1
                     await asyncio.sleep(REQUEST_INTERVAL_SECONDS)
 
-                    # raw_artifacts에 UNIQUE(run_id, sha256)이 있다. 응답이
-                    # 바이트 단위로 같으면 저장에서 IntegrityError가 난다.
-                    if body in seen_hashes:
+                    if body in seen_bodies:
                         continue
-                    seen_hashes.add(body)
+                    seen_bodies.add(body)
 
                     artifacts.append(
                         self._artifact(

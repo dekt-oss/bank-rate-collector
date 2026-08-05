@@ -95,7 +95,7 @@ def run_collect(factory, raw_root: Path, adapter=None):
     return asyncio.run(
         collect_source(
             adapter or FixtureAdapter(),
-            CollectionRequest(source_id="kfcc", regions=("중구",)),
+            CollectionRequest(source_id="kfcc", regions=("부산",)),
             factory,
             raw_root=raw_root,
         )
@@ -283,6 +283,53 @@ def test_outlet_directory_is_stored_and_drives_the_district(factory, tmp_path) -
     assert {t["sigungu"] for t in summary["district_top"]} == {"중구", "서구"}
 
 
+def test_same_district_name_in_two_provinces_stays_apart(factory, tmp_path) -> None:
+    """서울 중구와 부산 중구가 한 줄로 합쳐지면 안 된다.
+
+    구 이름은 전국에서 겹친다. 중구만 해도 서울·부산·대구·인천·대전·울산에
+    있다. 부산만 수집할 때는 드러나지 않던 문제이고, 전국 수집으로 넓히는
+    순간 여섯 도시의 중구가 하나로 뭉쳐 최고금리가 뒤섞인다.
+    """
+    import dataclasses
+
+    from rate_monitor.services.dashboard_service import build_summary
+
+    class SeoulJungguAdapter(FixtureAdapter):
+        """같은 '중구'인데 시도가 다른 점포를 하나 더 붙인다."""
+
+        def parse_with_warnings(self, artifact):
+            rows, warnings = super().parse_with_warnings(artifact)
+            if rows and rows[0].outlets:
+                extra = {
+                    "source_outlet_key": "1203:900",
+                    "name": "서울중구지점",
+                    "address": "서울 중구 세종대로 100",
+                    "phone": "02-000-0000",
+                }
+                rows[0] = dataclasses.replace(
+                    rows[0], outlets=(*rows[0].outlets, extra)
+                )
+            return rows, warnings
+
+    run_collect(factory, tmp_path / "raw", adapter=SeoulJungguAdapter())
+    summary = build_summary(tmp_path / "kfcc.sqlite3")
+
+    keys = {(d["sido"], d["sigungu"]) for d in summary["by_district"]}
+    assert keys == {("부산", "중구"), ("서울", "중구")}
+    assert {(t["sido"], t["sigungu"]) for t in summary["district_top"]} == keys
+
+    # 금리표도 두 지역을 구분해서 실어야 화면 필터가 성립한다.
+    table = summary["table"]
+    region_col = table["columns"].index("region")
+    district_col = table["columns"].index("district")
+    pairs = {
+        (table["lookups"]["region"][r[region_col]],
+         table["lookups"]["district"][r[district_col]])
+        for r in table["rows"]
+    }
+    assert pairs == {("부산", "중구"), ("서울", "중구")}
+
+
 # ── 재수집 ──────────────────────────────────────────────────────────────
 
 
@@ -322,18 +369,47 @@ def test_list_artifact_produces_no_rate_rows() -> None:
     assert warnings == []
 
 
-def test_adapter_rejects_unknown_district(tmp_path) -> None:
+def test_adapter_rejects_an_unknown_region() -> None:
     adapter = KfccAdapter()
-    with pytest.raises(ValueError, match="config에 없는"):
-        adapter._load_regions(CollectionRequest(source_id="kfcc", regions=("서울중구",)))
+    with pytest.raises(ValueError, match="config에 없는 지역"):
+        adapter._load_regions(CollectionRequest(source_id="kfcc", regions=("부산광역시",)))
 
 
-def test_adapter_defaults_to_all_busan_districts() -> None:
+def test_adapter_rejects_an_unknown_scope() -> None:
     adapter = KfccAdapter()
-    sido, districts = adapter._load_regions(CollectionRequest(source_id="kfcc"))
-    assert sido == "부산"
-    assert len(districts) == 16
-    assert "기장군" in districts
+    with pytest.raises(ValueError, match="config에 없는 수집 범위"):
+        adapter._load_regions(
+            CollectionRequest(source_id="kfcc", options={"scope": "영남권"})
+        )
+
+
+def test_adapter_defaults_to_the_whole_country() -> None:
+    """기본값이 전국이다. 부산은 수집 단위가 아니라 범위 하나일 뿐이다."""
+    adapter = KfccAdapter()
+    regions = adapter._load_regions(CollectionRequest(source_id="kfcc"))
+    assert len(regions) == 17
+    assert {"부산", "서울", "제주"} <= set(regions)
+
+
+def test_scope_narrows_the_regions() -> None:
+    adapter = KfccAdapter()
+    assert adapter._load_regions(
+        CollectionRequest(source_id="kfcc", options={"scope": "부산"})
+    ) == ["부산"]
+    assert adapter._load_regions(
+        CollectionRequest(source_id="kfcc", options={"scope": "수도권"})
+    ) == ["서울", "경기", "인천"]
+
+
+def test_explicit_regions_win_over_scope_and_dedupe() -> None:
+    """같은 지역을 두 번 적어도 두 번 돌지 않는다."""
+    adapter = KfccAdapter()
+    regions = adapter._load_regions(
+        CollectionRequest(
+            source_id="kfcc", regions=("부산", "경남", "부산"), options={"scope": "전국"}
+        )
+    )
+    assert regions == ["부산", "경남"]
 
 
 def test_workplace_only_funds_are_excluded_from_the_headline(factory, tmp_path) -> None:
@@ -394,3 +470,46 @@ def test_workplace_scope_is_taken_from_the_official_type(factory, tmp_path) -> N
         institution = session.scalars(select(m.Institution)).one()
         assert institution.institution_type == "지역"
         assert institution.availability_scope == AvailabilityScope.LOCAL_MEMBERS
+
+
+def test_fetch_asks_each_region_once_with_an_empty_r2(monkeypatch) -> None:
+    """`r2`를 비우면 지역 전체가 한 번에 온다.
+
+    예전에는 부산 16개 구를 config에 적어두고 16회를 돌았다. 요청이 줄어드는
+    것보다, 손으로 관리하는 구·군 목록이 없어지는 것이 중요하다.
+    """
+    calls: list[dict] = []
+    list_html = (FIXTURES / "list_busan_junggu.html").read_bytes()
+    rate_html = (FIXTURES / "rate_1203_13.html").read_bytes()
+
+    async def fake_get(self, client, url, params):
+        calls.append({"url": url, **params})
+        return list_html if url.endswith("list.do") else rate_html
+
+    monkeypatch.setattr(KfccAdapter, "_get", fake_get)
+    monkeypatch.setattr(
+        "rate_monitor.collectors.kfcc.adapter.REQUEST_INTERVAL_SECONDS", 0
+    )
+
+    adapter = KfccAdapter()
+    artifacts = asyncio.run(
+        adapter.fetch(
+            CollectionRequest(
+                source_id="kfcc", regions=("부산", "경남"), options={"groups": ("13",)}
+            )
+        )
+    )
+
+    lists = [c for c in calls if c["url"].endswith("list.do")]
+    assert [(c["r1"], c["r2"]) for c in lists] == [("부산", ""), ("경남", "")]
+
+    # fixture는 두 지역 모두에 같은 6금고를 돌려준다. 금고당 1회씩만 묻는다.
+    rates = [c for c in calls if c["url"].endswith("goods_19.do")]
+    assert len(rates) == 6
+    assert {c["gubuncode"] for c in rates} == {"13"}
+
+    # 응답 바이트가 같으면 UNIQUE(run_id, sha256)에 걸리므로 저장 전에 거른다.
+    # fixture가 두 지역에 같은 바이트를 돌려주므로 목록도 한 장만 남는다.
+    kinds = [a.request_meta["kind"] for a in artifacts]
+    assert kinds.count("list") == 1
+    assert kinds.count("rate") == 1
