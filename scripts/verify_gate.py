@@ -74,16 +74,42 @@ def main() -> int:
     # 수집원마다 "없음"의 모양이 다르므로 따로 센다.
     #   finlife  — optionList의 intr_rate2가 없는 건수와 대조한다
     #   kfcc     — 공식 화면에 우대금리 열 자체가 없다. 전부 NULL이어야 한다
+    #
+    # data/raw에는 이제 원천 세 곳의 JSON이 섞여 있다. 모양이 서로 다르다.
+    #
+    #   finlife  {"result": {"optionList": [...]}}   dict
+    #   fsb      {"REC": [...]}                      dict
+    #   cu       [...]                               **배열**
+    #
+    # 예전에는 전부 finlife라고 보고 `payload.get("result")`를 불렀다. 신협
+    # 아티팩트가 배열이라 `AttributeError: 'list' object has no attribute
+    # 'get'`으로 게이트가 통째로 죽었다 (run 31035678422). 파일마다 모양을
+    # 보고 finlife 것만 센다.
     source_missing = 0
+    finlife_files = 0
     for raw_file in raw_files:
         payload = json.loads(raw_file.read_text(encoding="utf-8"))
-        options = (payload.get("result") or {}).get("optionList") or []
+        if not isinstance(payload, dict):
+            continue
+        result = payload.get("result")
+        if not isinstance(result, dict) or "optionList" not in result:
+            continue
+        finlife_files += 1
+        options = result.get("optionList") or []
         source_missing += sum(1 for o in options if o.get("intr_rate2") is None)
-    finlife_null = conn.execute(
-        "SELECT COUNT(*) FROM rate_observations o"
+
+    finlife_rows, finlife_null = conn.execute(
+        "SELECT COUNT(*), COUNT(*) - COUNT(o.max_rate) FROM rate_observations o"
         "  JOIN collection_runs r ON r.id = o.run_id"
-        " WHERE r.source_id = 'finlife' AND o.max_rate IS NULL"
-    ).fetchone()[0]
+        " WHERE r.source_id = 'finlife'"
+    ).fetchone()
+    # 원본을 하나도 못 찾았는데 관측은 있다면, 대조가 성립하지 않은 것이다.
+    # 0 == 0으로 조용히 통과시키면 검사가 아니라 장식이 된다.
+    check(
+        finlife_rows == 0 or finlife_files > 0,
+        "max_rate 대조용 finlife 원본 확보",
+        f"원본 {finlife_files}개 / 관측 {finlife_rows}건",
+    )
     check(
         finlife_null == source_missing,
         "max_rate NULL 규칙 — finlife (원본 대조)",
