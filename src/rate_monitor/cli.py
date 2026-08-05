@@ -38,10 +38,18 @@ def _finlife_request(args: argparse.Namespace) -> CollectionRequest:
 
 
 def _default_request(args: argparse.Namespace) -> CollectionRequest:
-    """지역 기반 수집원의 기본형. 구·군 목록을 regions로 넘긴다."""
+    """지역 기반 수집원의 기본형.
+
+    지역을 직접 적으면 그것만, `--scope`를 주면 config의 그 범위를, 둘 다
+    없으면 config의 `default_scope`를 쓴다.
+    """
+    options: dict[str, str] = {}
+    if args.scope:
+        options["scope"] = args.scope
     return CollectionRequest(
         source_id=args.source,
         regions=tuple(args.regions or ()),
+        options=options,
     )
 
 
@@ -79,7 +87,7 @@ def _snapshot(args: argparse.Namespace) -> int:
         Path(args.db), Path(args.publish_db), Path(args.manifest)
     )
     print(f"snapshot : {args.publish_db}")
-    print(f"sha256   : {manifest.sha256[:16]}…")
+    print(f"sha256   : {manifest.sqlite_sha256[:16]}…")
     for table, count in sorted(manifest.row_counts.items()):
         print(f"  {table:22s} {count}")
     return 0
@@ -139,7 +147,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     collect.add_argument(
         "--regions", nargs="+", default=None,
-        help="지역 기반 수집원 전용. 구·군 이름 (예: 중구 서구)",
+        help="지역 기반 수집원 전용. 지역 이름 (예: 부산 경남). "
+             "생략하면 --scope를 따른다",
+    )
+    collect.add_argument(
+        "--scope", default=None,
+        help="지역 기반 수집원 전용. config/regions.yaml의 수집 범위 이름 "
+             "(전국·부산·수도권). 생략하면 config의 default_scope",
     )
     collect.set_defaults(func=_collect)
 

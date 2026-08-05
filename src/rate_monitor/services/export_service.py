@@ -26,6 +26,7 @@ from rate_monitor.services.dashboard_service import (
 CSV_HEADERS = {
     "sector": "권역",
     "institution": "기관",
+    "region": "시도",
     "district": "구·군",
     "product": "상품",
     "product_type": "상품유형",

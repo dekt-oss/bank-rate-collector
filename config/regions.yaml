@@ -1,77 +1,65 @@
-# 부산광역시 16개 구·군 (명세서 v3.1 §11)
+# 새마을금고 수집 범위.
 #
-# 행정구역 공식 코드는 **공식 출처로 확인되기 전까지 null로 둔다.**
-# 참고 저장소(새마을금고 오픈소스)의 내부 지역정보(r1/r2)를 행정구역 공식
-# 코드로 간주하지 않는다. 추측해서 채우면 날조가 된다.
+# ── 이 값들은 행정구역이 아니다 ──────────────────────────────────────
 #
-# `kfcc_r1` / `kfcc_r2`는 새마을금고 공식 목록 페이지가 쓰는 질의값이다.
-# 행정구역 코드가 아니라 그 사이트의 화면 파라미터다. 둘을 섞지 않는다.
+# `kfcc_r1`은 새마을금고 「금고위치안내」 화면이 쓰는 **지역 구분값**이고,
+# 실측해보면 행정구역 시도와 일치하지 않는다 (2026-08-05).
+#
+#   r1=광주  → 229점포. 주소를 보면 광주 101 / 전남 124 / 전남광주통합특별시 4
+#   r1=전남  → 3점포뿐
+#
+# 즉 사이트의 지역본부 묶음에 가깝다. 이 값을 시도 이름으로 취급해 화면에
+# 쓰면 안 된다. **지역 표시는 언제나 점포 주소에서 뽑는다.**
+#
+# ── 시군구를 적지 않는 이유 ─────────────────────────────────────────
+#
+# `r2`를 비우면 그 지역 전체가 한 번에 온다 (부산 = 273점포/137금고, 1회 요청).
+# 그래서 시군구 목록이 필요 없다. 예전에는 부산 16개 구를 적어두고 16회를
+# 돌았는데, 목록을 손으로 관리해야 했고 명세서 v3 §7.3.4-8이 금지한
+# "하드코딩 지역목록"이기도 했다.
+#
+# ── 행정구역 공식 코드 ──────────────────────────────────────────────
+#
+# 확보하지 못했다. 확인되기 전까지 `sido_code`/`sigungu_code`를 채우지 않는다.
+# `validation_service`가 이 칸이 채워지면 실패시킨다.
 
-sido_name: 부산광역시
-kfcc_r1: 부산
+sido_code: null
 
-sigungu:
-  - sigungu_name: 중구
-    kfcc_r2: 중구
-    sido_code: null
-    sigungu_code: null
-  - sigungu_name: 서구
-    kfcc_r2: 서구
-    sido_code: null
-    sigungu_code: null
-  - sigungu_name: 동구
-    kfcc_r2: 동구
-    sido_code: null
-    sigungu_code: null
-  - sigungu_name: 영도구
-    kfcc_r2: 영도구
-    sido_code: null
-    sigungu_code: null
-  - sigungu_name: 부산진구
-    kfcc_r2: 부산진구
-    sido_code: null
-    sigungu_code: null
-  - sigungu_name: 동래구
-    kfcc_r2: 동래구
-    sido_code: null
-    sigungu_code: null
-  - sigungu_name: 남구
-    kfcc_r2: 남구
-    sido_code: null
-    sigungu_code: null
-  - sigungu_name: 북구
-    kfcc_r2: 북구
-    sido_code: null
-    sigungu_code: null
-  - sigungu_name: 해운대구
-    kfcc_r2: 해운대구
-    sido_code: null
-    sigungu_code: null
-  - sigungu_name: 사하구
-    kfcc_r2: 사하구
-    sido_code: null
-    sigungu_code: null
-  - sigungu_name: 금정구
-    kfcc_r2: 금정구
-    sido_code: null
-    sigungu_code: null
-  - sigungu_name: 강서구
-    kfcc_r2: 강서구
-    sido_code: null
-    sigungu_code: null
-  - sigungu_name: 연제구
-    kfcc_r2: 연제구
-    sido_code: null
-    sigungu_code: null
-  - sigungu_name: 수영구
-    kfcc_r2: 수영구
-    sido_code: null
-    sigungu_code: null
-  - sigungu_name: 사상구
-    kfcc_r2: 사상구
-    sido_code: null
-    sigungu_code: null
-  - sigungu_name: 기장군
-    kfcc_r2: 기장군
-    sido_code: null
-    sigungu_code: null
+# 수집 범위. 이름은 사람이 고르기 위한 것이고, 실제 요청에는 `kfcc_r1`이 간다.
+scopes:
+  - name: 전국
+    kfcc_r1:
+      [서울, 부산, 대구, 인천, 광주, 대전, 울산, 세종,
+       경기, 강원, 충북, 충남, 전북, 전남, 경북, 경남, 제주]
+  - name: 부산
+    kfcc_r1: [부산]
+  - name: 수도권
+    kfcc_r1: [서울, 경기, 인천]
+
+# 기본 수집 범위. 워크플로우가 이 이름을 쓴다.
+default_scope: 전국
+
+# 2026-08-05 실측 점포 수. 수집 결과가 크게 어긋나면 원천 구조가 바뀐 것이다.
+# 참고값이며 검사 기준으로 쓰지 않는다 (금고는 새로 생기고 없어진다).
+observed:
+  captured_at: 2026-08-05
+  outlets_by_kfcc_r1:
+    서울: 427
+    부산: 273
+    대구: 212
+    인천: 142
+    광주: 229
+    대전: 110
+    울산: 98
+    세종: 19
+    경기: 467
+    강원: 124
+    충북: 152
+    충남: 140
+    전북: 141
+    전남: 3
+    경북: 296
+    경남: 231
+    제주: 71
+  total_outlets: 3135
+  total_institutions: 1260

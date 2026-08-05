@@ -7,8 +7,14 @@ on:
         description: "권역코드 (030300=저축은행, 020000=은행). 공백으로 구분"
         required: false
         default: "030300"
+      kfcc_scope:
+        description: "새마을금고 수집 범위 (config/regions.yaml)"
+        type: choice
+        required: false
+        default: "전국"
+        options: ["전국", "수도권", "부산"]
       skip_kfcc:
-        description: "새마을금고 수집을 건너뛴다 (약 5분 걸린다)"
+        description: "새마을금고 수집을 건너뛴다"
         type: boolean
         required: false
         default: false
@@ -74,22 +80,31 @@ jobs:
             --raw-root data/raw \
             --groups ${{ inputs.groups || '030300' }}
 
-      # 새마을금고. 부산 16개 구·군 전체.
+      # 새마을금고. 수집 범위는 config/regions.yaml의 이름으로 고른다.
       #
-      # 요청량은 목록 16 + 금고 137 × 상품군 2 = 290회이고 1초 간격이라
-      # 5분 남짓 걸린다 (명세서 v3 §7.3.8).
+      # 지역 목록은 `r2`를 비워 한 지역을 요청 한 번에 받는다. 1초 간격이므로
+      # 걸리는 시간은 금고 수가 정한다 (명세서 v3 §7.3.8).
+      #
+      #   부산   목록  1 + 금고   137 × 상품군 2 =   275회  ≈  5분
+      #   수도권 목록  3 + 금고   ~500 × 2       = ~1,000회 ≈ 17분
+      #   전국   목록 17 + 금고 1,260 × 2       = 2,537회  ≈ 42분
+      #
+      # 기본은 전국이다. 부산은 수집 단위가 아니라 조회 화면의 필터일 뿐이고,
+      # 전국이 들어와야 지역 간 비교가 성립한다. 매일 2,537회가 부담이면
+      # workflow_dispatch에서 범위를 좁혀 돌린다.
       #
       # 차단되면 SourceBlockedError로 끝나고 종료코드가 1이 된다. 저축은행
       # 수집분까지 버리지 않도록 continue-on-error로 두고, 결과는 게이트와
       # 대시보드에서 실행 상태로 드러난다.
-      - name: Collect KFCC (부산 16개 구·군)
+      - name: Collect KFCC
         if: ${{ inputs.skip_kfcc != true }}
         continue-on-error: true
         run: |
           uv run rate-monitor collect \
             --source kfcc \
             --db work/rate_monitor.sqlite3 \
-            --raw-root data/raw
+            --raw-root data/raw \
+            --scope "${{ inputs.kfcc_scope || '부산' }}"
 
       # CLI 명령으로 부른다. 예전에는 워크플로우 안에 파이썬을 heredoc으로
       # 박아 썼는데, 그 코드는 테스트도 lint도 닿지 않는 자리였다.

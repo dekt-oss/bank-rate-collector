@@ -301,3 +301,26 @@ def test_fingerprint_is_stable_and_reacts_to_structure(
     assert parser.schema_fingerprint(deposit_html) != parser.schema_fingerprint(
         savings_html
     )
+
+
+# ── 지역 판정 ───────────────────────────────────────────────────────────
+
+
+def test_region_comes_from_the_address_not_the_site_parameter(
+    deposit_html: str, outlet: dict
+) -> None:
+    """r1/r2를 시도·시군구로 쓰면 기관이 엉뚱한 지역에 붙는다.
+
+    2026-08-05 실측: `r1=광주`로 조회하면 전남 주소 124건이 함께 온다.
+    r1은 사이트의 지역 구분값이지 행정구역이 아니다. 부산만 볼 때는 우연히
+    일치했지만 전국으로 넓히면 곧바로 틀린다.
+    """
+    misleading = dict(outlet)
+    misleading["r1"] = "광주"
+    misleading["r2"] = "광주전체"
+    misleading["addr"] = "전남 나주시 그린로 20"
+
+    rows, _ = parser.parse_rates(deposit_html, gubuncode="13", outlet=misleading)
+    assert rows, "행이 있어야 검사가 성립한다"
+    assert {r.sido for r in rows} == {"전남"}
+    assert {r.sigungu for r in rows} == {"나주시"}

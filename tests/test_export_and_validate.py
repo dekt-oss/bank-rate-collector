@@ -35,7 +35,7 @@ def collected(tmp_path: Path) -> Path:
     asyncio.run(
         collect_source(
             FixtureAdapter(),
-            CollectionRequest(source_id="kfcc", regions=("중구",)),
+            CollectionRequest(source_id="kfcc", regions=("부산",)),
             factory,
             raw_root=tmp_path / "raw",
         )

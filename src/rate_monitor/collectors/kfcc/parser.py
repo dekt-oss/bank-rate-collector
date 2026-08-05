@@ -273,6 +273,38 @@ def schema_fingerprint(html: str) -> str:
     return _digest(";".join(sorted(shape)) + "#" + ",".join(containers))
 
 
+def split_region(address: str | None) -> tuple[str | None, str | None]:
+    """점포 주소에서 시도·시군구를 뽑는다.
+
+    목록 행의 `r1`/`r2`를 쓰면 안 된다. 그 값은 새마을금고 화면의 지역
+    구분값이지 행정구역이 아니다. 2026-08-05 실측으로 `r1=광주`를 조회하면
+    전남 주소 124건이 함께 오고, `r1=전남`은 3건뿐이다. 즉 지역본부 묶음에
+    가깝다. 부산 하나만 볼 때는 우연히 일치했지만 전국으로 넓히면 기관이
+    엉뚱한 시도에 붙는다.
+
+    주소가 유일하게 믿을 수 있는 근거다. 대시보드도 같은 규칙(주소 두 번째
+    토막)으로 구·군을 만든다.
+
+    >>> split_region("부산 중구 대청로 101-1")
+    ('부산', '중구')
+    >>> split_region("전남광주통합특별시 동구 필문대로 1")
+    ('전남광주통합특별시', '동구')
+
+    토막이 모자라면 지어내지 않고 비운다.
+
+    >>> split_region("세종특별자치시")
+    ('세종특별자치시', None)
+    >>> split_region(None)
+    (None, None)
+    """
+    tokens = (address or "").split()
+    if not tokens:
+        return None, None
+    if len(tokens) == 1:
+        return tokens[0], None
+    return tokens[0], tokens[1]
+
+
 def build_outlet_directory(rows: list[dict[str, str]]) -> tuple[dict[str, Any], ...]:
     """목록 행들을 점포 명부로 옮긴다.
 
@@ -397,6 +429,9 @@ def _rows_from_table(  # noqa: PLR0913 — 표 한 장을 옮기는 데 필요�
     고정하면 둘째 행부터 계약기간을 상품명으로 읽는다. 앞쪽에서 비는 칸 수를
     세어 보정한다.
     """
+    # 지역은 주소에서 뽑는다. 목록의 r1/r2는 행정구역이 아니다 (split_region).
+    sido, sigungu = split_region(outlet.get("addr"))
+
     rows: list[ParsedRateRow] = []
     carried = 0  # 위 행에서 rowspan으로 이어지는 앞쪽 셀 수
 
@@ -445,8 +480,8 @@ def _rows_from_table(  # noqa: PLR0913 — 표 한 장을 옮기는 데 필요�
                     institution_name=outlet.get("gmgoNm") or outlet.get("name") or "",
                     outlet_name=None,
                     institution_type=outlet.get("gmgoType"),
-                    sido=outlet.get("r1"),
-                    sigungu=outlet.get("r2"),
+                    sido=sido,
+                    sigungu=sigungu,
                     address=outlet.get("addr"),
                     product_type=product_type,
                     product_name=title,

@@ -39,6 +39,7 @@ def _rows(conn: sqlite3.Connection, sql: str, params: tuple = ()) -> list[dict[s
 TABLE_COLUMNS = (
     "sector",
     "institution",
+    "region",
     "district",
     "product",
     "product_type",
@@ -54,15 +55,62 @@ TABLE_COLUMNS = (
 )
 
 
-# 구는 주소에서 두 번째 토막을 떼어 만든다 ("부산 중구 대청로 101-1" → "중구").
+# 지역은 주소 토막에서 만든다 ("부산 중구 대청로 101-1" → 시도 "부산", 구 "중구").
 # 점포 주소를 먼저 보고, 점포 명부가 없는 원천은 기관 주소로 되돌아간다.
 # 행정구역 공식 코드가 아니라 파생값이다.
+#
+# 시도를 함께 뽑는 이유: 구 이름은 전국에서 겹친다. 중구만 해도 서울·부산·
+# 대구·인천·대전·울산에 있다. 부산만 볼 때는 구 하나로 충분했지만 전국을
+# 수집하면 여섯 도시의 중구가 한 줄로 합쳐지고 최고금리가 뒤섞인다.
+_ADDRESS = "COALESCE(ot.address, i.address)"
+
+SIDO_EXPR = f"TRIM(SUBSTR({_ADDRESS}, 1, INSTR({_ADDRESS} || ' ', ' ') - 1))"
+
 DISTRICT_EXPR = (
-    "TRIM(SUBSTR(COALESCE(ot.address, i.address),"
-    "     INSTR(COALESCE(ot.address, i.address), ' ') + 1,"
-    "     INSTR(SUBSTR(COALESCE(ot.address, i.address),"
-    "           INSTR(COALESCE(ot.address, i.address), ' ') + 1), ' ')))"
+    f"TRIM(SUBSTR({_ADDRESS},"
+    f"     INSTR({_ADDRESS}, ' ') + 1,"
+    f"     INSTR(SUBSTR({_ADDRESS},"
+    f"           INSTR({_ADDRESS}, ' ') + 1), ' ')))"
 )
+
+# 같은 시도를 두 가지로 적는 점포가 있다. 부산 실측에서 금고 한 곳이
+# "부산광역시 부산진구"로 적어, 시도 축을 넣자마자 부산진구가 두 줄로
+# 갈라졌다. 전국에서는 "경기"와 "경기도"가 같은 화면에 함께 나온다.
+#
+# 이름 표기를 맞추는 것일 뿐 행정구역 공식 코드가 아니다. 모르는 표기는
+# 건드리지 않고 그대로 둔다 — 실측에서 본 "전남광주통합특별시"처럼 무엇으로
+# 줄여야 할지 모르는 값을 임의로 자르면 없는 지역을 만들어낸다.
+SIDO_ALIASES = {
+    "서울특별시": "서울", "서울시": "서울",
+    "부산광역시": "부산", "부산시": "부산",
+    "대구광역시": "대구", "대구시": "대구",
+    "인천광역시": "인천", "인천시": "인천",
+    "광주광역시": "광주", "광주시": "광주",
+    "대전광역시": "대전", "대전시": "대전",
+    "울산광역시": "울산", "울산시": "울산",
+    "세종특별자치시": "세종", "세종시": "세종",
+    "경기도": "경기",
+    "강원도": "강원", "강원특별자치도": "강원",
+    "충청북도": "충북", "충청남도": "충남",
+    "전라북도": "전북", "전북특별자치도": "전북",
+    "전라남도": "전남",
+    "경상북도": "경북", "경상남도": "경남",
+    "제주도": "제주", "제주특별자치도": "제주",
+}
+
+
+def normalize_sido_sql(column: str) -> str:
+    """시도 표기를 맞추는 SQL 식.
+
+    값은 위 표의 열쇠뿐이라 문자열을 그대로 넣어도 안전하다.
+
+    >>> normalize_sido_sql("x").startswith("CASE x WHEN '서울특별시' THEN '서울'")
+    True
+    >>> normalize_sido_sql("x").endswith("ELSE x END")
+    True
+    """
+    whens = " ".join(f"WHEN '{k}' THEN '{v}'" for k, v in SIDO_ALIASES.items())
+    return f"CASE {column} {whens} ELSE {column} END"
 
 
 def latest_run_ids(conn: sqlite3.Connection) -> list[str]:
@@ -107,6 +155,7 @@ def build_rate_table(
         conn,
         "SELECT i.sector                AS sector,"
         "       i.canonical_name        AS institution,"
+        f"      {normalize_sido_sql(SIDO_EXPR)} AS region,"
         f"      {district_expr}         AS district,"
         "       p.name                  AS product,"
         "       p.product_type          AS product_type,"
@@ -132,7 +181,7 @@ def build_rate_table(
     )
 
     # 같은 값이 수천 번 되풀이되는 열만 조회표로 뺀다.
-    indexed = ("sector", "institution", "district", "product", "product_type",
+    indexed = ("sector", "institution", "region", "district", "product", "product_type",
                "payment_method", "interest_method", "join_channel",
                "availability_scope", "source_id", "source_effective_at")
     lookups: dict[str, list[Any]] = {name: [] for name in indexed}
@@ -259,7 +308,8 @@ def build_summary(db_path: Path) -> dict[str, Any]:
         district_expr = DISTRICT_EXPR
         by_district = _rows(
             conn,
-            f"SELECT {district_expr} AS sigungu,"
+            f"SELECT {normalize_sido_sql(SIDO_EXPR)} AS sido,"
+            f"       {district_expr} AS sigungu,"
             "       i.sector             AS sector,"
             "       COUNT(DISTINCT i.id) AS institutions,"
             "       COUNT(DISTINCT o.id) AS observations,"
@@ -269,7 +319,8 @@ def build_summary(db_path: Path) -> dict[str, Any]:
             "       COUNT(DISTINCT CASE WHEN i.availability_scope = 'workplace_members'"
             "                           THEN i.id END) AS workplace_institutions"
             + district_sql
-            + " GROUP BY sigungu, i.sector"
+            # 시도까지 묶어야 서울 중구와 부산 중구가 한 줄로 합쳐지지 않는다.
+            + " GROUP BY sido, sigungu, i.sector"
             " ORDER BY base_max DESC",
             tuple(run_ids),
         ) if run_ids else []
@@ -277,15 +328,17 @@ def build_summary(db_path: Path) -> dict[str, Any]:
         # 구·군별 최고금리 상품. 12개월 기준으로 좁힌다.
         district_top = _rows(
             conn,
-            "SELECT sigungu, institution, product, term_months, base_rate,"
+            "SELECT sido, sigungu, institution, product, term_months, base_rate,"
             "       source_effective_at FROM ("
-            f"  SELECT {district_expr} AS sigungu,"
+            f"  SELECT {normalize_sido_sql(SIDO_EXPR)} AS sido,"
+            f"         {district_expr} AS sigungu,"
             "         i.canonical_name AS institution,"
             "         p.name           AS product,"
             "         v.term_months    AS term_months,"
             "         o.base_rate      AS base_rate,"
             "         o.source_effective_at AS source_effective_at,"
-            f"        ROW_NUMBER() OVER (PARTITION BY {district_expr}"
+            f"        ROW_NUMBER() OVER (PARTITION BY {normalize_sido_sql(SIDO_EXPR)},"
+            f"                                        {district_expr}"
             "           ORDER BY o.base_rate DESC) AS rn"
             + district_sql
             + "     AND v.term_months = 12"
