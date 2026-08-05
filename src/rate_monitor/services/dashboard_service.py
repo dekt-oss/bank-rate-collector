@@ -18,6 +18,11 @@ DEFAULT_TEMPLATE = Path("web/templates/dashboard.html")
 DEFAULT_SITE = Path("site/index.html")
 DEFAULT_SUMMARY = Path("publish/summary.json")
 
+# 공개용 전체 조회 화면. 운영 보드와 같은 summary를 쓰고 표현만 다르다.
+# 두 화면이 서로 다른 집계를 하면 어느 쪽이 맞는지 알 수 없게 된다.
+DEFAULT_PUBLIC_TEMPLATE = Path("web/templates/public.html")
+DEFAULT_PUBLIC_SITE = Path("site/public.html")
+
 DATA_MARKER = '<script id="rate-monitor-data" type="application/json">'
 DATA_END = "</script>"
 
@@ -62,16 +67,37 @@ TABLE_COLUMNS = (
 # 시도를 함께 뽑는 이유: 구 이름은 전국에서 겹친다. 중구만 해도 서울·부산·
 # 대구·인천·대전·울산에 있다. 부산만 볼 때는 구 하나로 충분했지만 전국을
 # 수집하면 여섯 도시의 중구가 한 줄로 합쳐지고 최고금리가 뒤섞인다.
+
+def _sido_of(address: str) -> str:
+    return f"TRIM(SUBSTR({address}, 1, INSTR({address} || ' ', ' ') - 1))"
+
+
+def _district_of(address: str) -> str:
+    return (
+        f"TRIM(SUBSTR({address},"
+        f"     INSTR({address}, ' ') + 1,"
+        f"     INSTR(SUBSTR({address},"
+        f"           INSTR({address}, ' ') + 1), ' ')))"
+    )
+
+
+# 구·군 **집계**는 점포 주소를 먼저 본다. 한 금고가 두 구에 점포를 두면 두
+# 구 모두에 그 금고의 금리가 잡혀야 한다 (부산 실측 3건).
 _ADDRESS = "COALESCE(ot.address, i.address)"
+SIDO_EXPR = _sido_of(_ADDRESS)
+DISTRICT_EXPR = _district_of(_ADDRESS)
 
-SIDO_EXPR = f"TRIM(SUBSTR({_ADDRESS}, 1, INSTR({_ADDRESS} || ' ', ' ') - 1))"
-
-DISTRICT_EXPR = (
-    f"TRIM(SUBSTR({_ADDRESS},"
-    f"     INSTR({_ADDRESS}, ' ') + 1,"
-    f"     INSTR(SUBSTR({_ADDRESS},"
-    f"           INSTR({_ADDRESS}, ' ') + 1), ' ')))"
-)
+# 금리표는 다르다. **기관 주소만** 본다.
+#
+# 예전에는 여기서도 점포를 조인했는데, 그러면 관측 하나가 점포 수만큼
+# 복제된다. 실측에서 관측 15,357건이 표에서 32,592행이 됐다 — 저축은행
+# 하나가 지점 8곳을 두면 같은 금리가 8줄로 나오고, 그 금리는 지점에
+# 적용되지도 않는 본점 기준 값이다. 내려받기 CSV도 그만큼 부풀었다.
+#
+# 집계(위)와 목록(아래)의 규칙이 다른 것은 의도한 것이다. 집계는 "이 구에서
+# 볼 수 있는 금리"를 묻고, 목록은 "이 공시 한 건"을 한 줄로 보여준다.
+TABLE_SIDO_EXPR = _sido_of("i.address")
+TABLE_DISTRICT_EXPR = _district_of("i.address")
 
 # 같은 시도를 두 가지로 적는 점포가 있다. 부산 실측에서 금고 한 곳이
 # "부산광역시 부산진구"로 적어, 시도 축을 넣자마자 부산진구가 두 줄로
@@ -133,7 +159,9 @@ def latest_run_ids(conn: sqlite3.Connection) -> list[str]:
 
 
 def build_rate_table(
-    conn: sqlite3.Connection, run_ids: list[str], district_expr: str = DISTRICT_EXPR
+    conn: sqlite3.Connection,
+    run_ids: list[str],
+    district_expr: str = TABLE_DISTRICT_EXPR,
 ) -> dict[str, Any]:
     """비교 화면이 쓸 전체 금리표.
 
@@ -155,7 +183,7 @@ def build_rate_table(
         conn,
         "SELECT i.sector                AS sector,"
         "       i.canonical_name        AS institution,"
-        f"      {normalize_sido_sql(SIDO_EXPR)} AS region,"
+        f"      {normalize_sido_sql(TABLE_SIDO_EXPR)} AS region,"
         f"      {district_expr}         AS district,"
         "       p.name                  AS product,"
         "       p.product_type          AS product_type,"
@@ -173,7 +201,7 @@ def build_rate_table(
         "  JOIN product_variants v ON v.id = o.variant_id"
         "  JOIN products p         ON p.id = v.product_id"
         "  JOIN institutions i     ON i.id = p.institution_id"
-        "  LEFT JOIN outlets ot    ON ot.institution_id = i.id"
+        # 점포를 조인하지 않는다. 조인하면 관측 하나가 점포 수만큼 복제된다.
         f" WHERE o.run_id IN ({placeholders})"
         "   AND o.validation_status != 'error'"
         " ORDER BY o.base_rate DESC",
@@ -396,7 +424,7 @@ def build_summary(db_path: Path) -> dict[str, Any]:
             " GROUP BY v.rate_scope",
         )
 
-        table = build_rate_table(conn, run_ids, district_expr)
+        table = build_rate_table(conn, run_ids)
     finally:
         conn.close()
 
@@ -461,11 +489,24 @@ def build_dashboard(
     template_path: Path = DEFAULT_TEMPLATE,
     site_path: Path = DEFAULT_SITE,
     summary_path: Path = DEFAULT_SUMMARY,
+    public_template_path: Path | None = DEFAULT_PUBLIC_TEMPLATE,
+    public_site_path: Path | None = DEFAULT_PUBLIC_SITE,
 ) -> dict[str, Any]:
-    """SQLite → summary.json + site/index.html."""
+    """SQLite → summary.json + 운영 보드 + 공개용 전체 조회 화면.
+
+    두 화면은 **같은 summary**를 쓴다. 표현만 다르고 집계는 하나다.
+    따로 만들면 어느 쪽 숫자가 맞는지 알 수 없게 된다.
+    """
     summary = build_summary(db_path)
     html = render(template_path.read_text(encoding="utf-8"), summary)
     _verify(html, summary)
+
+    public_html: str | None = None
+    if public_template_path is not None and public_site_path is not None:
+        public_html = render(
+            public_template_path.read_text(encoding="utf-8"), summary
+        )
+        _verify(public_html, summary)
 
     summary_path.parent.mkdir(parents=True, exist_ok=True)
     summary_path.write_text(
@@ -473,4 +514,7 @@ def build_dashboard(
     )
     site_path.parent.mkdir(parents=True, exist_ok=True)
     site_path.write_text(html, encoding="utf-8")
+    if public_html is not None and public_site_path is not None:
+        public_site_path.parent.mkdir(parents=True, exist_ok=True)
+        public_site_path.write_text(public_html, encoding="utf-8")
     return summary

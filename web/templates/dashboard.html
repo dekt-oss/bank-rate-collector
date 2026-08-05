@@ -860,6 +860,11 @@
     a.remove();
     URL.revokeObjectURL(url);
   };
+  // 파일명은 ASCII로 짓는다.
+  //
+  // 2026-08-05 Chromium 실측: `a.download`에 한글이 들어가면 그 값을 통째로
+  // 버리고 확장자 없는 `download`로 저장한다. 확장자가 없으면 엑셀이 연결
+  // 프로그램을 못 찾는다. 같은 조건에서 ASCII 이름은 그대로 살아남는다.
   const stamp = (data.generated_at || "").slice(0, 10) || "latest";
 
   // ── 연결 ────────────────────────────────────────────────────────────
@@ -903,10 +908,10 @@
     render();
   });
   $("dl-view").addEventListener("click", () => {
-    download(`수신금리_조회결과_${stamp}.csv`, toCsv(current));
+    download(`rate-monitor_filtered_${stamp}.csv`, toCsv(current));
   });
   $("dl-all").addEventListener("click", () => {
-    download(`수신금리_전체_${stamp}.csv`, toCsv(ALL));
+    download(`rate-monitor_all_${stamp}.csv`, toCsv(ALL));
   });
 
   render();

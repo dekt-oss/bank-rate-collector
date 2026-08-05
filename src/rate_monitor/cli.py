@@ -17,6 +17,8 @@ from rate_monitor.db.session import DEFAULT_DB_PATH, create_db_engine, make_sess
 from rate_monitor.domain.schemas import CollectionRequest
 from rate_monitor.services.collection_service import DEFAULT_RAW_ROOT, collect_source
 from rate_monitor.services.dashboard_service import (
+    DEFAULT_PUBLIC_SITE,
+    DEFAULT_PUBLIC_TEMPLATE,
     DEFAULT_SITE,
     DEFAULT_SUMMARY,
     DEFAULT_TEMPLATE,
@@ -102,10 +104,12 @@ def _snapshot(args: argparse.Namespace) -> int:
 
 def _build_dashboard(args: argparse.Namespace) -> int:
     summary = build_dashboard(
-        Path(args.db), Path(args.template), Path(args.site), Path(args.summary)
+        Path(args.db), Path(args.template), Path(args.site), Path(args.summary),
+        Path(args.public_template), Path(args.public_site),
     )
     totals = summary["totals"]
     print(f"site    : {args.site}")
+    print(f"public  : {args.public_site}")
     print(f"summary : {args.summary}")
     print(f"totals  : {totals}")
     print(f"구·군    : {len(summary.get('by_district') or [])}개")
@@ -175,6 +179,14 @@ def build_parser() -> argparse.ArgumentParser:
     dashboard.add_argument("--template", default=str(DEFAULT_TEMPLATE))
     dashboard.add_argument("--site", default=str(DEFAULT_SITE))
     dashboard.add_argument("--summary", default=str(DEFAULT_SUMMARY))
+    dashboard.add_argument(
+        "--public-template", default=str(DEFAULT_PUBLIC_TEMPLATE),
+        help="공개용 전체 조회 화면 템플릿",
+    )
+    dashboard.add_argument(
+        "--public-site", default=str(DEFAULT_PUBLIC_SITE),
+        help="공개용 전체 조회 화면 출력 경로",
+    )
     dashboard.set_defaults(func=_build_dashboard)
 
     validate = sub.add_parser("validate", help="저장된 데이터의 계약 위반을 찾는다")
