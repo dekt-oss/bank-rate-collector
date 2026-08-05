@@ -40,10 +40,22 @@ def normalize_product_name(raw: str) -> str:
     서로 다른 공식 상품명을 임의로 합치지 않는다. 공백·특수문자만 통일한다.
 
     >>> normalize_product_name("MG더뱅킹 정기예금 (비대면)")
-    'mg더뱅킹정기예금'
+    'mg더뱅킹정기예금비대면'
+
+    괄호 안 내용을 지우지 않는다. 공식 상품명에서 괄호는 장식이 아니라
+    상품을 가르는 표시다.
+
+    >>> a = normalize_product_name("MG기업정기예금(A)")
+    >>> b = normalize_product_name("MG기업정기예금(B)")
+    >>> a == b
+    False
+
+    한때는 괄호를 지웠다. 그래서 상품코드가 없는 원천에서 서로 다른 상품이
+    같은 키를 받아 뒤엣것이 통째로 버려졌다. 부산 새마을금고 실수집에서
+    (A)와 (B)가 합쳐져 60행을 잃었다. finlife는 `fin_prdt_cd`가 있어
+    이 이름을 키로 쓰지 않으므로 드러나지 않았다.
     """
     text = unicodedata.normalize("NFKC", raw or "")
-    text = _PARENS.sub("", text)
     text = re.sub(r"[^\w가-힣]", "", text)
     return text.strip().lower()
 
