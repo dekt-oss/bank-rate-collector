@@ -325,3 +325,42 @@ def test_recollect_does_not_duplicate_canonical_entities(factory, tmp_path) -> N
             ("variants", m.ProductVariant),
         ):
             assert session.scalar(select(func.count()).select_from(table)) == before[key]
+
+
+# ── 지역 코드 ───────────────────────────────────────────────────────────
+
+
+def test_sido_codes_match_the_screen_subregions() -> None:
+    """코드↔시도 대응이 실측과 맞는지.
+
+    처음에는 하위지역 **개수**만 보고 맞췄다가 18개 중 7개를 틀렸다.
+    경북 데이터가 "충북"으로, 전남이 "경남"으로 나가고 있었다. 개수는
+    여러 시도가 우연히 같을 수 있어 근거가 되지 못한다.
+
+    아래 지명은 2026-08-05에 `findInrstSido.do`가 돌려준 하위지역이고,
+    각각 그 시도에만 있는 이름이다.
+    """
+    from rate_monitor.collectors.cu.adapter import SIDO_NAMES
+
+    anchors = {
+        "01": ("서울", "관악"), "02": ("경기", "남양주"), "03": ("인천", "미추홀"),
+        "04": ("부산", "기장"), "05": ("대구", "달성"), "06": ("광주", "광산"),
+        "07": ("대전", "유성"), "09": ("울산", "울주"), "10": ("강원", "속초"),
+        "11": ("경북", "경산"), "12": ("경남", "거제"), "13": ("충북", "괴산"),
+        "14": ("충남", "계룡"), "15": ("전북", "고창"), "16": ("전남", "고흥"),
+        "17": ("제주", "서귀포"),
+    }
+    for code, (name, _anchor) in anchors.items():
+        assert SIDO_NAMES[code] == name, f"{code}가 {name}이어야 한다"
+
+    # 08은 화면에 없다. 넣어두면 없는 지역을 조회하게 된다.
+    assert "08" not in SIDO_NAMES
+    # 18은 광주와 전남이 섞여 있어 시도 하나로 부를 수 없다.
+    assert SIDO_NAMES["18"] == "광주·전남"
+
+
+def test_every_sido_name_is_unique() -> None:
+    """이름이 겹치면 --regions로 코드를 되찾을 때 하나가 사라진다."""
+    from rate_monitor.collectors.cu.adapter import SIDO_NAMES
+
+    assert len(set(SIDO_NAMES.values())) == len(SIDO_NAMES)

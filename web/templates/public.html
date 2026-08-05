@@ -595,7 +595,11 @@
     notice: data.notice,
     count: rows.length,
     columns: HEAD,
-    records: rows.map((r) => Object.fromEntries(HEAD.map((h, i) => [h, flat(r)[i]]))),
+    // flat()을 열마다 다시 부르면 행 하나에 15번씩 돈다. 한 번만 편다.
+    records: rows.map((r) => {
+      const v = flat(r);
+      return Object.fromEntries(HEAD.map((h, i) => [h, v[i]]));
+    }),
   }, null, 2);
 
   const download = (name, text, mime) => {

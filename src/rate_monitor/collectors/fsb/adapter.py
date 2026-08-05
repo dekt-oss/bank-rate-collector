@@ -284,7 +284,7 @@ class FsbAdapter:
             found = self._merge_branches(payload)
             return [], ([] if found else ["점포 명부가 비어 있다"])
 
-        return parser.parse(
+        rows, warnings = parser.parse(
             payload,
             screen=str(meta["screen"]),
             area=str(meta.get("area") or ""),
@@ -292,6 +292,14 @@ class FsbAdapter:
             page_offset=int(meta.get("page_offset") or 0),
             only_terms=tuple(meta.get("only_terms") or ()) or None,
         )
+        if rows and not self._directory:
+            # 명부를 먼저 읽지 않으면 79개 기관의 본점 주소가 통째로 빠진다.
+            # 행은 그대로 만들어지므로 조용히 지나가기 쉬운 실패다.
+            warnings.append(
+                "점포 명부가 비어 있어 본점 주소를 붙이지 못했다."
+                " 명부 아티팩트를 먼저 파싱해야 한다"
+            )
+        return rows, warnings
 
     def _merge_branches(self, payload: dict[str, Any]) -> int:
         """지부별 명부 응답을 하나로 합친다. 합친 뒤 은행 수를 돌려준다."""

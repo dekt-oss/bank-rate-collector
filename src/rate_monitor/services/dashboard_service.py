@@ -96,6 +96,9 @@ DISTRICT_EXPR = _district_of(_ADDRESS)
 #
 # 집계(위)와 목록(아래)의 규칙이 다른 것은 의도한 것이다. 집계는 "이 구에서
 # 볼 수 있는 금리"를 묻고, 목록은 "이 공시 한 건"을 한 줄로 보여준다.
+# 둘은 반드시 같은 주소에서 나와야 한다. 예전에는 구만 인자로 받을 수 있게
+# 열어뒀는데, 시도는 하드코딩이라 호출자가 점포 기준 식을 넘기면 "부산 강남구"
+# 같은 행이 조용히 생긴다. 인자를 없애고 여기서만 정한다.
 TABLE_SIDO_EXPR = _sido_of("i.address")
 TABLE_DISTRICT_EXPR = _district_of("i.address")
 
@@ -159,9 +162,7 @@ def latest_run_ids(conn: sqlite3.Connection) -> list[str]:
 
 
 def build_rate_table(
-    conn: sqlite3.Connection,
-    run_ids: list[str],
-    district_expr: str = TABLE_DISTRICT_EXPR,
+    conn: sqlite3.Connection, run_ids: list[str]
 ) -> dict[str, Any]:
     """비교 화면이 쓸 전체 금리표.
 
@@ -184,7 +185,7 @@ def build_rate_table(
         "SELECT i.sector                AS sector,"
         "       i.canonical_name        AS institution,"
         f"      {normalize_sido_sql(TABLE_SIDO_EXPR)} AS region,"
-        f"      {district_expr}         AS district,"
+        f"      {TABLE_DISTRICT_EXPR}   AS district,"
         "       p.name                  AS product,"
         "       p.product_type          AS product_type,"
         "       v.term_months           AS term_months,"
