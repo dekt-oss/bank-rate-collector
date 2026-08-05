@@ -15,6 +15,9 @@ jobs:
         env:
           FINLIFE_API_KEY: ${{ secrets.FINLIFE_API_KEY }}
         run: python scripts/p0_finlife_verify.py
+      - name: Probe KFCC official site reachability
+        if: always()
+        run: python scripts/p0_kfcc_probe.py
       - name: Upload raw responses and verdict
         if: always()
         uses: actions/upload-artifact@v4
@@ -22,5 +25,5 @@ jobs:
           name: p0-finlife-verify
           path: |
             data/raw/p0/finlife/
-            docs/source-recon/finlife-verify.json
+            docs/source-recon/
           if-no-files-found: ignore
