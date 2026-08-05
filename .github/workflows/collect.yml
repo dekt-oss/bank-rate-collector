@@ -105,9 +105,11 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: collection-run-${{ github.run_id }}
-          # 계정 정책상 상한이 더 낮으면 GitHub가 자동으로 낮춘다.
-          # 실제 적용값은 실행 후 확인해 명세서 v3.1 §4에 기록한다.
-          retention-days: 400
+          # 2026-08-05 실측: 400을 요청하면 저장소 상한에 걸려 90으로 낮춰진다.
+          #   "Retention days cannot be greater than the maximum allowed
+          #    retention set within the repository. Using 90 instead."
+          # 실제 적용값을 그대로 적어 기대와 현실이 어긋나지 않게 한다.
+          retention-days: 90
           path: |
             data/raw/
             publish/manifest.json

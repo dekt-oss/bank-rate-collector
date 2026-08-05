@@ -14,6 +14,7 @@ BASE = dict(
     term_days=None,
     join_channel="any",
     interest_method="simple",
+    payment_method=None,
     amount_min=None,
     amount_max=None,
     outlet_key=None,
@@ -93,3 +94,14 @@ def test_org_key_different_sectors_are_distinct() -> None:
     a = make_org_key(sector="kfcc", source_institution_key="1203", institution_name="대청")
     b = make_org_key(sector="cu", source_institution_key="1203", institution_name="대청")
     assert a != b
+
+
+def test_variant_key_distinguishes_reserve_type() -> None:
+    """정액적립식과 자유적립식은 다른 비교 단위다 (v3 §5.2).
+
+    2026-08-05 실제 적금 수집에서 이 값이 키에 없어 충돌이 났다.
+    """
+    fixed = make_variant_key(**{**BASE, "payment_method": "S"})
+    free = make_variant_key(**{**BASE, "payment_method": "F"})
+    assert fixed != free
+    assert fixed != make_variant_key(**BASE)

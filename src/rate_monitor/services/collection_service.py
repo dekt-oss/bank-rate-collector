@@ -91,15 +91,18 @@ def persist_rows(
     rows: list[ParsedRateRow],
     artifact: RawArtifact,
     now: datetime,
+    seen_variants: set[str],
 ) -> tuple[int, int]:
     """표준 행을 저장한다. (정상 건수, 오류 건수)를 돌려준다.
 
     같은 실행 안에서 같은 비교 단위가 두 번 나오면 뒤엣것을 버리고 검수항목을
     남긴다. (variant_id, run_id) 유니크 제약을 미리 지킨다.
+
+    `seen_variants`는 호출자가 실행 단위로 넘긴다. 아티팩트(페이지)마다
+    새로 만들면 페이지 경계를 넘는 중복을 놓친다.
     """
     valid = 0
     errors = 0
-    seen_variants: set[str] = set()
 
     for row in rows:
         institution = entity_service.resolve_institution(session, row, now)
@@ -257,11 +260,16 @@ def _process(
 
             parsed = valid = errors = 0
             warnings: list[str] = []
+            # 실행 단위로 유지한다. 페이지마다 초기화하면 페이지 경계를 넘는
+            # 중복을 놓쳐 (variant_id, run_id) 유니크 제약에 걸린다.
+            seen_variants: set[str] = set()
             for artifact_data, artifact_row in zip(artifacts, saved, strict=True):
                 rows, page_warnings = adapter.parse_with_warnings(artifact_data)
                 warnings.extend(page_warnings)
                 parsed += len(rows)
-                page_valid, page_errors = persist_rows(session, run, rows, artifact_row, now)
+                page_valid, page_errors = persist_rows(
+                    session, run, rows, artifact_row, now, seen_variants
+                )
                 valid += page_valid
                 errors += page_errors
 

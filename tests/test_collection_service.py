@@ -292,3 +292,98 @@ def test_adapter_requires_api_key(monkeypatch) -> None:
     monkeypatch.delenv("FINLIFE_API_KEY", raising=False)
     with pytest.raises(CollectorError, match="FINLIFE_API_KEY"):
         FinlifeAdapter()
+
+
+# ── 적금: 정액/자유 적립식 구분 (실제 수집에서 드러난 결함) ──────────────
+
+SAVING = FIXTURES / "saving_savings_bank_page1.json"
+
+
+def test_saving_reserve_types_are_distinct_variants(factory, raw_root) -> None:
+    """정액적립식과 자유적립식은 다른 비교 단위다 (명세서 v3 §5.2).
+
+    이 값이 키에 없으면 같은 상품·기간·이자방식의 두 옵션이 같은 키를 받아
+    (variant_id, run_id) 유니크 제약에 걸린다. 2026-08-05 실제 수집에서
+    적금 428행 중 12개 조합이 충돌해 수집이 중단됐다.
+    """
+    payload = json.loads(SAVING.read_text(encoding="utf-8"))
+    options = payload["result"]["optionList"]
+
+    adapter = FixtureAdapter([SAVING])
+    adapter._paths = [SAVING]
+    result = asyncio.run(
+        collect_source(
+            adapter, CollectionRequest(source_id="finlife"), factory, raw_root=raw_root
+        )
+    )
+    assert result.status == RunStatus.SUCCESS
+    # 옵션 1건당 관측 1건. 충돌로 버려진 행이 없어야 한다.
+    assert result.parsed_count == len(options)
+    with factory() as s:
+        assert s.scalar(select(func.count()).select_from(m.RateObservation)) == len(options)
+
+
+def test_reserve_type_stored_as_stable_code(factory, raw_root) -> None:
+    """적립유형은 한글 표기가 아니라 코드로 저장한다.
+
+    비교단위 키에 들어가므로 표기가 바뀌어도 이력이 끊기면 안 된다.
+    """
+    adapter = FixtureAdapter([SAVING])
+    asyncio.run(
+        collect_source(
+            adapter, CollectionRequest(source_id="finlife"), factory, raw_root=raw_root
+        )
+    )
+    with factory() as s:
+        methods = {
+            v.payment_method for v in s.scalars(select(m.ProductVariant)) if v.payment_method
+        }
+    assert methods <= {"S", "F"}, f"코드가 아닌 값이 섞였다: {methods}"
+
+
+def test_duplicate_guard_is_shared_across_artifacts(factory, raw_root) -> None:
+    """중복 방지 집합은 실행 단위로 유지돼야 한다.
+
+    아티팩트(페이지)마다 새로 만들면 페이지 경계를 넘는 중복을 놓쳐
+    (variant_id, run_id) 유니크 제약에 걸린다. persist_rows를 두 번 호출해
+    두 번째 호출이 중복을 걸러내는지 직접 확인한다.
+    """
+    from datetime import UTC, datetime
+
+    from rate_monitor.services.collection_service import ensure_source, persist_rows
+
+    adapter = FixtureAdapter([SAVING])
+    now = datetime.now(UTC).replace(tzinfo=None)
+    rows, _ = adapter.parse_with_warnings(_artifact(SAVING))
+
+    with factory() as s:
+        ensure_source(s, adapter, now)
+        run = m.CollectionRun(
+            id="run-dup", source_id="finlife", mode="api", started_at=now, status="running"
+        )
+        artifact = m.RawArtifact(
+            id="art-dup", run_id="run-dup", artifact_type="json", relative_path="p.json",
+            sha256="c" * 64, content_length=1, captured_at=now,
+        )
+        s.add_all([run, artifact])
+        s.flush()
+
+        seen: set[str] = set()
+        first_valid, _ = persist_rows(s, run, rows, artifact, now, seen)
+        second_valid, _ = persist_rows(s, run, rows, artifact, now, seen)
+        s.commit()
+
+        assert first_valid == len(rows)
+        assert second_valid == 0, "두 번째 호출은 전부 중복으로 걸러져야 한다"
+
+        dupes = s.execute(
+            text(
+                "SELECT COUNT(*) FROM (SELECT variant_id, run_id FROM rate_observations "
+                "GROUP BY variant_id, run_id HAVING COUNT(*) > 1)"
+            )
+        ).scalar()
+        assert dupes == 0
+        items = s.scalars(
+            select(m.ReviewItem).where(m.ReviewItem.issue_type == "duplicate")
+        ).all()
+        assert len(items) == len(rows), "중복은 조용히 버리지 말고 검수항목으로 남겨야 한다"
