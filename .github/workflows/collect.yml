@@ -91,27 +91,32 @@ jobs:
             --db work/rate_monitor.sqlite3 \
             --raw-root data/raw
 
-      - name: Snapshot and build dashboard
+      # CLI 명령으로 부른다. 예전에는 워크플로우 안에 파이썬을 heredoc으로
+      # 박아 썼는데, 그 코드는 테스트도 lint도 닿지 않는 자리였다.
+      - name: Snapshot
         run: |
-          uv run python - <<'PY'
-          from pathlib import Path
-          from rate_monitor.services.snapshot_service import create_snapshot
-          from rate_monitor.services.dashboard_service import build_dashboard
+          uv run rate-monitor snapshot \
+            --db work/rate_monitor.sqlite3 \
+            --publish-db publish/rate_monitor.sqlite3 \
+            --manifest publish/manifest.json
 
-          manifest = create_snapshot(
-              Path("work/rate_monitor.sqlite3"),
-              Path("publish/rate_monitor.sqlite3"),
-              Path("publish/manifest.json"),
-          )
-          print("manifest:", manifest.row_counts)
-          summary = build_dashboard(
-              Path("publish/rate_monitor.sqlite3"),
-              Path("web/templates/dashboard.html"),
-              Path("site/index.html"),
-              Path("publish/summary.json"),
-          )
-          print("totals:", summary["totals"])
-          PY
+      - name: Validate stored data
+        run: uv run rate-monitor validate --db publish/rate_monitor.sqlite3
+
+      - name: Build dashboard
+        run: |
+          uv run rate-monitor build-dashboard \
+            --db publish/rate_monitor.sqlite3 \
+            --template web/templates/dashboard.html \
+            --site site/index.html \
+            --summary publish/summary.json
+
+      # 전체 조사 내용을 파일로도 낸다. 화면을 열지 않고 받아갈 수 있어야 한다.
+      - name: Export full dataset
+        run: |
+          uv run rate-monitor export \
+            --db publish/rate_monitor.sqlite3 \
+            --out publish/export
 
       - name: Verify P1-A gate
         run: |
@@ -136,6 +141,7 @@ jobs:
             data/raw/
             publish/manifest.json
             publish/summary.json
+            publish/export/
           if-no-files-found: warn
 
       - name: Upload dashboard
@@ -155,6 +161,8 @@ jobs:
           mkdir -p "$STAGE/latest" "$STAGE/site"
           cp publish/rate_monitor.sqlite3.gz "$STAGE/latest/"
           cp publish/manifest.json publish/summary.json "$STAGE/latest/"
+          # 전체 조사 파일도 함께 싣는다. 화면 없이 받아갈 수 있어야 한다.
+          cp -r publish/export "$STAGE/latest/export"
           cp site/index.html "$STAGE/site/"
 
           git config user.name "github-actions[bot]"

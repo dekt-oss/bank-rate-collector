@@ -1,4 +1,4 @@
-<title>rate-monitor · 수집 관제 보드</title>
+<title>부산 수신금리 비교 · rate-monitor</title>
 <style>
   /* ── 토큰 ────────────────────────────────────────────────
      중립색은 accent(#2D5F7C, 공시문서의 남청색) 쪽으로 살짝 기울여
@@ -282,6 +282,100 @@
     padding: 11px 14px; font-size: 13.5px; font-weight: 600;
   }
   .empty { color: var(--ink-3); font-size: 13px; padding: 14px; text-align: center; }
+
+  /* ── 금리 찾기 ──────────────────────────────────────────
+     관제 지표가 아니라 사람이 상품을 고르는 자리다. 조작 대상이므로
+     조작할 수 있는 것은 조작할 수 있게 보이도록 한다. */
+  .finder { display: flex; flex-direction: column; gap: 12px; }
+  .finder h2 { margin-bottom: 0; }
+
+  .controls {
+    display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end;
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: 3px; padding: 13px 14px;
+  }
+  .field { display: flex; flex-direction: column; gap: 4px; }
+  .field > label {
+    font-size: 10.5px; letter-spacing: 0.09em; text-transform: uppercase;
+    color: var(--ink-3); font-weight: 600;
+  }
+  .field input[type="search"], .field select {
+    font: inherit; font-size: 13.5px;
+    background: var(--surface-2); color: var(--ink);
+    border: 1px solid var(--line); border-radius: 3px;
+    padding: 6px 9px; min-width: 132px;
+  }
+  .field input[type="search"] { min-width: 210px; }
+  .field input:focus-visible, .field select:focus-visible, button:focus-visible {
+    outline: 2px solid var(--accent); outline-offset: 1px;
+  }
+  .toggle {
+    display: flex; align-items: center; gap: 7px;
+    font-size: 13px; color: var(--ink-2); padding-bottom: 6px;
+  }
+  .toggle input { accent-color: var(--accent); width: 15px; height: 15px; }
+
+  button {
+    font: inherit; font-size: 13px; font-weight: 600;
+    background: var(--surface-2); color: var(--ink);
+    border: 1px solid var(--line); border-radius: 3px;
+    padding: 6px 12px; cursor: pointer;
+  }
+  button:hover { border-color: var(--accent); color: var(--accent-ink); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  :root[data-theme="dark"] button.primary,
+  :root:not([data-theme="light"]) button.primary { color: var(--paper); }
+  @media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"]) button.primary { color: #fff; }
+  }
+  button.primary:hover { filter: brightness(1.08); }
+
+  /* 구 칩: 고르는 도구이면서 동시에 그 구의 최고금리를 읽는 자리다. */
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip {
+    display: inline-flex; align-items: baseline; gap: 6px;
+    background: var(--surface); color: var(--ink-2);
+    border: 1px solid var(--line); border-radius: 999px;
+    padding: 5px 11px; font-size: 13px; cursor: pointer;
+    white-space: nowrap;
+  }
+  .chip:hover { border-color: var(--accent); }
+  .chip .r {
+    font-family: var(--mono); font-size: 11.5px;
+    font-variant-numeric: tabular-nums; color: var(--ink-3);
+  }
+  .chip[aria-pressed="true"] {
+    background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600;
+  }
+  .chip[aria-pressed="true"] .r { color: rgba(255,255,255,0.82); }
+
+  .resultbar {
+    display: flex; flex-wrap: wrap; gap: 10px;
+    align-items: baseline; justify-content: space-between;
+    font-size: 12.5px; color: var(--ink-2);
+  }
+  .resultbar .count { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+  .resultbar .acts { display: flex; gap: 7px; }
+
+  /* 금리는 이 표의 주인공이다. 다른 열보다 크고 굵게 둔다. */
+  td.rate {
+    font-family: var(--mono); font-variant-numeric: tabular-nums;
+    text-align: right; font-size: 15px; font-weight: 650; letter-spacing: -0.01em;
+  }
+  td.rate.dim { font-weight: 400; color: var(--ink-3); }
+  tbody tr:hover td { background: var(--surface-2); }
+  .tag {
+    display: inline-block; font-size: 10.5px; font-weight: 700;
+    padding: 1px 6px; border-radius: 2px; margin-left: 6px;
+    background: var(--warn-bg); color: var(--warn); white-space: nowrap;
+  }
+  .muted { color: var(--ink-3); }
+  .more { display: flex; justify-content: center; padding: 12px; }
+
+  @media (max-width: 620px) {
+    .field input[type="search"] { min-width: 100%; }
+    .field, .controls > * { flex: 1 1 100%; }
+  }
 </style>
 
 <script id="rate-monitor-data" type="application/json">
@@ -291,13 +385,80 @@
 <div class="wrap">
   <header class="masthead">
     <div>
-      <h1>2금융권 수신금리 통합 모니터 — 수집 관제 보드</h1>
+      <h1>부산 2금융권 수신금리 — 구·군별 비교</h1>
       <p class="sub" id="sub-line"></p>
     </div>
     <div class="stamp" id="stamp"></div>
   </header>
 
   <p class="notice">저축은행 공시금리 — 전국 본점 기준 참고값</p>
+
+  <section class="finder">
+    <h2>금리 찾기</h2>
+
+    <div class="chips" id="district-chips" role="group" aria-label="구·군 선택"></div>
+
+    <div class="controls">
+      <div class="field">
+        <label for="q">기관·상품 검색</label>
+        <input type="search" id="q" placeholder="예: 정기적금, 국제시장" autocomplete="off">
+      </div>
+      <div class="field">
+        <label for="f-sector">권역</label>
+        <select id="f-sector"></select>
+      </div>
+      <div class="field">
+        <label for="f-type">상품</label>
+        <select id="f-type"></select>
+      </div>
+      <div class="field">
+        <label for="f-term">가입기간</label>
+        <select id="f-term"></select>
+      </div>
+      <div class="field">
+        <label for="f-sort">정렬</label>
+        <select id="f-sort">
+          <option value="rate-desc">금리 높은 순</option>
+          <option value="rate-asc">금리 낮은 순</option>
+          <option value="inst">기관명 순</option>
+          <option value="term">기간 순</option>
+        </select>
+      </div>
+      <label class="toggle">
+        <input type="checkbox" id="f-workplace">
+        직장금고 포함
+      </label>
+      <label class="toggle">
+        <input type="checkbox" id="f-zero">
+        연 0% 포함
+      </label>
+      <button type="button" id="reset">초기화</button>
+    </div>
+
+    <div class="resultbar">
+      <span><span class="count" id="result-count">—</span> <span id="result-note"></span></span>
+      <span class="acts">
+        <button type="button" id="dl-view">이 결과 CSV</button>
+        <button type="button" class="primary" id="dl-all">전체 CSV 내려받기</button>
+      </span>
+    </div>
+
+    <div class="scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>기관</th><th>구·군</th><th>상품</th>
+            <th class="num">기간</th><th>지급</th>
+            <th class="num">기본금리</th><th class="num">최고금리</th>
+          </tr>
+        </thead>
+        <tbody id="finder-rows"></tbody>
+      </table>
+      <div class="more" id="more-wrap" hidden>
+        <button type="button" id="more">더 보기</button>
+      </div>
+    </div>
+  </section>
 
   <section class="verdict" id="totals"></section>
 
@@ -501,5 +662,210 @@
     `이 보드의 모든 수치는 SQLite 집계에서 나온다. 하드코딩 값이 없다.<br>`
     + `금리 적용 범위 — ${scopes || "—"}<br>`
     + `근거 — <code>publish/manifest.json</code> · <code>publish/summary.json</code>`;
+
+  // ── 금리 찾기 ────────────────────────────────────────────────────────
+  //
+  // 전체 관측을 화면에 싣고 브라우저에서 거른다. 정적 페이지라 서버가 없고,
+  // 게시된 페이지는 외부 fetch가 막힐 수 있어 되받아올 곳도 없다.
+  // 데이터는 열 배열 + 조회표 형태다 (dashboard_service.build_rate_table).
+  const T = data.table || { columns: [], lookups: {}, rows: [] };
+  const col = {};
+  T.columns.forEach((name, i) => { col[name] = i; });
+  const look = (name, idx) => {
+    const table = T.lookups[name];
+    return table ? table[idx] : idx;
+  };
+
+  const SECTOR_KO = { savings_bank: "저축은행", kfcc: "새마을금고", bank: "은행" };
+  const TYPE_KO = {
+    term_deposit: "예금", installment_savings: "적금",
+    flexible_savings: "자유적립", demand_deposit: "입출금", other: "기타",
+  };
+  const SCOPE_KO = {
+    workplace_members: "직장금고", local_members: "지역금고",
+    nationwide: "전국", unknown: "미상",
+  };
+
+  // 행을 다루기 쉬운 객체로 한 번만 펼친다. 1만 4천 행이라 매 조작마다
+  // 풀면 느려진다.
+  const ALL = T.rows.map((r) => ({
+    sector: look("sector", r[col.sector]),
+    institution: look("institution", r[col.institution]),
+    district: look("district", r[col.district]),
+    product: look("product", r[col.product]),
+    productType: look("product_type", r[col.product_type]),
+    term: r[col.term_months],
+    pay: look("payment_method", r[col.payment_method]),
+    interest: look("interest_method", r[col.interest_method]),
+    channel: look("join_channel", r[col.join_channel]),
+    base: r[col.base_rate],
+    max: r[col.max_rate],
+    scope: look("availability_scope", r[col.availability_scope]),
+    source: look("source_id", r[col.source_id]),
+    asOf: look("source_effective_at", r[col.source_effective_at]),
+  }));
+
+  const uniq = (fn) => [...new Set(ALL.map(fn).filter((v) => v != null))];
+  const state = { district: "", q: "", sector: "", type: "", term: "",
+                  sort: "rate-desc", workplace: false, zero: false, shown: 60 };
+
+  // 선택 상자 채우기 — 값은 데이터에서 나온다. 목록을 코드에 박지 않는다.
+  const fill = (el, values, label, allText) => {
+    el.innerHTML = `<option value="">${allText}</option>`
+      + values.map((v) => `<option value="${esc(v)}">${esc(label(v))}</option>`).join("");
+  };
+  fill($("f-sector"), uniq((r) => r.sector).sort(),
+       (v) => SECTOR_KO[v] || v, "전체");
+  fill($("f-type"), uniq((r) => r.productType).sort(),
+       (v) => TYPE_KO[v] || v, "전체");
+  fill($("f-term"), uniq((r) => r.term).sort((a, b) => a - b),
+       (v) => `${v}개월`, "전체");
+
+  // 구 칩. 각 구의 최고금리를 함께 적어, 고르는 동시에 비교가 되게 한다.
+  // 직장금고는 대표값에서 뺀다 — 일반 이용자가 가입할 수 없다.
+  const districtBest = {};
+  ALL.forEach((r) => {
+    if (!r.district || r.scope === "workplace_members" || r.base == null) return;
+    if (!(r.district in districtBest) || r.base > districtBest[r.district]) {
+      districtBest[r.district] = r.base;
+    }
+  });
+  const districts = Object.keys(districtBest).sort(
+    (a, b) => districtBest[b] - districtBest[a]);
+
+  const renderChips = () => {
+    const chip = (value, text, rate) => `<button type="button" class="chip"
+        data-district="${esc(value)}" aria-pressed="${state.district === value}">
+        ${esc(text)}${rate == null ? "" : `<span class="r">${rate.toFixed(2)}%</span>`}
+      </button>`;
+    $("district-chips").innerHTML =
+      chip("", "부산 전체", null)
+      + districts.map((d) => chip(d, d, districtBest[d])).join("");
+  };
+
+  const matches = (r) => {
+    if (state.district && r.district !== state.district) return false;
+    if (state.sector && r.sector !== state.sector) return false;
+    if (state.type && r.productType !== state.type) return false;
+    if (state.term !== "" && String(r.term) !== state.term) return false;
+    if (!state.workplace && r.scope === "workplace_members") return false;
+    if (!state.zero && !(r.base > 0)) return false;
+    if (state.q) {
+      const hay = `${r.institution} ${r.product} ${r.district || ""}`.toLowerCase();
+      if (!hay.includes(state.q)) return false;
+    }
+    return true;
+  };
+
+  const SORTS = {
+    "rate-desc": (a, b) => (b.base ?? -1) - (a.base ?? -1),
+    "rate-asc": (a, b) => (a.base ?? 1e9) - (b.base ?? 1e9),
+    "inst": (a, b) => a.institution.localeCompare(b.institution, "ko"),
+    "term": (a, b) => (a.term ?? 0) - (b.term ?? 0) || (b.base ?? 0) - (a.base ?? 0),
+  };
+
+  let current = [];
+
+  const render = () => {
+    current = ALL.filter(matches).sort(SORTS[state.sort]);
+    const slice = current.slice(0, state.shown);
+
+    $("result-count").textContent = num(current.length) + "건";
+    $("result-note").textContent = current.length > slice.length
+      ? `중 ${num(slice.length)}건 표시` : "";
+
+    $("finder-rows").innerHTML = slice.length
+      ? slice.map((r) => `<tr>
+          <td>${esc(r.institution)}${
+            r.scope === "workplace_members" ? '<span class="tag">직장금고</span>' : ""}</td>
+          <td>${r.district ? esc(r.district) : '<span class="muted">본점 기준</span>'}</td>
+          <td>${esc(r.product)}${
+            r.pay ? ` <span class="muted">${esc(r.pay)}</span>` : ""}</td>
+          <td class="num">${r.term == null ? "—" : r.term}</td>
+          <td class="muted">${esc(TYPE_KO[r.productType] || r.productType)}</td>
+          <td class="rate">${r.base == null ? "—" : r.base.toFixed(2) + "%"}</td>
+          <td class="rate dim">${r.max == null ? "—" : r.max.toFixed(2) + "%"}</td>
+        </tr>`).join("")
+      : `<tr><td colspan="7" class="empty">조건에 맞는 상품이 없다</td></tr>`;
+
+    $("more-wrap").hidden = current.length <= slice.length;
+    renderChips();
+  };
+
+  // ── 내려받기 ────────────────────────────────────────────────────────
+  //
+  // 정적 페이지라 서버가 없다. 화면에 실린 데이터로 브라우저에서 만든다.
+  // BOM을 붙여야 엑셀이 한글을 깨지 않고 연다.
+  const CSV_HEAD = ["권역", "기관", "구·군", "상품", "상품유형", "가입기간(개월)",
+                    "지급방식", "이자방식", "가입채널", "기본금리(%)", "최고금리(%)",
+                    "가입제한", "수집원", "공시기준일"];
+  const csvCell = (v) => {
+    const s = v == null ? "" : String(v);
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const toCsv = (rows) => "﻿" + [CSV_HEAD.join(",")].concat(
+    rows.map((r) => [
+      SECTOR_KO[r.sector] || r.sector, r.institution, r.district || "",
+      r.product, TYPE_KO[r.productType] || r.productType, r.term,
+      r.pay || "", r.interest || "", r.channel || "",
+      r.base == null ? "" : r.base.toFixed(2),
+      r.max == null ? "" : r.max.toFixed(2),
+      SCOPE_KO[r.scope] || r.scope, r.source, r.asOf || "",
+    ].map(csvCell).join(","))).join("\r\n");
+
+  const download = (name, text) => {
+    const blob = new Blob([text], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  };
+  const stamp = (data.generated_at || "").slice(0, 10) || "latest";
+
+  // ── 연결 ────────────────────────────────────────────────────────────
+  const reset = () => { state.shown = 60; render(); };
+  $("district-chips").addEventListener("click", (e) => {
+    const chip = e.target.closest("[data-district]");
+    if (!chip) return;
+    state.district = chip.dataset.district;
+    reset();
+  });
+  $("q").addEventListener("input", (e) => {
+    state.q = e.target.value.trim().toLowerCase();
+    reset();
+  });
+  [["f-sector", "sector"], ["f-type", "type"], ["f-term", "term"],
+   ["f-sort", "sort"]].forEach(([id, key]) => {
+    $(id).addEventListener("change", (e) => { state[key] = e.target.value; reset(); });
+  });
+  $("f-workplace").addEventListener("change", (e) => {
+    state.workplace = e.target.checked; reset();
+  });
+  $("f-zero").addEventListener("change", (e) => {
+    state.zero = e.target.checked; reset();
+  });
+  $("more").addEventListener("click", () => { state.shown += 120; render(); });
+  $("reset").addEventListener("click", () => {
+    Object.assign(state, { district: "", q: "", sector: "", type: "", term: "",
+                           sort: "rate-desc", workplace: false, zero: false, shown: 60 });
+    $("q").value = "";
+    ["f-sector", "f-type", "f-term"].forEach((id) => { $(id).value = ""; });
+    $("f-sort").value = "rate-desc";
+    $("f-workplace").checked = false;
+    $("f-zero").checked = false;
+    render();
+  });
+  $("dl-view").addEventListener("click", () => {
+    download(`부산금리_조회결과_${stamp}.csv`, toCsv(current));
+  });
+  $("dl-all").addEventListener("click", () => {
+    download(`부산금리_전체_${stamp}.csv`, toCsv(ALL));
+  });
+
+  render();
 })();
 </script>
