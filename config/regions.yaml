@@ -1,0 +1,77 @@
+# 부산광역시 16개 구·군 (명세서 v3.1 §11)
+#
+# 행정구역 공식 코드는 **공식 출처로 확인되기 전까지 null로 둔다.**
+# 참고 저장소(새마을금고 오픈소스)의 내부 지역정보(r1/r2)를 행정구역 공식
+# 코드로 간주하지 않는다. 추측해서 채우면 날조가 된다.
+#
+# `kfcc_r1` / `kfcc_r2`는 새마을금고 공식 목록 페이지가 쓰는 질의값이다.
+# 행정구역 코드가 아니라 그 사이트의 화면 파라미터다. 둘을 섞지 않는다.
+
+sido_name: 부산광역시
+kfcc_r1: 부산
+
+sigungu:
+  - sigungu_name: 중구
+    kfcc_r2: 중구
+    sido_code: null
+    sigungu_code: null
+  - sigungu_name: 서구
+    kfcc_r2: 서구
+    sido_code: null
+    sigungu_code: null
+  - sigungu_name: 동구
+    kfcc_r2: 동구
+    sido_code: null
+    sigungu_code: null
+  - sigungu_name: 영도구
+    kfcc_r2: 영도구
+    sido_code: null
+    sigungu_code: null
+  - sigungu_name: 부산진구
+    kfcc_r2: 부산진구
+    sido_code: null
+    sigungu_code: null
+  - sigungu_name: 동래구
+    kfcc_r2: 동래구
+    sido_code: null
+    sigungu_code: null
+  - sigungu_name: 남구
+    kfcc_r2: 남구
+    sido_code: null
+    sigungu_code: null
+  - sigungu_name: 북구
+    kfcc_r2: 북구
+    sido_code: null
+    sigungu_code: null
+  - sigungu_name: 해운대구
+    kfcc_r2: 해운대구
+    sido_code: null
+    sigungu_code: null
+  - sigungu_name: 사하구
+    kfcc_r2: 사하구
+    sido_code: null
+    sigungu_code: null
+  - sigungu_name: 금정구
+    kfcc_r2: 금정구
+    sido_code: null
+    sigungu_code: null
+  - sigungu_name: 강서구
+    kfcc_r2: 강서구
+    sido_code: null
+    sigungu_code: null
+  - sigungu_name: 연제구
+    kfcc_r2: 연제구
+    sido_code: null
+    sigungu_code: null
+  - sigungu_name: 수영구
+    kfcc_r2: 수영구
+    sido_code: null
+    sigungu_code: null
+  - sigungu_name: 사상구
+    kfcc_r2: 사상구
+    sido_code: null
+    sigungu_code: null
+  - sigungu_name: 기장군
+    kfcc_r2: 기장군
+    sido_code: null
+    sigungu_code: null
