@@ -107,6 +107,9 @@ def persist_rows(
     for row in rows:
         institution = entity_service.resolve_institution(session, row, now)
         outlet = entity_service.resolve_outlet(session, row, institution, now)
+        # 금리가 기관 단위인 원천은 점포 명부를 따로 실어 보낸다.
+        # 비어 있으면 아무 일도 하지 않는다.
+        entity_service.resolve_outlet_directory(session, row, institution, now)
         product = entity_service.resolve_product(session, row, institution, now)
         variant = entity_service.resolve_variant(session, row, product, institution, outlet)
 

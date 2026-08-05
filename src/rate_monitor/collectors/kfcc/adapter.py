@@ -140,6 +140,9 @@ class KfccAdapter:
         ) as client:
             # 1단계: 구·군 목록. 금고 대표 행을 모은다.
             outlets: dict[str, dict[str, str]] = {}
+            # 금고마다 **모든** 점포를 모은다. 대표 하나만 두면 두 구에 걸친
+            # 금고가 한쪽 구에서 사라진다 (부산 실측 3건).
+            directory: dict[str, list[dict[str, str]]] = {}
             for district in districts:
                 params = {"r1": sido, "r2": district}
                 body = await self._get(client, f"{BASE_URL}/map/list.do", params)
@@ -155,6 +158,9 @@ class KfccAdapter:
                     # 금고 대표 행은 먼저 본 것을 쓴다. 금리는 금고 단위라
                     # 어느 점포 행을 쓰든 같다.
                     outlets.setdefault(row["gmgoCd"], row)
+                    entries = directory.setdefault(row["gmgoCd"], [])
+                    if not any(e["divCd"] == row.get("divCd") for e in entries):
+                        entries.append(row)
                 await asyncio.sleep(REQUEST_INTERVAL_SECONDS)
 
             # 2단계: 금고별 금리
@@ -190,6 +196,8 @@ class KfccAdapter:
                                 # 금리 페이지에는 금고 이름·주소가 없다.
                                 # 파서가 붙일 수 있게 목록 행을 실어 보낸다.
                                 "outlet": row,
+                                # 이 금고의 점포 전부. 구 귀속에 쓴다.
+                                "outlet_directory": directory.get(gmgo_cd, [row]),
                             },
                         )
                     )
@@ -235,5 +243,6 @@ class KfccAdapter:
             html,
             gubuncode=str(meta["gubuncode"]),
             outlet=meta["outlet"],
+            outlet_directory=meta.get("outlet_directory") or [],
             join_channel=self.join_channel,
         )
