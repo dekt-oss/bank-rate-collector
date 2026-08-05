@@ -15,7 +15,7 @@
 | 보관 위치 | GitHub 레포지토리 시크릿 `FINLIFE_API_KEY` |
 | 주입 경로 | Actions 워크플로우 `env:` → 프로세스 환경변수 |
 | 코드 내 하드코딩 | 없음 (명세서 v3 §16.1 준수) |
-| 프로토콜 | `http` (공식 문서 기준. https 지원 여부 미확인 — **미해소**) |
+| 프로토콜 | **`https`** (2026-08-05 실측: http 요청은 307로 https에 리다이렉트) |
 
 인증키 신청: `finlife.fss.or.kr/finlife/api/finlifeApiKey/list.do?menuNo=700034`
 
@@ -26,9 +26,14 @@
 기본 형식:
 
 ```
-http://finlife.fss.or.kr/finlifeapi/{서비스명}.{json|xml}
+https://finlife.fss.or.kr/finlifeapi/{서비스명}.{json|xml}
   ?auth={인증키}&topFinGrpNo={권역코드}&pageNo={페이지}
 ```
+
+공식 문서는 `http`로 안내하지만 서버가 `307`로 https에 리다이렉트한다.
+처음부터 https로 요청해 인증키 평문 전송을 피한다. HTTP 클라이언트가
+리다이렉트를 자동으로 따라가는지도 확인해야 한다 — `urllib`는 따라가지만
+`httpx`는 기본값이 따라가지 않아 2026-08-05 첫 수집 실행이 실패했다.
 
 공식 제공 8종 중 본 프로젝트 사용 대상:
 
@@ -181,7 +186,7 @@ finlife 상품 API(`depositProductsSearch`, `savingProductsSearch`)의 `baseList
 
 ## 7. 미해소 항목
 
-1. HTTPS 지원 여부 — 현재 공식 문서상 `http`. 평문 전송 시 인증키 노출 위험 검토 필요.
+1. ~~HTTPS 지원 여부~~ — **해소.** 2026-08-05 수집 실행에서 http 요청이 `307 Temporary Redirect`로 `https://finlife.fss.or.kr:443/...`에 리다이렉트되는 것을 확인했다. 어댑터와 정찰 스크립트 모두 https로 직접 요청하도록 바꿔 평문 전송을 없앴다.
 2. 일일 호출 한도 — 공식 문서에 명시 없음. 연속 호출 시 제한 응답 발생 여부 미확인.
 3. 저축은행 금리값이 저축은행중앙회 공시와 일치하는지 — 교차검증은 저축은행중앙회 수집기 구현 후 가능
    (명세서 v3 §7.2의 `cross_source_difference` 검수항목).

@@ -25,7 +25,7 @@ from collections import Counter
 from datetime import UTC, datetime
 from pathlib import Path
 
-BASE = "http://finlife.fss.or.kr/finlifeapi"
+BASE = "https://finlife.fss.or.kr/finlifeapi"
 RAW_DIR = Path("data/raw/p0/finlife")
 REPORT_PATH = Path("docs/source-recon/finlife-verify.json")
 
