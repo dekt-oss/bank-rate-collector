@@ -45,10 +45,16 @@ def main() -> int:
     check(len(tables) == EXPECTED_TABLE_COUNT, "SQLite 테이블 13종", f"{len(tables)}종")
 
     observations = conn.execute("SELECT COUNT(*) FROM rate_observations").fetchone()[0]
-    check(observations > 0, "finlife 실제 데이터 수집", f"관측 {observations}건")
+    check(observations > 0, "실제 데이터 수집", f"관측 {observations}건")
 
+    # 수집원마다 원본 형식이 다르다. finlife는 JSON, 새마을금고는 HTML이다.
     raw_files = list(args.raw_root.rglob("*.json")) if args.raw_root.exists() else []
-    check(len(raw_files) > 0, "원본 JSON 보존", f"{len(raw_files)}개 파일")
+    raw_html = list(args.raw_root.rglob("*.html")) if args.raw_root.exists() else []
+    check(
+        len(raw_files) + len(raw_html) > 0,
+        "원본 보존",
+        f"JSON {len(raw_files)}개 / HTML {len(raw_html)}개",
+    )
 
     missing_artifact = conn.execute(
         "SELECT COUNT(*) FROM rate_observations WHERE raw_artifact_id IS NULL"
@@ -62,21 +68,37 @@ def main() -> int:
     ).fetchone()[0]
     check(missing_locator == 0, "원본 추적 locator 누락 0", f"{missing_locator}건")
 
-    # max_rate NULL 규칙: 원본에 intr_rate2가 없으면 저장값도 NULL이어야 한다.
+    # max_rate NULL 규칙: 원본에 우대금리가 없으면 저장값도 NULL이어야 한다.
     # base_rate로 메우면 안 된다 (명세서 v3 §8.4).
-    # 원본이 보존돼 있으므로 실제로 대조한다.
+    #
+    # 수집원마다 "없음"의 모양이 다르므로 따로 센다.
+    #   finlife  — optionList의 intr_rate2가 없는 건수와 대조한다
+    #   kfcc     — 공식 화면에 우대금리 열 자체가 없다. 전부 NULL이어야 한다
     source_missing = 0
     for raw_file in raw_files:
         payload = json.loads(raw_file.read_text(encoding="utf-8"))
         options = (payload.get("result") or {}).get("optionList") or []
         source_missing += sum(1 for o in options if o.get("intr_rate2") is None)
-    stored_null = conn.execute(
-        "SELECT COUNT(*) FROM rate_observations WHERE max_rate IS NULL"
+    finlife_null = conn.execute(
+        "SELECT COUNT(*) FROM rate_observations o"
+        "  JOIN collection_runs r ON r.id = o.run_id"
+        " WHERE r.source_id = 'finlife' AND o.max_rate IS NULL"
     ).fetchone()[0]
     check(
-        stored_null == source_missing,
-        "max_rate NULL 규칙 (원본 대조)",
-        f"저장 NULL {stored_null}건 == 원본 결측 {source_missing}건",
+        finlife_null == source_missing,
+        "max_rate NULL 규칙 — finlife (원본 대조)",
+        f"저장 NULL {finlife_null}건 == 원본 결측 {source_missing}건",
+    )
+
+    kfcc_total, kfcc_filled = conn.execute(
+        "SELECT COUNT(*), COUNT(o.max_rate) FROM rate_observations o"
+        "  JOIN collection_runs r ON r.id = o.run_id"
+        " WHERE r.source_id = 'kfcc'"
+    ).fetchone()
+    check(
+        kfcc_filled == 0,
+        "max_rate NULL 규칙 — 새마을금고 (우대금리 열 없음)",
+        f"관측 {kfcc_total}건 중 채워진 값 {kfcc_filled}건",
     )
 
     integrity = conn.execute("PRAGMA integrity_check").fetchone()[0]
