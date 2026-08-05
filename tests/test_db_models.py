@@ -162,8 +162,76 @@ def test_rate_stored_as_text_not_float(session) -> None:
     raw = session.execute(
         sql_text("SELECT base_rate, typeof(base_rate) FROM rate_observations WHERE id='obs-2'")
     ).one()
-    assert raw[0] == "0.1000"
+    # 정수부를 0으로 채워 사전순 == 수치순이 되게 한다 (db/types.Rate)
+    assert raw[0] == "000.1000"
     assert raw[1] == "text"
+
+
+def test_rate_ordering_is_numeric_not_lexicographic(session) -> None:
+    """ORDER BY base_rate가 수치 순서여야 한다.
+
+    0 패딩이 없으면 "10.0000" < "2.0000"이 참이 되어 금리 순위가 뒤집힌다.
+    순위 비교는 핵심 기능이므로 저장 형식으로 보장한다.
+    """
+    from sqlalchemy import text as sql_text
+
+    _seed_run(session)
+    inst = m.Institution(
+        id="i9", sector="savings_bank", canonical_name="A", normalized_name="A",
+        first_seen_at=NOW, last_seen_at=NOW,
+    )
+    prod = m.Product(
+        id="p9", institution_id="i9", product_type="term_deposit", name="P",
+        normalized_name="p", first_seen_at=NOW, last_seen_at=NOW,
+    )
+    session.add_all([inst, prod])
+    for idx, rate in enumerate(["2.0", "10.0", "3.5", "0.5"]):
+        session.add(
+            m.ProductVariant(
+                id=f"v{idx}", product_id="p9", term_months=12, join_channel="any",
+                interest_method="simple", rate_scope="head_office_reference",
+                variant_key=f"k{idx}",
+            )
+        )
+        session.add(
+            m.RateObservation(
+                id=f"ro{idx}", variant_id=f"v{idx}", run_id="run-1", raw_artifact_id="art-1",
+                observed_at=NOW, base_rate=Decimal(rate), content_hash=f"c{idx}",
+                base_source_locator="$.x", source_record_hash=f"sha256:{idx}",
+            )
+        )
+    session.commit()
+
+    ordered = [
+        r[0]
+        for r in session.execute(
+            sql_text("SELECT base_rate FROM rate_observations ORDER BY base_rate")
+        )
+    ]
+    assert [Decimal(v) for v in ordered] == [
+        Decimal("0.5"), Decimal("2.0"), Decimal("3.5"), Decimal("10.0")
+    ]
+
+
+def test_negative_rate_is_rejected_not_silently_wrong(session) -> None:
+    """음수는 0 패딩으로 정렬되지 않는다. 조용히 틀리게 두지 않고 막는다."""
+    from sqlalchemy.exc import StatementError
+
+    from rate_monitor.db.types import RateOutOfRangeError
+
+    _seed_run(session)
+    variant = _seed_variant(session)
+    session.add(
+        m.RateObservation(
+            id="neg", variant_id=variant.id, run_id="run-1", raw_artifact_id="art-1",
+            observed_at=NOW, base_rate=Decimal("-1.0"), content_hash="h",
+            base_source_locator="$.x", source_record_hash="sha256:n",
+        )
+    )
+    # SQLAlchemy가 바인딩 단계 예외를 StatementError로 감싼다
+    with pytest.raises(StatementError) as excinfo:
+        session.commit()
+    assert isinstance(excinfo.value.orig, RateOutOfRangeError)
 
 
 def test_null_max_rate_stays_null(session) -> None:

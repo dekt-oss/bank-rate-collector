@@ -85,7 +85,10 @@ def make_variant_key(
     term_part = f"m{term_months}" if term_months is not None else (
         f"d{term_days}" if term_days is not None else "none"
     )
-    amount_part = f"{amount_min or ''}~{amount_max or ''}"
+    # `or ''`를 쓰면 0이 falsy라 None과 같은 키가 된다. 명시적으로 구분한다.
+    low = "" if amount_min is None else str(amount_min)
+    high = "" if amount_max is None else str(amount_max)
+    amount_part = f"{low}~{high}"
     parts = [
         sector,
         org_key,

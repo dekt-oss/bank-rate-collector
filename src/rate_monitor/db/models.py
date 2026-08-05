@@ -236,6 +236,9 @@ class RateObservation(Base):
         UniqueConstraint(
             "variant_id", "run_id", name="uq_rate_observations_variant_run"
         ),
+        # 위 유니크는 variant_id가 선두라 WHERE run_id = ? 조회에 쓰이지 않는다.
+        # 대시보드는 실행 단위로 집계하므로 단독 인덱스가 필요하다.
+        Index("ix_rate_observations_run_id", "run_id"),
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)

@@ -6,6 +6,7 @@
 
 import json
 from datetime import date
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
@@ -160,7 +161,7 @@ def test_missing_intr_rate2_yields_null_max_rate() -> None:
     """
     rows, _ = parser.parse(load(EDGE), "depositProductsSearch", "030300")
     row = next(r for r in rows if r.source_product_key == "EDGE001")
-    assert row.base_rate == 2.5
+    assert row.base_rate == Decimal("2.5")
     assert row.max_rate is None
 
 
@@ -175,7 +176,7 @@ def test_unparseable_rate_is_null_not_sentinel() -> None:
     """금리 변환 실패는 NULL + error 상태. -1 같은 마법값을 쓰지 않는다."""
     rows, _ = parser.parse(load(EDGE), "depositProductsSearch", "030300")
     row = next(r for r in rows if r.source_product_key == "EDGE003")
-    assert row.base_rate == 2.75  # "연 2.75%" 는 파싱된다
+    assert row.base_rate == Decimal("2.75")  # "연 2.75%" 는 파싱된다
     assert row.max_rate is None  # "별도 문의" 는 NULL
     assert row.max_rate != -1
     assert row.validation_status == ValidationStatus.WARNING

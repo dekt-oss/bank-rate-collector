@@ -6,6 +6,7 @@
 
 from dataclasses import dataclass, field
 from datetime import date
+from decimal import Decimal
 from typing import Any, Protocol
 
 
@@ -58,8 +59,9 @@ class ParsedRateRow:
     customer_scope: str | None
     availability_scope: str
     rate_scope: str
-    base_rate: float | None
-    max_rate: float | None
+    # DECIMAL(7,4) 계약 (v3 §5.9). float로 낮추면 저장 계층과 타입이 어긋난다.
+    base_rate: Decimal | None
+    max_rate: Decimal | None
     preference_raw: str
     source_row_ref: str
 
