@@ -73,6 +73,45 @@ DISTRICT_EXPR = (
     f"           INSTR({_ADDRESS}, ' ') + 1), ' ')))"
 )
 
+# 같은 시도를 두 가지로 적는 점포가 있다. 부산 실측에서 금고 한 곳이
+# "부산광역시 부산진구"로 적어, 시도 축을 넣자마자 부산진구가 두 줄로
+# 갈라졌다. 전국에서는 "경기"와 "경기도"가 같은 화면에 함께 나온다.
+#
+# 이름 표기를 맞추는 것일 뿐 행정구역 공식 코드가 아니다. 모르는 표기는
+# 건드리지 않고 그대로 둔다 — 실측에서 본 "전남광주통합특별시"처럼 무엇으로
+# 줄여야 할지 모르는 값을 임의로 자르면 없는 지역을 만들어낸다.
+SIDO_ALIASES = {
+    "서울특별시": "서울", "서울시": "서울",
+    "부산광역시": "부산", "부산시": "부산",
+    "대구광역시": "대구", "대구시": "대구",
+    "인천광역시": "인천", "인천시": "인천",
+    "광주광역시": "광주", "광주시": "광주",
+    "대전광역시": "대전", "대전시": "대전",
+    "울산광역시": "울산", "울산시": "울산",
+    "세종특별자치시": "세종", "세종시": "세종",
+    "경기도": "경기",
+    "강원도": "강원", "강원특별자치도": "강원",
+    "충청북도": "충북", "충청남도": "충남",
+    "전라북도": "전북", "전북특별자치도": "전북",
+    "전라남도": "전남",
+    "경상북도": "경북", "경상남도": "경남",
+    "제주도": "제주", "제주특별자치도": "제주",
+}
+
+
+def normalize_sido_sql(column: str) -> str:
+    """시도 표기를 맞추는 SQL 식.
+
+    값은 위 표의 열쇠뿐이라 문자열을 그대로 넣어도 안전하다.
+
+    >>> normalize_sido_sql("x").startswith("CASE x WHEN '서울특별시' THEN '서울'")
+    True
+    >>> normalize_sido_sql("x").endswith("ELSE x END")
+    True
+    """
+    whens = " ".join(f"WHEN '{k}' THEN '{v}'" for k, v in SIDO_ALIASES.items())
+    return f"CASE {column} {whens} ELSE {column} END"
+
 
 def latest_run_ids(conn: sqlite3.Connection) -> list[str]:
     """수집원마다 마지막 실행의 id.
@@ -116,7 +155,7 @@ def build_rate_table(
         conn,
         "SELECT i.sector                AS sector,"
         "       i.canonical_name        AS institution,"
-        f"      {SIDO_EXPR}             AS region,"
+        f"      {normalize_sido_sql(SIDO_EXPR)} AS region,"
         f"      {district_expr}         AS district,"
         "       p.name                  AS product,"
         "       p.product_type          AS product_type,"
@@ -269,7 +308,7 @@ def build_summary(db_path: Path) -> dict[str, Any]:
         district_expr = DISTRICT_EXPR
         by_district = _rows(
             conn,
-            f"SELECT {SIDO_EXPR} AS sido,"
+            f"SELECT {normalize_sido_sql(SIDO_EXPR)} AS sido,"
             f"       {district_expr} AS sigungu,"
             "       i.sector             AS sector,"
             "       COUNT(DISTINCT i.id) AS institutions,"
@@ -291,14 +330,15 @@ def build_summary(db_path: Path) -> dict[str, Any]:
             conn,
             "SELECT sido, sigungu, institution, product, term_months, base_rate,"
             "       source_effective_at FROM ("
-            f"  SELECT {SIDO_EXPR} AS sido,"
+            f"  SELECT {normalize_sido_sql(SIDO_EXPR)} AS sido,"
             f"         {district_expr} AS sigungu,"
             "         i.canonical_name AS institution,"
             "         p.name           AS product,"
             "         v.term_months    AS term_months,"
             "         o.base_rate      AS base_rate,"
             "         o.source_effective_at AS source_effective_at,"
-            f"        ROW_NUMBER() OVER (PARTITION BY {SIDO_EXPR}, {district_expr}"
+            f"        ROW_NUMBER() OVER (PARTITION BY {normalize_sido_sql(SIDO_EXPR)},"
+            f"                                        {district_expr}"
             "           ORDER BY o.base_rate DESC) AS rn"
             + district_sql
             + "     AND v.term_months = 12"

@@ -330,6 +330,47 @@ def test_same_district_name_in_two_provinces_stays_apart(factory, tmp_path) -> N
     assert pairs == {("부산", "중구"), ("서울", "중구")}
 
 
+def test_long_and_short_sido_names_are_the_same_place(factory, tmp_path) -> None:
+    """"부산"과 "부산광역시"가 두 줄로 갈라지면 안 된다.
+
+    부산 실측에서 금고 한 곳이 주소를 "부산광역시 부산진구"로 적는다.
+    시도 축을 넣자마자 부산진구가 두 줄이 됐다. 전국에서는 "경기"와
+    "경기도"가 같은 화면에 함께 나온다.
+    """
+    import dataclasses
+
+    from rate_monitor.services.dashboard_service import build_summary
+
+    class LongNameAdapter(FixtureAdapter):
+        """같은 중구인데 시도를 긴 이름으로 적는 점포를 붙인다."""
+
+        def parse_with_warnings(self, artifact):
+            rows, warnings = super().parse_with_warnings(artifact)
+            if rows and rows[0].outlets:
+                extra = {
+                    "source_outlet_key": "1203:901",
+                    "name": "긴이름지점",
+                    "address": "부산광역시 중구 중앙대로 1",
+                    "phone": "051-000-0001",
+                }
+                rows[0] = dataclasses.replace(
+                    rows[0], outlets=(*rows[0].outlets, extra)
+                )
+            return rows, warnings
+
+    run_collect(factory, tmp_path / "raw", adapter=LongNameAdapter())
+    summary = build_summary(tmp_path / "kfcc.sqlite3")
+
+    assert {(d["sido"], d["sigungu"]) for d in summary["by_district"]} == {
+        ("부산", "중구")
+    }
+    table = summary["table"]
+    region_col = table["columns"].index("region")
+    assert {
+        table["lookups"]["region"][r[region_col]] for r in table["rows"]
+    } == {"부산"}
+
+
 # ── 재수집 ──────────────────────────────────────────────────────────────
 
 

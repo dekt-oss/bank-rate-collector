@@ -87,7 +87,7 @@ def _snapshot(args: argparse.Namespace) -> int:
         Path(args.db), Path(args.publish_db), Path(args.manifest)
     )
     print(f"snapshot : {args.publish_db}")
-    print(f"sha256   : {manifest.sha256[:16]}…")
+    print(f"sha256   : {manifest.sqlite_sha256[:16]}…")
     for table, count in sorted(manifest.row_counts.items()):
         print(f"  {table:22s} {count}")
     return 0
