@@ -1,0 +1,123 @@
+{
+  "_comment": "합성 fixture. 실물 응답에서 관측되지 않았지만 API 계약상 가능한 경계값을 파서가 어떻게 다루는지 고정한다. 실물 표본은 deposit_savings_bank_page1.json 참조.",
+  "result": {
+    "prdt_div": "D",
+    "total_count": 5,
+    "max_page_no": 1,
+    "now_page_no": 1,
+    "err_cd": "000",
+    "err_msg": "정상",
+    "baseList": [
+      {
+        "dcls_month": "202607",
+        "fin_co_no": "9990001",
+        "fin_prdt_cd": "EDGE001",
+        "kor_co_nm": "(주)엣지저축은행",
+        "fin_prdt_nm": "우대없는정기예금",
+        "join_way": "영업점",
+        "mtrt_int": "보통예금이율",
+        "spcl_cnd": "없음",
+        "join_deny": "1",
+        "join_member": "개인",
+        "etc_note": "",
+        "max_limit": null,
+        "dcls_strt_day": "20260803",
+        "dcls_end_day": null,
+        "fin_co_subm_day": "202608030858"
+      },
+      {
+        "dcls_month": "202607",
+        "fin_co_no": "9990002",
+        "fin_prdt_cd": "EDGE002",
+        "kor_co_nm": "기준일없는저축은행 주식회사",
+        "fin_prdt_nm": "기준일미상예금",
+        "join_way": "인터넷",
+        "mtrt_int": "",
+        "spcl_cnd": "모바일 가입 : 연 0.10%p",
+        "join_deny": "1",
+        "join_member": "개인",
+        "etc_note": "",
+        "max_limit": 50000000,
+        "dcls_strt_day": null,
+        "dcls_end_day": null,
+        "fin_co_subm_day": "202608030858"
+      },
+      {
+        "dcls_month": "202607",
+        "fin_co_no": "9990003",
+        "fin_prdt_cd": "EDGE003",
+        "kor_co_nm": "문자열금리저축은행",
+        "fin_prdt_nm": "문자열금리예금",
+        "join_way": "영업점",
+        "mtrt_int": "",
+        "spcl_cnd": "없음",
+        "join_deny": "1",
+        "join_member": "개인",
+        "etc_note": "",
+        "max_limit": null,
+        "dcls_strt_day": "20260803",
+        "dcls_end_day": null,
+        "fin_co_subm_day": "202608030858"
+      },
+      {
+        "dcls_month": "202607",
+        "fin_co_no": "9990004",
+        "fin_prdt_cd": "EDGE004",
+        "kor_co_nm": "옵션없는저축은행",
+        "fin_prdt_nm": "옵션없는예금",
+        "join_way": "영업점",
+        "mtrt_int": "",
+        "spcl_cnd": "없음",
+        "join_deny": "1",
+        "join_member": "개인",
+        "etc_note": "",
+        "max_limit": null,
+        "dcls_strt_day": "20260803",
+        "dcls_end_day": null,
+        "fin_co_subm_day": "202608030858"
+      }
+    ],
+    "optionList": [
+      {
+        "dcls_month": "202607",
+        "fin_co_no": "9990001",
+        "fin_prdt_cd": "EDGE001",
+        "intr_rate_type": "S",
+        "intr_rate_type_nm": "단리",
+        "save_trm": "12",
+        "intr_rate": 2.5,
+        "intr_rate2": null
+      },
+      {
+        "dcls_month": "202607",
+        "fin_co_no": "9990002",
+        "fin_prdt_cd": "EDGE002",
+        "intr_rate_type": "M",
+        "intr_rate_type_nm": "복리",
+        "save_trm": "24",
+        "intr_rate": 3.0,
+        "intr_rate2": 3.1
+      },
+      {
+        "dcls_month": "202607",
+        "fin_co_no": "9990003",
+        "fin_prdt_cd": "EDGE003",
+        "intr_rate_type": "S",
+        "intr_rate_type_nm": "단리",
+        "save_trm": "6",
+        "intr_rate": "연 2.75%",
+        "intr_rate2": "별도 문의"
+      },
+      {
+        "dcls_month": "202607",
+        "fin_co_no": "9990005",
+        "fin_prdt_cd": "ORPHAN01",
+        "intr_rate_type": "S",
+        "intr_rate_type_nm": "단리",
+        "save_trm": "12",
+        "intr_rate": 2.0,
+        "intr_rate2": 2.0
+      }
+    ]
+  }
+}
