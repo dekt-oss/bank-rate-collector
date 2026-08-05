@@ -5,6 +5,7 @@
 """
 
 import asyncio
+import dataclasses
 from pathlib import Path
 
 import pytest
@@ -69,6 +70,20 @@ def _list_artifact() -> RawArtifactData:
         schema_fingerprint="list",
         source_role=KfccAdapter.source_role,
         trust_level=KfccAdapter.trust_level,
+    )
+
+
+def _padded(n: int) -> RawArtifactData:
+    """내용이 서로 다른 금리 아티팩트.
+
+    `raw_artifacts`에 `UNIQUE(run_id, sha256)`이 있어 같은 바이트를 두 번
+    저장할 수 없다. 주석 한 줄로 해시만 갈라 놓는다.
+    """
+    art = _rate_artifact("13" if n % 2 else "14")
+    return dataclasses.replace(
+        art,
+        content=art.content + f"<!-- pad {n} -->".encode(),
+        filename=f"pad_{n}.html",
     )
 
 
@@ -600,3 +615,68 @@ def test_fetch_asks_each_region_once_with_an_empty_r2(monkeypatch) -> None:
     kinds = [a.request_meta["kind"] for a in artifacts]
     assert kinds.count("list") == 1
     assert kinds.count("rate") == 1
+
+
+# ── 구조 어긋난 페이지 ──────────────────────────────────────────────────
+
+
+def test_one_broken_page_does_not_discard_the_whole_run(factory, tmp_path) -> None:
+    """페이지 한 장 때문에 실행 전체를 버리지 않는다.
+
+    2026-08-05 전국 수집(2,520장)에서 한 장이 SchemaChangedError를 냈고,
+    그 예외가 트랜잭션 밖으로 나가면서 **2시간치 원본이 통째로 롤백**됐다.
+    raw_count가 0으로 남아 어느 금고의 어떤 페이지였는지조차 알 수 없게 됐다.
+    """
+    from rate_monitor.collectors.base import SchemaChangedError
+
+    class OneBadPageAdapter(FixtureAdapter):
+        """정상 아티팩트 여럿에 깨진 것 하나를 섞는다."""
+
+        async def fetch(self, request):
+            # 표본이 적으면 한 장도 넘기지 않으므로 충분히 늘린다.
+            return [_list_artifact(), *(_padded(n) for n in range(23))]
+
+        def parse_with_warnings(self, artifact):
+            if artifact.filename == "pad_7.html":
+                raise SchemaChangedError("금리 페이지에 .tbl-tit 상품 제목이 없다")
+            return super().parse_with_warnings(artifact)
+
+    result = run_collect(factory, tmp_path / "raw", adapter=OneBadPageAdapter())
+
+    # 실행이 살아남는다. 다만 success가 아니라 partial이다 — 조용히 성공으로
+    # 끝나면 그 금고가 통째로 빠진 것을 아무도 모른다.
+    assert result.status == RunStatus.PARTIAL
+    assert result.parsed_count > 0
+    assert "건너뜀 1장" in result.message
+
+    with session_scope(factory) as session:
+        # 원본이 살아 있어야 나중에 그 페이지가 무엇이었는지 되짚을 수 있다.
+        assert session.scalar(
+            select(func.count()).select_from(m.RawArtifact)
+        ) == 24
+        # 어느 파일이 왜 어긋났는지 검수항목에 남는다.
+        item = session.scalars(
+            select(m.ReviewItem).where(m.ReviewItem.issue_type == "schema_changed")
+        ).one()
+        assert "pad_7.html" in item.message
+        assert "tbl-tit" in item.message
+
+
+def test_widespread_schema_failure_still_stops_the_run(factory, tmp_path) -> None:
+    """여러 장이 한꺼번에 어긋나면 우리 파서가 틀린 것이다. 그때는 멈춘다.
+
+    명세서 v3.1 §8의 "구조 변경은 멈춘다"를 버리지 않는다.
+    """
+    from rate_monitor.collectors.base import SchemaChangedError
+
+    class AllBadAdapter(FixtureAdapter):
+        async def fetch(self, request):
+            return [_padded(n) for n in range(30)]
+
+        def parse_with_warnings(self, artifact):
+            raise SchemaChangedError("기본이율 표를 하나도 찾지 못했다")
+
+    result = run_collect(factory, tmp_path / "raw", adapter=AllBadAdapter())
+    assert result.status == RunStatus.SCHEMA_CHANGED
+    with session_scope(factory) as session:
+        assert _counts(session)["observations"] == 0
