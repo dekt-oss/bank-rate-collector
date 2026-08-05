@@ -121,6 +121,10 @@ def build_summary(db_path: Path) -> dict[str, Any]:
         # 저축은행은 여기 잡히지 않는다. finlife가 주소를 주지 않아
         # institutions.address가 NULL이기 때문이다. 의도한 결과다 —
         # 저축은행 금리는 본점 기준이라 구 단위로 말할 수 없다.
+        # 직장금고는 해당 직장 임직원만 가입할 수 있다. 그 금리를 "이 구의
+        # 최고금리"로 내세우면 일반 이용자가 가입할 수 없는 값을 보게 된다.
+        # 실측에서 강서구 10.00%와 부산진구 5.00%가 모두 직장금고였다.
+        # 대표값은 일반 가입 가능분으로 내고, 직장금고는 따로 센다.
         by_district = _rows(
             conn,
             "SELECT TRIM(SUBSTR(i.address, INSTR(i.address, ' ') + 1,"
@@ -129,7 +133,11 @@ def build_summary(db_path: Path) -> dict[str, Any]:
             "       i.sector                  AS sector,"
             "       COUNT(DISTINCT i.id)      AS institutions,"
             "       COUNT(*)                  AS observations,"
-            "       MAX(o.base_rate)          AS base_max"
+            "       MAX(CASE WHEN i.availability_scope != 'workplace_members'"
+            "                THEN o.base_rate END)            AS base_max,"
+            "       MAX(o.base_rate)                          AS base_max_including_workplace,"
+            "       COUNT(DISTINCT CASE WHEN i.availability_scope = 'workplace_members'"
+            "                           THEN i.id END)        AS workplace_institutions"
             "  FROM rate_observations o"
             "  JOIN product_variants v ON v.id = o.variant_id"
             "  JOIN products p         ON p.id = v.product_id"
@@ -167,7 +175,28 @@ def build_summary(db_path: Path) -> dict[str, Any]:
             "     AND i.address IS NOT NULL AND i.address != ''"
             "     AND o.validation_status != 'error'"
             "     AND v.term_months = 12"
+            # 직장금고는 제외한다. 일반 이용자가 가입할 수 없다.
+            "     AND i.availability_scope != 'workplace_members'"
             ") WHERE rn = 1 ORDER BY base_rate DESC",
+            tuple(run_ids),
+        ) if run_ids else []
+
+        # 직장금고는 숨기지 않고 따로 보여준다. 가입 제한을 함께 적는다.
+        workplace = _rows(
+            conn,
+            "SELECT i.canonical_name AS institution,"
+            "       i.address        AS address,"
+            "       p.name           AS product,"
+            "       v.term_months    AS term_months,"
+            "       o.base_rate      AS base_rate"
+            "  FROM rate_observations o"
+            "  JOIN product_variants v ON v.id = o.variant_id"
+            "  JOIN products p         ON p.id = v.product_id"
+            "  JOIN institutions i     ON i.id = p.institution_id"
+            f" WHERE o.run_id IN ({placeholders})"
+            "   AND i.availability_scope = 'workplace_members'"
+            "   AND o.validation_status != 'error'"
+            " ORDER BY o.base_rate DESC LIMIT 10",
             tuple(run_ids),
         ) if run_ids else []
 
@@ -211,6 +240,7 @@ def build_summary(db_path: Path) -> dict[str, Any]:
         "by_term": by_term,
         "by_district": by_district,
         "district_top": district_top,
+        "workplace_only": workplace,
         "top_rates": top_rates,
         "reviews": reviews,
         "review_samples": review_samples,

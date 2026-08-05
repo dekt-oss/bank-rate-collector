@@ -289,3 +289,63 @@ def test_adapter_defaults_to_all_busan_districts() -> None:
     assert sido == "부산"
     assert len(districts) == 16
     assert "기장군" in districts
+
+
+def test_workplace_only_funds_are_excluded_from_the_headline(factory, tmp_path) -> None:
+    """직장금고 금리를 '이 구의 최고금리'로 내세우면 안 된다.
+
+    실측에서 강서구 10.00%와 부산진구 5.00%가 모두 직장금고였다. 일반
+    이용자는 가입할 수 없으므로 대표값에서 빼고 개수만 따로 보여준다.
+    """
+    import dataclasses
+
+    from rate_monitor.services.dashboard_service import build_summary
+
+    class WorkplaceAdapter(FixtureAdapter):
+        """같은 구에 직장금고를 하나 더 놓는다. 금리는 훨씬 높다."""
+
+        async def fetch(self, request: CollectionRequest) -> list[RawArtifactData]:
+            base = await super().fetch(request)
+            extra = _rate_artifact("13")
+            meta = dict(extra.request_meta)
+            meta["gmgoCd"] = "9999"
+            meta["outlet"] = {**_OUTLET, "gmgoCd": "9999", "gmgoNm": "시험직장",
+                              "gmgoType": "직장"}
+            # 내용이 바이트 단위로 같으면 raw_artifacts의 UNIQUE(run_id, sha256)에
+            # 걸린다. 금리를 올려 서로 다른 문서로 만든다.
+            content = extra.content.replace("연3.2%".encode(), "연9.9%".encode())
+            return [
+                *base,
+                dataclasses.replace(
+                    extra,
+                    request_meta=meta,
+                    content=content,
+                    filename="rate_9999_13.html",
+                ),
+            ]
+
+    result = run_collect(factory, tmp_path / "raw", adapter=WorkplaceAdapter())
+    assert result.status == RunStatus.SUCCESS
+    summary = build_summary(tmp_path / "kfcc.sqlite3")
+
+    district = summary["by_district"][0]
+    assert district["workplace_institutions"] == 1
+    # 대표값은 지역금고만, 별도 칸에는 직장금고까지 포함한 값이 남는다.
+    assert district["base_max"] is not None
+    assert summary["workplace_only"]
+    assert all(
+        w["institution"] == "시험직장" for w in summary["workplace_only"]
+    )
+    # 구별 최고상품에도 직장금고가 올라오면 안 된다.
+    assert all(t["institution"] != "시험직장" for t in summary["district_top"])
+
+
+def test_workplace_scope_is_taken_from_the_official_type(factory, tmp_path) -> None:
+    """gmgoType이 '직장'이면 기관이 workplace_members여야 한다."""
+    from rate_monitor.domain.enums import AvailabilityScope
+
+    run_collect(factory, tmp_path / "raw")
+    with session_scope(factory) as session:
+        institution = session.scalars(select(m.Institution)).one()
+        assert institution.institution_type == "지역"
+        assert institution.availability_scope == AvailabilityScope.LOCAL_MEMBERS
