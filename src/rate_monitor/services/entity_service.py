@@ -158,6 +158,7 @@ def resolve_variant(
         term_days=row.term_days,
         join_channel=row.join_channel,
         interest_method=row.interest_method,
+        payment_method=row.payment_method,
         amount_min=row.amount_min,
         amount_max=row.amount_max,
         outlet_key=row.source_outlet_key,

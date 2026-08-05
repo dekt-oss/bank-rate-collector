@@ -264,7 +264,9 @@ def _build_row(
         interest_method=_INTEREST_METHOD.get(
             option.get("intr_rate_type"), InterestMethod.UNKNOWN
         ),
-        payment_method=option.get("rsrv_type_nm"),
+        # 적립유형 코드(S=정액적립식, F=자유적립식). 한글 표기가 아니라 코드를
+        # 쓴다 — 비교단위 키에 들어가므로 표기가 바뀌어도 이력이 끊기면 안 된다.
+        payment_method=option.get("rsrv_type"),
         amount_min=None,
         amount_max=base.get("max_limit") if isinstance(base.get("max_limit"), int) else None,
         customer_scope=base.get("join_member"),
@@ -287,6 +289,7 @@ def _build_row(
             "join_deny": base.get("join_deny"),
             "dcls_end_day": base.get("dcls_end_day"),
             "intr_rate_type_nm": option.get("intr_rate_type_nm"),
+            "rsrv_type_nm": option.get("rsrv_type_nm"),
         },
     )
 

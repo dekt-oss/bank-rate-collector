@@ -55,6 +55,7 @@ def make_variant_key(
     term_days: int | None,
     join_channel: str,
     interest_method: str,
+    payment_method: str | None,
     amount_min: int | None,
     amount_max: int | None,
     outlet_key: str | None,
@@ -63,7 +64,12 @@ def make_variant_key(
 
     구성 (v3 §5.8):
         sector | institution stable key | product stable key/name |
-        term | channel | interest method | amount band | outlet key
+        term | channel | interest method | payment method |
+        amount band | outlet key
+
+    `payment_method`(정액적립식/자유적립식)는 v3 §5.2가 상품옵션을 나누는
+    기준으로 명시한 항목이다. 실제 적금 데이터에서 같은 상품·기간·이자방식에
+    정액과 자유가 함께 있어, 이 값이 없으면 서로 다른 옵션이 같은 키를 받는다.
 
     지역명은 넣지 않는다. 기관이 이사하거나 이름이 바뀌어도 금리 이력이
     끊기면 안 되기 때문이다.
@@ -71,14 +77,21 @@ def make_variant_key(
     >>> kw = dict(sector="savings_bank", org_key="savings_bank:0010345",
     ...           source_product_key="HK00001", product_name="정기예금",
     ...           term_months=12, term_days=None, join_channel="any",
-    ...           interest_method="simple", amount_min=None, amount_max=None,
-    ...           outlet_key=None)
+    ...           interest_method="simple", payment_method=None,
+    ...           amount_min=None, amount_max=None, outlet_key=None)
     >>> make_variant_key(**kw) == make_variant_key(**kw)
     True
 
     기간이 다르면 다른 비교 단위다.
 
     >>> make_variant_key(**{**kw, "term_months": 24}) != make_variant_key(**kw)
+    True
+
+    정액적립식과 자유적립식도 다른 비교 단위다.
+
+    >>> a = make_variant_key(**{**kw, "payment_method": "S"})
+    >>> b = make_variant_key(**{**kw, "payment_method": "F"})
+    >>> a != b
     True
     """
     product_part = source_product_key or f"name:{normalize_product_name(product_name)}"
@@ -96,6 +109,7 @@ def make_variant_key(
         term_part,
         join_channel,
         interest_method,
+        payment_method or "",
         amount_part,
         outlet_key or "",
     ]
