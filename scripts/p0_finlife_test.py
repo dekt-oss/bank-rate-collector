@@ -15,7 +15,7 @@ import os
 import sys
 import urllib.error
 import urllib.request
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 API_URL = "http://finlife.fss.or.kr/finlifeapi/depositProductsSearch.json"
@@ -58,7 +58,7 @@ def main() -> int:
             print(f"API 오류: err_cd={err_cd} err_msg={result.get('err_msg')}", file=sys.stderr)
             return 1
 
-        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
         out_path = RAW_DIR / f"{top_fin_grp_no}_page{page_no}_{stamp}.json"
         out_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
@@ -78,7 +78,10 @@ def main() -> int:
             break
         page_no += 1
 
-    print(f"완료: topFinGrpNo={top_fin_grp_no} total_companies={total_companies} total_options={total_options}")
+    print(
+        f"완료: topFinGrpNo={top_fin_grp_no} "
+        f"total_companies={total_companies} total_options={total_options}"
+    )
     return 0
 
 

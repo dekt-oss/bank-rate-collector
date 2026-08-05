@@ -73,18 +73,63 @@ def test_manifest_counts_match_sql(collected_db, tmp_path) -> None:
     verify_snapshot(publish, manifest_path)  # 어긋나면 예외
 
 
+def test_published_snapshot_is_not_wal(collected_db, tmp_path) -> None:
+    """배포본은 단일 파일로 완결돼야 한다.
+
+    WAL 모드로 배포하면 이후 쓰기가 -wal 사이드카로 가서 본체 바이트가
+    안 바뀌고, manifest의 SHA256이 변조를 놓친다.
+    """
+    publish = tmp_path / "publish" / "db.sqlite3"
+    create_snapshot(collected_db, publish, tmp_path / "publish" / "m.json")
+
+    conn = sqlite3.connect(publish)
+    try:
+        assert conn.execute("PRAGMA journal_mode").fetchone()[0].lower() != "wal"
+    finally:
+        conn.close()
+    assert not publish.with_name(publish.name + "-wal").exists()
+    assert not publish.with_name(publish.name + "-shm").exists()
+
+
 def test_verify_detects_tampering(collected_db, tmp_path) -> None:
-    """배포본이 바뀌면 검증이 잡아낸다."""
+    """배포본이 바뀌면 검증이 잡아낸다.
+
+    WAL 모드였다면 이 수정이 사이드카로 빠져 SHA256이 그대로였다.
+    """
     publish = tmp_path / "publish" / "db.sqlite3"
     manifest_path = tmp_path / "publish" / "manifest.json"
-    create_snapshot(collected_db, publish, manifest_path)
+    manifest = create_snapshot(collected_db, publish, manifest_path)
+    original_hash = sha256_of(publish)
+    assert original_hash == manifest.sqlite_sha256
 
     conn = sqlite3.connect(publish)
     conn.execute("DELETE FROM rate_observations WHERE rowid = 1")
     conn.commit()
     conn.close()
 
+    assert sha256_of(publish) != original_hash, "변조가 본체 파일에 반영되지 않았다"
     with pytest.raises(SnapshotIntegrityError):
+        verify_snapshot(publish, manifest_path)
+
+
+def test_verify_detects_value_tampering(collected_db, tmp_path) -> None:
+    """행 수가 그대로여도 값이 바뀌면 SHA256이 잡아낸다."""
+    publish = tmp_path / "publish" / "db.sqlite3"
+    manifest_path = tmp_path / "publish" / "manifest.json"
+    create_snapshot(collected_db, publish, manifest_path)
+
+    conn = sqlite3.connect(publish)
+    # 실제로 값이 달라지는 수정이어야 한다. 같은 값을 다시 쓰면 페이지가
+    # 안 바뀌어 해시도 그대로다.
+    conn.execute("UPDATE rate_observations SET max_rate = '099.9999' WHERE rowid <= 5")
+    conn.commit()
+    changed = conn.execute(
+        "SELECT COUNT(*) FROM rate_observations WHERE max_rate = '099.9999'"
+    ).fetchone()[0]
+    conn.close()
+    assert changed == 5
+
+    with pytest.raises(SnapshotIntegrityError, match="SHA256"):
         verify_snapshot(publish, manifest_path)
 
 

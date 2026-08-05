@@ -99,11 +99,23 @@ def create_snapshot(
 
     conn = sqlite3.connect(publish_db)
     try:
+        # backup()은 원본의 journal_mode(WAL)를 물려준다. 배포본이 WAL이면
+        # 이후 쓰기가 -wal 사이드카로 가서 본체 바이트가 안 바뀐다. 그러면
+        # manifest의 SHA256이 변조를 잡지 못하고, v3.1 §3이 금지한 사이드카
+        # 파일 없이는 복원도 불완전해진다. 단일 파일로 완결시킨다.
+        conn.execute("PRAGMA journal_mode=DELETE")
+        conn.commit()
+
         integrity = conn.execute("PRAGMA integrity_check").fetchone()[0]
         violations = conn.execute("PRAGMA foreign_key_check").fetchall()
         counts = _row_counts(conn)
     finally:
         conn.close()
+
+    # 사이드카가 남아 있으면 배포본이 자족적이지 않다.
+    for suffix in ("-wal", "-shm"):
+        sidecar = publish_db.with_name(publish_db.name + suffix)
+        sidecar.unlink(missing_ok=True)
 
     if integrity != "ok":
         publish_db.unlink(missing_ok=True)

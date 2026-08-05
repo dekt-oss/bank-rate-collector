@@ -22,7 +22,7 @@ import time
 import urllib.error
 import urllib.request
 from collections import Counter
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 BASE = "http://finlife.fss.or.kr/finlifeapi"
@@ -60,9 +60,11 @@ def collect_all(service: str, auth: str, top_fin_grp_no: str) -> tuple[dict, lis
         result = data.get("result", {})
         err_cd = result.get("err_cd")
         if err_cd not in (None, "000"):
-            raise RuntimeError(f"{service}/{top_fin_grp_no} err_cd={err_cd} {result.get('err_msg')}")
+            raise RuntimeError(
+                f"{service}/{top_fin_grp_no} err_cd={err_cd} {result.get('err_msg')}"
+            )
 
-        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
         out = RAW_DIR / f"{service}_{top_fin_grp_no}_page{page_no}_{stamp}.json"
         out.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
@@ -90,7 +92,7 @@ def main() -> int:
 
     RAW_DIR.mkdir(parents=True, exist_ok=True)
     REPORT_PATH.parent.mkdir(parents=True, exist_ok=True)
-    report: dict = {"checked_at": datetime.now(timezone.utc).isoformat(), "findings": {}}
+    report: dict = {"checked_at": datetime.now(UTC).isoformat(), "findings": {}}
 
     for grp, grp_name in GROUPS.items():
         for service, svc_name in SERVICES.items():
@@ -176,7 +178,9 @@ def main() -> int:
     company = report["findings"].get("companySearch/030300", {})
     report["conclusion"] = {
         "product_api_has_region_field": has_region_in_product,
-        "busan_gu_filter_possible_from_finlife_alone": False if not has_region_in_product else "재검토",
+        "busan_gu_filter_possible_from_finlife_alone": (
+            False if not has_region_in_product else "재검토"
+        ),
         "company_api_area_granularity": company.get("area_granularity"),
         "note": (
             "상품 API는 지역 필드가 없고 전국(본점) 기준 공시다. "
