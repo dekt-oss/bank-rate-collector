@@ -1,0 +1,495 @@
+<title>rate-monitor · P0 관제 보드</title>
+<style>
+  /* ── 토큰 ────────────────────────────────────────────────
+     중립색은 accent(#2D5F7C, 공시문서의 남청색) 쪽으로 살짝 기울여
+     기본 회색이 아니라 고른 회색이 되도록 한다. */
+  :root {
+    --paper:      #EEF1F4;
+    --surface:    #FFFFFF;
+    --surface-2:  #F6F8FA;
+    --line:       #D3DAE1;
+    --line-soft:  #E4E9EE;
+    --ink:        #171C23;
+    --ink-2:      #4A5563;
+    --ink-3:      #77828F;
+    --accent:     #2D5F7C;
+    --accent-ink: #24506A;
+    --ok:         #2E7D5B;
+    --warn:       #A9741A;
+    --crit:       #AC4238;
+    --idle:       #8A93A0;
+    --ok-bg:      #E4F1EA;
+    --warn-bg:    #F7EEDA;
+    --crit-bg:    #F7E5E3;
+    --idle-bg:    #E9ECEF;
+
+    --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+    --sans: system-ui, -apple-system, "Apple SD Gothic Neo", "Pretendard",
+            "Malgun Gothic", "Noto Sans KR", sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper:     #10141A;
+      --surface:   #181D25;
+      --surface-2: #1E242D;
+      --line:      #2C3540;
+      --line-soft: #232B35;
+      --ink:       #E3E8EE;
+      --ink-2:     #A7B2BF;
+      --ink-3:     #7A8695;
+      --accent:    #6FA8C7;
+      --accent-ink:#8CBEDA;
+      --ok:        #5DBE90;
+      --warn:      #D6A343;
+      --crit:      #E0776C;
+      --idle:      #8A93A0;
+      --ok-bg:     #172C24;
+      --warn-bg:   #2E2718;
+      --crit-bg:   #2E1E1D;
+      --idle-bg:   #22272E;
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper:     #10141A;
+    --surface:   #181D25;
+    --surface-2: #1E242D;
+    --line:      #2C3540;
+    --line-soft: #232B35;
+    --ink:       #E3E8EE;
+    --ink-2:     #A7B2BF;
+    --ink-3:     #7A8695;
+    --accent:    #6FA8C7;
+    --accent-ink:#8CBEDA;
+    --ok:        #5DBE90;
+    --warn:      #D6A343;
+    --crit:      #E0776C;
+    --idle:      #8A93A0;
+    --ok-bg:     #172C24;
+    --warn-bg:   #2E2718;
+    --crit-bg:   #2E1E1D;
+    --idle-bg:   #22272E;
+  }
+  :root[data-theme="light"] {
+    --paper:     #EEF1F4;
+    --surface:   #FFFFFF;
+    --surface-2: #F6F8FA;
+    --line:      #D3DAE1;
+    --line-soft: #E4E9EE;
+    --ink:       #171C23;
+    --ink-2:     #4A5563;
+    --ink-3:     #77828F;
+    --accent:    #2D5F7C;
+    --accent-ink:#24506A;
+    --ok:        #2E7D5B;
+    --warn:      #A9741A;
+    --crit:      #AC4238;
+    --idle:      #8A93A0;
+    --ok-bg:     #E4F1EA;
+    --warn-bg:   #F7EEDA;
+    --crit-bg:   #F7E5E3;
+    --idle-bg:   #E9ECEF;
+  }
+
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 15px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap {
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 28px 22px 72px;
+    display: flex;
+    flex-direction: column;
+    gap: 26px;
+  }
+
+  /* ── 머리말 ── */
+  .masthead {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 14px;
+    padding-bottom: 16px;
+    border-bottom: 2px solid var(--ink);
+  }
+  .masthead h1 {
+    margin: 0;
+    font-size: 25px;
+    font-weight: 650;
+    letter-spacing: -0.015em;
+    text-wrap: balance;
+  }
+  .masthead .sub {
+    margin: 3px 0 0;
+    color: var(--ink-2);
+    font-size: 13.5px;
+  }
+  .stamp {
+    font-family: var(--mono);
+    font-size: 11.5px;
+    color: var(--ink-3);
+    text-align: right;
+    line-height: 1.7;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ── 한 줄 판정 ── */
+  .verdict {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(168px, 1fr));
+    gap: 1px;
+    background: var(--line);
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  .verdict > div {
+    background: var(--surface);
+    padding: 14px 16px;
+  }
+  .verdict .k {
+    font-size: 10.5px;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    font-weight: 600;
+  }
+  .verdict .v {
+    font-family: var(--mono);
+    font-size: 25px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    margin-top: 4px;
+    letter-spacing: -0.02em;
+  }
+  .verdict .n { font-size: 12px; color: var(--ink-2); font-family: var(--sans); }
+
+  h2 {
+    margin: 0 0 11px;
+    font-size: 12px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    font-weight: 700;
+  }
+  section { margin: 0; }
+
+  /* ── 수집원 카드: 좌측 심각도 스트라이프로 상태를 형태로도 표시 ── */
+  .sources { display: grid; grid-template-columns: repeat(auto-fit, minmax(268px, 1fr)); gap: 10px; }
+  .src {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-left: 4px solid var(--idle);
+    border-radius: 3px;
+    padding: 13px 15px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .src.ok   { border-left-color: var(--ok); }
+  .src.warn { border-left-color: var(--warn); }
+  .src.crit { border-left-color: var(--crit); }
+  .src .top { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+  .src .id { font-family: var(--mono); font-size: 13px; font-weight: 600; }
+  .src .nm { font-size: 12px; color: var(--ink-3); }
+  .src .msg { font-size: 12.5px; color: var(--ink-2); line-height: 1.5; }
+
+  .pill {
+    display: inline-block;
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    padding: 2px 7px;
+    border-radius: 2px;
+    white-space: nowrap;
+  }
+  .pill.ok   { background: var(--ok-bg);   color: var(--ok); }
+  .pill.warn { background: var(--warn-bg); color: var(--warn); }
+  .pill.crit { background: var(--crit-bg); color: var(--crit); }
+  .pill.idle { background: var(--idle-bg); color: var(--idle); }
+
+  /* ── 표 ── */
+  .scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: 3px; background: var(--surface); }
+  table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
+  th, td { padding: 8px 13px; text-align: left; border-bottom: 1px solid var(--line-soft); }
+  thead th {
+    background: var(--surface-2);
+    font-size: 10.5px;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    font-weight: 700;
+    white-space: nowrap;
+  }
+  tbody tr:last-child td { border-bottom: 0; }
+  td.num, th.num { text-align: right; font-family: var(--mono); font-variant-numeric: tabular-nums; }
+  tfoot td {
+    background: var(--surface-2);
+    font-weight: 700;
+    border-top: 2px solid var(--line);
+    border-bottom: 0;
+  }
+
+  /* ── 부산 구·군 커버리지 ── */
+  .gu-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(158px, 1fr)); gap: 8px; }
+  .gu {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    padding: 9px 11px 10px;
+  }
+  .gu .nm { font-size: 12.5px; font-weight: 600; display: flex; justify-content: space-between; align-items: baseline; }
+  .gu .ct { font-family: var(--mono); font-size: 12px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+  .bar { height: 4px; background: var(--line-soft); border-radius: 2px; margin-top: 7px; overflow: hidden; }
+  .bar i { display: block; height: 100%; background: var(--accent); border-radius: 2px; }
+  .gu .sub { font-size: 11px; color: var(--ink-3); margin-top: 4px; font-family: var(--mono); }
+
+  /* ── 체크리스트 ── */
+  .gate { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 1px;
+          background: var(--line); border: 1px solid var(--line); border-radius: 3px; overflow: hidden; }
+  .gate li { background: var(--surface); padding: 10px 14px; display: flex; align-items: flex-start; gap: 11px; font-size: 13.5px; }
+  .gate .mark { font-family: var(--mono); font-weight: 700; font-size: 13px; flex: none; width: 1.4em; }
+  .gate li.done .mark { color: var(--ok); }
+  .gate li.part .mark { color: var(--warn); }
+  .gate li.todo .mark { color: var(--idle); }
+  .gate .txt { flex: 1; }
+  .gate .note { display: block; font-size: 11.5px; color: var(--ink-3); margin-top: 1px; }
+
+  /* ── 미해소 ── */
+  .block { display: flex; flex-direction: column; gap: 1px; background: var(--line);
+           border: 1px solid var(--line); border-radius: 3px; overflow: hidden; }
+  .block .row { background: var(--surface); padding: 11px 14px; display: grid;
+                grid-template-columns: 86px 1fr; gap: 12px; align-items: start; }
+  .block .row .b { font-size: 13.5px; }
+  .block .row .b b { font-weight: 650; }
+  .block .row .b span { display: block; font-size: 11.5px; color: var(--ink-3); margin-top: 2px; }
+
+  .foot { font-size: 11.5px; color: var(--ink-3); line-height: 1.7; border-top: 1px solid var(--line); padding-top: 14px; }
+  .foot code { font-family: var(--mono); font-size: 11px; }
+  a { color: var(--accent-ink); }
+  a:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+</style>
+
+<div class="wrap">
+
+  <header class="masthead">
+    <div>
+      <h1>2금융권 수신금리 통합 모니터 — P0 관제 보드</h1>
+      <p class="sub">부산 16개 구·군 / 저축은행 · 새마을금고 · 신협 · 지역농축협</p>
+    </div>
+    <div class="stamp">
+      기준 2026-08-05<br>
+      명세서 v3 · 기획서 v3<br>
+      dekt-oss/bank-rate-collector
+    </div>
+  </header>
+
+  <section class="verdict">
+    <div>
+      <div class="k">finlife 수집 상품</div>
+      <div class="v">768</div>
+      <div class="n">기간별 금리옵션 4,343건</div>
+    </div>
+    <div>
+      <div class="k">부산 새마을금고</div>
+      <div class="v">137</div>
+      <div class="n">점포 273 · 잠정 모집단</div>
+    </div>
+    <div>
+      <div class="k">검증 완료 수집원</div>
+      <div class="v">2<span style="color:var(--ink-3);font-size:16px">/5</span></div>
+      <div class="n">finlife · kfcc 목록</div>
+    </div>
+    <div>
+      <div class="k">P0 게이트</div>
+      <div class="v">2<span style="color:var(--ink-3);font-size:16px">/7</span></div>
+      <div class="n">부분 충족 3건</div>
+    </div>
+  </section>
+
+  <section>
+    <h2>수집원 상태</h2>
+    <div class="sources">
+      <div class="src ok">
+        <div class="top">
+          <span class="id">finlife</span>
+          <span class="pill ok">검증 완료</span>
+        </div>
+        <span class="nm">금융감독원 오픈API · 은행/저축은행</span>
+        <span class="msg">6개 조합 전부 <code>err_cd=000</code>. 인증키·망분리·페이지네이션 정상. 단 지역 필드 없음 — 본점 기준 참고값.</span>
+      </div>
+      <div class="src ok">
+        <div class="top">
+          <span class="id">kfcc_official</span>
+          <span class="pill ok">목록 파싱 검증</span>
+        </div>
+        <span class="nm">새마을금고 공식 금고위치안내</span>
+        <span class="msg">부산 중구 원본 HTML 확보 → 9행/금고 6개 추출, 참고 데이터와 독립 일치. 금리 페이지 표본은 확보 진행 중.</span>
+      </div>
+      <div class="src ok">
+        <div class="top">
+          <span class="id">kfcc_reference</span>
+          <span class="pill ok">구조 확인</span>
+        </div>
+        <span class="nm">공개 참고 JSON · 검증/비상용</span>
+        <span class="msg">부산 137금고 · 16개 구·군 전부 확인. 당일 갱신 중. 기간 결측 등 결함 5건 파악.</span>
+      </div>
+      <div class="src">
+        <div class="top">
+          <span class="id">fsb</span>
+          <span class="pill idle">미착수</span>
+        </div>
+        <span class="nm">저축은행중앙회 소비자포털</span>
+        <span class="msg">저축은행 1차 원천. finlife는 교차검증용이므로 이쪽 정찰이 남아 있음.</span>
+      </div>
+      <div class="src">
+        <div class="top">
+          <span class="id">cu</span>
+          <span class="pill idle">미착수</span>
+        </div>
+        <span class="nm">신협중앙회 금리비교</span>
+        <span class="msg">거치식·적립식, 지역·하위지역, 가입방식 구조. 표본 20건 이상 확보 필요.</span>
+      </div>
+      <div class="src crit">
+        <div class="top">
+          <span class="id">nh_local</span>
+          <span class="pill crit">범위 미판정</span>
+        </div>
+        <span class="nm">지역농축협</span>
+        <span class="msg">중앙 전수 수집원 존재 여부 미확인. 자동/부분/불가 판정 자체가 P0 산출물.</span>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>finlife 실측 수집량 · 2026-08-05</h2>
+    <div class="scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>서비스</th><th>권역</th>
+            <th class="num">상품</th><th class="num">금리옵션</th>
+            <th>응답</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>정기예금</td><td>은행</td><td class="num">38</td><td class="num">152</td><td><span class="pill ok">000</span></td></tr>
+          <tr><td>적금</td><td>은행</td><td class="num">58</td><td class="num">181</td><td><span class="pill ok">000</span></td></tr>
+          <tr><td>금융회사</td><td>은행</td><td class="num">18</td><td class="num">306</td><td><span class="pill ok">000</span></td></tr>
+          <tr><td>정기예금</td><td>저축은행</td><td class="num">395</td><td class="num">2,652</td><td><span class="pill ok">000</span></td></tr>
+          <tr><td>적금</td><td>저축은행</td><td class="num">277</td><td class="num">1,358</td><td><span class="pill ok">000</span></td></tr>
+          <tr><td>금융회사</td><td>저축은행</td><td class="num">80</td><td class="num">1,360</td><td><span class="pill ok">000</span></td></tr>
+        </tbody>
+        <tfoot>
+          <tr><td colspan="2">합계</td><td class="num">866</td><td class="num">6,009</td><td></td></tr>
+        </tfoot>
+      </table>
+    </div>
+    <p class="foot" style="border:0;padding-top:9px">
+      상품 API 4종 합계는 상품 768건 / 금리옵션 4,343건. 금융회사 API 2종(98건 / 1,666건)은
+      금리가 아니라 점포 소재 시도 플래그이므로 비교표에 들어가지 않는다.
+    </p>
+  </section>
+
+  <section>
+    <h2>부산 새마을금고 커버리지 — 잠정 모집단 (참고 저장소 기준)</h2>
+    <div class="gu-grid">
+      <div class="gu"><div class="nm">부산진구 <span class="ct">24</span></div><div class="bar"><i style="width:100%"></i></div><div class="sub">점포 37</div></div>
+      <div class="gu"><div class="nm">남구 <span class="ct">15</span></div><div class="bar"><i style="width:63%"></i></div><div class="sub">점포 24</div></div>
+      <div class="gu"><div class="nm">동구 <span class="ct">11</span></div><div class="bar"><i style="width:46%"></i></div><div class="sub">점포 19</div></div>
+      <div class="gu"><div class="nm">동래구 <span class="ct">11</span></div><div class="bar"><i style="width:46%"></i></div><div class="sub">점포 22</div></div>
+      <div class="gu"><div class="nm">금정구 <span class="ct">10</span></div><div class="bar"><i style="width:42%"></i></div><div class="sub">점포 22</div></div>
+      <div class="gu"><div class="nm">해운대구 <span class="ct">10</span></div><div class="bar"><i style="width:42%"></i></div><div class="sub">점포 23</div></div>
+      <div class="gu"><div class="nm">사하구 <span class="ct">9</span></div><div class="bar"><i style="width:38%"></i></div><div class="sub">점포 22</div></div>
+      <div class="gu"><div class="nm">연제구 <span class="ct">9</span></div><div class="bar"><i style="width:38%"></i></div><div class="sub">점포 17</div></div>
+      <div class="gu"><div class="nm">사상구 <span class="ct">7</span></div><div class="bar"><i style="width:29%"></i></div><div class="sub">점포 19</div></div>
+      <div class="gu"><div class="nm">서구 <span class="ct">7</span></div><div class="bar"><i style="width:29%"></i></div><div class="sub">점포 15</div></div>
+      <div class="gu"><div class="nm">중구 <span class="ct">6</span></div><div class="bar"><i style="width:25%"></i></div><div class="sub">점포 9 · 표본</div></div>
+      <div class="gu"><div class="nm">수영구 <span class="ct">5</span></div><div class="bar"><i style="width:21%"></i></div><div class="sub">점포 8</div></div>
+      <div class="gu"><div class="nm">영도구 <span class="ct">5</span></div><div class="bar"><i style="width:21%"></i></div><div class="sub">점포 10</div></div>
+      <div class="gu"><div class="nm">강서구 <span class="ct">4</span></div><div class="bar"><i style="width:17%"></i></div><div class="sub">점포 6</div></div>
+      <div class="gu"><div class="nm">북구 <span class="ct">4</span></div><div class="bar"><i style="width:17%"></i></div><div class="sub">점포 16</div></div>
+      <div class="gu"><div class="nm">기장군 <span class="ct">3</span></div><div class="bar"><i style="width:13%"></i></div><div class="sub">점포 4</div></div>
+    </div>
+    <p class="foot" style="border:0;padding-top:9px">
+      숫자는 금고(institution) 수, 막대는 최다 구 대비 비율. 공식 직접수집으로 재확인하기 전까지
+      확정 모집단으로 쓰지 않는다 — 현재 상태는 <b>모집단 확인 중</b>.
+      금리는 금고당 1회만 수집하므로 요청 수는 점포 273이 아니라 금고 137 기준이다.
+    </p>
+  </section>
+
+  <section>
+    <h2>P0 품질 게이트 · 명세서 v3 §18</h2>
+    <ul class="gate">
+      <li class="part"><span class="mark">◑</span><span class="txt">공식 소스 5종 정찰 문서 작성
+        <span class="note">finlife · kfcc 완료 / fsb · cu · nh_local 미착수</span></span></li>
+      <li class="todo"><span class="mark">○</span><span class="txt">저축은행·신협 실제 표본 확보
+        <span class="note">저축은행은 finlife 교차검증분만 확보. 1차 원천인 저축은행중앙회 표본 없음</span></span></li>
+      <li class="part"><span class="mark">◑</span><span class="txt">새마을금고 부산 목록·거치식·적립식·요구불 표본 + 참고 JSON
+        <span class="note">참고 JSON 확보 완료. 공식 HTML 표본 확보 진행 중</span></span></li>
+      <li class="todo"><span class="mark">○</span><span class="txt">농축협 수집 범위 판정
+        <span class="note">자동 / 부분 / 불가 중 하나로 명확히 판정해야 함</span></span></li>
+      <li class="part"><span class="mark">◑</span><span class="txt">자동화 정책 상태 기록
+        <span class="note">kfcc는 policy_status=review 유지. 나머지 미기록</span></span></li>
+      <li class="done"><span class="mark">●</span><span class="txt">새마을금고 공식/참고 역할·우선순위 확정
+        <span class="note">official 10 · manual 20 · reference 80 · override 100</span></span></li>
+      <li class="done"><span class="mark">●</span><span class="txt">기관 공식 코드 존재 여부 기록
+        <span class="note">gmgoCd 확인. 한 금고에 복수 divCd 결합 구조 실측 확인</span></span></li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>미해소 항목</h2>
+    <div class="block">
+      <div class="row">
+        <span class="pill crit">확정 제약</span>
+        <div class="b"><b>finlife만으로는 부산 구 단위 필터가 불가능하다</b>
+          <span>상품 API에 지역 필드가 없고, 금융회사 API의 지역 단위는 시도. 저축은행 금리는 rate_scope=head_office_reference로 저장한다.</span></div>
+      </div>
+      <div class="row">
+        <span class="pill warn">실행 제약</span>
+        <div class="b"><b>새마을금고 공식 사이트가 개발 컨테이너에서 차단된다</b>
+          <span>동일 요청이 Actions 러너에서는 200 OK. 수집과 파서 fixture 확보 모두 Actions에서 수행해야 한다. 우회는 하지 않는다.</span></div>
+      </div>
+      <div class="row">
+        <span class="pill crit">명세 정정</span>
+        <div class="b"><b>금리 페이지 경로가 명세서 §7.3.3 가정과 다르다</b>
+          <span>goods_19.do?OPEN_TRMID&amp;gubuncode가 아니라 view.do?…&amp;tab=sub_tab_rate. 목록 행의 숨김 span 값을 그대로 되돌려 보내는 방식. 상품군 12/13/14 코드 가정도 근거 미발견.</span></div>
+      </div>
+      <div class="row">
+        <span class="pill warn">미검증</span>
+        <div class="b"><b>금리 페이지 응답 본문을 아직 확보하지 않았다</b>
+          <span>tblWrap · tbl-tit · divTmp1 선택자 유효성과 divTmp2 등 추가 금리영역 존재 여부가 미확인.</span></div>
+      </div>
+      <div class="row">
+        <span class="pill warn">데이터 결함</span>
+        <div class="b"><b>참고 데이터의 가입기간이 상품별로 결측된다</b>
+          <span>정기예탁금·꿈드림회전정기예탁금은 모든 entries가 duration null. 기간 없는 금리는 비교 단위로 쓸 수 없으므로 검수항목으로 표면화한다.</span></div>
+      </div>
+      <div class="row">
+        <span class="pill idle">법무</span>
+        <div class="b"><b>참고 저장소에 LICENSE 파일이 없다</b>
+          <span>package.json에 ISC 선언만 존재. 코드는 복사하지 않고 생성 데이터만 검증용으로 사용한다.</span></div>
+      </div>
+      <div class="row">
+        <span class="pill idle">보안</span>
+        <div class="b"><b>finlife 공식 문서 기준 프로토콜이 http다</b>
+          <span>평문 전송 시 인증키 노출 위험. https 지원 여부와 일일 호출 한도 모두 미확인.</span></div>
+      </div>
+    </div>
+  </section>
+
+  <p class="foot">
+    이 보드는 실행 로그와 실제 다운로드 데이터에서만 값을 가져온다. 추정값은 <b>잠정</b>으로 표기한다.<br>
+    근거 문서 — <code>docs/source-recon/finlife.md</code> · <code>docs/source-recon/kfcc.md</code> ·
+    <code>docs/third-party/kfcc-reference.md</code> · <code>docs/specs/20260805-rate-monitor-v3.md</code><br>
+    갱신 방법 — Actions에서 <code>P0 finlife API verify</code> / <code>P0 KFCC capture</code> 실행 후 산출 아티팩트로 수치를 갱신한다.
+  </p>
+
+</div>
