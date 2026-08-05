@@ -35,6 +35,132 @@ def _rows(conn: sqlite3.Connection, sql: str, params: tuple = ()) -> list[dict[s
     return [dict(zip(columns, row, strict=True)) for row in cursor.fetchall()]
 
 
+# 화면이 쓸 금리표의 열 순서. 내려받기 CSV 머리글도 이걸 따른다.
+TABLE_COLUMNS = (
+    "sector",
+    "institution",
+    "district",
+    "product",
+    "product_type",
+    "term_months",
+    "payment_method",
+    "interest_method",
+    "join_channel",
+    "base_rate",
+    "max_rate",
+    "availability_scope",
+    "source_id",
+    "source_effective_at",
+)
+
+
+# 구는 주소에서 두 번째 토막을 떼어 만든다 ("부산 중구 대청로 101-1" → "중구").
+# 점포 주소를 먼저 보고, 점포 명부가 없는 원천은 기관 주소로 되돌아간다.
+# 행정구역 공식 코드가 아니라 파생값이다.
+DISTRICT_EXPR = (
+    "TRIM(SUBSTR(COALESCE(ot.address, i.address),"
+    "     INSTR(COALESCE(ot.address, i.address), ' ') + 1,"
+    "     INSTR(SUBSTR(COALESCE(ot.address, i.address),"
+    "           INSTR(COALESCE(ot.address, i.address), ' ') + 1), ' ')))"
+)
+
+
+def latest_run_ids(conn: sqlite3.Connection) -> list[str]:
+    """수집원마다 마지막 실행의 id.
+
+    전체에서 가장 최근 실행 하나만 보면, 저축은행 다음에 새마을금고를
+    돌렸을 때 저축은행 수치가 통째로 사라진다.
+    """
+    return [
+        r["id"]
+        for r in _rows(
+            conn,
+            "SELECT r.id, r.source_id FROM collection_runs r"
+            "  JOIN (SELECT source_id, MAX(started_at) AS started_at"
+            "          FROM collection_runs GROUP BY source_id) latest"
+            "    ON latest.source_id = r.source_id"
+            "   AND latest.started_at = r.started_at",
+        )
+    ]
+
+
+def build_rate_table(
+    conn: sqlite3.Connection, run_ids: list[str], district_expr: str = DISTRICT_EXPR
+) -> dict[str, Any]:
+    """비교 화면이 쓸 전체 금리표.
+
+    관측이 1만 8천 건이라 객체 배열로 만들면 화면에 싣기 무겁다. 값을 배열로
+    쓰고 되풀이되는 문자열(기관명·상품명·구)은 조회표로 빼서 크기를 줄인다.
+
+    반환 형태:
+        {"columns": [...], "lookups": {"institution": [...], ...},
+         "rows": [[0, 3, 12, ...], ...]}
+
+    `rows`의 각 항목은 `columns` 순서를 따르고, 조회표가 있는 열은 그 표의
+    색인이 들어간다.
+    """
+    if not run_ids:
+        return {"columns": list(TABLE_COLUMNS), "lookups": {}, "rows": []}
+
+    placeholders = ",".join("?" for _ in run_ids)
+    raw = _rows(
+        conn,
+        "SELECT i.sector                AS sector,"
+        "       i.canonical_name        AS institution,"
+        f"      {district_expr}         AS district,"
+        "       p.name                  AS product,"
+        "       p.product_type          AS product_type,"
+        "       v.term_months           AS term_months,"
+        "       v.payment_method        AS payment_method,"
+        "       v.interest_method       AS interest_method,"
+        "       v.join_channel          AS join_channel,"
+        "       o.base_rate             AS base_rate,"
+        "       o.max_rate              AS max_rate,"
+        "       i.availability_scope    AS availability_scope,"
+        "       r.source_id             AS source_id,"
+        "       o.source_effective_at   AS source_effective_at"
+        "  FROM rate_observations o"
+        "  JOIN collection_runs r  ON r.id = o.run_id"
+        "  JOIN product_variants v ON v.id = o.variant_id"
+        "  JOIN products p         ON p.id = v.product_id"
+        "  JOIN institutions i     ON i.id = p.institution_id"
+        "  LEFT JOIN outlets ot    ON ot.institution_id = i.id"
+        f" WHERE o.run_id IN ({placeholders})"
+        "   AND o.validation_status != 'error'"
+        " ORDER BY o.base_rate DESC",
+        tuple(run_ids),
+    )
+
+    # 같은 값이 수천 번 되풀이되는 열만 조회표로 뺀다.
+    indexed = ("sector", "institution", "district", "product", "product_type",
+               "payment_method", "interest_method", "join_channel",
+               "availability_scope", "source_id", "source_effective_at")
+    lookups: dict[str, list[Any]] = {name: [] for name in indexed}
+    positions: dict[str, dict[Any, int]] = {name: {} for name in indexed}
+
+    rows: list[list[Any]] = []
+    for record in raw:
+        row: list[Any] = []
+        for column in TABLE_COLUMNS:
+            value = record[column]
+            if column not in indexed:
+                # 금리는 0 패딩 문자열로 저장돼 있다. 화면에서 숫자로 쓰도록
+                # 여기서 풀어 준다. 없으면 None을 유지한다 (0으로 만들지 않는다).
+                if column in ("base_rate", "max_rate"):
+                    row.append(float(value) if value is not None else None)
+                else:
+                    row.append(value)
+                continue
+            table = positions[column]
+            if value not in table:
+                table[value] = len(lookups[column])
+                lookups[column].append(value)
+            row.append(table[value])
+        rows.append(row)
+
+    return {"columns": list(TABLE_COLUMNS), "lookups": lookups, "rows": rows}
+
+
 def build_summary(db_path: Path) -> dict[str, Any]:
     """대시보드가 쓸 집계값. 전부 SQL에서 나온 실측이다."""
     conn = sqlite3.connect(db_path)
@@ -67,15 +193,7 @@ def build_summary(db_path: Path) -> dict[str, Any]:
         # 예전에는 전체에서 가장 최근 실행 하나만 봤다. 수집원이 하나일 때는
         # 맞았지만 저축은행 다음에 새마을금고를 돌리면 저축은행 수치가
         # 화면에서 통째로 사라진다.
-        latest_by_source = _rows(
-            conn,
-            "SELECT r.id, r.source_id FROM collection_runs r"
-            "  JOIN (SELECT source_id, MAX(started_at) AS started_at"
-            "          FROM collection_runs GROUP BY source_id) latest"
-            "    ON latest.source_id = r.source_id"
-            "   AND latest.started_at = r.started_at",
-        )
-        run_ids = [r["id"] for r in latest_by_source]
+        run_ids = latest_run_ids(conn)
         placeholders = ",".join("?" for _ in run_ids)
 
         # 기간별 금리 분포. base_rate는 0 패딩 문자열이라 사전순 == 수치순이다.
@@ -138,12 +256,7 @@ def build_summary(db_path: Path) -> dict[str, Any]:
             "   AND COALESCE(ot.address, i.address) IS NOT NULL"
             "   AND COALESCE(ot.address, i.address) != ''"
         )
-        district_expr = (
-            "TRIM(SUBSTR(COALESCE(ot.address, i.address),"
-            "     INSTR(COALESCE(ot.address, i.address), ' ') + 1,"
-            "     INSTR(SUBSTR(COALESCE(ot.address, i.address),"
-            "           INSTR(COALESCE(ot.address, i.address), ' ') + 1), ' ')))"
-        )
+        district_expr = DISTRICT_EXPR
         by_district = _rows(
             conn,
             f"SELECT {district_expr} AS sigungu,"
@@ -229,6 +342,8 @@ def build_summary(db_path: Path) -> dict[str, Any]:
             "  FROM rate_observations o JOIN product_variants v ON v.id = o.variant_id"
             " GROUP BY v.rate_scope",
         )
+
+        table = build_rate_table(conn, run_ids, district_expr)
     finally:
         conn.close()
 
@@ -247,6 +362,7 @@ def build_summary(db_path: Path) -> dict[str, Any]:
         "review_samples": review_samples,
         "sources": sources,
         "rate_scopes": rate_scopes,
+        "table": table,
     }
 
 
@@ -259,7 +375,9 @@ def render(template_text: str, summary: dict[str, Any]) -> str:
     if end == -1:
         raise DashboardBuildError("주입 지점이 닫히지 않았다")
 
-    payload = json.dumps(summary, ensure_ascii=False, indent=2)
+    # 들여쓰기 없이 싣는다. 금리표가 1만 4천 행이라 들여쓰기만으로 파일이
+    # 3배 넘게 커진다. 읽기 좋은 형태는 publish/summary.json이 맡는다.
+    payload = json.dumps(summary, ensure_ascii=False, separators=(",", ":"))
     # </script>가 JSON 안에 들어가면 블록이 조기 종료된다.
     payload = payload.replace("</", "<\\/")
     return template_text[: start + len(DATA_MARKER)] + "\n" + payload + "\n" + template_text[end:]
