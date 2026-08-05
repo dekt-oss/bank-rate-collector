@@ -9,6 +9,7 @@ import asyncio
 import sys
 from pathlib import Path
 
+from rate_monitor.collectors.cu.adapter import CuAdapter
 from rate_monitor.collectors.finlife.adapter import FinlifeAdapter
 from rate_monitor.collectors.fsb.adapter import FsbAdapter
 from rate_monitor.collectors.kfcc.adapter import KfccAdapter
@@ -25,7 +26,12 @@ from rate_monitor.services.export_service import export_dataset
 from rate_monitor.services.snapshot_service import create_snapshot
 from rate_monitor.services.validation_service import run_validations
 
-ADAPTERS = {"finlife": FinlifeAdapter, "fsb": FsbAdapter, "kfcc": KfccAdapter}
+ADAPTERS = {
+    "finlife": FinlifeAdapter,
+    "fsb": FsbAdapter,
+    "cu": CuAdapter,
+    "kfcc": KfccAdapter,
+}
 
 
 def _finlife_request(args: argparse.Namespace) -> CollectionRequest:

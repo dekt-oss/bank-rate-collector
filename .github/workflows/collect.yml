@@ -23,6 +23,11 @@ on:
         type: boolean
         required: false
         default: false
+      skip_cu:
+        description: "신협 수집을 건너뛴다"
+        type: boolean
+        required: false
+        default: false
   schedule:
     # 평일 07:00 KST = 22:00 UTC 전날
     - cron: "0 22 * * 0-4"
@@ -102,6 +107,22 @@ jobs:
         run: |
           uv run rate-monitor collect \
             --source fsb \
+            --db work/rate_monitor.sqlite3 \
+            --raw-root data/raw
+
+      # 신협. 지역과 최고 우대금리를 동시에 주는 유일한 원천이다
+      # (docs/source-recon/cu.md §1).
+      #
+      # 지역을 지정하지 않으면 전국을 한 번에 받는다. 요청량은 화면 2 ×
+      # 기간 4 × 페이지이고, 전국 기준 약 970페이지 ≈ 16분이다.
+      #
+      # 이용약관을 확인하지 못해 policy_status가 review다.
+      - name: Collect CU
+        if: ${{ inputs.skip_cu != true }}
+        continue-on-error: true
+        run: |
+          uv run rate-monitor collect \
+            --source cu \
             --db work/rate_monitor.sqlite3 \
             --raw-root data/raw
 
