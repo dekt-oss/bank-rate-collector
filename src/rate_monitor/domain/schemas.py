@@ -90,6 +90,19 @@ class ParsedRateRow:
 
     extra: dict[str, Any] = field(default_factory=dict)
 
+    # 이 기관의 점포 명부.
+    #
+    # 금리가 기관 단위인 원천에서 필요하다. 새마을금고가 그렇다 — 금리는
+    # 금고(gmgoCd)마다 하나인데 주소는 점포마다 다르고, 한 금고가 두 구에
+    # 점포를 두기도 한다. 대표 점포 하나만 붙이면 나머지 구에서 그 금고가
+    # 사라진다.
+    #
+    # 같은 기관의 행마다 같은 명부를 실어 나르면 낭비이므로 **아티팩트당
+    # 첫 행에만** 채운다. 나머지 행은 빈 튜플이다.
+    #
+    # 각 항목의 키: source_outlet_key, name, address, phone
+    outlets: tuple[dict[str, Any], ...] = ()
+
 
 class SourceAdapter(Protocol):
     """수집원 어댑터 계약.

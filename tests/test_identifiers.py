@@ -60,11 +60,31 @@ def test_variant_key_distinguishes_outlet() -> None:
 
 
 def test_variant_key_falls_back_to_normalized_product_name() -> None:
-    """공식 상품코드가 없으면 정규화된 상품명으로 대체한다."""
+    """공식 상품코드가 없으면 정규화된 상품명으로 대체한다.
+
+    표기 차이(공백·대소문자)만 흡수한다.
+    """
     without_key = {**BASE, "source_product_key": None}
-    a = make_variant_key(**{**without_key, "product_name": "정기예금 (비대면)"})
+    a = make_variant_key(**{**without_key, "product_name": " 정기 예금 "})
     b = make_variant_key(**{**without_key, "product_name": "정기예금"})
     assert a == b
+
+
+def test_variant_key_keeps_parenthesised_product_names_apart() -> None:
+    """괄호는 장식이 아니라 상품을 가르는 표시다.
+
+    이 테스트는 한때 반대를 단언했다. 그래서 상품코드가 없는 원천에서
+    서로 다른 상품이 같은 키를 받아 뒤엣것이 버려졌다. 부산 새마을금고
+    실수집에서 MG기업정기예금 (A)와 (B)가 합쳐져 60행을 잃었다.
+    """
+    without_key = {**BASE, "source_product_key": None}
+    a = make_variant_key(**{**without_key, "product_name": "MG기업정기예금(A)"})
+    b = make_variant_key(**{**without_key, "product_name": "MG기업정기예금(B)"})
+    assert a != b
+
+    online = make_variant_key(**{**without_key, "product_name": "정기예금(비대면)"})
+    offline = make_variant_key(**{**without_key, "product_name": "정기예금"})
+    assert online != offline
 
 
 def test_variant_key_term_days_distinct_from_months() -> None:

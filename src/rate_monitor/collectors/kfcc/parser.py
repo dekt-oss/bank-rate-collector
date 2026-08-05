@@ -16,6 +16,7 @@
 """
 
 import re
+from dataclasses import replace
 from datetime import date, datetime
 from hashlib import sha256
 from html import unescape
@@ -272,11 +273,42 @@ def schema_fingerprint(html: str) -> str:
     return _digest(";".join(sorted(shape)) + "#" + ",".join(containers))
 
 
+def build_outlet_directory(rows: list[dict[str, str]]) -> tuple[dict[str, Any], ...]:
+    """목록 행들을 점포 명부로 옮긴다.
+
+    `(gmgoCd, divCd)`가 점포 원천키다 (명세서 v3 §7.3.4-4).
+
+    >>> entry = build_outlet_directory([
+    ...     {"gmgoCd": "1203", "divCd": "001", "divNm": "본점",
+    ...      "addr": "부산 중구 대청로 101-1", "telephone": "051-463-2166"},
+    ... ])[0]
+    >>> entry["source_outlet_key"], entry["name"]
+    ('1203:001', '본점')
+    >>> entry["address"]
+    '부산 중구 대청로 101-1'
+    """
+    out: list[dict[str, Any]] = []
+    for row in rows:
+        gmgo, div = row.get("gmgoCd"), row.get("divCd")
+        if not gmgo or not div:
+            continue
+        out.append(
+            {
+                "source_outlet_key": f"{gmgo}:{div}",
+                "name": row.get("divNm") or div,
+                "address": row.get("addr"),
+                "phone": row.get("telephone"),
+            }
+        )
+    return tuple(out)
+
+
 def parse_rates(
     html: str,
     *,
     gubuncode: str,
     outlet: dict[str, str],
+    outlet_directory: list[dict[str, str]] | None = None,
     join_channel: str = JoinChannel.UNKNOWN,
 ) -> tuple[list[ParsedRateRow], list[str]]:
     """금리 페이지 한 장을 표준 행으로 바꾼다.
@@ -300,6 +332,10 @@ def parse_rates(
         if outlet.get("gmgoType") == "직장"
         else AvailabilityScope.LOCAL_MEMBERS
     )
+
+    # 명부는 아티팩트당 첫 행에만 싣는다. 행마다 실으면 같은 값을 수천 번
+    # 나른다. 저장 계층은 어느 행에서 오든 같은 점포를 한 번만 만든다.
+    directory = build_outlet_directory(outlet_directory or [outlet])
 
     rows: list[ParsedRateRow] = []
     for table_idx, (title, table) in enumerate(_sections(html)):
@@ -333,6 +369,9 @@ def parse_rates(
                 gubuncode=gubuncode,
             )
         )
+
+    if rows and directory:
+        rows[0] = replace(rows[0], outlets=directory)
     return rows, warnings
 
 

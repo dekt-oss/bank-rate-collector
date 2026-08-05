@@ -155,6 +155,58 @@ def resolve_outlet(
     return outlet
 
 
+def resolve_outlet_directory(
+    session: Session, row: ParsedRateRow, institution: Institution, now: datetime
+) -> list[Outlet]:
+    """행이 실어 온 점포 명부를 저장한다.
+
+    금리가 기관 단위인 원천에서 쓴다. 새마을금고는 금리가 금고마다 하나인데
+    주소는 점포마다 다르고, 한 금고가 두 구에 점포를 두기도 한다. 명부가
+    없으면 대표 점포가 있는 구에서만 그 금고가 보인다.
+
+    `row.outlets`가 비어 있으면 아무것도 하지 않으므로 finlife에는 영향이 없다.
+    같은 점포를 두 번 만들지 않는 것은 `source_entity_links`의 부분 유니크
+    인덱스가 보장한다.
+    """
+    created: list[Outlet] = []
+    for entry in row.outlets:
+        source_key = entry.get("source_outlet_key")
+        if not source_key:
+            continue
+        key = f"{institution.id}:{source_key}"
+        link = _find_link(session, row.source_id, "outlet", key)
+        if link is not None:
+            existing = session.get(Outlet, link.entity_id)
+            if existing is not None:
+                # 주소·전화는 바뀔 수 있으므로 최신값으로 맞춘다.
+                existing.address = entry.get("address") or existing.address
+                existing.phone = entry.get("phone") or existing.phone
+                continue
+
+        outlet = Outlet(
+            institution_id=institution.id,
+            name=entry.get("name") or source_key,
+            sido_code=None,
+            sigungu_code=None,
+            address=entry.get("address"),
+            phone=entry.get("phone"),
+            active=True,
+        )
+        session.add(outlet)
+        session.flush()
+        _link(
+            session,
+            source_id=row.source_id,
+            entity_type="outlet",
+            key=key,
+            entity_id=outlet.id,
+            source_name=entry.get("name"),
+            now=now,
+        )
+        created.append(outlet)
+    return created
+
+
 def resolve_product(
     session: Session, row: ParsedRateRow, institution: Institution, now: datetime
 ) -> Product:

@@ -218,24 +218,69 @@ def test_dashboard_aggregates_by_district(factory, tmp_path) -> None:
     assert top[0]["term_months"] == 12
 
 
-def test_district_is_derived_from_the_address(factory, tmp_path) -> None:
-    """주소가 없으면 구 집계에 나타나지 않는다.
+def test_district_needs_an_address_from_somewhere(factory, tmp_path) -> None:
+    """주소가 하나도 없으면 구 집계에 나타나지 않는다.
 
-    저축은행이 그 경우다. finlife는 주소를 주지 않으므로 구 단위로 말할 수
-    없고, 조용히 '미상' 같은 칸에 몰아넣지도 않는다.
+    저축은행이 그 경우다. finlife는 기관 주소도 점포 명부도 주지 않으므로
+    구 단위로 말할 수 없고, 조용히 '미상' 같은 칸에 몰아넣지도 않는다.
     """
+    import dataclasses
+
     from rate_monitor.services.dashboard_service import build_summary
 
     class NoAddressAdapter(FixtureAdapter):
         def parse_with_warnings(self, artifact):
             rows, warnings = super().parse_with_warnings(artifact)
             return [
-                __import__("dataclasses").replace(r, address=None) for r in rows
+                dataclasses.replace(r, address=None, outlets=()) for r in rows
             ], warnings
 
     run_collect(factory, tmp_path / "raw", adapter=NoAddressAdapter())
     summary = build_summary(tmp_path / "kfcc.sqlite3")
     assert summary["by_district"] == []
+
+
+def test_outlet_directory_is_stored_and_drives_the_district(factory, tmp_path) -> None:
+    """점포 명부가 저장되고, 구 집계가 점포 주소를 쓴다.
+
+    금리는 금고 단위지만 한 금고가 두 구에 점포를 두기도 한다. 기관 주소만
+    쓰면 그 금고가 다른 구에서 통째로 사라진다 (부산 실측 3건).
+    """
+    import dataclasses
+
+    from rate_monitor.services.dashboard_service import build_summary
+
+    class TwoDistrictAdapter(FixtureAdapter):
+        """대청금고에 서구 점포를 하나 더 붙인다."""
+
+        def parse_with_warnings(self, artifact):
+            rows, warnings = super().parse_with_warnings(artifact)
+            if rows and rows[0].outlets:
+                extra = {
+                    "source_outlet_key": "1203:002",
+                    "name": "서구지점",
+                    "address": "부산 서구 구덕로 100",
+                    "phone": "051-000-0000",
+                }
+                rows[0] = dataclasses.replace(
+                    rows[0], outlets=(*rows[0].outlets, extra)
+                )
+            return rows, warnings
+
+    run_collect(factory, tmp_path / "raw", adapter=TwoDistrictAdapter())
+
+    with session_scope(factory) as session:
+        outlets = session.scalars(select(m.Outlet)).all()
+        assert {o.name for o in outlets} == {"본점", "서구지점"}
+        assert {o.address for o in outlets} == {
+            "부산 중구 대청로 101-1",
+            "부산 서구 구덕로 100",
+        }
+
+    summary = build_summary(tmp_path / "kfcc.sqlite3")
+    # 같은 금고가 두 구 모두에 나타난다.
+    assert {d["sigungu"] for d in summary["by_district"]} == {"중구", "서구"}
+    assert {t["sigungu"] for t in summary["district_top"]} == {"중구", "서구"}
 
 
 # ── 재수집 ──────────────────────────────────────────────────────────────
