@@ -17,6 +17,29 @@ from rate_monitor.services.collection_service import DEFAULT_RAW_ROOT, collect_s
 ADAPTERS = {"finlife": FinlifeAdapter}
 
 
+def _finlife_request(args: argparse.Namespace) -> CollectionRequest:
+    return CollectionRequest(
+        source_id=args.source,
+        options={
+            "services": tuple(args.services),
+            "groups": tuple(args.groups),
+        },
+    )
+
+
+def _default_request(args: argparse.Namespace) -> CollectionRequest:
+    """지역 기반 수집원의 기본형. 구·군 목록을 regions로 넘긴다."""
+    return CollectionRequest(
+        source_id=args.source,
+        regions=tuple(args.regions or ()),
+    )
+
+
+# 수집원마다 필요한 인자가 다르다. finlife의 services/groups를 모든 원천에
+# 무조건 밀어 넣으면 지역 기반 수집원에서 뜻 없는 값이 실행 이력에 남는다.
+REQUEST_BUILDERS = {"finlife": _finlife_request}
+
+
 def _collect(args: argparse.Namespace) -> int:
     adapter_cls = ADAPTERS.get(args.source)
     if adapter_cls is None:
@@ -25,13 +48,8 @@ def _collect(args: argparse.Namespace) -> int:
 
     engine = create_db_engine(args.db)
     factory = make_session_factory(engine)
-    request = CollectionRequest(
-        source_id=args.source,
-        options={
-            "services": tuple(args.services),
-            "groups": tuple(args.groups),
-        },
-    )
+    build_request = REQUEST_BUILDERS.get(args.source, _default_request)
+    request = build_request(args)
     result = asyncio.run(
         collect_source(adapter_cls(), request, factory, raw_root=Path(args.raw_root))
     )
@@ -60,7 +78,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     collect.add_argument(
         "--groups", nargs="+", default=["030300"],
-        help="권역코드. 030300=저축은행, 020000=은행",
+        help="finlife 전용. 권역코드. 030300=저축은행, 020000=은행",
+    )
+    collect.add_argument(
+        "--regions", nargs="+", default=None,
+        help="지역 기반 수집원 전용. 구·군 이름 (예: 중구 서구)",
     )
     collect.set_defaults(func=_collect)
 

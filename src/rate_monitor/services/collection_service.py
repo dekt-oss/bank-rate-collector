@@ -106,8 +106,9 @@ def persist_rows(
 
     for row in rows:
         institution = entity_service.resolve_institution(session, row, now)
+        outlet = entity_service.resolve_outlet(session, row, institution, now)
         product = entity_service.resolve_product(session, row, institution, now)
-        variant = entity_service.resolve_variant(session, row, product, institution)
+        variant = entity_service.resolve_variant(session, row, product, institution, outlet)
 
         if variant.id in seen_variants:
             session.add(
@@ -168,21 +169,28 @@ def persist_rows(
 
 
 def ensure_source(session: Session, adapter, now: datetime) -> Source:  # noqa: ANN001
+    """수집원 행을 찾거나 만든다.
+
+    모든 값을 어댑터에서 읽는다. 예전에는 finlife 값이 여기 하드코딩돼 있어
+    다른 원천으로 돌리면 이름이 "금융감독원…"이고 `policy_status`가
+    `allowed`인 잘못된 행이 생겼다. 특히 `policy_status`는 원천마다 다르고
+    (새마을금고는 약관 미확인이라 `review`) 틀리면 안 되는 값이다.
+    """
     source = session.get(Source, adapter.source_id)
     if source is not None:
         return source
     source = Source(
         id=adapter.source_id,
-        name="금융감독원 금융상품통합비교공시 오픈API",
-        sector="savings_bank",
-        mode="api",
+        name=adapter.source_name,
+        sector=adapter.sector,
+        mode=adapter.mode,
         source_role=adapter.source_role,
         trust_level=adapter.trust_level,
-        priority=20,
-        base_reference="finlife.fss.or.kr/finlifeapi",
+        priority=adapter.priority,
+        base_reference=adapter.base_reference,
         enabled=True,
-        policy_status="allowed",
-        coverage_status="partial",
+        policy_status=adapter.policy_status,
+        coverage_status=adapter.coverage_status,
         created_at=now,
         updated_at=now,
     )
@@ -202,6 +210,10 @@ async def collect_source(
 
     fetch가 실패하면 관측값을 하나도 쓰지 않고 실행 상태만 남긴다. 이전
     정상값은 그대로 유지된다 (v3 §10.3).
+
+    파싱·저장 중 실패도 예외를 밖으로 던지지 않고 실행 상태로 돌려준다.
+    HTML을 긁는 수집원에서는 구조 변경이 주된 실패 모드라, 예외가 호출자까지
+    올라가면 CLI가 traceback으로 죽고 실행 이력만 남는다.
     """
     now = _utcnow()
     run_id = _new_run(factory, adapter, request, now)
@@ -231,7 +243,7 @@ def _new_run(
         ensure_source(session, adapter, now)
         run = CollectionRun(
             source_id=adapter.source_id,
-            mode="api",
+            mode=adapter.mode,
             started_at=now,
             status=RunStatus.RUNNING,
             query_context_json={
@@ -303,10 +315,14 @@ def _process(
         return result
     except SchemaChangedError as exc:
         _finalize_failure(factory, run_id, RunStatus.SCHEMA_CHANGED, str(exc))
-        raise
-    except Exception as exc:  # noqa: BLE001
+        return CollectionRunResult(
+            run_id, RunStatus.SCHEMA_CHANGED, len(artifacts), 0, 0, 0, 0, str(exc)
+        )
+    except Exception as exc:  # noqa: BLE001 — 어떤 실패든 실행 이력에 남긴다
         _finalize_failure(factory, run_id, RunStatus.FAILED, f"{type(exc).__name__}: {exc}")
-        raise
+        return CollectionRunResult(
+            run_id, RunStatus.FAILED, len(artifacts), 0, 0, 0, 0, str(exc)
+        )
 
 
 def _finalize_failure(
