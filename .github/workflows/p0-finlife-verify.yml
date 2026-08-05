@@ -1,0 +1,26 @@
+name: P0 finlife API verify
+
+on:
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Verify finlife API coverage
+        env:
+          FINLIFE_API_KEY: ${{ secrets.FINLIFE_API_KEY }}
+        run: python scripts/p0_finlife_verify.py
+      - name: Upload raw responses and verdict
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: p0-finlife-verify
+          path: |
+            data/raw/p0/finlife/
+            docs/source-recon/finlife-verify.json
+          if-no-files-found: ignore
