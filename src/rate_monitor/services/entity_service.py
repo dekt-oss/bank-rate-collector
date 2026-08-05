@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from rate_monitor.db.models import (
     Institution,
+    Outlet,
     Product,
     ProductVariant,
     SourceEntityLink,
@@ -107,6 +108,53 @@ def resolve_institution(session: Session, row: ParsedRateRow, now: datetime) -> 
     return institution
 
 
+def resolve_outlet(
+    session: Session, row: ParsedRateRow, institution: Institution, now: datetime
+) -> Outlet | None:
+    """점포를 찾거나 만든다. 원천이 점포키를 주지 않으면 None이다.
+
+    finlife는 점포 단위 정보를 주지 않으므로 항상 None이다. 새마을금고는
+    `(gmgoCd, divCd)`를 주므로 여기서 점포가 생긴다.
+
+    **점포를 왜 만드는가**: 금리는 금고 단위지만 구·군 주소는 점포에 있다.
+    "부산 ○○구에서 가입 가능한 상품"을 만들려면 점포 명부가 필요하다.
+
+    `sido_code`/`sigungu_code`는 채우지 않는다. 원천이 주는 `r1`/`r2`는 그
+    사이트의 화면 파라미터이지 행정구역 공식 코드가 아니다
+    (`config/regions.yaml` 참조). 주소 원문만 남긴다.
+    """
+    if not row.source_outlet_key:
+        return None
+
+    key = f"{institution.id}:{row.source_outlet_key}"
+    link = _find_link(session, row.source_id, "outlet", key)
+    if link is not None:
+        outlet = session.get(Outlet, link.entity_id)
+        if outlet is not None:
+            return outlet
+
+    outlet = Outlet(
+        institution_id=institution.id,
+        name=row.outlet_name or row.source_outlet_key,
+        sido_code=None,
+        sigungu_code=None,
+        address=row.address,
+        active=True,
+    )
+    session.add(outlet)
+    session.flush()
+    _link(
+        session,
+        source_id=row.source_id,
+        entity_type="outlet",
+        key=key,
+        entity_id=outlet.id,
+        source_name=row.outlet_name,
+        now=now,
+    )
+    return outlet
+
+
 def resolve_product(
     session: Session, row: ParsedRateRow, institution: Institution, now: datetime
 ) -> Product:
@@ -141,7 +189,11 @@ def resolve_product(
 
 
 def resolve_variant(
-    session: Session, row: ParsedRateRow, product: Product, institution: Institution
+    session: Session,
+    row: ParsedRateRow,
+    product: Product,
+    institution: Institution,
+    outlet: Outlet | None = None,
 ) -> ProductVariant:
     """비교 단위를 찾거나 만든다. variant_key가 유일 식별자다."""
     org_key = make_org_key(
@@ -171,7 +223,8 @@ def resolve_variant(
 
     variant = ProductVariant(
         product_id=product.id,
-        outlet_id=None,  # finlife는 점포 단위 금리를 주지 않는다
+        # 점포를 준 원천만 채워진다. finlife는 점포 단위 금리를 주지 않아 None이다.
+        outlet_id=outlet.id if outlet is not None else None,
         term_months=row.term_months,
         term_days=row.term_days,
         join_channel=row.join_channel,
@@ -189,13 +242,11 @@ def resolve_variant(
 
 
 def _sector_of(row: ParsedRateRow) -> str:
-    """권역 판정.
+    """권역은 행이 밝힌 값을 그대로 쓴다.
 
-    finlife는 권역코드로 요청하므로 rate_scope로 되짚는다. 저축은행 공시는
-    본점 기준(head_office_reference)이고 은행은 전국(nationwide)이다.
+    예전에는 `rate_scope`로 되짚어 추측했다. 저축은행 하나만 있을 때는
+    맞았지만 원천이 늘면 곧바로 틀린다. 새마을금고 행은 `rate_scope=institution`
+    이라 그 추측이 `bank`를 돌려주고, 그 값이 `make_org_key`에 들어가
+    `"bank:1203"` 같은 잘못된 식별키를 만든다.
     """
-    from rate_monitor.domain.enums import RateScope, Sector
-
-    if row.rate_scope == RateScope.HEAD_OFFICE_REFERENCE:
-        return Sector.SAVINGS_BANK
-    return Sector.BANK
+    return row.sector

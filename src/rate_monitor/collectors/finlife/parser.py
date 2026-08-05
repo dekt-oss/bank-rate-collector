@@ -18,6 +18,7 @@ from rate_monitor.domain.enums import (
     JoinChannel,
     ProductType,
     RateScope,
+    Sector,
     SourceRole,
     TrustLevel,
     ValidationStatus,
@@ -42,6 +43,12 @@ SERVICE_PRODUCT_TYPE = {
 GROUP_RATE_SCOPE = {
     "020000": RateScope.NATIONWIDE,
     "030300": RateScope.HEAD_OFFICE_REFERENCE,
+}
+
+# 권역코드 → sector. 요청할 때 이미 아는 값이므로 되짚어 추측하지 않는다.
+GROUP_SECTOR = {
+    "020000": Sector.BANK,
+    "030300": Sector.SAVINGS_BANK,
 }
 
 _INTEREST_METHOD = {"S": InterestMethod.SIMPLE, "M": InterestMethod.COMPOUND}
@@ -181,6 +188,7 @@ def parse(
     warnings = check_schema(result)
     product_type = SERVICE_PRODUCT_TYPE[service]
     rate_scope = GROUP_RATE_SCOPE.get(top_fin_grp_no, RateScope.UNKNOWN)
+    sector = GROUP_SECTOR.get(top_fin_grp_no, Sector.BANK)
 
     # 결합키: fin_co_no + fin_prdt_cd (docs/source-recon/finlife.md §3.2)
     base_index: dict[tuple[str, str], tuple[int, dict[str, Any]]] = {}
@@ -209,6 +217,7 @@ def parse(
                 opt_idx=opt_idx,
                 product_type=product_type,
                 rate_scope=rate_scope,
+                sector=sector,
             )
         )
 
@@ -223,6 +232,7 @@ def _build_row(
     opt_idx: int,
     product_type: str,
     rate_scope: str,
+    sector: str,
 ) -> ParsedRateRow:
     base_rate = parse_rate(option.get("intr_rate"))
     # intr_rate2가 없으면 base_rate와 같다고 단정하지 않는다 (v3 §8.4).
@@ -246,6 +256,7 @@ def _build_row(
         source_id=SOURCE_ID,
         source_role=SourceRole.SECONDARY_OFFICIAL,
         trust_level=TrustLevel.OFFICIAL_DIRECT,
+        sector=sector,
         source_institution_key=str(base.get("fin_co_no")),
         source_outlet_key=None,
         source_product_key=str(base.get("fin_prdt_cd")),

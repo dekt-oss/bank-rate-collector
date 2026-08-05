@@ -1,0 +1,464 @@
+{
+  "captured_at": "2026-08-05T09:27:32.886606+00:00",
+  "base": "https://www.kfcc.co.kr",
+  "sido": "부산광역시",
+  "note": "공식 목록 직접수집. 참고 저장소 집계와 독립적으로 센 값이다.",
+  "districts": [
+    {
+      "sigungu": "중구",
+      "url": "https://www.kfcc.co.kr/map/list.do?r1=%EB%B6%80%EC%82%B0&r2=%EC%A4%91%EA%B5%AC",
+      "status": 200,
+      "bytes": 28855,
+      "artifact": {
+        "path": "data/raw/p1c/kfcc/list_부산_중구_20260805T092734Z.html",
+        "sha256": "070b689d253b27d6ed46c2bb1f24bd85c4e003ca3dcb2d89281fcad095f8bf44"
+      },
+      "outlets": 9,
+      "institutions": 6,
+      "gmgo_types": {
+        "지역": 9
+      },
+      "address_mismatch": 0,
+      "address_mismatch_sample": [],
+      "codes": [
+        "1203",
+        "1205",
+        "1206",
+        "1207",
+        "1209",
+        "1211"
+      ]
+    },
+    {
+      "sigungu": "서구",
+      "url": "https://www.kfcc.co.kr/map/list.do?r1=%EB%B6%80%EC%82%B0&r2=%EC%84%9C%EA%B5%AC",
+      "status": 200,
+      "bytes": 42821,
+      "artifact": {
+        "path": "data/raw/p1c/kfcc/list_부산_서구_20260805T092737Z.html",
+        "sha256": "e7db2297809804ec488491cf5104ce13ca16efab7c9f86242a44c6de9763e914"
+      },
+      "outlets": 15,
+      "institutions": 7,
+      "gmgo_types": {
+        "지역": 14,
+        "직장": 1
+      },
+      "address_mismatch": 0,
+      "address_mismatch_sample": [],
+      "codes": [
+        "1213",
+        "1216",
+        "1217",
+        "1224",
+        "1228",
+        "1229",
+        "1231"
+      ]
+    },
+    {
+      "sigungu": "동구",
+      "url": "https://www.kfcc.co.kr/map/list.do?r1=%EB%B6%80%EC%82%B0&r2=%EB%8F%99%EA%B5%AC",
+      "status": 200,
+      "bytes": 51838,
+      "artifact": {
+        "path": "data/raw/p1c/kfcc/list_부산_동구_20260805T092740Z.html",
+        "sha256": "2ecf46d2b7570e44c26232eecbc17cff8371f427f8f1e9766ff30407633d18a7"
+      },
+      "outlets": 19,
+      "institutions": 11,
+      "gmgo_types": {
+        "지역": 19
+      },
+      "address_mismatch": 0,
+      "address_mismatch_sample": [],
+      "codes": [
+        "1303",
+        "1305",
+        "1306",
+        "1307",
+        "1315",
+        "1316",
+        "1318",
+        "1319",
+        "1324",
+        "1325",
+        "1343"
+      ]
+    },
+    {
+      "sigungu": "영도구",
+      "url": "https://www.kfcc.co.kr/map/list.do?r1=%EB%B6%80%EC%82%B0&r2=%EC%98%81%EB%8F%84%EA%B5%AC",
+      "status": 200,
+      "bytes": 31330,
+      "artifact": {
+        "path": "data/raw/p1c/kfcc/list_부산_영도구_20260805T092742Z.html",
+        "sha256": "f4ab529220cba32798d7c0a348c5069449cfe8a5b008a82581f2f1077e56283f"
+      },
+      "outlets": 10,
+      "institutions": 5,
+      "gmgo_types": {
+        "지역": 10
+      },
+      "address_mismatch": 0,
+      "address_mismatch_sample": [],
+      "codes": [
+        "1329",
+        "1332",
+        "1338",
+        "1339",
+        "1340"
+      ]
+    },
+    {
+      "sigungu": "부산진구",
+      "url": "https://www.kfcc.co.kr/map/list.do?r1=%EB%B6%80%EC%82%B0&r2=%EB%B6%80%EC%82%B0%EC%A7%84%EA%B5%AC",
+      "status": 200,
+      "bytes": 94430,
+      "artifact": {
+        "path": "data/raw/p1c/kfcc/list_부산_부산진구_20260805T092746Z.html",
+        "sha256": "e45fe08e364757286abc194e58b4a94b4727b4e7a74ad408936479dcc719b1bd"
+      },
+      "outlets": 37,
+      "institutions": 24,
+      "gmgo_types": {
+        "지역": 36,
+        "직장": 1
+      },
+      "address_mismatch": 0,
+      "address_mismatch_sample": [],
+      "codes": [
+        "1501",
+        "1502",
+        "1504",
+        "1505",
+        "1506",
+        "1509",
+        "1511",
+        "1513",
+        "1514",
+        "1515",
+        "1516",
+        "1517",
+        "1518",
+        "1519",
+        "1520",
+        "1521",
+        "1522",
+        "1524",
+        "1526",
+        "1527",
+        "1535",
+        "1536",
+        "1537",
+        "1538"
+      ]
+    },
+    {
+      "sigungu": "동래구",
+      "url": "https://www.kfcc.co.kr/map/list.do?r1=%EB%B6%80%EC%82%B0&r2=%EB%8F%99%EB%9E%98%EA%B5%AC",
+      "status": 200,
+      "bytes": 59291,
+      "artifact": {
+        "path": "data/raw/p1c/kfcc/list_부산_동래구_20260805T092749Z.html",
+        "sha256": "c2759db22f901bc31aa1e73836848b200fe877cb66d2797832dab5772203638b"
+      },
+      "outlets": 22,
+      "institutions": 11,
+      "gmgo_types": {
+        "지역": 22
+      },
+      "address_mismatch": 0,
+      "address_mismatch_sample": [],
+      "codes": [
+        "1601",
+        "1602",
+        "1603",
+        "1605",
+        "1606",
+        "1607",
+        "1608",
+        "1609",
+        "1610",
+        "1611",
+        "1612"
+      ]
+    },
+    {
+      "sigungu": "남구",
+      "url": "https://www.kfcc.co.kr/map/list.do?r1=%EB%B6%80%EC%82%B0&r2=%EB%82%A8%EA%B5%AC",
+      "status": 200,
+      "bytes": 63492,
+      "artifact": {
+        "path": "data/raw/p1c/kfcc/list_부산_남구_20260805T092751Z.html",
+        "sha256": "a868770ac6e77df693b4511338cd5f4b1afeec3e76fb4ac54dd5cbed2f5bcd09"
+      },
+      "outlets": 24,
+      "institutions": 15,
+      "gmgo_types": {
+        "지역": 24
+      },
+      "address_mismatch": 0,
+      "address_mismatch_sample": [],
+      "codes": [
+        "1402",
+        "1403",
+        "1404",
+        "1405",
+        "1406",
+        "1407",
+        "1408",
+        "1409",
+        "1410",
+        "1411",
+        "1412",
+        "1413",
+        "1414",
+        "1415",
+        "1417"
+      ]
+    },
+    {
+      "sigungu": "북구",
+      "url": "https://www.kfcc.co.kr/map/list.do?r1=%EB%B6%80%EC%82%B0&r2=%EB%B6%81%EA%B5%AC",
+      "status": 200,
+      "bytes": 45130,
+      "artifact": {
+        "path": "data/raw/p1c/kfcc/list_부산_북구_20260805T092754Z.html",
+        "sha256": "aeb651712b2f45b5bf50edfe083e1cd0c4e7a59313209d9cb42c2fdc6abe56d5"
+      },
+      "outlets": 16,
+      "institutions": 4,
+      "gmgo_types": {
+        "지역": 16
+      },
+      "address_mismatch": 0,
+      "address_mismatch_sample": [],
+      "codes": [
+        "1614",
+        "1615",
+        "1617",
+        "1618"
+      ]
+    },
+    {
+      "sigungu": "해운대구",
+      "url": "https://www.kfcc.co.kr/map/list.do?r1=%EB%B6%80%EC%82%B0&r2=%ED%95%B4%EC%9A%B4%EB%8C%80%EA%B5%AC",
+      "status": 200,
+      "bytes": 61895,
+      "artifact": {
+        "path": "data/raw/p1c/kfcc/list_부산_해운대구_20260805T092757Z.html",
+        "sha256": "4fcc68788ad0359db7721c6920e62e5d45cbbca0a808d1d04cbfa846e709ee0a"
+      },
+      "outlets": 23,
+      "institutions": 10,
+      "gmgo_types": {
+        "지역": 23
+      },
+      "address_mismatch": 0,
+      "address_mismatch_sample": [],
+      "codes": [
+        "1622",
+        "1624",
+        "1625",
+        "1626",
+        "1627",
+        "1628",
+        "1630",
+        "1632",
+        "1633",
+        "1634"
+      ]
+    },
+    {
+      "sigungu": "사하구",
+      "url": "https://www.kfcc.co.kr/map/list.do?r1=%EB%B6%80%EC%82%B0&r2=%EC%82%AC%ED%95%98%EA%B5%AC",
+      "status": 200,
+      "bytes": 59221,
+      "artifact": {
+        "path": "data/raw/p1c/kfcc/list_부산_사하구_20260805T092800Z.html",
+        "sha256": "eccaef1d667c913b028c42787267e212a87b43efd526ffaedc17994351435ab1"
+      },
+      "outlets": 22,
+      "institutions": 9,
+      "gmgo_types": {
+        "지역": 22
+      },
+      "address_mismatch": 0,
+      "address_mismatch_sample": [],
+      "codes": [
+        "1424",
+        "1425",
+        "1426",
+        "1427",
+        "1428",
+        "1431",
+        "1432",
+        "1434",
+        "1435"
+      ]
+    },
+    {
+      "sigungu": "금정구",
+      "url": "https://www.kfcc.co.kr/map/list.do?r1=%EB%B6%80%EC%82%B0&r2=%EA%B8%88%EC%A0%95%EA%B5%AC",
+      "status": 200,
+      "bytes": 59000,
+      "artifact": {
+        "path": "data/raw/p1c/kfcc/list_부산_금정구_20260805T092803Z.html",
+        "sha256": "825ddb5a99508a48320163d7e44359a80fafe71b450dc87c3a383235fdc3841b"
+      },
+      "outlets": 22,
+      "institutions": 10,
+      "gmgo_types": {
+        "지역": 22
+      },
+      "address_mismatch": 0,
+      "address_mismatch_sample": [],
+      "codes": [
+        "1701",
+        "1702",
+        "1703",
+        "1704",
+        "1707",
+        "1709",
+        "1711",
+        "1712",
+        "1714",
+        "1715"
+      ]
+    },
+    {
+      "sigungu": "강서구",
+      "url": "https://www.kfcc.co.kr/map/list.do?r1=%EB%B6%80%EC%82%B0&r2=%EA%B0%95%EC%84%9C%EA%B5%AC",
+      "status": 200,
+      "bytes": 22223,
+      "artifact": {
+        "path": "data/raw/p1c/kfcc/list_부산_강서구_20260805T092806Z.html",
+        "sha256": "74db3aaac157f036538e35c755e1b6a7768e947f3524837238a80b6b31aebb97"
+      },
+      "outlets": 6,
+      "institutions": 4,
+      "gmgo_types": {
+        "지역": 5,
+        "직장": 1
+      },
+      "address_mismatch": 0,
+      "address_mismatch_sample": [],
+      "codes": [
+        "1427",
+        "1615",
+        "1736",
+        "3826"
+      ]
+    },
+    {
+      "sigungu": "연제구",
+      "url": "https://www.kfcc.co.kr/map/list.do?r1=%EB%B6%80%EC%82%B0&r2=%EC%97%B0%EC%A0%9C%EA%B5%AC",
+      "status": 200,
+      "bytes": 47673,
+      "artifact": {
+        "path": "data/raw/p1c/kfcc/list_부산_연제구_20260805T092809Z.html",
+        "sha256": "5ccdae6daca810f324ee11c5a5e346f0feb40ce6dc55956ddc37d4b0e7c82388"
+      },
+      "outlets": 17,
+      "institutions": 9,
+      "gmgo_types": {
+        "지역": 17
+      },
+      "address_mismatch": 0,
+      "address_mismatch_sample": [],
+      "codes": [
+        "1721",
+        "1722",
+        "1724",
+        "1725",
+        "1726",
+        "1727",
+        "1729",
+        "1730",
+        "1732"
+      ]
+    },
+    {
+      "sigungu": "수영구",
+      "url": "https://www.kfcc.co.kr/map/list.do?r1=%EB%B6%80%EC%82%B0&r2=%EC%88%98%EC%98%81%EA%B5%AC",
+      "status": 200,
+      "bytes": 26581,
+      "artifact": {
+        "path": "data/raw/p1c/kfcc/list_부산_수영구_20260805T092811Z.html",
+        "sha256": "bddd3a1b7806518fa7d2608d80a8582b8245bc66f94fc27d2738e334c3f0e78c"
+      },
+      "outlets": 8,
+      "institutions": 5,
+      "gmgo_types": {
+        "지역": 8
+      },
+      "address_mismatch": 0,
+      "address_mismatch_sample": [],
+      "codes": [
+        "1442",
+        "1443",
+        "1444",
+        "1446",
+        "1447"
+      ]
+    },
+    {
+      "sigungu": "사상구",
+      "url": "https://www.kfcc.co.kr/map/list.do?r1=%EB%B6%80%EC%82%B0&r2=%EC%82%AC%EC%83%81%EA%B5%AC",
+      "status": 200,
+      "bytes": 52146,
+      "artifact": {
+        "path": "data/raw/p1c/kfcc/list_부산_사상구_20260805T092814Z.html",
+        "sha256": "60a205ef28023c26c26e95951f907c7fdb7ac02a362181e64934ed1d64fbcddf"
+      },
+      "outlets": 19,
+      "institutions": 7,
+      "gmgo_types": {
+        "지역": 19
+      },
+      "address_mismatch": 0,
+      "address_mismatch_sample": [],
+      "codes": [
+        "1733",
+        "1734",
+        "1736",
+        "1737",
+        "1738",
+        "1739",
+        "1740"
+      ]
+    },
+    {
+      "sigungu": "기장군",
+      "url": "https://www.kfcc.co.kr/map/list.do?r1=%EB%B6%80%EC%82%B0&r2=%EA%B8%B0%EC%9E%A5%EA%B5%B0",
+      "status": 200,
+      "bytes": 17491,
+      "artifact": {
+        "path": "data/raw/p1c/kfcc/list_부산_기장군_20260805T092817Z.html",
+        "sha256": "7a90422f130b30a6ef93a860150c590cda1144f594b1522d9c634ce0e0e16d56"
+      },
+      "outlets": 4,
+      "institutions": 3,
+      "gmgo_types": {
+        "지역": 3,
+        "직장": 1
+      },
+      "address_mismatch": 0,
+      "address_mismatch_sample": [],
+      "codes": [
+        "1641",
+        "1642",
+        "1643"
+      ]
+    }
+  ],
+  "totals": {
+    "districts_queried": 16,
+    "districts_ok": 16,
+    "institutions_distinct": 137,
+    "institutions_sum_by_district": 140,
+    "outlets": 273,
+    "address_mismatch": 0
+  }
+}

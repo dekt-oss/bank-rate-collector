@@ -22,7 +22,7 @@ from rate_monitor.collectors.base import (
     mask_auth_in_meta,
 )
 from rate_monitor.collectors.finlife import parser
-from rate_monitor.domain.enums import SourceRole, TrustLevel
+from rate_monitor.domain.enums import CollectionMode, Sector, SourceRole, TrustLevel
 from rate_monitor.domain.schemas import CollectionRequest, ParsedRateRow, RawArtifactData
 
 # 2026-08-05 실측: http로 요청하면 서버가 307로 https에 리다이렉트한다.
@@ -44,6 +44,16 @@ class FinlifeAdapter:
     source_id = "finlife"
     source_role = SourceRole.SECONDARY_OFFICIAL
     trust_level = TrustLevel.OFFICIAL_DIRECT
+
+    # sources 행에 쓰이는 값들. 예전에는 collection_service.ensure_source에
+    # 하드코딩돼 있어 다른 원천으로 돌리면 잘못된 행이 생겼다.
+    source_name = "금융감독원 금융상품통합비교공시 오픈API"
+    sector = Sector.SAVINGS_BANK
+    mode = CollectionMode.API
+    priority = 20
+    base_reference = "finlife.fss.or.kr/finlifeapi"
+    policy_status = "allowed"
+    coverage_status = "partial"
 
     def __init__(self, api_key: str | None = None) -> None:
         key = api_key or os.environ.get(API_KEY_ENV)

@@ -7,6 +7,11 @@ on:
         description: "권역코드 (030300=저축은행, 020000=은행). 공백으로 구분"
         required: false
         default: "030300"
+      skip_kfcc:
+        description: "새마을금고 수집을 건너뛴다 (약 5분 걸린다)"
+        type: boolean
+        required: false
+        default: false
   schedule:
     # 평일 07:00 KST = 22:00 UTC 전날
     - cron: "0 22 * * 0-4"
@@ -68,6 +73,23 @@ jobs:
             --db work/rate_monitor.sqlite3 \
             --raw-root data/raw \
             --groups ${{ inputs.groups || '030300' }}
+
+      # 새마을금고. 부산 16개 구·군 전체.
+      #
+      # 요청량은 목록 16 + 금고 137 × 상품군 2 = 290회이고 1초 간격이라
+      # 5분 남짓 걸린다 (명세서 v3 §7.3.8).
+      #
+      # 차단되면 SourceBlockedError로 끝나고 종료코드가 1이 된다. 저축은행
+      # 수집분까지 버리지 않도록 continue-on-error로 두고, 결과는 게이트와
+      # 대시보드에서 실행 상태로 드러난다.
+      - name: Collect KFCC (부산 16개 구·군)
+        if: ${{ inputs.skip_kfcc != true }}
+        continue-on-error: true
+        run: |
+          uv run rate-monitor collect \
+            --source kfcc \
+            --db work/rate_monitor.sqlite3 \
+            --raw-root data/raw
 
       - name: Snapshot and build dashboard
         run: |

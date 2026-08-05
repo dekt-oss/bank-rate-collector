@@ -38,6 +38,16 @@ class ParsedRateRow:
     source_id: str
     source_role: str
     trust_level: str
+
+    # 권역. 행이 스스로 밝힌다.
+    #
+    # 예전에는 entity_service가 rate_scope로 되짚어 추측했다. 저축은행 하나만
+    # 있을 때는 맞았지만 원천이 늘면 곧바로 틀린다. 예를 들어 새마을금고 행은
+    # rate_scope=institution이라 그 추측이 bank를 돌려주고, 그 값이
+    # make_org_key에 들어가 "bank:1203" 같은 잘못된 식별키를 만든다.
+    # 권역은 파서가 아는 사실이므로 여기서 받는다 (Sector 열거형 값).
+    sector: str
+
     source_institution_key: str | None
     source_outlet_key: str | None
     source_product_key: str | None
@@ -82,8 +92,32 @@ class ParsedRateRow:
 
 
 class SourceAdapter(Protocol):
+    """수집원 어댑터 계약.
+
+    오케스트레이터가 실제로 요구하는 것을 전부 적는다. 예전에는 `fetch`와
+    `parse`만 선언돼 있었지만 `collection_service`는 `parse_with_warnings`를
+    부르고 `ensure_source`는 아래 메타데이터를 읽는다. 선언과 실제가 어긋나
+    있으면 새 어댑터를 만들 때 무엇을 채워야 하는지 알 수 없다.
+    """
+
     source_id: str
+
+    # ensure_source가 sources 행을 만들 때 읽는 값들.
+    # 예전에는 finlife 값이 collection_service에 하드코딩돼 있었다.
+    source_role: str
+    trust_level: str
+    sector: str
+    mode: str
+    priority: int
+    source_name: str
+    base_reference: str
+    policy_status: str
+    coverage_status: str
 
     async def fetch(self, request: CollectionRequest) -> list[RawArtifactData]: ...
 
     def parse(self, artifact: RawArtifactData) -> list[ParsedRateRow]: ...
+
+    def parse_with_warnings(
+        self, artifact: RawArtifactData
+    ) -> tuple[list[ParsedRateRow], list[str]]: ...

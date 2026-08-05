@@ -317,6 +317,24 @@
   </section>
 
   <section>
+    <h2>부산 구·군별 — 새마을금고</h2>
+    <p class="muted" id="district-note"></p>
+    <div class="scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>구·군</th><th class="num">금고</th><th class="num">관측</th>
+            <th class="num">최고 기본금리</th>
+            <th>12개월 최고 상품</th><th class="num">금리</th>
+            <th class="num">직장금고</th>
+          </tr>
+        </thead>
+        <tbody id="by-district"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
     <h2>가입기간별 금리 분포 — 최근 실행</h2>
     <div class="scroll">
       <table>
@@ -404,6 +422,35 @@
         <td class="num">${num(r.error_count)}</td>
       </tr>`).join("")
     : `<tr><td colspan="6" class="empty">수집 실행 없음</td></tr>`;
+
+  // 구·군별. 12개월 최고 상품을 구별로 붙여 한 줄에 보여준다.
+  const topByDistrict = {};
+  (data.district_top || []).forEach((r) => { topByDistrict[r.sigungu] = r; });
+  const districts = data.by_district || [];
+  $("district-note").textContent = districts.length
+    ? "최고 기본금리는 일반 가입 가능한 지역금고 기준이다. 직장금고는 해당 직장 "
+      + "임직원만 가입할 수 있어 대표값에서 뺐고 맨 오른쪽에 개수만 적었다. "
+      + "구는 기관 주소에서 뽑은 파생값이며 행정구역 공식 코드가 아니다. "
+      + "저축은행은 주소가 없어 여기 잡히지 않는다 — 본점 기준 공시라 구 단위로 말할 수 없다."
+    : "";
+  $("by-district").innerHTML = districts.length
+    ? districts.map((r) => {
+        const top = topByDistrict[r.sigungu];
+        const wp = Number(r.workplace_institutions || 0);
+        // 직장금고를 포함하면 대표값보다 높아지는 구는 그 사실을 같이 보여준다.
+        const higher = r.base_max_including_workplace
+          && Number(r.base_max_including_workplace) > Number(r.base_max || 0);
+        return `<tr>
+        <td>${esc(r.sigungu)}</td>
+        <td class="num">${num(r.institutions)}</td>
+        <td class="num">${num(r.observations)}</td>
+        <td class="num">${rate(r.base_max)}</td>
+        <td>${top ? esc(top.institution) + " · " + esc(top.product) : "—"}</td>
+        <td class="num">${top ? rate(top.base_rate) : "—"}</td>
+        <td class="num">${wp ? wp + (higher ? ` (최고 ${rate(r.base_max_including_workplace)})` : "") : "—"}</td>
+      </tr>`;
+      }).join("")
+    : `<tr><td colspan="7" class="empty">구·군 데이터 없음</td></tr>`;
 
   $("by-term").innerHTML = (data.by_term || []).length
     ? data.by_term.map((r) => `<tr>
