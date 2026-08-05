@@ -1,5 +1,5 @@
 {
-  "captured_at": "2026-08-05T08:55:42.798294+00:00",
+  "captured_at": "2026-08-05T09:16:22.232825+00:00",
   "base": "https://www.fsb.or.kr",
   "query_date": "2026-08-05",
   "area": "YN_Busan",
@@ -10,8 +10,8 @@
       "shape": "term",
       "page": {
         "status": 200,
-        "path": "data/raw/p1b/fsb/ratedepo_0100_20260805T085544Z.html",
-        "sha256": "36afb4dd71d07c625e2892195816a4a0fc0fdbba4d0ce6451ac3ee8cffb94a22",
+        "path": "data/raw/p1b/fsb/ratedepo_0100_20260805T091624Z.html",
+        "sha256": "25388b210d2f36a883cbf94d93abb813ecb942429f51eee24d4b957904bfab6f",
         "bytes": 118878
       },
       "page_title": "상품공시 - 정기예금",
@@ -172,7 +172,7 @@
           "SEARCH_SELECT_IN": "",
           "SEARCH_TEXT_IN": ""
         },
-        "path": "data/raw/p1b/fsb/ratedepo_0100_01_20260805T085547Z.json",
+        "path": "data/raw/p1b/fsb/ratedepo_0100_01_20260805T091627Z.json",
         "sha256": "cdbb41de9f841a36c123ca371e838531b529a1e4bc756e618a26ebaed1c2008a",
         "bytes": 11943,
         "top_level_keys": [
@@ -255,8 +255,8 @@
       "shape": "term",
       "page": {
         "status": 200,
-        "path": "data/raw/p1b/fsb/rateinst_0100_20260805T085549Z.html",
-        "sha256": "0d0b48f086485b88be0ba3f9e319e88eb2fef4c4598e1f541128945b718cc90a",
+        "path": "data/raw/p1b/fsb/rateinst_0100_20260805T091629Z.html",
+        "sha256": "2eee30df70c85b2e7f44836e71827c0bf6549dcc1289782dab7455fe83af7b2e",
         "bytes": 118951
       },
       "page_title": "상품공시 - 정기적금",
@@ -416,7 +416,7 @@
           "SEARCH_SELECT_IN": "",
           "SEARCH_TEXT_IN": ""
         },
-        "path": "data/raw/p1b/fsb/rateinst_0100_01_20260805T085552Z.json",
+        "path": "data/raw/p1b/fsb/rateinst_0100_01_20260805T091632Z.json",
         "sha256": "2544349c774d967c3883acc16763fb9476da86ed685426a59772df5ef8e07f09",
         "bytes": 12640,
         "top_level_keys": [
@@ -503,8 +503,8 @@
       "shape": "anytime",
       "page": {
         "status": 200,
-        "path": "data/raw/p1b/fsb/ratanym_0100_20260805T085554Z.html",
-        "sha256": "bc972451fe325d666ed168763c4b619276813fbcf992d5155356dfad02dfc8c4",
+        "path": "data/raw/p1b/fsb/ratanym_0100_20260805T091634Z.html",
+        "sha256": "25b282811a8db3ba0eef9ba5d39b65fe31c0c03ad89e37025c63878406fd2ee0",
         "bytes": 120525
       },
       "page_title": "상품공시 - 입출금자유예금",
@@ -554,7 +554,7 @@
           "SEARCH_SELECT_IN": "",
           "SEARCH_TEXT_IN": ""
         },
-        "path": "data/raw/p1b/fsb/ratanym_0100_20260805T085556Z.json",
+        "path": "data/raw/p1b/fsb/ratanym_0100_20260805T091636Z.json",
         "sha256": "cbdb89598a527efef4a122b188cb10da1d3c8232337cdb0a236f6474ea71fb4b",
         "bytes": 54,
         "top_level_keys": [
@@ -586,5 +586,155 @@
       "total_count": "163",
       "avg_12m_simple": "3.8"
     }
-  ]
+  ],
+  "branches": {
+    "endpoint": "https://www.fsb.or.kr/sabfindquic_0100.jct",
+    "status": 200,
+    "request": {
+      "AREA": "03",
+      "IBANK": "",
+      "MBANK": "",
+      "PLOAN": "",
+      "N_FUNDS": "",
+      "CD": "",
+      "CDP": "",
+      "ATM": "",
+      "END_NUM": "500",
+      "START_NUM": "1",
+      "STR_SORT": "SEQ DESC",
+      "ADDR": "",
+      "SEARCHTEXT": "",
+      "SEARCHVAL": ""
+    },
+    "path": "data/raw/p1b/fsb/sabfindquic_0100_20260805T091650Z.json",
+    "sha256": "cf1b4080500c2a7996b70ff00c5e235d82c7ef54e451930bf001f7628e1eac29",
+    "bytes": 18347,
+    "area_codes": [
+      {
+        "CODE": "01",
+        "AREA_NAME": "서울"
+      },
+      {
+        "CODE": "02",
+        "AREA_NAME": "인천/경기"
+      },
+      {
+        "CODE": "03",
+        "AREA_NAME": "부산/경남"
+      },
+      {
+        "CODE": "04",
+        "AREA_NAME": "대구/경북/강원"
+      },
+      {
+        "CODE": "05",
+        "AREA_NAME": "호남"
+      },
+      {
+        "CODE": "06",
+        "AREA_NAME": "충청"
+      }
+    ],
+    "record_count": 29,
+    "record_fields": [
+      "ADDRESS",
+      "AREA",
+      "AREA_NAME",
+      "ATM",
+      "BANK_CODE",
+      "BANK_NAME",
+      "BRANCH_CODE",
+      "BRANCH_NAME",
+      "CD",
+      "CDP",
+      "CTEL",
+      "DTEL",
+      "IBANK",
+      "IBANKING_URL",
+      "IMAGE",
+      "LOAN",
+      "MBANK",
+      "NAVER_MAP_ADDR",
+      "N_FUNDS",
+      "OFFICENOTICE_URL",
+      "RWNM",
+      "SEQ",
+      "TEL",
+      "URL",
+      "ZIP_CODE"
+    ],
+    "sample": {
+      "ZIP_CODE": "48744",
+      "IBANKING_URL": "http://www.bnksb.com/",
+      "CTEL": "02--",
+      "CDP": "0         ",
+      "URL": "http://www.bnksb.com/",
+      "LOAN": "Y",
+      "AREA": "03",
+      "IMAGE": "fb219.png",
+      "MBANK": "1",
+      "DTEL": "02-1644-9988",
+      "OFFICENOTICE_URL": "https://www.bnksb.com/sub.do?code=03_oper02",
+      "BRANCH_CODE": "001",
+      "BANK_CODE": "fb219",
+      "CD": "0         ",
+      "NAVER_MAP_ADDR": "부산 동구 범일로 92",
+      "RWNM": "1",
+      "AREA_NAME": "부산/경남지부",
+      "IBANK": "1",
+      "ADDRESS": "부산광역시 동구 범일로 92, 2-3층",
+      "N_FUNDS": "0",
+      "TEL": "02-1644-9988",
+      "ATM": "0         ",
+      "BRANCH_NAME": "본점",
+      "SEQ": "0",
+      "BANK_NAME": "BNK"
+    },
+    "busan_outlets": 20,
+    "busan_head_offices": [
+      [
+        "BNK",
+        "동구"
+      ],
+      [
+        "DH",
+        "부산진구"
+      ],
+      [
+        "IBK",
+        "부산진구"
+      ],
+      [
+        "고려",
+        "동구"
+      ],
+      [
+        "국제",
+        "부산진구"
+      ],
+      [
+        "동원제일",
+        "연제구"
+      ],
+      [
+        "솔브레인",
+        "연제구"
+      ],
+      [
+        "우리",
+        "부산진구"
+      ],
+      [
+        "흥국",
+        "연제구"
+      ]
+    ],
+    "busan_districts": {
+      "부산진구": 8,
+      "해운대구": 4,
+      "중구": 3,
+      "연제구": 3,
+      "동구": 2
+    }
+  }
 }

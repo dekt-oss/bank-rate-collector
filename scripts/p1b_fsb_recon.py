@@ -264,6 +264,67 @@ def probe_screen(screen: str, label: str, shape: str, on: str, area: str, size: 
     return result
 
 
+def probe_branches(area_code: str) -> dict:
+    """저축은행 찾기 화면 — 점포 목록.
+
+    금리 화면에는 소재지가 없다. 이 화면에만 있다. `BRANCH_NAME`이 '본점'인
+    행이 본점이고 `ADDRESS`에 구·군까지 들어 있어, 금리를 **본점 소재지
+    기준**으로 묶을 수 있다. 결합키는 금리 화면과 같은 `BANK_NAME`이다.
+
+    AREA는 시도가 아니라 중앙회 지부 단위다(03 = 부산/경남). 부산만 보려면
+    주소로 한 번 더 걸러야 한다.
+    """
+    screen = "sabfindquic_0100"
+    status, html_bytes = _request(f"{BASE}/{screen}.act")
+    time.sleep(INTERVAL_SECONDS)
+
+    payload = {
+        "AREA": area_code,
+        "IBANK": "", "MBANK": "", "PLOAN": "", "N_FUNDS": "",
+        "CD": "", "CDP": "", "ATM": "",
+        "END_NUM": "500", "START_NUM": "1", "STR_SORT": "SEQ DESC",
+        "ADDR": "", "SEARCHTEXT": "", "SEARCHVAL": "",
+    }
+    url = f"{BASE}/{screen}.jct"
+    status, raw = _request(url, json.dumps(payload).encode("utf-8"), json_body=True)
+    entry: dict = {
+        "endpoint": url,
+        "status": status,
+        "request": payload,
+        **save(raw, screen, "json", also_fixture=True),
+    }
+    try:
+        parsed = json.loads(raw)
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        entry["parse_error"] = str(exc)
+        return entry
+
+    rec = parsed.get("REC") or []
+    entry["area_codes"] = parsed.get("REC2") or []
+    entry["record_count"] = len(rec)
+    entry["record_fields"] = sorted(rec[0]) if rec else []
+    entry["sample"] = rec[0] if rec else None
+
+    busan = [r for r in rec if str(r.get("ADDRESS", "")).startswith("부산")]
+    head_offices = [r for r in busan if r.get("BRANCH_NAME") == "본점"]
+    entry["busan_outlets"] = len(busan)
+    entry["busan_head_offices"] = sorted(
+        {
+            (r["BANK_NAME"].strip(), r["ADDRESS"].split()[1])
+            for r in head_offices
+            if len(r["ADDRESS"].split()) > 1
+        }
+    )
+    districts: dict[str, int] = {}
+    for r in busan:
+        parts = r["ADDRESS"].split()
+        if len(parts) > 1:
+            districts[parts[1]] = districts.get(parts[1], 0) + 1
+    entry["busan_districts"] = dict(sorted(districts.items(), key=lambda kv: -kv[1]))
+    time.sleep(INTERVAL_SECONDS)
+    return entry
+
+
 def compare_areas(on: str, areas: list[str]) -> list[dict]:
     """AREA가 실제로 건수를 바꾸는지, 평균금리에도 반영되는지 확인한다."""
     out = []
@@ -294,6 +355,9 @@ def main() -> int:
     parser.add_argument("--date", default=date.today().isoformat(), help="조회일 YYYY-MM-DD")
     parser.add_argument("--area", default="YN_Busan", help="지역 코드 (빈 값이면 전체)")
     parser.add_argument("--size", type=int, default=10, help="표본으로 받을 행 수")
+    parser.add_argument(
+        "--branch-area", default="03", help="점포 조회 지부코드 (03=부산/경남)"
+    )
     args = parser.parse_args()
 
     report = {
@@ -309,6 +373,7 @@ def main() -> int:
         )
 
     report["area_comparison"] = compare_areas(args.date, ["", "YN_Busan", "YN_Seoul"])
+    report["branches"] = probe_branches(args.branch_area)
 
     REPORT_PATH.parent.mkdir(parents=True, exist_ok=True)
     REPORT_PATH.write_text(
@@ -325,6 +390,12 @@ def main() -> int:
             f"행={data.get('record_count')} 총={data.get('total_count')} "
             f"필드={len(data.get('record_fields') or [])}"
         )
+    br = report["branches"]
+    print(
+        f"  점포: status={br.get('status')} 행={br.get('record_count')} "
+        f"부산소재={br.get('busan_outlets')} 본점={len(br.get('busan_head_offices') or [])}"
+    )
+    print(f"    부산 구·군 분포: {br.get('busan_districts')}")
     print("  지역 비교:")
     for row in report["area_comparison"]:
         print(
