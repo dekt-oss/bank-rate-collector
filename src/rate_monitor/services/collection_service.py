@@ -260,6 +260,39 @@ def _new_run(
         return run.id
 
 
+# 이 비율을 넘으면 원천 구조가 바뀐 것으로 보고 실행을 멈춘다.
+#
+# 한 장이 어긋나는 것은 그 금고가 그 상품군을 안 팔거나 일시적 오류 응답을
+# 준 것이다. 여러 장이 한꺼번에 어긋나면 우리 파서가 틀린 것이다.
+SCHEMA_FAIL_RATIO = 0.05
+# 표본이 적을 때는 비율이 쉽게 튄다. 아티팩트가 이보다 적으면 한 장만
+# 어긋나도 멈춘다 — 예전 동작 그대로다.
+SCHEMA_FAIL_MIN_SAMPLE = 20
+
+
+def _schema_change_is_systemic(
+    failures: list[tuple[str, str]], artifacts: list[RawArtifactData]
+) -> bool:
+    """구조 어긋남이 원천 전체의 변화인지, 페이지 하나의 사정인지.
+
+    >>> a = [None] * 100
+    >>> _schema_change_is_systemic([("x", "e")], a)
+    False
+    >>> _schema_change_is_systemic([("x", "e")] * 6, a)
+    True
+
+    표본이 적으면 한 장도 그냥 넘기지 않는다.
+
+    >>> _schema_change_is_systemic([("x", "e")], [None] * 3)
+    True
+    """
+    if not failures:
+        return False
+    if len(artifacts) < SCHEMA_FAIL_MIN_SAMPLE:
+        return True
+    return len(failures) / len(artifacts) > SCHEMA_FAIL_RATIO
+
+
 def _process(
     adapter,  # noqa: ANN001
     artifacts: list[RawArtifactData],
@@ -275,11 +308,27 @@ def _process(
 
             parsed = valid = errors = 0
             warnings: list[str] = []
+            # 구조가 어긋난 페이지. 한 장 때문에 실행 전체를 버리지 않는다.
+            #
+            # 2026-08-05 전국 수집(2,520장)에서 한 장이 SchemaChangedError를
+            # 냈고, 그 예외가 트랜잭션 밖으로 나가면서 **2시간치 원본이 통째로
+            # 롤백**됐다. raw_count가 0으로 남아 어느 금고의 어떤 페이지였는지
+            # 조차 알 수 없게 됐다.
+            #
+            # 이제는 페이지마다 잡아 검수항목으로 남기고 계속 간다. 다만
+            # 명세서 v3.1 §8의 "구조 변경은 멈춘다"를 버리는 것은 아니다 —
+            # 어긋난 비율이 임계를 넘으면 그때 실행을 schema_changed로 끝낸다.
+            # 한 장은 그 원천의 사정이고, 여러 장은 우리 파서가 틀린 것이다.
+            schema_failures: list[tuple[str, str]] = []
             # 실행 단위로 유지한다. 페이지마다 초기화하면 페이지 경계를 넘는
             # 중복을 놓쳐 (variant_id, run_id) 유니크 제약에 걸린다.
             seen_variants: set[str] = set()
             for artifact_data, artifact_row in zip(artifacts, saved, strict=True):
-                rows, page_warnings = adapter.parse_with_warnings(artifact_data)
+                try:
+                    rows, page_warnings = adapter.parse_with_warnings(artifact_data)
+                except SchemaChangedError as exc:
+                    schema_failures.append((artifact_data.filename, str(exc)))
+                    continue
                 warnings.extend(page_warnings)
                 parsed += len(rows)
                 page_valid, page_errors = persist_rows(
@@ -287,6 +336,23 @@ def _process(
                 )
                 valid += page_valid
                 errors += page_errors
+
+            for filename, message in schema_failures:
+                session.add(
+                    ReviewItem(
+                        run_id=run.id,
+                        issue_type="schema_changed",
+                        severity="error",
+                        message=f"{filename}: {message}",
+                        payload_json={"filename": filename},
+                        created_at=now,
+                    )
+                )
+            if _schema_change_is_systemic(schema_failures, artifacts):
+                raise SchemaChangedError(
+                    f"{len(schema_failures)}/{len(artifacts)}장이 구조와 어긋난다:"
+                    f" {schema_failures[0][1]}"
+                )
 
             for warning in warnings:
                 session.add(
@@ -300,7 +366,10 @@ def _process(
                     )
                 )
 
-            run.status = RunStatus.SUCCESS if errors == 0 else RunStatus.PARTIAL
+            # 구조가 어긋나 건너뛴 페이지가 있으면 success가 아니다.
+            # 조용히 success로 끝나면 그 금고가 통째로 빠진 것을 아무도 모른다.
+            complete = errors == 0 and not schema_failures
+            run.status = RunStatus.SUCCESS if complete else RunStatus.PARTIAL
             run.finished_at = _utcnow()
             run.raw_count = len(artifacts)
             run.parsed_count = parsed
@@ -308,8 +377,12 @@ def _process(
             run.warning_count = len(warnings)
             run.error_count = errors
             run.schema_fingerprint = artifacts[0].schema_fingerprint if artifacts else None
+            skipped = (
+                f", 구조 어긋나 건너뜀 {len(schema_failures)}장" if schema_failures else ""
+            )
             run.message = (
-                f"{len(artifacts)}개 원본에서 {parsed}행 파싱, 정상 {valid}, 오류 {errors}"
+                f"{len(artifacts)}개 원본에서 {parsed}행 파싱,"
+                f" 정상 {valid}, 오류 {errors}{skipped}"
             )
             result = CollectionRunResult(
                 run_id, run.status, len(artifacts), parsed, valid, len(warnings), errors,
