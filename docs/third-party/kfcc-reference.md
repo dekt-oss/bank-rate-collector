@@ -173,6 +173,10 @@ summary/report_euckr.csv     → 자동 원천 아님. 수기 검산·백업용
 ## 6. 미해소 항목
 
 1. LICENSE 파일 부재 — `package.json`의 ISC 선언만 존재. 운영 사용 전 확인 권장.
-2. 새마을금고 공식 사이트 직접 도달성 — 별도 프로브 결과는 `docs/source-recon/kfcc-probe.json` 참조.
+2. ~~새마을금고 공식 사이트 직접 도달성~~ — **해소.** 2026-08-05 프로브 결과 GitHub Actions 러너에서
+   `robots.txt`·`map/main.do`·`map/list.do` 모두 `200 OK`, 차단 마커 없음.
+   `kfcc_official`을 주 수집원으로 구현 가능. 단 이 저장소의 개발 컨테이너 환경에서는
+   `400 Request Blocked`가 반환되므로, **수집 실행 위치는 Actions 러너여야 한다.**
+   자세한 내용은 `docs/source-recon/kfcc.md` 참조.
 3. 우대금리·우대조건의 공식 페이지 내 위치 — 실물 HTML 확보 후 판정.
 4. `duration: null` 상품의 공식 표 구조 — 실물 HTML 확보 후 파서 설계.
