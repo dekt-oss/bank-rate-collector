@@ -16,7 +16,6 @@ from pathlib import Path
 from typing import Any
 
 from rate_monitor.services.dashboard_service import (
-    DISTRICT_EXPR,
     TABLE_COLUMNS,
     build_rate_table,
     latest_run_ids,
@@ -87,7 +86,7 @@ def export_dataset(
     conn = sqlite3.connect(db_path)
     try:
         run_ids = latest_run_ids(conn)
-        table = build_rate_table(conn, run_ids, DISTRICT_EXPR)
+        table = build_rate_table(conn, run_ids)
     finally:
         conn.close()
 

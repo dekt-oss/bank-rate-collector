@@ -64,6 +64,29 @@ def run_validations(db_path: Path) -> list[Check]:
             Check("새마을금고 최고금리 비어 있음", kfcc_max == 0, f"{kfcc_max}건")
         )
 
+        # 저축은행 금리는 원천이 스스로 본점 기준이라고 밝힌 값이다. 화면에
+        # 지점 금리로 나가면 안 되므로 저장 단계에서 못박는다.
+        wrong_scope = _one(
+            conn,
+            "SELECT COUNT(*) FROM rate_observations o"
+            "  JOIN collection_runs r ON r.id = o.run_id"
+            "  JOIN product_variants v ON v.id = o.variant_id"
+            " WHERE r.source_id IN ('fsb', 'finlife')"
+            "   AND v.rate_scope NOT IN ('head_office_reference', 'nationwide')",
+        )
+        checks.append(
+            Check("저축은행 금리는 본점 기준", wrong_scope == 0, f"{wrong_scope}건")
+        )
+
+        # 같은 비교단위를 한 실행에서 두 번 저장하면 이력이 어긋난다.
+        dupes = _one(
+            conn,
+            "SELECT COUNT(*) FROM ("
+            "  SELECT run_id, variant_id FROM rate_observations"
+            "   GROUP BY run_id, variant_id HAVING COUNT(*) > 1)",
+        )
+        checks.append(Check("실행 내 관측 중복 0", dupes == 0, f"{dupes}건"))
+
         # 권역을 추측하면 "bank:1203" 같은 키가 생긴다.
         bad_sector = _one(
             conn,

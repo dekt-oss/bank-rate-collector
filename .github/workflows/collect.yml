@@ -18,6 +18,16 @@ on:
         type: boolean
         required: false
         default: false
+      skip_fsb:
+        description: "저축은행중앙회 수집을 건너뛴다"
+        type: boolean
+        required: false
+        default: false
+      skip_cu:
+        description: "신협 수집을 건너뛴다"
+        type: boolean
+        required: false
+        default: false
   schedule:
     # 평일 07:00 KST = 22:00 UTC 전날
     - cron: "0 22 * * 0-4"
@@ -79,6 +89,42 @@ jobs:
             --db work/rate_monitor.sqlite3 \
             --raw-root data/raw \
             --groups ${{ inputs.groups || '030300' }}
+
+      # 저축은행중앙회. 저축은행 1차 원천이다 (명세서 v3 §7.2).
+      #
+      # finlife와 같은 저축은행을 보지만 가입방법·우대조건 3종·만기후이율·
+      # 상품 링크가 더 온다. 둘 다 본점 기준 공시라 구·군 단위는 어느 쪽에서도
+      # 나오지 않는다.
+      #
+      # 요청량은 명부 6 + 화면 2 × (GET 1 + 페이지 4) = 약 16회다. 기간마다
+      # 나누지 않는다 — 한 행에 전 기간이 함께 온다.
+      #
+      # 이용약관을 확인하지 못해 policy_status가 unknown이다. 차단되면
+      # SourceBlockedError로 끝나므로 continue-on-error로 둔다.
+      - name: Collect FSB
+        if: ${{ inputs.skip_fsb != true }}
+        continue-on-error: true
+        run: |
+          uv run rate-monitor collect \
+            --source fsb \
+            --db work/rate_monitor.sqlite3 \
+            --raw-root data/raw
+
+      # 신협. 지역과 최고 우대금리를 동시에 주는 유일한 원천이다
+      # (docs/source-recon/cu.md §1).
+      #
+      # 지역을 지정하지 않으면 전국을 한 번에 받는다. 요청량은 화면 2 ×
+      # 기간 4 × 페이지이고, 전국 기준 약 970페이지 ≈ 16분이다.
+      #
+      # 이용약관을 확인하지 못해 policy_status가 review다.
+      - name: Collect CU
+        if: ${{ inputs.skip_cu != true }}
+        continue-on-error: true
+        run: |
+          uv run rate-monitor collect \
+            --source cu \
+            --db work/rate_monitor.sqlite3 \
+            --raw-root data/raw
 
       # 새마을금고. 수집 범위는 config/regions.yaml의 이름으로 고른다.
       #

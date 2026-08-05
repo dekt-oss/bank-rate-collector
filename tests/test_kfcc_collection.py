@@ -318,8 +318,11 @@ def test_same_district_name_in_two_provinces_stays_apart(factory, tmp_path) -> N
     assert keys == {("부산", "중구"), ("서울", "중구")}
     assert {(t["sido"], t["sigungu"]) for t in summary["district_top"]} == keys
 
-    # 금리표도 두 지역을 구분해서 실어야 화면 필터가 성립한다.
+    # 목록은 다르다. 공시 한 건이 한 줄이고 기관 주소를 쓴다.
+    # 점포를 조인하면 관측 하나가 점포 수만큼 복제된다.
     table = summary["table"]
+    assert len(table["rows"]) == EXPECTED_TOTAL
+
     region_col = table["columns"].index("region")
     district_col = table["columns"].index("district")
     pairs = {
@@ -327,7 +330,50 @@ def test_same_district_name_in_two_provinces_stays_apart(factory, tmp_path) -> N
          table["lookups"]["district"][r[district_col]])
         for r in table["rows"]
     }
-    assert pairs == {("부산", "중구"), ("서울", "중구")}
+    assert pairs == {("부산", "중구")}
+
+
+def test_rate_table_has_one_row_per_observation(factory, tmp_path) -> None:
+    """점포가 여럿인 기관의 금리가 점포 수만큼 복제되면 안 된다.
+
+    예전에는 금리표가 점포를 조인해서, 관측 15,357건이 표에서 32,592행이
+    됐다. 저축은행 하나가 지점 8곳을 두면 같은 금리가 8줄로 나오고 내려받기
+    CSV도 그만큼 부풀었다.
+    """
+    import dataclasses
+    import sqlite3
+
+    from rate_monitor.services.dashboard_service import build_rate_table, latest_run_ids
+
+    class ManyOutletsAdapter(FixtureAdapter):
+        def parse_with_warnings(self, artifact):
+            rows, warnings = super().parse_with_warnings(artifact)
+            if rows and rows[0].outlets:
+                extra = tuple(
+                    {
+                        "source_outlet_key": f"1203:9{n:02d}",
+                        "name": f"지점{n}",
+                        "address": f"부산 중구 대청로 {n}",
+                        "phone": None,
+                    }
+                    for n in range(1, 6)
+                )
+                rows[0] = dataclasses.replace(
+                    rows[0], outlets=(*rows[0].outlets, *extra)
+                )
+            return rows, warnings
+
+    run_collect(factory, tmp_path / "raw", adapter=ManyOutletsAdapter())
+
+    conn = sqlite3.connect(tmp_path / "kfcc.sqlite3")
+    try:
+        outlets = conn.execute("SELECT COUNT(*) FROM outlets").fetchone()[0]
+        table = build_rate_table(conn, latest_run_ids(conn))
+    finally:
+        conn.close()
+
+    assert outlets == 6, "검사가 성립하려면 점포가 여럿이어야 한다"
+    assert len(table["rows"]) == EXPECTED_TOTAL
 
 
 def test_long_and_short_sido_names_are_the_same_place(factory, tmp_path) -> None:

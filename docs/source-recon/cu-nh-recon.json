@@ -1,0 +1,385 @@
+{
+  "captured_at": "2026-08-05T15:39:53.505073+00:00",
+  "note": "정찰 기록이다. 파서 설계가 아니다. 상태코드 200이 곧 성공이 아니므로 soft_404를 함께 본다.",
+  "user_agent": "rate-monitor/1 (+public rate disclosure collector; 1 req/s)",
+  "probes": [
+    {
+      "sector": "cu",
+      "label": "메인",
+      "url": "https://www.cu.co.kr/",
+      "status": 200,
+      "bytes": 66348,
+      "content_type": "text/html; charset=UTF-8",
+      "artifact": {
+        "path": "data/raw/p1d/cu__20260805T153957Z.html",
+        "sha256": "fb8d83d144d8718c9e2a6de1b34fcabe716b285a017ee762d43cf85fcb35b790"
+      },
+      "title": "신협",
+      "soft_404": false,
+      "blocked": false,
+      "rate_like_numbers": 0,
+      "scripts": [
+        "/js/jquery-3.1.1.min.js",
+        "/js/jquery.bpopup.min.js",
+        "/js/jquery.bxslider.js",
+        "/js/template/10001/common.js",
+        "/js/template/10001/main.js",
+        "/js/web/common/common.js",
+        "/js/web/common/noOpenerReferrer.js",
+        "/js/web/fullPage/jquery.fullPage.js",
+        "/js/web/fullPage/vendors/jquery.easings.min.js",
+        "/js/web/fullPage/vendors/scrolloverflow.min.js",
+        "/js/web/mCustomScrollbar/jquery.mCustomScrollbar.concat.min.js",
+        "/js/web/slick-1.8.1/slick/slick.js"
+      ],
+      "forms": [],
+      "rate_links": [
+        {
+          "text": "제도 및 공시",
+          "href": "https://www.cu.co.kr/cu/cm/cntnts/cntntsView.do?mi=100091&cntntsId=1050"
+        },
+        {
+          "text": "전자공시",
+          "href": "https://www.cu.co.kr/cu/ad/disclosureList.do?mi=100518"
+        },
+        {
+          "text": "신용정보 활용체제의 공시",
+          "href": "https://www.cu.co.kr/cu/cm/cntnts/cntntsView.do?mi=100087&cntntsId=11044"
+        },
+        {
+          "text": "금융소비자보호 공시",
+          "href": "https://www.cu.co.kr/cu/na/ntt/selectNttList.do?mi=200323&amp;bbsId=10040"
+        },
+        {
+          "text": "개인채무자보호법 공시 게시판",
+          "href": "https://www.cu.co.kr/cu/na/ntt/selectNttList.do?mi=201380&bbsId=10160"
+        },
+        {
+          "text": "경영공시",
+          "href": "https://www.cu.co.kr/cu/ad/disclosureNCUFOK.do?mi=200760"
+        },
+        {
+          "text": "민원공시",
+          "href": "https://www.cu.co.kr/cu/ad/cvplStatsAsscList.do?mi=100043"
+        },
+        {
+          "text": "제재내용공시",
+          "href": "https://www.cu.co.kr/cu/na/ntt/selectNttList.do?mi=100044&bbsId=1005"
+        },
+        {
+          "text": "금융소비자보호공시",
+          "href": "https://www.cu.co.kr/cu/na/ntt/selectNttList.do?mi=200323&bbsId=10040"
+        },
+        {
+          "text": "대출 금리비교",
+          "href": "https://www.cu.co.kr/cu/ad/inrstCmpr/findLonCreditCmprNew.do?mi=201320"
+        },
+        {
+          "text": "중금리신용대출",
+          "href": "https://www.cu.co.kr/cu/ad/inrstCmpr/selectCredtLonList.do?mi=100050"
+        },
+        {
+          "text": "예금 금리비교",
+          "href": "https://www.cu.co.kr/cu/ad/inrstCmpr/findInrst15CmprList.do?mi=201001"
+        },
+        {
+          "text": "적립식예금",
+          "href": "https://www.cu.co.kr/cu/ad/inrstCmpr/findInrst17CmprList.do?mi=201002"
+        },
+        {
+          "text": "금리인하요구권",
+          "href": "https://www.cu.co.kr/cu/cm/cntnts/cntntsView.do?mi=100049&cntntsId=1020"
+        },
+        {
+          "text": "금리인하요구권 운영실적",
+          "href": "https://www.cu.co.kr/cu/ad/demandRateCutResult.do?mi=200894"
+        },
+        {
+          "text": "조합 개인(신용)정보 관련 공시",
+          "href": "https://www.cu.co.kr/cu/ad/cuPrivacyInofList.do?mi=200900"
+        },
+        {
+          "text": "상품개발 및 판매 준칙",
+          "href": "https://www.cu.co.kr/cu/cm/cntnts/cntntsView.do?mi=100442&cntntsId=1184"
+        },
+        {
+          "text": "금융상품정보",
+          "href": "https://www.cu.co.kr/cu/cm/cntnts/cntntsView.do?mi=100455&cntntsId=1189"
+        },
+        {
+          "text": "전기통신금융사기 지급정지 공시",
+          "href": "https://www.cu.co.kr/cu/ad/fnncCnsmrPrtc/selectPymntStopPblntfList.do?mi=100466"
+        },
+        {
+          "text": "자본시장법 지급정지 공시",
+          "href": "https://www.cu.co.kr/cu/na/ntt/selectNttList.do?mi=201262&bbsId=10120"
+        },
+        {
+          "text": "금융상품",
+          "href": "https://www.cu.co.kr/product/main.do"
+        },
+        {
+          "text": "대출금리",
+          "href": "https://www.cu.co.kr/cu/ad/inrstCmpr/selectLonFeeList.do?mi=200080"
+        },
+        {
+          "text": "독도愛사랑적금 신상품 출시 안내 2026-07-27",
+          "href": "https://www.cu.co.kr/cu/na/ntt/selectNttInfo.do?nttSn=112713&mi=100007"
+        },
+        {
+          "text": "01 8대 포용금융 프로젝트 01 신협 8.15 해방대출 높은 고금리 대출로 고통 받는 서민·자영업자·직장인",
+          "href": "https://www.cu.co.kr/cu/cm/cntnts/cntntsView.do?mi=100061&cntntsId=1182#mt01"
+        },
+        {
+          "text": "신용정보 활용체제의 공시",
+          "href": "https://www.cu.co.kr/cu/cm/cntnts/cntntsView.do?mi=100087&cntntsId=-3"
+        }
+      ]
+    },
+    {
+      "sector": "cu",
+      "label": "금리비교공시",
+      "url": "https://www.cu.co.kr/cu/deposit/rateDisclosure.do",
+      "status": 404,
+      "bytes": 1339,
+      "content_type": "text/html; charset=UTF-8",
+      "artifact": {
+        "path": "data/raw/p1d/cu__20260805T153959Z.html",
+        "sha256": "7d54c90facf7c1f69ce3daf44c6dc608a244c0ac2f535e6c1b4c122d91fc8956"
+      },
+      "title": "신협중앙회 오류페이지",
+      "soft_404": false,
+      "blocked": false,
+      "rate_like_numbers": 0,
+      "scripts": [],
+      "forms": [],
+      "rate_links": []
+    },
+    {
+      "sector": "cu",
+      "label": "예적금금리",
+      "url": "https://www.cu.co.kr/cu/main/rate.do",
+      "status": 404,
+      "bytes": 1339,
+      "content_type": "text/html; charset=UTF-8",
+      "artifact": {
+        "path": "data/raw/p1d/cu__20260805T154002Z.html",
+        "sha256": "7d54c90facf7c1f69ce3daf44c6dc608a244c0ac2f535e6c1b4c122d91fc8956"
+      },
+      "title": "신협중앙회 오류페이지",
+      "soft_404": false,
+      "blocked": false,
+      "rate_like_numbers": 0,
+      "scripts": [],
+      "forms": [],
+      "rate_links": []
+    },
+    {
+      "sector": "cu",
+      "label": "조합찾기",
+      "url": "https://www.cu.co.kr/cu/intro/branchSearch.do",
+      "status": 404,
+      "bytes": 1339,
+      "content_type": "text/html; charset=UTF-8",
+      "artifact": {
+        "path": "data/raw/p1d/cu__20260805T154004Z.html",
+        "sha256": "7d54c90facf7c1f69ce3daf44c6dc608a244c0ac2f535e6c1b4c122d91fc8956"
+      },
+      "title": "신협중앙회 오류페이지",
+      "soft_404": false,
+      "blocked": false,
+      "rate_like_numbers": 0,
+      "scripts": [],
+      "forms": [],
+      "rate_links": []
+    },
+    {
+      "sector": "cu",
+      "label": "robots.txt",
+      "url": "https://www.cu.co.kr/robots.txt",
+      "status": 200,
+      "bytes": 0,
+      "content_type": "text/plain;charset=UTF-8",
+      "empty": true
+    },
+    {
+      "sector": "nh",
+      "label": "농협 상호금융",
+      "url": "https://www.nonghyup.com/",
+      "status": 200,
+      "bytes": 389,
+      "content_type": "text/html",
+      "artifact": {
+        "path": "data/raw/p1d/nh__20260805T154010Z.html",
+        "sha256": "f64689e3dc211e0bec44056c9b4e7d73ccd9febc62364b23cf65587b17b436b1"
+      },
+      "title": "농협",
+      "soft_404": false,
+      "blocked": false,
+      "rate_like_numbers": 0,
+      "scripts": [],
+      "forms": [],
+      "rate_links": []
+    },
+    {
+      "sector": "nh",
+      "label": "인터넷뱅킹",
+      "url": "https://banking.nonghyup.com/nhbank.html",
+      "status": 200,
+      "bytes": 69825,
+      "content_type": "text/html",
+      "artifact": {
+        "path": "data/raw/p1d/nh__20260805T154013Z.html",
+        "sha256": "e2751345504bc206858bf95d842b00c30d461778a7dffbcf00c04cf2d53611a6"
+      },
+      "title": "NH Bank - 농협인터넷뱅킹",
+      "soft_404": false,
+      "blocked": false,
+      "rate_like_numbers": 0,
+      "scripts": [
+        "/content/js/common_ip.js?20250201",
+        "/content/js/jquery-3.7.1.min.js",
+        "/content/js/jquery.bxslider.min_high.js",
+        "/content/js/main_ip.js",
+        "/service/alopex/script/alopex-ui-2.1.js?20250201",
+        "/service/alopex/script/alopex_controller.js?20250201",
+        "/service/alopex/script/alopex_nh_config.js?20250201",
+        "/service/js/cn/ipcn.js?20250201",
+        "/service/js/common/ip/nhbank.js?20250201",
+        "/service/js/common/nh.js?20250201"
+      ],
+      "forms": [],
+      "rate_links": [
+        {
+          "text": "금융상품몰",
+          "href": "javascript:void(0);"
+        },
+        {
+          "text": "예금잔액증명서",
+          "href": "javascript:popup_cfWindowOpen('/servlet/IPMSP0111I.view', null, {'width':'820px', 'height':'678px', 'scrollbars':'yes'})"
+        },
+        {
+          "text": "경영공시",
+          "href": "http://www.nhbank.com/goSubPage.do?srchGb=KO_NHIR_02"
+        }
+      ]
+    },
+    {
+      "sector": "nh",
+      "label": "robots.txt",
+      "url": "https://www.nonghyup.com/robots.txt",
+      "status": 200,
+      "bytes": 6299,
+      "content_type": "text/html",
+      "artifact": {
+        "path": "data/raw/p1d/nh_robots_txt_20260805T154018Z.html",
+        "sha256": "a70ab6989fb2d01d346b69bd94227466ddc4ac0bf4d11609362d9b980e3f6724"
+      },
+      "title": "농협",
+      "soft_404": true,
+      "blocked": false,
+      "rate_like_numbers": 0,
+      "scripts": [
+        "../js/jquery-1.12.4.min.js",
+        "../js/jquery.fullpage.min.js",
+        "../js/libs.js",
+        "../js/new_common.js",
+        "../js/new_main.js"
+      ],
+      "forms": [],
+      "rate_links": []
+    },
+    {
+      "sector": "etc",
+      "label": "금융상품한눈에",
+      "url": "https://finlife.fss.or.kr/finlife/main/main.do",
+      "status": 200,
+      "bytes": 163758,
+      "content_type": "text/html; charset=utf-8",
+      "artifact": {
+        "path": "data/raw/p1d/etc__20260805T154021Z.html",
+        "sha256": "70da3f3885f26c432069423ff4586aa9996272fe65cee616b2d9bdb55be51dac"
+      },
+      "title": "금융감독원 금융상품통합비교공시 금융상품한눈에",
+      "soft_404": false,
+      "blocked": false,
+      "rate_like_numbers": 0,
+      "scripts": [
+        "/static/finlife/js/financial-ui.js",
+        "/static/finlife/js/finlifecommon.js",
+        "/static/finlife/js/finlifemain.js",
+        "/static/jslibrary/jquery-3.5.1.min.js",
+        "/static/jslibrary/jquery.cookie.js",
+        "/static/jslibrary/makePCookie.js",
+        "/static/jslibrary/slick.min.js",
+        "/static/jslibrary/swiper/swiper.min.js"
+      ],
+      "forms": [
+        {
+          "id": "finLifeSearchForm",
+          "action": "/finlife/main/finLifeSearch/list.do?menuNo=700058"
+        },
+        {
+          "id": "ajaxFormDataFdrmDpst",
+          "action": "/finlife/svings/fdrmDpst/list.do"
+        },
+        {
+          "id": "ajaxFormDataFdrmEnty",
+          "action": "/finlife/svings/fdrmEnty/list.do"
+        }
+      ],
+      "rate_links": [
+        {
+          "text": "금융감독원 - 금융상품 통합 비교공시 금융상품한눈에",
+          "href": "https://finlife.fss.or.kr/finlife/main/main.do"
+        },
+        {
+          "text": "정기예금",
+          "href": "https://finlife.fss.or.kr/finlife/svings/fdrmDpst/list.do?menuNo=700002"
+        },
+        {
+          "text": "적금",
+          "href": "https://finlife.fss.or.kr/finlife/svings/fdrmEnty/list.do?menuNo=700003"
+        },
+        {
+          "text": "입출금자유예금",
+          "href": "https://finlife.fss.or.kr/finlife/main/contents.do?menuNo=700074"
+        },
+        {
+          "text": "절세금융상품",
+          "href": "https://finlife.fss.or.kr/finlife/main/contents.do?menuNo=700060"
+        },
+        {
+          "text": "중금리 신용대출",
+          "href": "https://finlife.fss.or.kr/finlife/main/contents.do?menuNo=700010"
+        },
+        {
+          "text": "협회별 비교 공시",
+          "href": "https://finlife.fss.or.kr/finlife/main/contents.do?menuNo=700025"
+        },
+        {
+          "text": "금융상품 거래단계별 핵심정보",
+          "href": "https://fine.fss.or.kr/main/prc/main.jsp?menuNo=900228"
+        },
+        {
+          "text": "&apos;금융상품 한눈에&apos; 이용 만족도 조사 실시(2026.6.19. ~ 7.15.) 안녕하세요.",
+          "href": "https://finlife.fss.or.kr/finlife/ntcn/ntcMatter/view.do?menuNo=700022&bltnId=BB000000000000001247&bltbId=BM000000000000000002"
+        },
+        {
+          "text": "금융상품 한눈에 이용 만족도 조사 실시(2025.6.19. ~ 7.8.) 안녕하세요. 금융감독원입니다. 금융",
+          "href": "https://finlife.fss.or.kr/finlife/ntcn/ntcMatter/view.do?menuNo=700022&bltnId=BB000000000000001246&bltbId=BM000000000000000002"
+        },
+        {
+          "text": "금융상품 한눈에 이용 만족도 조사 실시 (2023.4.3.~4.22.) 안녕하세요, 금융감독원입니다. 금융감",
+          "href": "https://finlife.fss.or.kr/finlife/ntcn/ntcMatter/view.do?menuNo=700022&bltnId=BB000000000000001203&bltbId=BM000000000000000002"
+        }
+      ]
+    }
+  ],
+  "totals": {
+    "probed": 9,
+    "reachable": 5,
+    "blocked": 0,
+    "with_inline_rates": 0
+  }
+}
