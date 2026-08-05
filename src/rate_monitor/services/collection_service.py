@@ -1,0 +1,314 @@
+"""수집 오케스트레이션 (명세서 v3 §10.1).
+
+    create_run → fetch → save_raw → parse → normalize → resolve
+              → validate → persist → finalize
+
+실패한 실행이 최신 정상값을 대체하지 않게 트랜잭션 경계를 지킨다 (v3 §10.3).
+"""
+
+import hashlib
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from pathlib import Path
+
+from sqlalchemy.orm import Session, sessionmaker
+
+from rate_monitor.collectors.base import SchemaChangedError, SourceBlockedError
+from rate_monitor.db.models import (
+    CollectionRun,
+    RateObservation,
+    RawArtifact,
+    ReviewItem,
+    Source,
+)
+from rate_monitor.db.session import session_scope
+from rate_monitor.domain.enums import RunStatus, ValidationStatus
+from rate_monitor.domain.schemas import CollectionRequest, ParsedRateRow, RawArtifactData
+from rate_monitor.services import entity_service
+
+DEFAULT_RAW_ROOT = Path("data/raw")
+
+
+@dataclass
+class CollectionRunResult:
+    run_id: str
+    status: str
+    raw_count: int
+    parsed_count: int
+    valid_count: int
+    warning_count: int
+    error_count: int
+    message: str
+
+
+def _utcnow() -> datetime:
+    return datetime.now(UTC).replace(tzinfo=None)
+
+
+def _content_hash(row: ParsedRateRow) -> str:
+    """값 중복 검출용. 이전 실행과 같은 값인지 판정한다 (v3 §5.9)."""
+    payload = "|".join(
+        str(x)
+        for x in (row.base_rate, row.max_rate, row.preference_raw, row.source_effective_at)
+    )
+    return "sha256:" + hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def save_raw_artifacts(
+    session: Session,
+    run: CollectionRun,
+    artifacts: list[RawArtifactData],
+    raw_root: Path,
+    now: datetime,
+) -> list[RawArtifact]:
+    """원본을 파일로 쓰고 DB에는 경로·해시만 남긴다 (v3 §5.3)."""
+    day_dir = raw_root / now.strftime("%Y/%m/%d") / run.id
+    day_dir.mkdir(parents=True, exist_ok=True)
+
+    saved: list[RawArtifact] = []
+    for artifact in artifacts:
+        path = day_dir / artifact.filename
+        path.write_bytes(artifact.content)
+        record = RawArtifact(
+            run_id=run.id,
+            artifact_type=artifact.artifact_type,
+            relative_path=str(path),
+            sha256=hashlib.sha256(artifact.content).hexdigest(),
+            content_length=len(artifact.content),
+            encoding="utf-8",
+            request_meta_json=artifact.request_meta,
+            captured_at=now,
+        )
+        session.add(record)
+        saved.append(record)
+    session.flush()
+    return saved
+
+
+def persist_rows(
+    session: Session,
+    run: CollectionRun,
+    rows: list[ParsedRateRow],
+    artifact: RawArtifact,
+    now: datetime,
+) -> tuple[int, int]:
+    """표준 행을 저장한다. (정상 건수, 오류 건수)를 돌려준다.
+
+    같은 실행 안에서 같은 비교 단위가 두 번 나오면 뒤엣것을 버리고 검수항목을
+    남긴다. (variant_id, run_id) 유니크 제약을 미리 지킨다.
+    """
+    valid = 0
+    errors = 0
+    seen_variants: set[str] = set()
+
+    for row in rows:
+        institution = entity_service.resolve_institution(session, row, now)
+        product = entity_service.resolve_product(session, row, institution, now)
+        variant = entity_service.resolve_variant(session, row, product, institution)
+
+        if variant.id in seen_variants:
+            session.add(
+                ReviewItem(
+                    run_id=run.id,
+                    entity_type="variant",
+                    entity_id=variant.id,
+                    issue_type="duplicate",
+                    severity="warning",
+                    message=f"같은 실행에서 비교 단위가 중복됐다: {row.source_row_ref}",
+                    payload_json={"source_row_ref": row.source_row_ref},
+                    created_at=now,
+                )
+            )
+            continue
+        seen_variants.add(variant.id)
+
+        session.add(
+            RateObservation(
+                variant_id=variant.id,
+                run_id=run.id,
+                raw_artifact_id=artifact.id,
+                as_of=row.source_effective_at,
+                observed_at=now,
+                base_rate=row.base_rate,
+                max_rate=row.max_rate,
+                source_detail_json=row.extra,
+                raw_preference_text=row.preference_raw,
+                validation_status=row.validation_status,
+                validation_message=row.validation_message,
+                content_hash=_content_hash(row),
+                base_source_locator=row.base_source_locator,
+                option_source_locator=row.option_source_locator,
+                source_record_hash=row.source_record_hash,
+                source_effective_at=row.source_effective_at,
+            )
+        )
+
+        if row.validation_status == ValidationStatus.ERROR:
+            errors += 1
+            session.add(
+                ReviewItem(
+                    run_id=run.id,
+                    entity_type="variant",
+                    entity_id=variant.id,
+                    issue_type="parse_error",
+                    severity="error",
+                    message=row.validation_message or "파싱 오류",
+                    payload_json={"source_row_ref": row.source_row_ref},
+                    created_at=now,
+                )
+            )
+        else:
+            valid += 1
+
+    session.flush()
+    return valid, errors
+
+
+def ensure_source(session: Session, adapter, now: datetime) -> Source:  # noqa: ANN001
+    source = session.get(Source, adapter.source_id)
+    if source is not None:
+        return source
+    source = Source(
+        id=adapter.source_id,
+        name="금융감독원 금융상품통합비교공시 오픈API",
+        sector="savings_bank",
+        mode="api",
+        source_role=adapter.source_role,
+        trust_level=adapter.trust_level,
+        priority=20,
+        base_reference="finlife.fss.or.kr/finlifeapi",
+        enabled=True,
+        policy_status="allowed",
+        coverage_status="partial",
+        created_at=now,
+        updated_at=now,
+    )
+    session.add(source)
+    session.flush()
+    return source
+
+
+async def collect_source(
+    adapter,  # noqa: ANN001 — SourceAdapter 프로토콜
+    request: CollectionRequest,
+    factory: sessionmaker[Session],
+    *,
+    raw_root: Path = DEFAULT_RAW_ROOT,
+) -> CollectionRunResult:
+    """한 수집원을 끝까지 실행한다.
+
+    fetch가 실패하면 관측값을 하나도 쓰지 않고 실행 상태만 남긴다. 이전
+    정상값은 그대로 유지된다 (v3 §10.3).
+    """
+    now = _utcnow()
+    run_id = _new_run(factory, adapter, request, now)
+
+    try:
+        artifacts = await adapter.fetch(request)
+    except SourceBlockedError as exc:
+        _finalize_failure(factory, run_id, RunStatus.BLOCKED, str(exc))
+        return CollectionRunResult(run_id, RunStatus.BLOCKED, 0, 0, 0, 0, 0, str(exc))
+    except SchemaChangedError as exc:
+        _finalize_failure(factory, run_id, RunStatus.SCHEMA_CHANGED, str(exc))
+        return CollectionRunResult(run_id, RunStatus.SCHEMA_CHANGED, 0, 0, 0, 0, 0, str(exc))
+    except Exception as exc:  # noqa: BLE001 — 어떤 실패든 실행 이력에 남긴다
+        _finalize_failure(factory, run_id, RunStatus.FAILED, f"{type(exc).__name__}: {exc}")
+        return CollectionRunResult(run_id, RunStatus.FAILED, 0, 0, 0, 0, 0, str(exc))
+
+    return _process(adapter, artifacts, factory, run_id, raw_root, now)
+
+
+def _new_run(
+    factory: sessionmaker[Session],
+    adapter,  # noqa: ANN001
+    request: CollectionRequest,
+    now: datetime,
+) -> str:
+    with session_scope(factory) as session:
+        ensure_source(session, adapter, now)
+        run = CollectionRun(
+            source_id=adapter.source_id,
+            mode="api",
+            started_at=now,
+            status=RunStatus.RUNNING,
+            query_context_json={
+                "regions": list(request.regions),
+                "options": {k: list(v) if isinstance(v, tuple) else v
+                            for k, v in request.options.items()},
+            },
+        )
+        session.add(run)
+        session.flush()
+        return run.id
+
+
+def _process(
+    adapter,  # noqa: ANN001
+    artifacts: list[RawArtifactData],
+    factory: sessionmaker[Session],
+    run_id: str,
+    raw_root: Path,
+    now: datetime,
+) -> CollectionRunResult:
+    try:
+        with session_scope(factory) as session:
+            run = session.get(CollectionRun, run_id)
+            saved = save_raw_artifacts(session, run, artifacts, raw_root, now)
+
+            parsed = valid = errors = 0
+            warnings: list[str] = []
+            for artifact_data, artifact_row in zip(artifacts, saved, strict=True):
+                rows, page_warnings = adapter.parse_with_warnings(artifact_data)
+                warnings.extend(page_warnings)
+                parsed += len(rows)
+                page_valid, page_errors = persist_rows(session, run, rows, artifact_row, now)
+                valid += page_valid
+                errors += page_errors
+
+            for warning in warnings:
+                session.add(
+                    ReviewItem(
+                        run_id=run.id,
+                        issue_type="schema_warning",
+                        severity="warning",
+                        message=warning,
+                        payload_json={},
+                        created_at=now,
+                    )
+                )
+
+            run.status = RunStatus.SUCCESS if errors == 0 else RunStatus.PARTIAL
+            run.finished_at = _utcnow()
+            run.raw_count = len(artifacts)
+            run.parsed_count = parsed
+            run.valid_count = valid
+            run.warning_count = len(warnings)
+            run.error_count = errors
+            run.schema_fingerprint = artifacts[0].schema_fingerprint if artifacts else None
+            run.message = (
+                f"{len(artifacts)}개 원본에서 {parsed}행 파싱, 정상 {valid}, 오류 {errors}"
+            )
+            result = CollectionRunResult(
+                run_id, run.status, len(artifacts), parsed, valid, len(warnings), errors,
+                run.message,
+            )
+        return result
+    except SchemaChangedError as exc:
+        _finalize_failure(factory, run_id, RunStatus.SCHEMA_CHANGED, str(exc))
+        raise
+    except Exception as exc:  # noqa: BLE001
+        _finalize_failure(factory, run_id, RunStatus.FAILED, f"{type(exc).__name__}: {exc}")
+        raise
+
+
+def _finalize_failure(
+    factory: sessionmaker[Session], run_id: str, status: str, message: str
+) -> None:
+    """실행 상태만 기록한다. 관측값은 쓰지 않는다."""
+    with session_scope(factory) as session:
+        run = session.get(CollectionRun, run_id)
+        if run is None:
+            return
+        run.status = status
+        run.finished_at = _utcnow()
+        run.message = message[:2000]

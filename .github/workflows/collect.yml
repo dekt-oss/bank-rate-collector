@@ -1,0 +1,174 @@
+name: Collect rates
+
+on:
+  workflow_dispatch:
+    inputs:
+      groups:
+        description: "권역코드 (030300=저축은행, 020000=은행). 공백으로 구분"
+        required: false
+        default: "030300"
+  schedule:
+    # 평일 07:00 KST = 22:00 UTC 전날
+    - cron: "0 22 * * 0-4"
+
+# rate-data 브랜치의 단일 writer.
+# 각 실행이 하나의 금리 관측 이력이므로 진행 중인 작업을 취소하지 않고
+# 직렬로 대기시킨다 (명세서 v3.1 §10.2).
+concurrency:
+  group: rate-data-writer
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Sync dependencies
+        run: uv sync --locked
+
+      # 이전 실행의 DB를 이어받는다. 없으면 새로 만든다.
+      - name: Restore previous database
+        run: |
+          mkdir -p work
+          if git ls-remote --exit-code --heads origin rate-data >/dev/null 2>&1; then
+            git fetch origin rate-data --depth=1
+            git checkout origin/rate-data -- latest/rate_monitor.sqlite3.gz 2>/dev/null || true
+            if [ -f latest/rate_monitor.sqlite3.gz ]; then
+              gunzip -c latest/rate_monitor.sqlite3.gz > work/rate_monitor.sqlite3
+              echo "이전 DB 복원: $(stat -c%s work/rate_monitor.sqlite3) bytes"
+            fi
+            rm -rf latest
+          else
+            echo "rate-data 브랜치 없음. 새 DB로 시작한다."
+          fi
+
+      - name: Apply migrations
+        env:
+          RATE_MONITOR_DB_URL: sqlite+pysqlite:///${{ github.workspace }}/work/rate_monitor.sqlite3
+        run: uv run alembic upgrade head
+
+      - name: Collect
+        env:
+          FINLIFE_API_KEY: ${{ secrets.FINLIFE_API_KEY }}
+        run: |
+          uv run rate-monitor collect \
+            --source finlife \
+            --db work/rate_monitor.sqlite3 \
+            --raw-root data/raw \
+            --groups ${{ inputs.groups || '030300' }}
+
+      - name: Snapshot and build dashboard
+        run: |
+          uv run python - <<'PY'
+          from pathlib import Path
+          from rate_monitor.services.snapshot_service import create_snapshot
+          from rate_monitor.services.dashboard_service import build_dashboard
+
+          manifest = create_snapshot(
+              Path("work/rate_monitor.sqlite3"),
+              Path("publish/rate_monitor.sqlite3"),
+              Path("publish/manifest.json"),
+          )
+          print("manifest:", manifest.row_counts)
+          summary = build_dashboard(
+              Path("publish/rate_monitor.sqlite3"),
+              Path("web/templates/dashboard.html"),
+              Path("site/index.html"),
+              Path("publish/summary.json"),
+          )
+          print("totals:", summary["totals"])
+          PY
+
+      - name: Verify P1-A gate
+        run: |
+          uv run python scripts/verify_gate.py \
+            --db publish/rate_monitor.sqlite3 \
+            --manifest publish/manifest.json \
+            --summary publish/summary.json \
+            --site site/index.html \
+            --raw-root data/raw
+
+      - name: Upload raw and reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: collection-run-${{ github.run_id }}
+          # 계정 정책상 상한이 더 낮으면 GitHub가 자동으로 낮춘다.
+          # 실제 적용값은 실행 후 확인해 명세서 v3.1 §4에 기록한다.
+          retention-days: 400
+          path: |
+            data/raw/
+            publish/manifest.json
+            publish/summary.json
+          if-no-files-found: warn
+
+      - name: Upload dashboard
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dashboard-${{ github.run_id }}
+          path: site/
+          if-no-files-found: warn
+
+      - name: Publish to rate-data branch
+        run: |
+          set -euo pipefail
+          gzip -kf publish/rate_monitor.sqlite3
+
+          STAGE=$(mktemp -d)
+          mkdir -p "$STAGE/latest" "$STAGE/site"
+          cp publish/rate_monitor.sqlite3.gz "$STAGE/latest/"
+          cp publish/manifest.json publish/summary.json "$STAGE/latest/"
+          cp site/index.html "$STAGE/site/"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          for attempt in 1 2; do
+            # 커밋 직전에 최신 상태를 다시 가져온다
+            git fetch origin rate-data --depth=1 2>/dev/null || true
+            if git show-ref --verify --quiet refs/remotes/origin/rate-data; then
+              git checkout -B rate-data origin/rate-data
+            else
+              git checkout --orphan rate-data
+              git rm -rq --cached . 2>/dev/null || true
+            fi
+
+            find . -maxdepth 1 -mindepth 1 \
+              -not -name .git -not -name work -not -name publish -not -name site \
+              -not -name data -exec rm -rf {} +
+            rm -rf latest site
+            cp -r "$STAGE/latest" "$STAGE/site" .
+
+            git add -f latest site
+            if git diff --cached --quiet; then
+              echo "변경 없음"
+              exit 0
+            fi
+            git commit -q -m "data: 수집 결과 갱신 (run ${{ github.run_id }})"
+            if git push origin rate-data; then
+              echo "push 성공 (시도 $attempt)"
+              exit 0
+            fi
+            echo "push 충돌. 재시도 $attempt"
+          done
+          echo "push 재시도 실패" >&2
+          exit 1
+
+      # GitHub Pages 배포 자리.
+      # 이 저장소는 private이라 Pages 공개 범위가 확정되지 않았다.
+      # 공개 범위 결정 후 활성화한다 (명세서 v3.1 §5).
+      # - name: Deploy to Pages
+      #   uses: actions/deploy-pages@v4

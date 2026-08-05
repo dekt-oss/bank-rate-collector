@@ -13,11 +13,10 @@
 """
 
 import json
-import sys
 import time
 import urllib.error
 import urllib.request
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 REPORT_PATH = Path("docs/source-recon/kfcc-probe.json")
@@ -55,7 +54,7 @@ def probe(url: str) -> dict:
 def main() -> int:
     REPORT_PATH.parent.mkdir(parents=True, exist_ok=True)
     report = {
-        "checked_at": datetime.now(timezone.utc).isoformat(),
+        "checked_at": datetime.now(UTC).isoformat(),
         "note": "도달성 확인 전용. 차단 시 우회하지 않고 그대로 기록한다.",
         "results": {},
     }

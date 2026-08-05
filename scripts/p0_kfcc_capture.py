@@ -19,8 +19,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from collections import Counter
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from hashlib import sha256
 from pathlib import Path
 
@@ -49,7 +48,7 @@ def get(url: str) -> tuple[int, bytes]:
 def save(content: bytes, name: str, also_fixture: bool = False) -> dict:
     RAW_DIR.mkdir(parents=True, exist_ok=True)
     digest = sha256(content).hexdigest()
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     path = RAW_DIR / f"{name}_{stamp}.html"
     path.write_bytes(content)
     if also_fixture:
@@ -109,7 +108,7 @@ def main() -> int:
 
     REPORT_PATH.parent.mkdir(parents=True, exist_ok=True)
     report: dict = {
-        "captured_at": datetime.now(timezone.utc).isoformat(),
+        "captured_at": datetime.now(UTC).isoformat(),
         "target": {"r1": sido, "r2": sigungu},
         "note": "정찰 전용. 구조를 단정하지 않고 관측값만 기록한다.",
         "steps": {},
@@ -157,7 +156,9 @@ def main() -> int:
         print(f"[2] view.do gmgoCd={code} -> {dstatus}, {len(dcontent)} bytes")
         entry: dict = {"gmgoCd": code, "gmgoNm": row.get("gmgoNm"), "status": dstatus}
         if dstatus == 200 and dcontent:
-            entry["artifact"] = save(dcontent, f"rate_{code}", also_fixture=len(detail_results) == 0)
+            entry["artifact"] = save(
+                dcontent, f"rate_{code}", also_fixture=len(detail_results) == 0
+            )
             entry["observed"] = inspect(dcontent)
         else:
             entry["blocked_or_error"] = True

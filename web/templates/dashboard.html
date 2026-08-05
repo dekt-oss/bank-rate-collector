@@ -1,0 +1,458 @@
+<title>rate-monitor · 수집 관제 보드</title>
+<style>
+  /* ── 토큰 ────────────────────────────────────────────────
+     중립색은 accent(#2D5F7C, 공시문서의 남청색) 쪽으로 살짝 기울여
+     기본 회색이 아니라 고른 회색이 되도록 한다. */
+  :root {
+    --paper:      #EEF1F4;
+    --surface:    #FFFFFF;
+    --surface-2:  #F6F8FA;
+    --line:       #D3DAE1;
+    --line-soft:  #E4E9EE;
+    --ink:        #171C23;
+    --ink-2:      #4A5563;
+    --ink-3:      #77828F;
+    --accent:     #2D5F7C;
+    --accent-ink: #24506A;
+    --ok:         #2E7D5B;
+    --warn:       #A9741A;
+    --crit:       #AC4238;
+    --idle:       #8A93A0;
+    --ok-bg:      #E4F1EA;
+    --warn-bg:    #F7EEDA;
+    --crit-bg:    #F7E5E3;
+    --idle-bg:    #E9ECEF;
+
+    --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+    --sans: system-ui, -apple-system, "Apple SD Gothic Neo", "Pretendard",
+            "Malgun Gothic", "Noto Sans KR", sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper:     #10141A;
+      --surface:   #181D25;
+      --surface-2: #1E242D;
+      --line:      #2C3540;
+      --line-soft: #232B35;
+      --ink:       #E3E8EE;
+      --ink-2:     #A7B2BF;
+      --ink-3:     #7A8695;
+      --accent:    #6FA8C7;
+      --accent-ink:#8CBEDA;
+      --ok:        #5DBE90;
+      --warn:      #D6A343;
+      --crit:      #E0776C;
+      --idle:      #8A93A0;
+      --ok-bg:     #172C24;
+      --warn-bg:   #2E2718;
+      --crit-bg:   #2E1E1D;
+      --idle-bg:   #22272E;
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper:     #10141A;
+    --surface:   #181D25;
+    --surface-2: #1E242D;
+    --line:      #2C3540;
+    --line-soft: #232B35;
+    --ink:       #E3E8EE;
+    --ink-2:     #A7B2BF;
+    --ink-3:     #7A8695;
+    --accent:    #6FA8C7;
+    --accent-ink:#8CBEDA;
+    --ok:        #5DBE90;
+    --warn:      #D6A343;
+    --crit:      #E0776C;
+    --idle:      #8A93A0;
+    --ok-bg:     #172C24;
+    --warn-bg:   #2E2718;
+    --crit-bg:   #2E1E1D;
+    --idle-bg:   #22272E;
+  }
+  :root[data-theme="light"] {
+    --paper:     #EEF1F4;
+    --surface:   #FFFFFF;
+    --surface-2: #F6F8FA;
+    --line:      #D3DAE1;
+    --line-soft: #E4E9EE;
+    --ink:       #171C23;
+    --ink-2:     #4A5563;
+    --ink-3:     #77828F;
+    --accent:    #2D5F7C;
+    --accent-ink:#24506A;
+    --ok:        #2E7D5B;
+    --warn:      #A9741A;
+    --crit:      #AC4238;
+    --idle:      #8A93A0;
+    --ok-bg:     #E4F1EA;
+    --warn-bg:   #F7EEDA;
+    --crit-bg:   #F7E5E3;
+    --idle-bg:   #E9ECEF;
+  }
+
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 15px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap {
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 28px 22px 72px;
+    display: flex;
+    flex-direction: column;
+    gap: 26px;
+  }
+
+  /* ── 머리말 ── */
+  .masthead {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 14px;
+    padding-bottom: 16px;
+    border-bottom: 2px solid var(--ink);
+  }
+  .masthead h1 {
+    margin: 0;
+    font-size: 25px;
+    font-weight: 650;
+    letter-spacing: -0.015em;
+    text-wrap: balance;
+  }
+  .masthead .sub {
+    margin: 3px 0 0;
+    color: var(--ink-2);
+    font-size: 13.5px;
+  }
+  .stamp {
+    font-family: var(--mono);
+    font-size: 11.5px;
+    color: var(--ink-3);
+    text-align: right;
+    line-height: 1.7;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ── 한 줄 판정 ── */
+  .verdict {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(168px, 1fr));
+    gap: 1px;
+    background: var(--line);
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  .verdict > div {
+    background: var(--surface);
+    padding: 14px 16px;
+  }
+  .verdict .k {
+    font-size: 10.5px;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    font-weight: 600;
+  }
+  .verdict .v {
+    font-family: var(--mono);
+    font-size: 25px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    margin-top: 4px;
+    letter-spacing: -0.02em;
+  }
+  .verdict .n { font-size: 12px; color: var(--ink-2); font-family: var(--sans); }
+
+  h2 {
+    margin: 0 0 11px;
+    font-size: 12px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    font-weight: 700;
+  }
+  section { margin: 0; }
+
+  /* ── 수집원 카드: 좌측 심각도 스트라이프로 상태를 형태로도 표시 ── */
+  .sources { display: grid; grid-template-columns: repeat(auto-fit, minmax(268px, 1fr)); gap: 10px; }
+  .src {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-left: 4px solid var(--idle);
+    border-radius: 3px;
+    padding: 13px 15px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .src.ok   { border-left-color: var(--ok); }
+  .src.warn { border-left-color: var(--warn); }
+  .src.crit { border-left-color: var(--crit); }
+  .src .top { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+  .src .id { font-family: var(--mono); font-size: 13px; font-weight: 600; }
+  .src .nm { font-size: 12px; color: var(--ink-3); }
+  .src .msg { font-size: 12.5px; color: var(--ink-2); line-height: 1.5; }
+
+  .pill {
+    display: inline-block;
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    padding: 2px 7px;
+    border-radius: 2px;
+    white-space: nowrap;
+  }
+  .pill.ok   { background: var(--ok-bg);   color: var(--ok); }
+  .pill.warn { background: var(--warn-bg); color: var(--warn); }
+  .pill.crit { background: var(--crit-bg); color: var(--crit); }
+  .pill.idle { background: var(--idle-bg); color: var(--idle); }
+
+  /* ── 표 ── */
+  .scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: 3px; background: var(--surface); }
+  table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
+  th, td { padding: 8px 13px; text-align: left; border-bottom: 1px solid var(--line-soft); }
+  thead th {
+    background: var(--surface-2);
+    font-size: 10.5px;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    font-weight: 700;
+    white-space: nowrap;
+  }
+  tbody tr:last-child td { border-bottom: 0; }
+  td.num, th.num { text-align: right; font-family: var(--mono); font-variant-numeric: tabular-nums; }
+  tfoot td {
+    background: var(--surface-2);
+    font-weight: 700;
+    border-top: 2px solid var(--line);
+    border-bottom: 0;
+  }
+
+  /* ── 부산 구·군 커버리지 ── */
+  .gu-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(158px, 1fr)); gap: 8px; }
+  .gu {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    padding: 9px 11px 10px;
+  }
+  .gu .nm { font-size: 12.5px; font-weight: 600; display: flex; justify-content: space-between; align-items: baseline; }
+  .gu .ct { font-family: var(--mono); font-size: 12px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+  .bar { height: 4px; background: var(--line-soft); border-radius: 2px; margin-top: 7px; overflow: hidden; }
+  .bar i { display: block; height: 100%; background: var(--accent); border-radius: 2px; }
+  .gu .sub { font-size: 11px; color: var(--ink-3); margin-top: 4px; font-family: var(--mono); }
+
+  /* ── 체크리스트 ── */
+  .gate { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 1px;
+          background: var(--line); border: 1px solid var(--line); border-radius: 3px; overflow: hidden; }
+  .gate li { background: var(--surface); padding: 10px 14px; display: flex; align-items: flex-start; gap: 11px; font-size: 13.5px; }
+  .gate .mark { font-family: var(--mono); font-weight: 700; font-size: 13px; flex: none; width: 1.4em; }
+  .gate li.done .mark { color: var(--ok); }
+  .gate li.part .mark { color: var(--warn); }
+  .gate li.todo .mark { color: var(--idle); }
+  .gate .txt { flex: 1; }
+  .gate .note { display: block; font-size: 11.5px; color: var(--ink-3); margin-top: 1px; }
+
+  /* ── 미해소 ── */
+  .block { display: flex; flex-direction: column; gap: 1px; background: var(--line);
+           border: 1px solid var(--line); border-radius: 3px; overflow: hidden; }
+  .block .row { background: var(--surface); padding: 11px 14px; display: grid;
+                grid-template-columns: 86px 1fr; gap: 12px; align-items: start; }
+  .block .row .b { font-size: 13.5px; }
+  .block .row .b b { font-weight: 650; }
+  .block .row .b span { display: block; font-size: 11.5px; color: var(--ink-3); margin-top: 2px; }
+
+  .foot { font-size: 11.5px; color: var(--ink-3); line-height: 1.7; border-top: 1px solid var(--line); padding-top: 14px; }
+  .foot code { font-family: var(--mono); font-size: 11px; }
+  a { color: var(--accent-ink); }
+  a:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  /* 데이터 기반 화면 추가 */
+  .notice {
+    background: var(--warn-bg); color: var(--warn);
+    border: 1px solid var(--warn); border-radius: 3px;
+    padding: 11px 14px; font-size: 13.5px; font-weight: 600;
+  }
+  .empty { color: var(--ink-3); font-size: 13px; padding: 14px; text-align: center; }
+</style>
+
+<script id="rate-monitor-data" type="application/json">
+{}
+</script>
+
+<div class="wrap">
+  <header class="masthead">
+    <div>
+      <h1>2금융권 수신금리 통합 모니터 — 수집 관제 보드</h1>
+      <p class="sub" id="sub-line"></p>
+    </div>
+    <div class="stamp" id="stamp"></div>
+  </header>
+
+  <p class="notice">저축은행 공시금리 — 전국 본점 기준 참고값</p>
+
+  <section class="verdict" id="totals"></section>
+
+  <section>
+    <h2>최근 수집 실행</h2>
+    <div class="scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>상태</th><th>수집원</th><th>시작</th>
+            <th class="num">파싱</th><th class="num">정상</th><th class="num">오류</th>
+          </tr>
+        </thead>
+        <tbody id="runs"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>가입기간별 금리 분포 — 최근 실행</h2>
+    <div class="scroll">
+      <table>
+        <thead>
+          <tr>
+            <th class="num">기간(개월)</th><th class="num">건수</th>
+            <th class="num">기본금리 최저</th><th class="num">기본금리 최고</th>
+            <th class="num">우대 포함 최고</th>
+          </tr>
+        </thead>
+        <tbody id="by-term"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>기본금리 상위 — 최근 실행</h2>
+    <div class="scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>기관</th><th>상품</th>
+            <th class="num">기간</th><th>이자방식</th>
+            <th class="num">기본금리</th><th class="num">최고금리</th><th>공시기준일</th>
+          </tr>
+        </thead>
+        <tbody id="top-rates"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>수집원</h2>
+    <div class="sources" id="sources"></div>
+  </section>
+
+  <section>
+    <h2>검수 대기</h2>
+    <div class="block" id="reviews"></div>
+  </section>
+
+  <p class="foot" id="foot"></p>
+</div>
+
+<script>
+(function () {
+  const data = JSON.parse(document.getElementById("rate-monitor-data").textContent);
+  const $ = (id) => document.getElementById(id);
+  const esc = (v) => String(v == null ? "" : v).replace(/[&<>"]/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  // 금리는 "002.7500" 형태로 저장된다. 선행 0을 떼고 2자리로 보여준다.
+  const rate = (v) => v == null ? "—" : Number(v).toFixed(2) + "%";
+  const num = (v) => v == null ? "—" : Number(v).toLocaleString("ko-KR");
+  const when = (v) => v ? String(v).replace("T", " ").slice(0, 16) : "—";
+
+  const statusPill = (s) => {
+    const cls = s === "success" ? "ok" : s === "partial" ? "warn"
+      : (s === "failed" || s === "blocked" || s === "schema_changed") ? "crit" : "idle";
+    return `<span class="pill ${cls}">${esc(s)}</span>`;
+  };
+
+  $("sub-line").textContent = "부산 16개 구·군 / 저축은행 · 새마을금고 · 신협 · 지역농축협";
+  $("stamp").innerHTML = `생성 ${esc(when(data.generated_at))}<br>`
+    + `명세서 v3.1<br>dekt-oss/bank-rate-collector`;
+
+  const t = data.totals || {};
+  const run = data.latest_run;
+  $("totals").innerHTML = [
+    ["금리 관측", num(t.observations), `비교단위 ${num(t.variants)}`],
+    ["상품", num(t.products), `기관 ${num(t.institutions)}`],
+    ["수집 실행", num(t.runs), run ? `최근 ${esc(run.status)}` : "실행 없음"],
+    ["검수 대기", num((data.reviews || []).reduce((a, r) => a + r.count, 0)),
+      run ? `오류 ${num(run.error_count)}` : "—"],
+  ].map(([k, v, n]) =>
+    `<div><div class="k">${k}</div><div class="v">${v}</div><div class="n">${n}</div></div>`
+  ).join("");
+
+  $("runs").innerHTML = (data.runs || []).length
+    ? data.runs.map((r) => `<tr>
+        <td>${statusPill(r.status)}</td>
+        <td><code>${esc(r.source_id)}</code></td>
+        <td>${esc(when(r.started_at))}</td>
+        <td class="num">${num(r.parsed_count)}</td>
+        <td class="num">${num(r.valid_count)}</td>
+        <td class="num">${num(r.error_count)}</td>
+      </tr>`).join("")
+    : `<tr><td colspan="6" class="empty">수집 실행 없음</td></tr>`;
+
+  $("by-term").innerHTML = (data.by_term || []).length
+    ? data.by_term.map((r) => `<tr>
+        <td class="num">${r.term_months == null ? "—" : num(r.term_months)}</td>
+        <td class="num">${num(r.count)}</td>
+        <td class="num">${rate(r.base_min)}</td>
+        <td class="num">${rate(r.base_max)}</td>
+        <td class="num">${rate(r.max_rate_top)}</td>
+      </tr>`).join("")
+    : `<tr><td colspan="5" class="empty">데이터 없음</td></tr>`;
+
+  $("top-rates").innerHTML = (data.top_rates || []).length
+    ? data.top_rates.map((r) => `<tr>
+        <td>${esc(r.institution)}</td>
+        <td>${esc(r.product)}</td>
+        <td class="num">${r.term_months == null ? "—" : num(r.term_months)}</td>
+        <td>${r.interest_method === "compound" ? "복리" : "단리"}</td>
+        <td class="num">${rate(r.base_rate)}</td>
+        <td class="num">${rate(r.max_rate)}</td>
+        <td>${esc(r.source_effective_at || "—")}</td>
+      </tr>`).join("")
+    : `<tr><td colspan="7" class="empty">데이터 없음</td></tr>`;
+
+  $("sources").innerHTML = (data.sources || []).length
+    ? data.sources.map((s) => `<div class="src ${s.observation_count > 0 ? "ok" : ""}">
+        <div class="top">
+          <span class="id">${esc(s.id)}</span>
+          <span class="pill ${s.observation_count > 0 ? "ok" : "idle"}">${
+            s.observation_count > 0 ? "수집됨" : "수집 없음"}</span>
+        </div>
+        <span class="nm">${esc(s.name)}</span>
+        <span class="msg">관측 ${num(s.observation_count)}건 ·
+          신뢰등급 ${esc(s.trust_level)} · 완전도 ${esc(s.coverage_status)}</span>
+      </div>`).join("")
+    : `<div class="empty">등록된 수집원 없음</div>`;
+
+  $("reviews").innerHTML = (data.review_samples || []).length
+    ? data.review_samples.map((r) => `<div class="row">
+        <span class="pill ${r.severity === "error" ? "crit" : "warn"}">${esc(r.issue_type)}</span>
+        <div class="b">${esc(r.message)}</div>
+      </div>`).join("")
+    : `<div class="row"><span class="pill ok">없음</span>
+        <div class="b">검수 대기 항목이 없다</div></div>`;
+
+  const scopes = (data.rate_scopes || [])
+    .map((s) => `${esc(s.rate_scope)} ${num(s.count)}건`).join(" · ");
+  $("foot").innerHTML =
+    `이 보드의 모든 수치는 SQLite 집계에서 나온다. 하드코딩 값이 없다.<br>`
+    + `금리 적용 범위 — ${scopes || "—"}<br>`
+    + `근거 — <code>publish/manifest.json</code> · <code>publish/summary.json</code>`;
+})();
+</script>

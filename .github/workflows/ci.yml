@@ -1,0 +1,53 @@
+name: CI
+
+# 외부 네트워크를 호출하지 않는다. 시크릿도 쓰지 않는다.
+# 원천 사이트 장애가 코드 검증을 막으면 안 된다 (명세서 v3.1 §10.1).
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Sync dependencies
+        run: uv sync --locked
+
+      - name: Lint
+        run: uv run ruff check src tests scripts
+
+      - name: Test
+        run: uv run pytest -q
+
+      - name: Migration applies to an empty database
+        env:
+          RATE_MONITOR_DB_URL: sqlite+pysqlite:///${{ runner.temp }}/ci.sqlite3
+        run: |
+          uv run alembic upgrade head
+          uv run python - <<'PY'
+          import os, sqlite3
+          path = os.environ["RATE_MONITOR_DB_URL"].split("///")[1]
+          conn = sqlite3.connect(path)
+          tables = [
+              r[0] for r in conn.execute(
+                  "SELECT name FROM sqlite_master WHERE type='table' "
+                  "AND name NOT LIKE 'sqlite_%' AND name != 'alembic_version'"
+              )
+          ]
+          assert len(tables) == 13, f"테이블 13종이어야 하는데 {len(tables)}종: {sorted(tables)}"
+          print(f"테이블 {len(tables)}종 생성 확인")
+          PY
