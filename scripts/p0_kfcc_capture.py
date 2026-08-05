@@ -58,29 +58,41 @@ def save(content: bytes, name: str, also_fixture: bool = False) -> dict:
     return {"path": str(path), "sha256": digest, "bytes": len(content)}
 
 
+# 2026-08-05 실측: 목록 페이지는 원천값을 아래 형태의 숨김 span으로 노출한다.
+#   <span hidden="true" style="display: none;" title="gmgoCd">1203</span>
+SPAN_RE = re.compile(r'<span[^>]*title="([a-zA-Z_0-9]+)"[^>]*>([^<]*)</span>')
+
+
+def extract_rows(text: str) -> list[dict]:
+    """숨김 span 묶음을 행 단위로 복원한다.
+
+    같은 title이 다시 나오면 새 행이 시작된 것으로 본다.
+    """
+    rows: list[dict] = []
+    current: dict = {}
+    for title, value in SPAN_RE.findall(text):
+        if title in current:
+            rows.append(current)
+            current = {}
+        current[title] = value.strip()
+    if current:
+        rows.append(current)
+    return [r for r in rows if "gmgoCd" in r and r.get("gmgoCd")]
+
+
 def inspect(content: bytes) -> dict:
     """구조를 단정하지 않고 관측 사실만 보고한다."""
     text = content.decode("utf-8", "ignore")
     found = {t: text.count(t) for t in TOKENS if t in text}
-
-    # gmgoCd 로 보이는 값의 실제 출현 형태를 그대로 수집 (추정 없이 원문 조각)
-    samples: list[str] = []
-    for m in re.finditer(r".{60}gmgoCd.{60}", text):
-        snippet = " ".join(m.group(0).split())
-        if snippet not in samples:
-            samples.append(snippet)
-        if len(samples) >= 5:
-            break
-
-    # 4자리 숫자 코드 후보 (참고 데이터의 gmgoCd 형태와 대조용)
-    code_like = re.findall(r"['\"](\d{4})['\"]", text)
+    rows = extract_rows(text)
 
     return {
         "token_counts": found,
-        "gmgoCd_context_samples": samples,
-        "four_digit_code_candidates": len(code_like),
-        "four_digit_code_distinct": len(set(code_like)),
-        "four_digit_code_sample": sorted(set(code_like))[:10],
+        "hidden_span_titles": sorted({t for t, _ in SPAN_RE.findall(text)}),
+        "row_count": len(rows),
+        "distinct_gmgoCd": len({r["gmgoCd"] for r in rows}),
+        "gmgoCd_sample": sorted({r["gmgoCd"] for r in rows})[:10],
+        "first_row": rows[0] if rows else {},
         "table_tag_count": text.count("<table"),
         "has_tblWrap": "tblWrap" in text,
         "has_tbl_tit": "tbl-tit" in text,
@@ -125,41 +137,53 @@ def main() -> int:
 
     time.sleep(INTERVAL_SECONDS)
 
-    # 2. 금리 상세 페이지 — 명세서 v3 §7.3.3의 경로를 그대로 시험
-    #    파라미터 의미가 미확인이므로, 관측된 코드 후보 1개로만 최소 시험한다.
-    observed = report["steps"]["region_list"].get("observed", {})
-    candidates = observed.get("four_digit_code_sample", [])
+    # 2. 금리 페이지
+    #    2026-08-05 실측: 목록의 "금리" 버튼은 view_rate() → _view()를 거쳐
+    #    GET /map/view.do 로 행의 span 값 전부와 tab=sub_tab_rate 를 보낸다.
+    #    명세서 v3 §7.3.3이 가정한 goods_19.do?OPEN_TRMID&gubuncode 가 아니다.
+    list_obs = report["steps"]["region_list"].get("observed", {})
+    rows = extract_rows(content.decode("utf-8", "ignore"))
     detail_results = []
-    if candidates:
-        code = candidates[0]
-        for category in (13, 14):  # 거치식, 적립식
-            dq = urllib.parse.urlencode({"OPEN_TRMID": category, "gubuncode": code})
-            durl = f"{BASE}/map/goods_19.do?{dq}"
-            dstatus, dcontent = get(durl)
-            print(f"[2] map/goods_19.do?{dq} -> {dstatus}, {len(dcontent)} bytes")
-            entry: dict = {"url": durl, "status": dstatus, "tried_code": code,
-                           "tried_category": category}
-            if dstatus == 200 and dcontent:
-                entry["artifact"] = save(dcontent, f"detail_{code}_{category}", also_fixture=True)
-                entry["observed"] = inspect(dcontent)
-            else:
-                entry["blocked_or_error"] = True
-                entry["snippet"] = dcontent.decode("utf-8", "ignore")[:300]
-            detail_results.append(entry)
-            time.sleep(INTERVAL_SECONDS)
+    seen: set[str] = set()
+    for row in rows:
+        code = row.get("gmgoCd", "")
+        if not code or code in seen:
+            continue  # 금리는 gmgoCd 당 1회만 (명세서 v3 §7.3.4)
+        seen.add(code)
+        params = {k: v for k, v in row.items() if k != "pageNo"}
+        params["tab"] = "sub_tab_rate"
+        durl = f"{BASE}/map/view.do?{urllib.parse.urlencode(params)}"
+        dstatus, dcontent = get(durl)
+        print(f"[2] view.do gmgoCd={code} -> {dstatus}, {len(dcontent)} bytes")
+        entry: dict = {"gmgoCd": code, "gmgoNm": row.get("gmgoNm"), "status": dstatus}
+        if dstatus == 200 and dcontent:
+            entry["artifact"] = save(dcontent, f"rate_{code}", also_fixture=len(detail_results) == 0)
+            entry["observed"] = inspect(dcontent)
+        else:
+            entry["blocked_or_error"] = True
+            entry["snippet"] = dcontent.decode("utf-8", "ignore")[:300]
+        detail_results.append(entry)
+        time.sleep(INTERVAL_SECONDS)
+        if len(detail_results) >= 2:
+            break  # 정찰이므로 표본 2건만
     report["steps"]["rate_detail"] = detail_results
 
-    # 판정 — 관측 사실만으로 다음 단계 가능 여부를 기록
-    list_obs = report["steps"]["region_list"].get("observed", {})
+    # 판정 — 관측 사실만 기록한다. 표본이 없으면 가능하다고 단정하지 않는다.
+    parsed_rows = list_obs.get("row_count", 0)
+    detail_ok = [d for d in detail_results if d.get("status") == 200]
     report["conclusion"] = {
         "list_page_reachable": True,
-        "gmgoCd_token_present": "gmgoCd" in list_obs.get("token_counts", {}),
-        "code_candidates_found": list_obs.get("four_digit_code_distinct", 0),
-        "detail_page_reachable": any(d.get("status") == 200 for d in detail_results),
+        "list_rows_parsed": parsed_rows,
+        "distinct_gmgoCd": list_obs.get("distinct_gmgoCd", 0),
+        "rate_page_endpoint": "/map/view.do (GET, tab=sub_tab_rate)",
+        "rate_page_sampled": len(detail_results),
+        "rate_page_ok": len(detail_ok),
         "next_step": (
-            "원본 HTML을 fixture로 고정했으므로 파서 설계 착수 가능"
-            if list_obs.get("token_counts")
-            else "목록 페이지에 목표 토큰이 없다. 요청 방식(POST/AJAX) 재조사 필요"
+            "목록 파싱과 금리 페이지 표본 모두 확보. 금리표 파서 설계 착수 가능"
+            if parsed_rows and detail_ok
+            else "목록은 파싱되나 금리 페이지 표본 미확보. 요청 파라미터 재조사 필요"
+            if parsed_rows
+            else "목록 파싱 실패. 요청 방식(POST/AJAX) 재조사 필요"
         ),
     }
 
