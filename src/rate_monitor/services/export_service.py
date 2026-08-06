@@ -38,6 +38,31 @@ CSV_HEADERS = {
     "availability_scope": "가입제한",
     "source_id": "수집원",
     "source_effective_at": "공시기준일",
+    # v4 §10.4로 늘어난 칸. 여기 없으면 내보내기가 KeyError로 죽는다 —
+    # 표에 칸을 더할 때 이 표도 같이 늘려야 한다. 테스트가 그걸 지킨다.
+    "outlet": "점포",
+    "geo_basis": "지역근거",
+    "rate_scope": "금리적용범위",
+    "amount_max": "최고한도",
+    "preference": "우대조건",
+}
+
+# 지역근거. 같은 "부산"이라도 어디서 온 값인지가 다르다 (v4 §4.1).
+GEO_BASIS_KO = {
+    "outlet_address": "점포 주소",
+    "source_query_region": "공식 조회지역",
+    "head_office": "본점 소재지",
+    "nationwide": "전국 공시",
+    "none": "없음",
+}
+
+# 금리가 어디에 적용되는가 (v4 §3.3).
+RATE_SCOPE_KO = {
+    "outlet": "점포별",
+    "institution": "기관별",
+    "head_office_reference": "본점 기준 참고값",
+    "nationwide": "전국 동일",
+    "unknown": "미상",
 }
 
 SECTOR_KO = {"savings_bank": "저축은행", "kfcc": "새마을금고", "bank": "은행"}
@@ -74,6 +99,12 @@ def expand(table: dict[str, Any]) -> list[dict[str, Any]]:
         )
         record["availability_scope"] = SCOPE_KO.get(
             record["availability_scope"], record["availability_scope"]
+        )
+        record["geo_basis"] = GEO_BASIS_KO.get(
+            record["geo_basis"], record["geo_basis"]
+        )
+        record["rate_scope"] = RATE_SCOPE_KO.get(
+            record["rate_scope"], record["rate_scope"]
         )
         out.append(record)
     return out

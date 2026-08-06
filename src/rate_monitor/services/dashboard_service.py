@@ -16,6 +16,7 @@ from typing import Any
 import yaml
 
 from rate_monitor.domain.timeutil import kst_iso, now_kst
+from rate_monitor.services.institution_matching import normalize_institution
 
 PRESENTATION_PATH = Path("config/presentation.yaml")
 
@@ -26,19 +27,39 @@ def reference_sectors(path: Path | None = None) -> tuple[str, ...]:
     시중은행은 참고카드에만 나온다. 전국 공시라 부산 구·군에 연결할 수 없고,
     2금융권 넷과 같은 표에 섞이면 무엇을 비교하는 화면인지가 흐려진다.
 
-    **`db_only_sources`는 여기서 걸지 않는다.** 설정에 `finlife_savings_bank`가
-    적혀 있지만, 실측해 보면 finlife가 보는 저축은행 79곳 중 6곳(OK저축은행
-    등)이 FSB 수집분에 없다. 지금 빼면 그 여섯이 화면에서 통째로 사라진다 —
-    "없는 것과 0건은 다르다". 두 원천의 기관 매핑이 생기는 v4 PR 7에서 건다.
+    `db_only_sources`는 여기가 아니라 `dedupe_sources`가 맡는다. 그쪽은
+    통째로 빼는 것이 아니라 **겹치는 상품만** 뺀다 (v4 §9.1).
 
     설정 파일이 없으면 아무것도 빼지 않는다. 화면이 조용히 비는 것보다
     참고지표가 섞여 보이는 편이 알아채기 쉽다.
     """
+    return tuple(_presentation(path).get("reference_sectors") or ())
+
+
+def _presentation(path: Path | None = None) -> dict[str, Any]:
     config_path = path or PRESENTATION_PATH
     if not config_path.exists():
-        return ()
-    config = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
-    return tuple(config.get("reference_sectors") or ())
+        return {}
+    return yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+
+
+def dedupe_sources(path: Path | None = None) -> tuple[str, ...]:
+    """중복이면 화면에서 물러나는 원천 (v4 §9.1).
+
+    저축은행을 finlife와 저축은행중앙회 양쪽에서 받는다. 같은 상품이 두
+    줄로 보이면 안 되므로 한쪽이 물러나야 하고, 명세서는 FSB를 1차로 둔다
+    (§11.1 "메인 표시값은 FSB를 우선한다").
+
+    **통째로 빼는 것이 아니다.** §9.1이 말하는 것은 "동일 상품을 메인에
+    중복 노출하지 않는다"이고, 실측하면 그 차이가 크다.
+
+        FSB 조합      362개 — 전부 finlife에도 있다
+        finlife 조합  756개 — 394개는 FSB에 없다
+
+    통째로 빼면 그 394개(관측 2,688건)가 화면에서 사라진다. 그래서 겹치는
+    것만 뺀다.
+    """
+    return tuple(_presentation(path).get("db_only_sources") or ())
 
 DEFAULT_TEMPLATE = Path("web/templates/dashboard.html")
 DEFAULT_SITE = Path("site/index.html")
@@ -83,6 +104,13 @@ TABLE_COLUMNS = (
     "availability_scope",
     "source_id",
     "source_effective_at",
+    # v4 §10.4. `amount_min`은 일부러 뺐다 — 135,384행 중 채워진 값이
+    # 0건이다. 빈 칸을 화면에 만들면 "정보 없음"이 아니라 "0원부터"로 읽힌다.
+    "outlet",
+    "geo_basis",
+    "rate_scope",
+    "amount_max",
+    "preference",
 )
 
 
@@ -118,6 +146,14 @@ DISTRICT_EXPR = "COALESCE(ot.region_sigungu, i.region_sigungu)"
 TABLE_SIDO_EXPR = "i.region_sido"
 TABLE_DISTRICT_EXPR = "i.region_sigungu"
 
+# 지역근거는 점포 것이 우선이다 (v4 §4.1).
+#
+# 시도·구는 위처럼 기관 칸을 쓰는데, **근거만은 점포를 먼저 본다.** 농·축협은
+# 같은 조합의 지점들이 서로 다른 주소를 갖는다(대저농협 3지점 실측). 그 행의
+# 지역이 어디서 왔는지를 기관 근거로 덮으면 "점포 기준"이 "기관 기준"으로
+# 보이고, 화면 배지가 거짓말을 한다.
+TABLE_GEO_BASIS_EXPR = "COALESCE(ot.geo_basis, i.geo_basis)"
+
 RUN_TIME_KEYS = ("started_at", "finished_at")
 
 
@@ -140,22 +176,93 @@ def _to_kst_times(records: list[dict[str, Any]]) -> None:
 # 통째로 사라진다 — 실측으로 132,502행 중 대부분이 그렇다.
 
 
+# 화면이 "이번에 확인한 금리"로 인정하는 실행 상태.
+#
+# **실패는 확인한 것이 아니다.** 이걸 안 걸렀을 때 실제로 무슨 일이
+# 벌어지는지 재현해 봤다 (2026-08-06).
+#
+#     정상 수집 뒤 화면       78행
+#     그 원천이 실패한 뒤     0행     ← 78행이 조용히 사라진다
+#
+# 실패한 실행이 "가장 최근"이 되면서 그 원천의 관측이 전부 화면 밖으로
+# 나간다. 어제 확인한 금리는 멀쩡히 DB에 있는데도 그렇다. 게다가
+# `volume_gate`는 실패 실행을 빼고 비교하므로 급감으로도 안 잡힌다 —
+# 아무도 모르는 채 발행된다.
+#
+# 실패했으면 **직전에 확인한 값을 그대로 보여준다.** 그게 빈 화면보다 낫고,
+# 얼마나 오래된 값인지는 공시일과 `stale` 표시가 말한다.
+CONFIRMED_RUN_STATUSES = ("success", "partial", "no_change")
+
+
 def latest_run_ids(conn: sqlite3.Connection) -> list[str]:
-    """수집원마다 마지막 실행의 id.
+    """수집원마다 **마지막으로 성공한** 실행의 id.
 
     전체에서 가장 최근 실행 하나만 보면, 저축은행 다음에 새마을금고를
-    돌렸을 때 저축은행 수치가 통째로 사라진다.
+    돌렸을 때 저축은행 수치가 통째로 사라진다. 그래서 수집원별로 본다.
+
+    실패한 실행은 세지 않는다 — 위 상수의 주석 참조.
     """
+    placeholders = ",".join("?" for _ in CONFIRMED_RUN_STATUSES)
     return [
         r["id"]
         for r in _rows(
             conn,
             "SELECT r.id, r.source_id FROM collection_runs r"
             "  JOIN (SELECT source_id, MAX(started_at) AS started_at"
-            "          FROM collection_runs GROUP BY source_id) latest"
+            "          FROM collection_runs"
+            f"        WHERE status IN ({placeholders})"
+            "         GROUP BY source_id) latest"
             "    ON latest.source_id = r.source_id"
-            "   AND latest.started_at = r.started_at",
+            "   AND latest.started_at = r.started_at"
+            f" WHERE r.status IN ({placeholders})",
+            (*CONFIRMED_RUN_STATUSES, *CONFIRMED_RUN_STATUSES),
         )
+    ]
+
+
+def _comparison_key(record: dict[str, Any]) -> tuple[str, Any, Any]:
+    """"같은 상품"의 기준 (v4 §11.1의 매핑 축).
+
+    기관명·상품유형·가입기간 셋이다. **상품명은 넣지 않는다.** 두 원천이
+    같은 상품을 다른 이름으로 부르고("정기예금" vs "정기예금(인터넷)"),
+    이름까지 맞추라고 하면 아무것도 안 붙는다.
+    """
+    return (
+        normalize_institution(record.get("institution")),
+        record.get("product_type"),
+        record.get("term_months"),
+    )
+
+
+def _drop_duplicate_source_rows(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """두 원천이 같은 상품을 주면 한쪽만 남긴다 (v4 §9.1).
+
+    `config/presentation.yaml`의 `db_only_sources`에 적힌 원천이 물러난다.
+    지금은 `finlife_savings_bank`이고, 남는 쪽은 저축은행중앙회다 —
+    가입방법·우대조건·만기후이율이 더 오기 때문이다 (§11.1).
+
+    **겹치는 것만 뺀다.** 실측(2026-08-06 발행 DB):
+
+        FSB 조합      362개 — 전부 finlife에도 있다
+        finlife 조합  756개 — 394개는 FSB에 없다
+
+    통째로 빼면 그 394개가 화면에서 사라진다. 그래서 "다른 원천이 같은
+    상품을 이미 보여주는가"를 행마다 묻는다.
+    """
+    retreating = set(dedupe_sources())
+    if not retreating:
+        return records
+
+    # 물러나지 않는 원천이 이미 보여주는 상품.
+    covered = {
+        _comparison_key(r) for r in records if r.get("source_id") not in retreating
+    }
+    if not covered:
+        return records
+    return [
+        r
+        for r in records
+        if r.get("source_id") not in retreating or _comparison_key(r) not in covered
     ]
 
 
@@ -198,13 +305,26 @@ def build_rate_table(
         "       o.max_rate              AS max_rate,"
         "       i.availability_scope    AS availability_scope,"
         "       r.source_id             AS source_id,"
-        "       o.source_effective_at   AS source_effective_at"
+        "       o.source_effective_at   AS source_effective_at,"
+        # ── v4 §10.4가 표 행에 요구하는 칸들 ────────────────────────────
+        "       ot.name                 AS outlet,"
+        # 지역근거. 점포 것이 있으면 그쪽이 맞다 — 농·축협은 같은 조합의
+        # 지점들이 서로 다른 주소를 갖는다. 기관 것으로 덮으면 점포 기준이
+        # 기관 기준으로 보인다 (v4 §4.1).
+        f"      {TABLE_GEO_BASIS_EXPR}  AS geo_basis,"
+        "       v.rate_scope            AS rate_scope,"
+        "       v.amount_max            AS amount_max,"
+        # 우대조건 원문. 조회표로 나가므로 크기가 안 는다 — 실측 38,305행에
+        # 서로 다른 문장이 387가지뿐이라 7.5 MB가 0.08 MB가 된다.
+        "       o.raw_preference_text   AS preference"
         "  FROM rate_observations o"
         "  JOIN collection_runs r  ON r.id = o.run_id"
         "  JOIN product_variants v ON v.id = o.variant_id"
         "  JOIN products p         ON p.id = v.product_id"
         "  JOIN institutions i     ON i.id = p.institution_id"
-        # 점포를 조인하지 않는다. 조인하면 관측 하나가 점포 수만큼 복제된다.
+        # 점포는 `product_variants.outlet_id`로만 잇는다. 기관으로 이으면
+        # 관측 하나가 그 기관의 점포 수만큼 복제된다.
+        "  LEFT JOIN outlets ot    ON ot.id = v.outlet_id"
         f" WHERE o.last_run_id IN ({placeholders})"
         "   AND o.validation_status != 'error'"
         # 참고지표는 메인 비교표에 넣지 않는다 (v4 §6.4).
@@ -213,10 +333,20 @@ def build_rate_table(
         (*run_ids, *excluded),
     )
 
+    raw = _drop_duplicate_source_rows(raw)
+
     # 같은 값이 수천 번 되풀이되는 열만 조회표로 뺀다.
-    indexed = ("sector", "institution", "region", "district", "product", "product_type",
-               "payment_method", "interest_method", "join_channel",
-               "availability_scope", "source_id", "source_effective_at")
+    raw = _drop_duplicate_source_rows(raw)
+
+    # 같은 값이 수천 번 되풀이되는 열만 조회표로 뺀다.
+    #
+    # `preference`가 여기 있는 것이 이번 확장의 핵심이다. 우대조건 원문을
+    # 행마다 그대로 실으면 7.5 MB인데, 서로 다른 문장이 387가지뿐이라
+    # 조회표로 빼면 0.08 MB다 (2026-08-06 발행 DB 실측, 90배).
+    indexed = ("sector", "institution", "outlet", "region", "district",
+               "product", "product_type", "payment_method", "interest_method",
+               "join_channel", "availability_scope", "source_id",
+               "source_effective_at", "geo_basis", "rate_scope", "preference")
     lookups: dict[str, list[Any]] = {name: [] for name in indexed}
     positions: dict[str, dict[Any, int]] = {name: {} for name in indexed}
 
@@ -241,6 +371,124 @@ def build_rate_table(
         rows.append(row)
 
     return {"columns": list(TABLE_COLUMNS), "lookups": lookups, "rows": rows}
+
+
+# 참고카드가 쓰는 상품. 12개월 정기예금 하나다 (v4 §6.4).
+BENCHMARK_TERM_MONTHS = 12
+BENCHMARK_PRODUCT_TYPE = "term_deposit"
+
+
+def _percentile(values: list[float], q: float) -> float | None:
+    """정렬된 값에서 백분위. 보간하지 않고 가장 가까운 실측값을 고른다.
+
+    보간하면 화면에 **아무 은행도 주지 않는 금리**가 뜬다. 참고카드는
+    "이런 값이 실제로 있다"를 말해야 하므로 있는 값 중에서 고른다.
+
+    >>> _percentile([1.0, 2.0, 3.0, 4.0], 0.5)
+    3.0
+    >>> _percentile([], 0.5) is None
+    True
+    """
+    if not values:
+        return None
+    index = min(int(q * len(values)), len(values) - 1)
+    return values[index]
+
+
+def build_benchmarks(
+    conn: sqlite3.Connection, run_ids: list[str]
+) -> dict[str, Any]:
+    """상단 참고카드 (v4 §6.4, §10.6).
+
+    시중은행은 메인 비교표에서 빠지지만 DB에는 있다. 그 값을 12개월
+    정기예금 한 상품으로 좁혀 분포로 보여준다.
+
+    §6.4가 여섯 값을 요구한다 — `record_count`·`institution_count`·`p10`·
+    `median`·`p90`·`max`. 화면에는 셋만 띄우지만 전부 계산해 둔다. 이상치가
+    카드를 왜곡했는지 나중에 확인할 수 있어야 한다.
+
+    **기준금리와의 차이를 계산하지 않는다** (v4 §7.4). 예금금리에서
+    기준금리를 뺀 값을 "수익"이나 "마진"이라 부르는 순간 그건 참고지표가
+    아니라 투자 권유가 된다.
+    """
+    empty: dict[str, Any] = {
+        # 한국은행 기준금리. v4 PR 6에서 채운다. `None`이면 화면이 카드를
+        # 통째로 숨긴다 — 빈 카드를 띄우면 "0%"로 읽힌다.
+        "bok_base_rate": None,
+        "commercial_bank_12m": None,
+    }
+    if not run_ids:
+        return empty
+
+    placeholders = ",".join("?" for _ in run_ids)
+    rows = _rows(
+        conn,
+        "SELECT o.base_rate AS base_rate, o.max_rate AS max_rate,"
+        "       i.id AS institution_id, o.source_effective_at AS source_effective_at"
+        "  FROM rate_observations o"
+        "  JOIN collection_runs r  ON r.id = o.run_id"
+        "  JOIN product_variants v ON v.id = o.variant_id"
+        "  JOIN products p         ON p.id = v.product_id"
+        "  JOIN institutions i     ON i.id = p.institution_id"
+        f" WHERE o.last_run_id IN ({placeholders})"
+        "   AND o.validation_status != 'error'"
+        "   AND i.sector = 'bank'"
+        "   AND v.term_months = ?"
+        "   AND p.product_type = ?",
+        (*run_ids, BENCHMARK_TERM_MONTHS, BENCHMARK_PRODUCT_TYPE),
+    )
+    if not rows:
+        return empty
+
+    base = sorted(float(r["base_rate"]) for r in rows if r["base_rate"] is not None)
+    tops = [float(r["max_rate"]) for r in rows if r["max_rate"] is not None]
+    dates = [r["source_effective_at"] for r in rows if r["source_effective_at"]]
+
+    empty["commercial_bank_12m"] = {
+        "record_count": len(rows),
+        "institution_count": len({r["institution_id"] for r in rows}),
+        "p10": _percentile(base, 0.10),
+        "median": _percentile(base, 0.50),
+        "p90": _percentile(base, 0.90),
+        # 최고금리는 우대 포함값이라 기본금리와 섞지 않는다.
+        "max": max(tops) if tops else None,
+        "max_is_from_max_rate": bool(tops),
+        "source_effective_at": max(dates) if dates else None,
+    }
+    return empty
+
+
+def _stale_sources(conn: sqlite3.Connection) -> list[dict[str, Any]]:
+    """가장 최근 실행이 실패한 수집원.
+
+    `latest_run_ids`가 실패를 걸러 주므로 화면에는 직전에 확인한 값이 남는다.
+    그건 빈 화면보다 낫지만, **조용히 그러면 안 된다.** 보는 사람은 그 금리가
+    오늘 확인된 것이라고 믿는다.
+
+    그래서 "이 원천은 마지막 수집이 실패했고 지금 보이는 값은 언제 것이다"를
+    화면에 내보낸다.
+    """
+    placeholders = ",".join("?" for _ in CONFIRMED_RUN_STATUSES)
+    return _rows(
+        conn,
+        "SELECT last.source_id            AS source_id,"
+        "       last.status               AS status,"
+        "       last.started_at           AS failed_at,"
+        "       last.message              AS message,"
+        "       ok.started_at             AS showing_from"
+        "  FROM (SELECT r.* FROM collection_runs r"
+        "          JOIN (SELECT source_id, MAX(started_at) AS started_at"
+        "                  FROM collection_runs GROUP BY source_id) m"
+        "            ON m.source_id = r.source_id AND m.started_at = r.started_at) last"
+        "  LEFT JOIN (SELECT source_id, MAX(started_at) AS started_at"
+        "               FROM collection_runs"
+        f"             WHERE status IN ({placeholders})"
+        "              GROUP BY source_id) ok"
+        "    ON ok.source_id = last.source_id"
+        f" WHERE last.status NOT IN ({placeholders})"
+        " ORDER BY last.source_id",
+        (*CONFIRMED_RUN_STATUSES, *CONFIRMED_RUN_STATUSES),
+    )
 
 
 def build_summary(db_path: Path) -> dict[str, Any]:
@@ -436,7 +684,9 @@ def build_summary(db_path: Path) -> dict[str, Any]:
             " GROUP BY v.rate_scope",
         )
 
+        stale_sources = _stale_sources(conn)
         table = build_rate_table(conn, run_ids)
+        benchmarks = build_benchmarks(conn, run_ids)
     finally:
         conn.close()
 
@@ -455,6 +705,8 @@ def build_summary(db_path: Path) -> dict[str, Any]:
         "review_samples": review_samples,
         "sources": sources,
         "rate_scopes": rate_scopes,
+        "benchmarks": benchmarks,
+        "stale_sources": stale_sources,
         "table": table,
     }
 
