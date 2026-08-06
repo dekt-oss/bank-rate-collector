@@ -330,3 +330,32 @@ def test_region_defaults_to_auto_and_can_be_set() -> None:
     assert R2Config.from_env(SECRETS).region == "auto"
     assert R2Config.from_env({**SECRETS, "R2_REGION": "auto"}).region == "auto"
     assert R2Config.from_env({**SECRETS, "R2_REGION": "  "}).region == "auto"
+
+
+# ── 워크플로우 배선 ──────────────────────────────────────────────────────
+
+
+def test_every_backend_aware_step_can_see_the_secrets() -> None:
+    """backend를 읽거나 R2를 만지는 단계는 시크릿 다섯 개를 다 봐야 한다.
+
+    2026-08-06 run 31073323624에서 수집이 통째로 죽었다. `Decide storage
+    backend` 단계에 시크릿을 안 넣어 뒀는데, `load_backend`는 값을 읽자마자
+    있는지 검사한다 — "읽기만 하는 단계"로 보였지만 검사도 같이 한다.
+
+    아래 단계들에만 넣어 뒀던 것이 화근이라, 눈으로 세지 않고 여기서 센다.
+    """
+    import yaml
+
+    path = Path(__file__).resolve().parents[1] / ".github/workflows/collect.yml"
+    workflow = yaml.safe_load(path.read_text(encoding="utf-8"))
+    steps = workflow["jobs"]["collect"]["steps"]
+    needed = set(R2Config.ENV_KEYS)
+
+    for step in steps:
+        body = str(step.get("run") or "")
+        touches_backend = "load_backend" in body or "rate-monitor storage" in body
+        if not touches_backend:
+            continue
+        have = set(step.get("env") or {})
+        missing = needed - have
+        assert not missing, f"{step.get('name')!r} 단계에 없다: {sorted(missing)}"
