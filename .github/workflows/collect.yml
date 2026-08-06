@@ -253,6 +253,10 @@ jobs:
           cp site/index.html site/public.html "$STAGE/site/"
           # 호스팅에 그대로 올릴 수 있는 한 벌.
           cp -r site-public "$STAGE/site-public"
+          # Vercel은 **저장소 루트**의 vercel.json만 읽는다. main에 있는
+          # 원본을 rate-data 루트로 옮겨 놓지 않으면, 저장소를 파이썬 앱으로
+          # 잡고 진입점을 찾다 실패한다 (2026-08-06 실측).
+          cp vercel.json "$STAGE/vercel.json"
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -272,8 +276,9 @@ jobs:
               -not -name site-public -not -name data -exec rm -rf {} +
             rm -rf latest site site-public
             cp -r "$STAGE/latest" "$STAGE/site" "$STAGE/site-public" .
+            cp "$STAGE/vercel.json" .
 
-            git add -f latest site site-public
+            git add -f latest site site-public vercel.json
             if git diff --cached --quiet; then
               echo "변경 없음"
               exit 0

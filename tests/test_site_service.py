@@ -328,18 +328,39 @@ def test_template_points_at_the_files_the_build_writes(db: Path, tmp_path: Path)
         assert entry["bytes"] == target.stat().st_size
 
 
-def test_data_files_are_not_cached_long(db: Path, tmp_path: Path) -> None:
-    """`data/` 아래는 주소가 그대로인 채 내용만 바뀐다.
+def test_hosting_config_matches_what_the_build_writes() -> None:
+    """저장소 루트의 `vercel.json`이 실제 산출물과 맞물리는지.
 
-    오래 캐시하면 새로고침해도 어제 금리가 나온다. 수집을 아무리 자주
-    돌려도 보는 사람에게는 안 바뀐 것과 같다.
+    Vercel은 **저장소 루트**의 vercel.json만 읽는다. 산출물 안에 같은
+    이름을 하나 더 두면 어느 쪽이 실제로 쓰이는지 알 수 없으므로 두지
+    않는다. 대신 그 파일이 가리키는 값이 빌드와 어긋나지 않는지 여기서 본다.
+
+    - outputDirectory가 build_site의 기본 출력 폴더와 같아야 한다
+    - data/ 아래는 캐시하면 안 된다. 주소가 그대로인 채 내용만 바뀌므로
+      오래 캐시하면 새로고침해도 어제 금리가 나온다
+    - ignoreCommand는 rate-data만 배포하게 한다. 다른 브랜치에는
+      site-public/이 없어서 커밋마다 빨간 실패 표시가 붙는다
     """
-    out = tmp_path / "site-public"
-    build_site(db, TEMPLATE, out)
-    config = json.loads((out / "vercel.json").read_text(encoding="utf-8"))
+    from rate_monitor.services.site_service import DEFAULT_OUT
+
+    root = Path(__file__).resolve().parents[1]
+    config = json.loads((root / "vercel.json").read_text(encoding="utf-8"))
+
+    assert config["outputDirectory"] == str(DEFAULT_OUT)
+    assert config["framework"] is None
+    assert config["buildCommand"] == ""
+    assert "rate-data" in config["ignoreCommand"]
+
     rules = {r["source"]: r["headers"][0]["value"] for r in config["headers"]}
     assert "must-revalidate" in rules["/data/(.*)"]
     assert "max-age=0" in rules["/data/(.*)"]
+
+
+def test_build_does_not_write_a_second_hosting_config(db: Path, tmp_path: Path) -> None:
+    """산출물 안에 vercel.json을 두지 않는다. 근거가 둘이 되면 안 된다."""
+    out = tmp_path / "site-public"
+    build_site(db, TEMPLATE, out)
+    assert not (out / "vercel.json").exists()
 
 
 def test_page_declares_utf8(db: Path, tmp_path: Path) -> None:

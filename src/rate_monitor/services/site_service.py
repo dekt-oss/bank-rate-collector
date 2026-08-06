@@ -58,41 +58,6 @@ TABLE_FILE = "data/table.json"
 # CSV는 이 선(17 MB) 아래라 그대로 둔다. 엑셀이 바로 열 수 있어야 한다.
 EXPORT_GZIP_BYTES = 20 * 1024 * 1024
 
-# 호스팅 설정.
-#
-# 캐시가 핵심이다. `data/` 아래 파일은 수집이 돌 때마다 내용이 바뀌는데
-# 주소는 그대로다. 오래 캐시하면 사람이 새로고침해도 어제 금리를 본다.
-# `must-revalidate`로 매번 물어보게 하고, 안 바뀌었으면 304로 끝난다.
-#
-# 반대로 페이지 자체는 배포 때마다 새로 올라가므로 짧게 잡아도 충분하다.
-VERCEL_CONFIG = json.dumps(
-    {
-        "$schema": "https://openapi.vercel.sh/vercel.json",
-        "headers": [
-            {
-                "source": "/data/(.*)",
-                "headers": [
-                    {
-                        "key": "Cache-Control",
-                        "value": "public, max-age=0, must-revalidate",
-                    }
-                ],
-            },
-            {
-                "source": "/index.html",
-                "headers": [
-                    {
-                        "key": "Cache-Control",
-                        "value": "public, max-age=0, must-revalidate",
-                    }
-                ],
-            },
-        ],
-    },
-    ensure_ascii=False,
-    indent=2,
-)
-
 # 화면에 인라인하는 것과 파일로 빼는 것을 가른다.
 #
 # 요약(집계·수집원·검수)은 몇 KB라 인라인이 낫다 — 첫 화면이 바로 그려진다.
@@ -252,7 +217,6 @@ def build_site(
         files=tuple(files),
     )
     (out_dir / "site-manifest.json").write_text(manifest.to_json(), encoding="utf-8")
-    (out_dir / "vercel.json").write_text(VERCEL_CONFIG, encoding="utf-8")
     return manifest
 
 

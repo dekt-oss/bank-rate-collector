@@ -170,32 +170,39 @@ private이라 Vercel에 접근 권한을 주는 OAuth 승인이 필요하고, �
 
 Vercel 대시보드에서:
 
-| 설정 위치 | 항목 | 값 |
-|---|---|---|
-| Settings → Git | Production Branch | `rate-data` |
-| Settings → Git | Ignored Build Step | `[ "$VERCEL_GIT_COMMIT_REF" != "rate-data" ]` |
-| Settings → Build | Root Directory | `site-public` |
-| Settings → Build | Framework Preset | Other |
-| Settings → Build | Build Command | Override 켜고 **비움** |
-| Settings → Build | Install Command | Override 켜고 **비움** |
-| Settings → Build | Output Directory | Override 켜고 `.` |
+설정은 **저장소 루트의 `vercel.json`**에 있다. 대시보드에서 항목을 찾아
+누르지 않는다 — `vercel.json`이 프로젝트 설정을 덮어쓰고, 그 편이 근거가
+한 군데로 모인다. 대시보드 화면 구성은 바뀌지만 이 파일은 안 바뀐다.
 
-연결하고 나면 수집이 돌 때마다 `rate-data`에 push가 일어나고 Vercel이
-그걸 받아 자동 배포한다. 별도 배포 단계를 워크플로우에 넣지 않아도 된다.
+```json
+{
+  "framework": null,
+  "buildCommand": "",
+  "installCommand": "",
+  "outputDirectory": "site-public",
+  "ignoreCommand": "[ \"$VERCEL_GIT_COMMIT_REF\" != \"rate-data\" ]"
+}
+```
+
+이 파일은 **두 곳에 있어야 한다.** `main`의 저장소 루트(사람이 고치는
+원본)와 `rate-data`의 저장소 루트(Vercel이 실제로 읽는 자리)다. 수집
+워크플로우의 Publish 단계가 전자를 후자로 복사한다.
+
+**사람이 대시보드에서 바꿀 것은 하나뿐이다** — Production Branch를
+`rate-data`로. 나머지는 위 파일이 정한다.
 
 **세 가지가 실제로 걸렸다 (2026-08-06 실측).**
 
 1. **저장소 루트를 파이썬 앱으로 오인한다.** 처음 연결하면 Vercel이
    `framework: "python"`으로 잡고 `app.py`·`main.py` 같은 진입점을 찾다
    실패한다 (`No python entrypoint found`). 이 저장소는 수집기라 그런
-   파일이 없다. Root Directory를 `site-public`으로 옮기고 Framework를
-   Other로 바꿔야 한다.
+   파일이 없다. `framework: null` + 빈 `buildCommand`가 막는다.
 
 2. **`main`을 배포하려 든다.** 화면 파일은 `main`에 없다. 수집 산출물이라
    `.gitignore`에 걸려 있고 `rate-data`에만 있다.
 
 3. **PR마다 미리보기 배포가 실패한다.** `site-public/`이 없는 브랜치에서는
-   빌드가 시작도 못 한다. Ignored Build Step이 이걸 막는다 — 이 명령은
+   빌드가 시작도 못 한다. `ignoreCommand`가 이걸 막는다 — 이 명령은
    **0으로 끝나면 건너뛰고 1로 끝나면 빌드한다.** 위 조건은 `rate-data`가
    아닐 때 0을 돌려주므로 그 브랜치만 배포된다.
 
