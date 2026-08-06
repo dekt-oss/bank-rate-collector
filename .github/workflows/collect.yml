@@ -179,6 +179,22 @@ jobs:
             --db publish/rate_monitor.sqlite3 \
             --out publish/export
 
+      # 배포용 공개 사이트. 화면과 데이터를 나눠 쓴다.
+      #
+      # 위 build-dashboard가 만드는 두 화면은 금리표를 HTML 안에 통째로
+      # 박는다. 아티팩트로 공유할 때는 그래야 했지만, 진짜 호스팅에 올리면
+      # 전국 16만 8천 행이 8MB짜리 페이지가 되어 열 때마다 그만큼을 받는다.
+      # 이쪽은 페이지를 가볍게 두고 금리표를 data/table.json으로 뺀다.
+      #
+      # export 다음에 둔다 — 내려받기 링크가 가리킬 파일이 먼저 있어야 한다.
+      - name: Build public site
+        run: |
+          uv run rate-monitor build-site \
+            --db publish/rate_monitor.sqlite3 \
+            --template web/templates/site.html \
+            --out site-public \
+            --export-dir publish/export
+
       - name: Verify P1-A gate
         run: |
           uv run python scripts/verify_gate.py \
@@ -213,6 +229,14 @@ jobs:
           path: site/
           if-no-files-found: warn
 
+      - name: Upload public site
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: public-site-${{ github.run_id }}
+          path: site-public/
+          if-no-files-found: warn
+
       - name: Publish to rate-data branch
         run: |
           set -euo pipefail
@@ -224,7 +248,11 @@ jobs:
           cp publish/manifest.json publish/summary.json "$STAGE/latest/"
           # 전체 조사 파일도 함께 싣는다. 화면 없이 받아갈 수 있어야 한다.
           cp -r publish/export "$STAGE/latest/export"
-          cp site/index.html "$STAGE/site/"
+          # 두 화면 다 싣는다. 예전에는 index.html만 복사해서 공개용 조회
+          # 화면(public.html)이 rate-data에 영영 올라가지 않았다.
+          cp site/index.html site/public.html "$STAGE/site/"
+          # 호스팅에 그대로 올릴 수 있는 한 벌.
+          cp -r site-public "$STAGE/site-public"
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -241,11 +269,11 @@ jobs:
 
             find . -maxdepth 1 -mindepth 1 \
               -not -name .git -not -name work -not -name publish -not -name site \
-              -not -name data -exec rm -rf {} +
-            rm -rf latest site
-            cp -r "$STAGE/latest" "$STAGE/site" .
+              -not -name site-public -not -name data -exec rm -rf {} +
+            rm -rf latest site site-public
+            cp -r "$STAGE/latest" "$STAGE/site" "$STAGE/site-public" .
 
-            git add -f latest site
+            git add -f latest site site-public
             if git diff --cached --quiet; then
               echo "변경 없음"
               exit 0

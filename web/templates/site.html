@@ -1,0 +1,850 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<!-- charset을 빼면 안 된다.
+     2026-08-06 Chromium 실측: 이 줄이 없으면 페이지에 박힌 한글 낱말
+     ("새마을금고", "적금", "영업점")이 전부 깨져 나온다. table.json은
+     fetch가 UTF-8로 읽어 멀쩡한데 화면 글자만 깨져서, 데이터가 잘못된
+     것처럼 보인다. 호스팅이 charset 헤더를 붙여 주기를 기대하지 않는다. -->
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- 파비콘을 인라인으로 둔다. 없으면 브라우저가 /favicon.ico를 찾다 404를
+     남기고, 그 404가 콘솔에서 진짜 오류처럼 보인다. -->
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%232D5F7C'/%3E%3Ctext x='8' y='12' font-size='11' font-family='monospace' font-weight='bold' text-anchor='middle' fill='white'%3E%25%3C/text%3E%3C/svg%3E">
+<title>2금융권 수신금리 조회 · rate-monitor</title>
+<meta name="description" content="저축은행·새마을금고·신협의 공시 수신금리를 한 표에서 조회하고 파일로 내려받습니다. 공식 공시 화면에서 직접 수집한 값입니다.">
+<style>
+  /* ── 토큰 ──────────────────────────────────────────────────────────
+     운영 보드(dashboard.html)·조회 화면(public.html)과 같은 색을 쓴다.
+     같은 데이터를 세 화면이 다른 색으로 보여주면 같은 것인지 알 수 없다. */
+  :root {
+    --paper:      #EEF1F4;
+    --surface:    #FFFFFF;
+    --surface-2:  #F6F8FA;
+    --line:       #D3DAE1;
+    --line-soft:  #E4E9EE;
+    --ink:        #171C23;
+    --ink-2:      #4A5563;
+    --ink-3:      #77828F;
+    --accent:     #2D5F7C;
+    --accent-ink: #24506A;
+    --accent-bg:  #E5EDF2;
+    --ok:         #2E7D5B;
+    --warn:       #A9741A;
+    --crit:       #AC4238;
+    --ok-bg:      #E4F1EA;
+    --warn-bg:    #F7EEDA;
+    --crit-bg:    #F7E5E3;
+
+    --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas,
+            "Liberation Mono", monospace;
+    --sans: system-ui, -apple-system, "Apple SD Gothic Neo", "Pretendard",
+            "Malgun Gothic", "Noto Sans KR", sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper: #10141A; --surface: #181D25; --surface-2: #1E242D;
+      --line: #2C3540; --line-soft: #232B35;
+      --ink: #E3E8EE; --ink-2: #A7B2BF; --ink-3: #7A8695;
+      --accent: #6FA8C7; --accent-ink: #8CBEDA; --accent-bg: #1B2A34;
+      --ok: #5DBE90; --warn: #D6A343; --crit: #E0776C;
+      --ok-bg: #172C24; --warn-bg: #2E2718; --crit-bg: #2E1E1D;
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper: #10141A; --surface: #181D25; --surface-2: #1E242D;
+    --line: #2C3540; --line-soft: #232B35;
+    --ink: #E3E8EE; --ink-2: #A7B2BF; --ink-3: #7A8695;
+    --accent: #6FA8C7; --accent-ink: #8CBEDA; --accent-bg: #1B2A34;
+    --ok: #5DBE90; --warn: #D6A343; --crit: #E0776C;
+    --ok-bg: #172C24; --warn-bg: #2E2718; --crit-bg: #2E1E1D;
+  }
+  :root[data-theme="light"] {
+    --paper: #EEF1F4; --surface: #FFFFFF; --surface-2: #F6F8FA;
+    --line: #D3DAE1; --line-soft: #E4E9EE;
+    --ink: #171C23; --ink-2: #4A5563; --ink-3: #77828F;
+    --accent: #2D5F7C; --accent-ink: #24506A; --accent-bg: #E5EDF2;
+    --ok: #2E7D5B; --warn: #A9741A; --crit: #AC4238;
+    --ok-bg: #E4F1EA; --warn-bg: #F7EEDA; --crit-bg: #F7E5E3;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--paper); color: var(--ink);
+    font-family: var(--sans); font-size: 14.5px; line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1440px; margin: 0 auto; padding: 22px 18px 64px; }
+
+  header.top {
+    display: flex; flex-wrap: wrap; align-items: flex-end;
+    justify-content: space-between; gap: 12px;
+    padding-bottom: 14px; border-bottom: 2px solid var(--ink);
+  }
+  header.top h1 {
+    margin: 0; font-size: 23px; font-weight: 650;
+    letter-spacing: -0.015em; text-wrap: balance;
+  }
+  header.top .sub { margin: 4px 0 0; color: var(--ink-2); font-size: 13px; }
+  .stamp {
+    font-family: var(--mono); font-size: 11.5px; color: var(--ink-3);
+    text-align: right; line-height: 1.7; font-variant-numeric: tabular-nums;
+  }
+
+  .notice {
+    margin: 14px 0 0; padding: 9px 13px;
+    background: var(--warn-bg); color: var(--warn);
+    border-left: 3px solid var(--warn); border-radius: 2px;
+    font-size: 12.5px; font-weight: 600;
+  }
+  .notice span { display: block; font-weight: 400; margin-top: 3px; }
+
+  .totals {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 1px; background: var(--line); border: 1px solid var(--line);
+    border-radius: 3px; overflow: hidden; margin-top: 16px;
+  }
+  .totals > div { background: var(--surface); padding: 11px 14px; }
+  .totals .k {
+    font-size: 10.5px; letter-spacing: 0.09em; text-transform: uppercase;
+    color: var(--ink-3); font-weight: 600;
+  }
+  .totals .v {
+    font-family: var(--mono); font-size: 21px; font-weight: 600;
+    font-variant-numeric: tabular-nums; margin-top: 2px; letter-spacing: -0.02em;
+  }
+
+  /* ── 내려받기 — 서버 파일을 그냥 가리킨다 ── */
+  .files {
+    margin-top: 16px; padding: 12px 14px;
+    background: var(--accent-bg); border: 1px solid var(--line);
+    border-radius: 3px;
+    display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px;
+  }
+  .files .lead { font-size: 13px; font-weight: 600; color: var(--accent-ink); }
+  .files .hint { font-size: 12px; color: var(--ink-2); flex: 1 1 220px; }
+  a.file {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 13px; font-weight: 600; text-decoration: none;
+    padding: 7px 13px; border-radius: 3px;
+    background: var(--surface); color: var(--ink);
+    border: 1px solid var(--line);
+  }
+  a.file:hover { border-color: var(--accent); color: var(--accent-ink); }
+  a.file .sz {
+    font-family: var(--mono); font-size: 11px; font-weight: 400;
+    color: var(--ink-3); font-variant-numeric: tabular-nums;
+  }
+
+  .panel {
+    margin-top: 16px; background: var(--surface);
+    border: 1px solid var(--line); border-radius: 3px;
+  }
+  .panel > h2 {
+    margin: 0; padding: 10px 14px; font-size: 11px; font-weight: 700;
+    letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-3);
+    border-bottom: 1px solid var(--line-soft);
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .panel > h2 button {
+    font: inherit; text-transform: none; letter-spacing: 0;
+    background: none; border: 0; color: var(--accent);
+    cursor: pointer; padding: 0; font-weight: 600;
+  }
+  .groups {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+    gap: 0;
+  }
+  .group { padding: 12px 14px; border-right: 1px solid var(--line-soft);
+           border-bottom: 1px solid var(--line-soft); }
+  .group > .lbl {
+    font-size: 11px; font-weight: 700; color: var(--ink-3);
+    letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: 7px;
+    display: flex; justify-content: space-between; align-items: baseline;
+  }
+  .group > .lbl a {
+    font-size: 11px; color: var(--accent); cursor: pointer;
+    text-transform: none; letter-spacing: 0; font-weight: 600;
+  }
+  .checks { display: flex; flex-wrap: wrap; gap: 5px 12px; }
+  .checks label {
+    display: inline-flex; align-items: center; gap: 5px;
+    font-size: 13px; cursor: pointer; white-space: nowrap;
+  }
+  .checks input { accent-color: var(--accent); width: 14px; height: 14px; margin: 0; }
+  .checks .n {
+    font-family: var(--mono); font-size: 11px; color: var(--ink-3);
+    font-variant-numeric: tabular-nums;
+  }
+  .fields { display: flex; flex-wrap: wrap; gap: 10px; }
+  .field { display: flex; flex-direction: column; gap: 4px; flex: 1 1 130px; }
+  .field label { font-size: 11px; color: var(--ink-3); font-weight: 600; }
+  .stale-note {
+    margin: 9px 0 0; font-size: 11.5px; line-height: 1.6; color: var(--ink-2);
+  }
+  .stale-note b { color: var(--warn); }
+  input[type="search"], input[type="number"], input[type="date"], select {
+    font: inherit; font-size: 13.5px; padding: 6px 8px;
+    background: var(--surface-2); color: var(--ink);
+    border: 1px solid var(--line); border-radius: 3px; width: 100%;
+  }
+  input:focus-visible, select:focus-visible, button:focus-visible,
+  a:focus-visible, th[aria-sort] button:focus-visible {
+    outline: 2px solid var(--accent); outline-offset: 1px;
+  }
+
+  .bar {
+    display: flex; flex-wrap: wrap; gap: 10px; align-items: center;
+    justify-content: space-between; padding: 11px 14px;
+    background: var(--surface-2); border-top: 1px solid var(--line-soft);
+  }
+  .bar .count {
+    font-family: var(--mono); font-size: 19px; font-weight: 700;
+    font-variant-numeric: tabular-nums; color: var(--accent-ink);
+  }
+  .bar .note { font-size: 12.5px; color: var(--ink-2); }
+  .acts { display: flex; gap: 7px; flex-wrap: wrap; }
+  button.act {
+    font: inherit; font-size: 13px; font-weight: 600; padding: 7px 13px;
+    background: var(--surface); color: var(--ink);
+    border: 1px solid var(--line); border-radius: 3px; cursor: pointer;
+  }
+  button.act:hover:not(:disabled) { border-color: var(--accent); color: var(--accent-ink); }
+  button.act:disabled { opacity: 0.45; cursor: default; }
+
+  .scroll {
+    margin-top: 16px; overflow-x: auto; background: var(--surface);
+    border: 1px solid var(--line); border-radius: 3px;
+  }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th, td {
+    padding: 7px 11px; text-align: left;
+    border-bottom: 1px solid var(--line-soft); white-space: nowrap;
+  }
+  thead th {
+    position: sticky; top: 0; z-index: 2;
+    background: var(--surface-2); font-size: 10.5px; letter-spacing: 0.06em;
+    text-transform: uppercase; color: var(--ink-3); font-weight: 700;
+    border-bottom: 1px solid var(--line);
+  }
+  thead th button {
+    font: inherit; background: none; border: 0; padding: 0; cursor: pointer;
+    color: inherit; display: inline-flex; align-items: center; gap: 3px;
+    letter-spacing: inherit; text-transform: inherit; font-weight: inherit;
+  }
+  thead th[aria-sort="ascending"] button,
+  thead th[aria-sort="descending"] button { color: var(--accent-ink); }
+  thead th button .car { font-size: 9px; opacity: 0.55; }
+  thead th[aria-sort="ascending"] .car::after { content: "▲"; opacity: 1; }
+  thead th[aria-sort="descending"] .car::after { content: "▼"; opacity: 1; }
+  thead th[aria-sort="none"] .car::after { content: "↕"; }
+  td.num, th.num { text-align: right; font-family: var(--mono);
+                   font-variant-numeric: tabular-nums; }
+  td.rate { font-family: var(--mono); font-variant-numeric: tabular-nums;
+            font-weight: 700; text-align: right; }
+  td.rate.top { color: var(--ok); }
+  td.dim { color: var(--ink-3); }
+  tbody tr:nth-child(even) { background: color-mix(in srgb, var(--surface-2) 55%, transparent); }
+  tbody tr:hover { background: var(--accent-bg); }
+  td.name { white-space: normal; min-width: 190px; }
+  .tag {
+    display: inline-block; margin-left: 5px; padding: 1px 5px;
+    font-size: 10px; font-weight: 700; border-radius: 2px;
+    background: var(--crit-bg); color: var(--crit); vertical-align: 1px;
+  }
+  .tag.sec { background: var(--accent-bg); color: var(--accent-ink); }
+  .tag.warn { background: var(--warn-bg); color: var(--warn); }
+  .empty { text-align: center; color: var(--ink-3); padding: 30px; }
+  .empty.bad { color: var(--crit); }
+  .empty.bad code {
+    display: block; margin-top: 6px; font-family: var(--mono);
+    font-size: 11.5px; color: var(--ink-3);
+  }
+  .more { text-align: center; padding: 14px; }
+
+  /* 표를 받는 동안 자리를 잡아 둔다. 다 받고 나서 화면이 튀지 않게. */
+  .skeleton td { padding: 0; }
+  .skeleton .b {
+    height: 13px; margin: 8px 11px; border-radius: 2px;
+    background: var(--line-soft);
+    animation: pulse 1.4s ease-in-out infinite;
+  }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+  @media (prefers-reduced-motion: reduce) {
+    .skeleton .b { animation: none; }
+  }
+
+  footer {
+    margin-top: 22px; padding-top: 14px; border-top: 1px solid var(--line);
+    font-size: 12px; color: var(--ink-3); line-height: 1.75;
+  }
+  footer code { font-family: var(--mono); font-size: 11.5px; }
+
+  @media (max-width: 640px) {
+    .wrap { padding: 16px 12px 48px; }
+    header.top h1 { font-size: 19px; }
+    .group { border-right: 0; }
+  }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header class="top">
+    <div>
+      <h1>2금융권 수신금리 조회</h1>
+      <p class="sub" id="sub">금리표를 불러오는 중입니다…</p>
+    </div>
+    <div class="stamp" id="stamp"></div>
+  </header>
+
+  <p class="notice">
+    저축은행 공시금리 — 전국 본점 기준 참고값
+    <span id="notice-detail"></span>
+  </p>
+
+  <div class="totals" id="totals"></div>
+
+  <!-- 화면을 열지 않고도 받을 수 있어야 한다. 이 링크는 서버에 이미 있는
+       파일을 그냥 가리킨다. 브라우저가 16만 행을 조립하지 않는다. -->
+  <div class="files">
+    <span class="lead">전체 자료 내려받기</span>
+    <a class="file" href="data/rates.csv" download>
+      CSV <span class="sz" id="sz-csv"></span>
+    </a>
+    <a class="file" href="data/rates.json" download>
+      JSON <span class="sz" id="sz-json"></span>
+    </a>
+    <span class="hint">조건을 걸어 고른 결과만 받으려면 아래 조회 조건을 정하고
+      “조회 결과” 단추를 쓰세요.</span>
+  </div>
+
+  <section class="panel">
+    <h2>조회 조건 <button type="button" id="reset">조건 초기화</button></h2>
+    <div class="groups" id="groups"></div>
+    <!-- 공시일은 다른 항목과 성격이 다르다. 값이 수백 가지라 체크박스로는
+         못 쓰고, "최근 것만"이 실제로 필요한 조건이다. -->
+    <div class="group">
+      <div class="lbl">공시일
+        <a data-clear="asOf" role="button" tabindex="0">전체</a>
+      </div>
+      <div class="checks" id="asof-presets"></div>
+      <div class="fields" style="margin-top:8px">
+        <div class="field">
+          <label for="dfrom">이 날짜 이후</label>
+          <input type="date" id="dfrom">
+        </div>
+      </div>
+      <p class="stale-note" id="stale-note"></p>
+    </div>
+
+    <div class="group" style="border-right:0">
+      <div class="lbl">검색 · 범위</div>
+      <div class="fields">
+        <div class="field">
+          <label for="q">기관·상품 이름</label>
+          <input type="search" id="q" placeholder="예: 정기적금, 국제시장" autocomplete="off">
+        </div>
+        <div class="field">
+          <label for="rmin">기본금리 이상 (%)</label>
+          <input type="number" id="rmin" step="0.1" min="0" placeholder="예: 3.0">
+        </div>
+        <div class="field">
+          <label for="tmin">가입기간 최소 (개월)</label>
+          <input type="number" id="tmin" step="1" min="0" placeholder="예: 12">
+        </div>
+        <div class="field">
+          <label for="tmax">가입기간 최대 (개월)</label>
+          <input type="number" id="tmax" step="1" min="0" placeholder="예: 36">
+        </div>
+      </div>
+    </div>
+    <div class="bar">
+      <span>
+        <span class="count" id="count">—</span>
+        <span class="note" id="note"></span>
+      </span>
+      <span class="acts">
+        <button type="button" class="act" id="dl-view" disabled>조회 결과 CSV</button>
+        <button type="button" class="act" id="dl-json" disabled>조회 결과 JSON</button>
+      </span>
+    </div>
+  </section>
+
+  <div class="scroll">
+    <table>
+      <thead><tr id="head"></tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </div>
+  <div class="more" hidden id="more-wrap">
+    <button type="button" class="act" id="more">더 보기</button>
+  </div>
+
+  <footer id="foot"></footer>
+</div>
+
+<script id="rate-monitor-data" type="application/json">
+{"totals":{},"table_url":"data/table.json"}
+</script>
+
+<script>
+(() => {
+  "use strict";
+  // 이 페이지에는 금리표가 들어 있지 않다. 요약만 인라인돼 있고 표는
+  // `table_url`에서 따로 받는다. 전국 16만 8천 행을 페이지에 박으면 8MB가
+  // 되어 열 때마다 그만큼을 받아야 한다.
+  const data = JSON.parse(document.getElementById("rate-monitor-data").textContent);
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s ?? "").replace(/[&<>"']/g,
+    (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const num = (n) => (n == null ? "—" : Number(n).toLocaleString("ko-KR"));
+
+  const SECTOR_KO = { savings_bank: "저축은행", kfcc: "새마을금고", cu: "신협",
+                      bank: "은행", nh_local: "지역농축협" };
+  const TYPE_KO = { term_deposit: "예금", installment_savings: "적금",
+                    flexible_savings: "자유적립", demand_deposit: "입출금", other: "기타" };
+  const CHANNEL_KO = { branch: "영업점", internet: "인터넷", mobile: "스마트폰",
+                       telephone: "전화", agent: "모집인", any: "여러 채널", unknown: "미상" };
+  const SCOPE_KO = { workplace_members: "직장금고", local_members: "지역·조합원",
+                     nationwide: "제한없음", unknown: "미상" };
+  const METHOD_KO = { simple: "단리", compound: "복리", unknown: "미표기" };
+
+  // ── 조회 조건 ────────────────────────────────────────────────────
+  //
+  // 기본값은 **아무 조건도 걸지 않은 전체 목록**이다. 체크를 하나도 안 한
+  // 묶음은 "그 항목으로 거르지 않는다"는 뜻이고, 하나라도 켜면 켜진 것만
+  // 남는다. 처음부터 전부 체크해두면 하나만 보려고 나머지를 다 꺼야 한다.
+  const GROUPS = [
+    { key: "sector", label: "권역", ko: SECTOR_KO },
+    { key: "type", label: "상품유형", ko: TYPE_KO },
+    { key: "term", label: "가입기간(개월)", ko: null },
+    { key: "region", label: "지역", ko: null },
+    { key: "channel", label: "가입채널", ko: CHANNEL_KO },
+    { key: "scope", label: "가입제한", ko: SCOPE_KO },
+    { key: "method", label: "이자방식", ko: METHOD_KO },
+  ];
+  const state = {
+    picked: Object.fromEntries(GROUPS.map((g) => [g.key, new Set()])),
+    q: "", rmin: null, tmin: null, tmax: null, dfrom: null,
+    sort: "base", dir: -1, shown: 100,
+  };
+
+  let ALL = [];            // 표를 받기 전에는 비어 있다
+  let latestAsOf = null;
+  let PRESETS = [];
+
+  const COLS = [
+    { key: "sector", label: "권역", cell: (r) => esc(SECTOR_KO[r.sector] || r.sector) },
+    { key: "institution", label: "기관", cls: "name",
+      cell: (r) => esc(r.institution)
+        + (r.scope === "workplace_members" ? '<span class="tag">직장</span>' : "") },
+    { key: "district", label: "지역",
+      cell: (r) => (r.district
+        ? `${esc(r.district)} <span class="dim">${esc(r.region || "")}</span>`
+        : (r.region ? `<span class="dim">${esc(r.region)}</span>`
+                    : '<span class="dim">본점 기준</span>')) },
+    { key: "product", label: "상품", cls: "name",
+      cell: (r) => esc(r.product)
+        + (r.pay ? ` <span class="dim">${esc(r.pay)}</span>` : "") },
+    { key: "type", label: "유형", cell: (r) => esc(TYPE_KO[r.type] || r.type) },
+    { key: "term", label: "기간", cls: "num",
+      cell: (r) => (r.term == null ? "—" : r.term) },
+    { key: "base", label: "기본금리", cls: "rate",
+      cell: (r) => (r.base == null ? "—" : r.base.toFixed(2) + "%") },
+    { key: "max", label: "최고금리", cls: "rate top",
+      cell: (r) => (r.max == null ? "—" : r.max.toFixed(2) + "%") },
+    { key: "method", label: "이자", cls: "dim",
+      cell: (r) => esc(METHOD_KO[r.method] || r.method) },
+    { key: "channel", label: "채널", cls: "dim",
+      cell: (r) => esc(CHANNEL_KO[r.channel] || r.channel) },
+    { key: "scope", label: "가입제한", cls: "dim",
+      cell: (r) => esc(SCOPE_KO[r.scope] || r.scope) },
+    { key: "source", label: "수집원", cls: "dim", cell: (r) => esc(r.source) },
+    { key: "asOf", label: "공시일", cls: "dim num",
+      cell: (r) => (r.asOf ? esc(r.asOf) : "—")
+        + (isStale(r) ? '<span class="tag warn">오래됨</span>' : "") },
+  ];
+
+  // ── 공시일 ───────────────────────────────────────────────────────
+  //
+  // 원천마다 성격이 다르다. 새마을금고·신협은 조회 시점에 화면을 통째로
+  // 다시 그려서 전부 오늘 날짜이고, 저축은행중앙회는 저축은행이 금리를
+  // 마지막으로 제출한 날이 그대로 남아 2015년 것도 섞여 있다.
+  //
+  // 그 행이 "없어진 상품"인지 "금리가 오래 안 바뀐 상품"인지는 이 데이터로
+  // 구분할 수 없다. 다만 조회한 날 화면에 나왔으므로 공시 자체는 살아 있다.
+  // 그래서 **기본값은 전체**로 두고, 오래된 것이 몇 건인지 눈에 보이게 한다.
+  const STALE_DAYS = 365;
+  const daysBetween = (a, b) =>
+    Math.round((Date.parse(b) - Date.parse(a)) / 86400000);
+  // 오늘이 아니라 **데이터의 최신 공시일**을 기준으로 센다. 보는 시점이
+  // 언제든 같은 결과가 나와야 한다.
+  const isStale = (r) =>
+    r.asOf && latestAsOf && daysBetween(r.asOf, latestAsOf) > STALE_DAYS;
+  const shiftDays = (iso, days) => {
+    const d = new Date(iso + "T00:00:00Z");
+    d.setUTCDate(d.getUTCDate() - days);
+    return d.toISOString().slice(0, 10);
+  };
+
+  // ── 표 그리기 ────────────────────────────────────────────────────
+  const renderHead = () => {
+    $("head").innerHTML = COLS.map((c) => {
+      const sorted = state.sort === c.key
+        ? (state.dir > 0 ? "ascending" : "descending") : "none";
+      const cls = (c.cls || "").includes("num") || (c.cls || "").includes("rate")
+        ? ' class="num"' : "";
+      return `<th${cls} aria-sort="${sorted}">
+        <button type="button" data-sort="${esc(c.key)}">
+          ${esc(c.label)}<span class="car"></span>
+        </button></th>`;
+    }).join("");
+  };
+
+  const skeleton = (rows) => {
+    $("rows").innerHTML = Array.from({ length: rows }, () =>
+      `<tr class="skeleton">${COLS.map(() => '<td><div class="b"></div></td>').join("")}</tr>`
+    ).join("");
+  };
+
+  const failed = (message, detail) => {
+    $("rows").innerHTML = `<tr><td class="empty bad" colspan="${COLS.length}">`
+      + esc(message) + (detail ? `<code>${esc(detail)}</code>` : "") + "</td></tr>";
+    $("sub").textContent = "금리표를 불러오지 못했습니다";
+    $("count").textContent = "—";
+  };
+
+  const countsOf = (key) => {
+    const c = new Map();
+    ALL.forEach((r) => {
+      const v = r[key];
+      if (v == null || v === "") return;
+      c.set(v, (c.get(v) || 0) + 1);
+    });
+    return c;
+  };
+
+  const renderAsOf = () => {
+    $("asof-presets").innerHTML = PRESETS.map((p) => {
+      const n = ALL.filter((r) => r.asOf && r.asOf >= p.from).length;
+      return `<label>
+        <input type="radio" name="asof" data-from="${p.from}"
+               ${state.dfrom === p.from ? "checked" : ""}>
+        최근 ${p.days === 365 ? "1년" : p.days + "일"}
+        <span class="n">${num(n)}</span>
+      </label>`;
+    }).join("");
+    $("dfrom").value = state.dfrom || "";
+
+    const stale = ALL.filter(isStale).length;
+    $("stale-note").innerHTML = stale
+      ? `공시일이 1년 넘게 갱신되지 않은 행이 <b>${num(stale)}건</b> 있습니다. `
+        + `전부 저축은행 공시이고, 상품이 없어진 것인지 금리가 오래 바뀌지 `
+        + `않은 것인지는 이 자료로 구분할 수 없습니다. 표에 <span class="tag warn">`
+        + `오래됨</span> 표식을 붙였습니다.`
+      : "모든 행이 최근 1년 안에 갱신되었습니다.";
+  };
+
+  const renderGroups = () => {
+    $("groups").innerHTML = GROUPS.map((g) => {
+      const counts = countsOf(g.key);
+      const values = [...counts.keys()].sort((a, b) =>
+        g.key === "term" ? a - b : counts.get(b) - counts.get(a));
+      const boxes = values.map((v) => `
+        <label>
+          <input type="checkbox" data-group="${esc(g.key)}" value="${esc(v)}"
+                 ${state.picked[g.key].has(String(v)) ? "checked" : ""}>
+          ${esc(g.ko ? (g.ko[v] || v) : v)}
+          <span class="n">${num(counts.get(v))}</span>
+        </label>`).join("");
+      return `<div class="group">
+        <div class="lbl">${esc(g.label)}
+          <a data-clear="${esc(g.key)}" role="button" tabindex="0">전체</a>
+        </div>
+        <div class="checks">${boxes}</div>
+      </div>`;
+    }).join("");
+  };
+
+  const matches = (r) => {
+    for (const g of GROUPS) {
+      const picked = state.picked[g.key];
+      if (picked.size && !picked.has(String(r[g.key]))) return false;
+    }
+    // 공시일이 없는 행은 날짜 조건을 걸면 빠진다. 모르는 값을 통과시키면
+    // "최근 것만" 골랐는데 언제 것인지 모르는 행이 섞여 든다.
+    if (state.dfrom != null && !(r.asOf && r.asOf >= state.dfrom)) return false;
+    if (state.rmin != null && !(r.base >= state.rmin)) return false;
+    if (state.tmin != null && !(r.term >= state.tmin)) return false;
+    if (state.tmax != null && !(r.term <= state.tmax)) return false;
+    if (state.q) {
+      const hay = `${r.institution} ${r.product} ${r.region || ""} ${r.district || ""}`;
+      if (!hay.toLowerCase().includes(state.q)) return false;
+    }
+    return true;
+  };
+
+  const cmp = (a, b) => {
+    const x = a[state.sort], y = b[state.sort];
+    if (x == null && y == null) return 0;
+    if (x == null) return 1;      // 빈 값은 방향과 무관하게 뒤로 보낸다
+    if (y == null) return -1;
+    if (typeof x === "number" && typeof y === "number") return (x - y) * state.dir;
+    return String(x).localeCompare(String(y), "ko") * state.dir;
+  };
+
+  let current = [];
+
+  const render = () => {
+    current = ALL.filter(matches).sort(cmp);
+    const slice = current.slice(0, state.shown);
+
+    $("count").textContent = num(current.length) + "건";
+    $("note").textContent = current.length > slice.length
+      ? `중 ${num(slice.length)}건 표시` : (current.length ? "전부 표시" : "");
+
+    $("rows").innerHTML = slice.length
+      ? slice.map((r) => "<tr>" + COLS.map((c) =>
+          `<td class="${c.cls || ""}">${c.cell(r)}</td>`).join("") + "</tr>").join("")
+      : `<tr><td class="empty" colspan="${COLS.length}">조건에 맞는 상품이 없습니다</td></tr>`;
+
+    $("more-wrap").hidden = current.length <= slice.length;
+    renderHead();
+  };
+
+  // ── 조건에 맞는 것만 내려받기 ────────────────────────────────────
+  //
+  // 전체 파일은 서버에 있는 것을 그냥 링크로 건다(위 .files). 여기는 화면에서
+  // 고른 결과라 서버에 없다. 그것만 브라우저가 만든다.
+  // BOM을 붙여야 엑셀이 한글을 깨지 않고 연다.
+  const HEAD = ["권역", "기관", "시도", "구·군", "상품", "상품유형", "가입기간(개월)",
+                "지급방식", "이자방식", "가입채널", "기본금리(%)", "최고금리(%)",
+                "가입제한", "수집원", "공시기준일", "1년내갱신"];
+  const flat = (r) => [
+    SECTOR_KO[r.sector] || r.sector, r.institution, r.region || "", r.district || "",
+    r.product, TYPE_KO[r.type] || r.type, r.term,
+    r.pay || "", METHOD_KO[r.method] || r.method, CHANNEL_KO[r.channel] || r.channel,
+    r.base == null ? "" : r.base.toFixed(2),
+    r.max == null ? "" : r.max.toFixed(2),
+    SCOPE_KO[r.scope] || r.scope, r.source, r.asOf || "",
+    isStale(r) ? "아니오" : "예",
+  ];
+  const cell = (v) => {
+    const s = v == null ? "" : String(v);
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const toCsv = (rows) => "﻿" + [HEAD.join(",")]
+    .concat(rows.map((r) => flat(r).map(cell).join(","))).join("\r\n");
+  const toJson = (rows) => JSON.stringify({
+    generated_at: data.generated_at,
+    notice: data.notice,
+    count: rows.length,
+    columns: HEAD,
+    // flat()을 열마다 다시 부르면 행 하나에 15번씩 돈다. 한 번만 편다.
+    records: rows.map((r) => {
+      const v = flat(r);
+      return Object.fromEntries(HEAD.map((h, i) => [h, v[i]]));
+    }),
+  }, null, 2);
+
+  const download = (name, text, mime) => {
+    const url = URL.createObjectURL(new Blob([text], { type: mime }));
+    const a = document.createElement("a");
+    a.href = url; a.download = name;
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+  };
+  // 파일명은 ASCII로 짓는다.
+  //
+  // 2026-08-05 Chromium 실측: `a.download`에 한글이 들어가면 그 값을 통째로
+  // 버리고 확장자 없는 `download`로 저장한다. 확장자가 없으면 엑셀이 연결
+  // 프로그램을 못 찾는다. 같은 조건에서 ASCII 이름은 그대로 살아남는다.
+  const stamp = (data.generated_at || "").slice(0, 10) || "latest";
+
+  // ── 요약 — 표를 받기 전에 그린다 ─────────────────────────────────
+  const t = data.totals || {};
+  $("totals").innerHTML = [
+    // 관측은 `totals.observations`(이력 전체)가 아니라 표에 실린 행 수다.
+    // 화면이 보여주는 것과 다른 수를 머리에 띄우면 둘 중 뭐가 맞는지 모른다.
+    ["관측", num(data.table_rows)],
+    ["기관", num(t.institutions)],
+    ["상품", num(t.products)],
+    ["수집원", num((data.sources || []).filter((s) => s.observation_count > 0).length)],
+    ["구·군", num((data.by_district || []).length)],
+  ].map(([k, v]) => `<div><div class="k">${k}</div><div class="v">${v}</div></div>`).join("");
+
+  $("stamp").innerHTML =
+    `생성 ${esc((data.generated_at || "").slice(0, 19).replace("T", " "))} UTC`;
+
+  $("notice-detail").textContent =
+    "저축은행 금리는 본점 기준 공시라 지점별 적용금리가 아닙니다. "
+    + "새마을금고는 공식 화면에 우대금리 열이 없어 최고금리가 비어 있습니다. "
+    + "신협의 지역은 조회 조건이며 점포 주소가 아닙니다. "
+    + "지역 표시는 주소에서 뽑은 파생값이고 행정구역 공식 코드가 아닙니다.";
+
+  $("foot").innerHTML =
+    "이 표의 모든 수치는 공식 공시 화면에서 직접 수집해 SQLite에 저장한 값을 "
+    + "집계한 것입니다. 하드코딩된 값이 없습니다.<br>"
+    + "가입 전에는 반드시 해당 기관의 공식 안내를 확인하세요. "
+    + "우대금리는 조건을 모두 충족했을 때의 값입니다.<br>"
+    + `근거 — <code>site-manifest.json</code> · <code>data/table.json</code>`;
+
+  renderHead();
+  skeleton(12);
+
+  // ── 연결 ─────────────────────────────────────────────────────────
+  const redraw = () => { state.shown = 100; render(); };
+
+  $("groups").addEventListener("change", (e) => {
+    const box = e.target.closest("input[type=checkbox][data-group]");
+    if (!box) return;
+    const set = state.picked[box.dataset.group];
+    if (box.checked) set.add(box.value); else set.delete(box.value);
+    redraw();
+  });
+  $("groups").addEventListener("click", (e) => {
+    const clear = e.target.closest("[data-clear]");
+    if (!clear) return;
+    if (clear.dataset.clear === "asOf") {
+      state.dfrom = null;
+      renderAsOf();
+    } else {
+      state.picked[clear.dataset.clear].clear();
+      renderGroups();
+    }
+    redraw();
+  });
+  $("head").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-sort]");
+    if (!b) return;
+    const key = b.dataset.sort;
+    // 같은 열을 다시 누르면 방향이 뒤집힌다. 새 열은 금리·기간이면 내림차순,
+    // 이름이면 오름차순으로 시작하는 게 기대에 맞는다.
+    if (state.sort === key) state.dir = -state.dir;
+    else { state.sort = key; state.dir = ["base", "max", "term"].includes(key) ? -1 : 1; }
+    redraw();
+  });
+  $("q").addEventListener("input", (e) => {
+    state.q = e.target.value.trim().toLowerCase(); redraw();
+  });
+  const numberField = (id, key) => $(id).addEventListener("input", (e) => {
+    const v = parseFloat(e.target.value);
+    state[key] = Number.isFinite(v) ? v : null;
+    redraw();
+  });
+  numberField("rmin", "rmin");
+  numberField("tmin", "tmin");
+  numberField("tmax", "tmax");
+  $("asof-presets").addEventListener("change", (e) => {
+    const radio = e.target.closest("input[name=asof]");
+    if (!radio) return;
+    state.dfrom = radio.dataset.from;
+    renderAsOf();
+    redraw();
+  });
+  $("dfrom").addEventListener("change", (e) => {
+    state.dfrom = e.target.value || null;
+    renderAsOf();
+    redraw();
+  });
+
+  $("more").addEventListener("click", () => { state.shown += 200; render(); });
+  $("reset").addEventListener("click", () => {
+    GROUPS.forEach((g) => state.picked[g.key].clear());
+    Object.assign(state, { q: "", rmin: null, tmin: null, tmax: null,
+                           dfrom: null, sort: "base", dir: -1, shown: 100 });
+    ["q", "rmin", "tmin", "tmax", "dfrom"].forEach((id) => { $(id).value = ""; });
+    renderGroups();
+    renderAsOf();
+    render();
+  });
+  $("dl-view").addEventListener("click", () =>
+    download(`rate-monitor_filtered_${stamp}.csv`, toCsv(current), "text/csv;charset=utf-8"));
+  $("dl-json").addEventListener("click", () =>
+    download(`rate-monitor_filtered_${stamp}.json`, toJson(current), "application/json"));
+
+  // ── 금리표 받기 ──────────────────────────────────────────────────
+  const expand = (T) => {
+    const col = {};
+    (T.columns || []).forEach((name, i) => { col[name] = i; });
+    const look = (name, idx) => {
+      const table = (T.lookups || {})[name];
+      return table ? table[idx] : idx;
+    };
+    // 열 배열 + 조회표를 객체로 한 번만 편다. 조작마다 풀면 느려진다.
+    return (T.rows || []).map((r) => ({
+      sector: look("sector", r[col.sector]),
+      institution: look("institution", r[col.institution]),
+      region: look("region", r[col.region]),
+      district: look("district", r[col.district]),
+      product: look("product", r[col.product]),
+      type: look("product_type", r[col.product_type]),
+      term: r[col.term_months],
+      pay: look("payment_method", r[col.payment_method]),
+      method: look("interest_method", r[col.interest_method]),
+      channel: look("join_channel", r[col.join_channel]),
+      base: r[col.base_rate],
+      max: r[col.max_rate],
+      scope: look("availability_scope", r[col.availability_scope]),
+      source: look("source_id", r[col.source_id]),
+      asOf: look("source_effective_at", r[col.source_effective_at]),
+    }));
+  };
+
+  const kb = (n) => (n >= 1048576
+    ? (n / 1048576).toFixed(1) + " MB" : Math.round(n / 1024) + " KB");
+
+  // 파일 크기를 링크에 적어 둔다. 8MB짜리를 모르고 누르지 않도록.
+  const showSize = (url, target) => {
+    fetch(url, { method: "HEAD" }).then((res) => {
+      const len = res.ok && res.headers.get("content-length");
+      if (len) $(target).textContent = kb(Number(len));
+    }).catch(() => {});   // 크기를 못 구해도 링크는 그대로 쓸 수 있다
+  };
+
+  fetch(data.table_url || "data/table.json")
+    .then((res) => {
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return res.json();
+    })
+    .then((table) => {
+      ALL = expand(table);
+      if (!ALL.length) {
+        failed("금리표에 행이 없습니다.", data.table_url);
+        return;
+      }
+      const dates = ALL.map((r) => r.asOf).filter(Boolean).sort();
+      latestAsOf = dates.at(-1) || null;
+      PRESETS = latestAsOf
+        ? [7, 30, 90, 365].map((d) => ({ days: d, from: shiftDays(latestAsOf, d) }))
+        : [];
+
+      const bySector = {};
+      ALL.forEach((r) => { bySector[r.sector] = (bySector[r.sector] || 0) + 1; });
+      $("sub").textContent = Object.entries(bySector)
+        .sort((a, b) => b[1] - a[1])
+        .map(([s, n]) => `${SECTOR_KO[s] || s} ${n.toLocaleString("ko-KR")}건`)
+        .join(" · ");
+      $("stamp").innerHTML +=
+        `<br>공시기준일 ${esc(latestAsOf || "—")}`;
+
+      $("dl-view").disabled = false;
+      $("dl-json").disabled = false;
+
+      renderGroups();
+      renderAsOf();
+      render();
+    })
+    .catch((err) => {
+      // 조용히 빈 표를 보여주지 않는다. 데이터가 없는 것과 못 받은 것은
+      // 다르고, 보는 사람이 그 차이를 알아야 한다.
+      failed("금리표를 불러오지 못했습니다. 새로고침해 보세요.", String(err));
+    });
+
+  showSize("data/rates.csv", "sz-csv");
+  showSize("data/rates.json", "sz-json");
+})();
+</script>
+</body>
+</html>

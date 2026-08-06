@@ -25,6 +25,9 @@ from rate_monitor.services.dashboard_service import (
     build_dashboard,
 )
 from rate_monitor.services.export_service import export_dataset
+from rate_monitor.services.site_service import DEFAULT_OUT as DEFAULT_SITE_OUT
+from rate_monitor.services.site_service import DEFAULT_TEMPLATE as DEFAULT_SITE_TEMPLATE
+from rate_monitor.services.site_service import build_site
 from rate_monitor.services.snapshot_service import create_snapshot
 from rate_monitor.services.validation_service import run_validations
 
@@ -139,6 +142,27 @@ def _export(args: argparse.Namespace) -> int:
     return 0
 
 
+def _build_site(args: argparse.Namespace) -> int:
+    """공개 웹사이트 한 벌을 만든다.
+
+    `build-dashboard`가 만드는 화면은 데이터를 HTML 안에 통째로 박는다.
+    아티팩트로 공유할 때는 그래야 했지만 진짜 호스팅에 올리면 화면이 무거워
+    지기만 한다. 이쪽은 화면과 데이터를 나눠 쓴다.
+    """
+    manifest = build_site(
+        Path(args.db),
+        Path(args.template),
+        Path(args.out),
+        export_dir=Path(args.export_dir) if args.export_dir else None,
+    )
+    print(f"out     : {args.out}")
+    print(f"page    : {manifest.page_bytes:,} bytes")
+    print(f"table   : {manifest.data_bytes:,} bytes  ({manifest.rows:,} rows)")
+    for name in manifest.files:
+        print(f"  {name}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="rate-monitor")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -188,6 +212,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="공개용 전체 조회 화면 출력 경로",
     )
     dashboard.set_defaults(func=_build_dashboard)
+
+    site = sub.add_parser("build-site", help="배포용 공개 웹사이트를 생성한다")
+    site.add_argument("--db", default="publish/rate_monitor.sqlite3")
+    site.add_argument("--template", default=str(DEFAULT_SITE_TEMPLATE))
+    site.add_argument("--out", default=str(DEFAULT_SITE_OUT))
+    site.add_argument(
+        "--export-dir", default="publish/export",
+        help="여기 있는 CSV·JSON을 data/로 복사해 내려받기 링크가 가리키게 한다",
+    )
+    site.set_defaults(func=_build_site)
 
     validate = sub.add_parser("validate", help="저장된 데이터의 계약 위반을 찾는다")
     validate.add_argument("--db", default=str(DEFAULT_DB_PATH))
