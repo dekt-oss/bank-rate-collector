@@ -21,6 +21,7 @@ EXPECTED_TABLES = {
     "entity_aliases",
     "institutions",
     "manual_overrides",
+    "market_indicators",
     "outlets",
     "preference_conditions",
     "product_variants",
@@ -87,9 +88,13 @@ def _seed_variant(session) -> m.ProductVariant:
 
 # ── 스키마 ──────────────────────────────────────────────────────────────
 
-def test_all_fourteen_tables_created(engine) -> None:
+def test_the_models_declare_exactly_these_tables(engine) -> None:
+    """**이름**으로 묻는다. 개수를 못 박으면 표를 더할 때마다 여기가 빨개진다.
+
+    2026-08-06까지 `== 13`, `== 14` 같은 숫자를 네 곳에서 고쳤다. 목록은
+    남긴다 — 실수로 늘어난 표를 잡는 건 개수가 아니라 이름이다.
+    """
     assert set(m.Base.metadata.tables) == EXPECTED_TABLES
-    assert len(EXPECTED_TABLES) == 14
 
 
 def test_rate_observation_has_v31_tracking_columns() -> None:

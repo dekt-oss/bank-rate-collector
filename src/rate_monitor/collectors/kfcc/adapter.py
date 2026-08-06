@@ -91,6 +91,8 @@ class KfccAdapter:
     base_reference = "kfcc.co.kr/map"
     # 이용약관·자동수집 정책을 확인하지 못했다. allowed로 올리지 않는다.
     policy_status = "review"
+    # 공식 화면에 최고우대금리 열 자체가 없다. 저장값은 전부 NULL이어야 한다.
+    provides_max_rate = False
     coverage_status = "partial"
 
     # 금리가 창구판매 기준이라는 안내는 이 금리 페이지가 아니라 그것을 감싸는

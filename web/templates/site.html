@@ -876,8 +876,11 @@
   const cards = [];
   const bok = marks.bok_base_rate;
   if (bok && bok.value != null) {
-    cards.push(["한국은행 기준금리", `${Number(bok.value).toFixed(2)}%`,
-                `적용일 ${esc(bok.source_effective_at || "—")}`]);
+    cards.push([esc(bok.name || "한국은행 기준금리"),
+                `${Number(bok.value).toFixed(2)}%`,
+                `적용일 ${esc(bok.source_effective_at || "—")}`
+                + (bok.checked_at
+                    ? ` · 확인 ${esc(bok.checked_at.slice(0, 10))}` : "")]);
   }
   const cb = marks.commercial_bank_12m;
   if (cb) {
