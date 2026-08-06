@@ -13,7 +13,32 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 from rate_monitor.domain.timeutil import kst_iso, now_kst
+
+PRESENTATION_PATH = Path("config/presentation.yaml")
+
+
+def reference_sectors(path: Path | None = None) -> tuple[str, ...]:
+    """메인 비교표에서 빼는 업권 (v4 §6.4, §9.1).
+
+    시중은행은 참고카드에만 나온다. 전국 공시라 부산 구·군에 연결할 수 없고,
+    2금융권 넷과 같은 표에 섞이면 무엇을 비교하는 화면인지가 흐려진다.
+
+    **`db_only_sources`는 여기서 걸지 않는다.** 설정에 `finlife_savings_bank`가
+    적혀 있지만, 실측해 보면 finlife가 보는 저축은행 79곳 중 6곳(OK저축은행
+    등)이 FSB 수집분에 없다. 지금 빼면 그 여섯이 화면에서 통째로 사라진다 —
+    "없는 것과 0건은 다르다". 두 원천의 기관 매핑이 생기는 v4 PR 7에서 건다.
+
+    설정 파일이 없으면 아무것도 빼지 않는다. 화면이 조용히 비는 것보다
+    참고지표가 섞여 보이는 편이 알아채기 쉽다.
+    """
+    config_path = path or PRESENTATION_PATH
+    if not config_path.exists():
+        return ()
+    config = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+    return tuple(config.get("reference_sectors") or ())
 
 DEFAULT_TEMPLATE = Path("web/templates/dashboard.html")
 DEFAULT_SITE = Path("site/index.html")
@@ -153,6 +178,10 @@ def build_rate_table(
         return {"columns": list(TABLE_COLUMNS), "lookups": {}, "rows": []}
 
     placeholders = ",".join("?" for _ in run_ids)
+    excluded = reference_sectors()
+    sector_filter = (
+        f"   AND i.sector NOT IN ({','.join('?' for _ in excluded)})" if excluded else ""
+    )
     raw = _rows(
         conn,
         "SELECT i.sector                AS sector,"
@@ -178,8 +207,10 @@ def build_rate_table(
         # 점포를 조인하지 않는다. 조인하면 관측 하나가 점포 수만큼 복제된다.
         f" WHERE o.last_run_id IN ({placeholders})"
         "   AND o.validation_status != 'error'"
-        " ORDER BY o.base_rate DESC",
-        tuple(run_ids),
+        # 참고지표는 메인 비교표에 넣지 않는다 (v4 §6.4).
+        + sector_filter
+        + " ORDER BY o.base_rate DESC",
+        (*run_ids, *excluded),
     )
 
     # 같은 값이 수천 번 되풀이되는 열만 조회표로 뺀다.

@@ -78,6 +78,11 @@ SOURCE_GEO_BASIS = {
     "kfcc": GeoBasis.OUTLET_ADDRESS,
     "cu": GeoBasis.SOURCE_QUERY_REGION,
     "fsb": GeoBasis.HEAD_OFFICE,
+    # finlife는 권역마다 소스가 갈린다 (v4 §6.2). 둘 다 전국 공시라
+    # geo_basis는 같지만, 이름이 없으면 지역이 통째로 비어 버린다.
+    "finlife_savings_bank": GeoBasis.NATIONWIDE,
+    "finlife_bank": GeoBasis.NATIONWIDE,
+    # 옛 이름. 마이그레이션 전에 만들어진 행이 아직 이 값을 갖고 있을 수 있다.
     "finlife": GeoBasis.NATIONWIDE,
     "nh_local": GeoBasis.OUTLET_ADDRESS,
 }

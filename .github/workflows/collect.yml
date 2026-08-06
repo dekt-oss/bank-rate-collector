@@ -34,6 +34,11 @@ on:
         required: false
         default: "부산"
         options: ["부산", "수도권", "전국"]
+      skip_finlife_bank:
+        description: "시중은행(참고지표) 수집을 건너뛴다"
+        type: boolean
+        required: false
+        default: false
       skip_nh_local:
         description: "농·축협 수집을 건너뛴다"
         type: boolean
@@ -149,15 +154,36 @@ jobs:
           RATE_MONITOR_DB_URL: sqlite+pysqlite:///${{ github.workspace }}/work/rate_monitor.sqlite3
         run: uv run alembic upgrade head
 
-      - name: Collect
+      # 금감원 비교공시 — 저축은행 (030300).
+      #
+      # 같은 API가 시중은행(020000)도 주지만 **소스를 따로 세운다** (v4 §6.2).
+      # 하나의 실행이 하나의 source_id에 대응해야 실행 이력과 저장된 행이
+      # 어긋나지 않는다.
+      - name: Collect finlife savings bank
         env:
           FINLIFE_API_KEY: ${{ secrets.FINLIFE_API_KEY }}
         run: |
           uv run rate-monitor collect \
-            --source finlife \
+            --source finlife_savings_bank \
             --db work/rate_monitor.sqlite3 \
             --raw-root data/raw \
             --groups ${{ inputs.groups || '030300' }}
+
+      # 금감원 비교공시 — 시중은행 (020000). 참고지표다 (v4 §6.4).
+      #
+      # DB에는 저장하되 메인 비교표에는 안 올린다. 전국 공시라 부산 구·군에
+      # 연결할 수 없다. 20초쯤 걸린다.
+      - name: Collect finlife bank
+        if: ${{ inputs.skip_finlife_bank != true }}
+        continue-on-error: true
+        env:
+          FINLIFE_API_KEY: ${{ secrets.FINLIFE_API_KEY }}
+        run: |
+          uv run rate-monitor collect \
+            --source finlife_bank \
+            --db work/rate_monitor.sqlite3 \
+            --raw-root data/raw \
+            --groups 020000
 
       # 저축은행중앙회. 저축은행 1차 원천이다 (명세서 v3 §7.2).
       #

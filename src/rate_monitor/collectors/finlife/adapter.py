@@ -57,9 +57,17 @@ def _page_number(value: object) -> int | None:
 
 
 class FinlifeAdapter:
-    """저축은행·은행 정기예금/적금 수집기."""
+    """finlife 오픈API 수집기. **권역마다 따로 세운다** (v4 §6.2).
 
-    source_id = "finlife"
+    같은 API가 저축은행(`030300`)과 시중은행(`020000`)을 함께 준다. 예전에는
+    하나의 `source_id="finlife"`가 둘을 다 받았는데, 그러면 화면이 둘을 못
+    가른다 — 시중은행은 참고지표로 내려가고 저축은행은 메인 비교표에 남아야
+    한다 (v4 §0.7).
+
+    그래서 권역 하나에 어댑터 하나다. 아래 두 하위 클래스를 쓴다.
+    """
+
+    source_id = "finlife_savings_bank"
     source_role = SourceRole.SECONDARY_OFFICIAL
     trust_level = TrustLevel.OFFICIAL_DIRECT
 
@@ -72,6 +80,10 @@ class FinlifeAdapter:
     base_reference = "finlife.fss.or.kr/finlifeapi"
     policy_status = "allowed"
     coverage_status = "partial"
+
+    # 이 어댑터가 받는 권역. 하나만 둔다 — 하나의 실행이 하나의 소스에
+    # 대응해야 `collection_runs.source_id`가 그 실행의 행들과 맞는다.
+    groups: tuple[str, ...] = ("030300",)
 
     def __init__(self, api_key: str | None = None) -> None:
         key = api_key or os.environ.get(API_KEY_ENV)
@@ -94,7 +106,16 @@ class FinlifeAdapter:
         services: tuple[str, ...] = tuple(
             request.options.get("services") or ("depositProductsSearch",)
         )
-        groups: tuple[str, ...] = tuple(request.options.get("groups") or ("030300",))
+        # 요청이 권역을 덮어쓸 수 있지만, 이 어댑터가 맡은 것과 다르면
+        # 거부한다. 저축은행 어댑터로 은행을 받으면 실행 이력의 source_id와
+        # 저장된 행의 source_id가 어긋난다 (v4 §6.5 "레코드 혼합 0").
+        groups: tuple[str, ...] = tuple(request.options.get("groups") or self.groups)
+        wrong = [g for g in groups if parser.GROUP_SOURCE_ID.get(g) != self.source_id]
+        if wrong:
+            raise CollectorError(
+                f"{self.source_id}가 맡지 않은 권역: {wrong}. "
+                f"이 어댑터는 {list(self.groups)}만 받는다"
+            )
 
         artifacts: list[RawArtifactData] = []
         timeout = httpx.Timeout(READ_TIMEOUT, connect=CONNECT_TIMEOUT)
@@ -203,3 +224,31 @@ class FinlifeAdapter:
             warnings = [*self._warnings, *warnings]
             self._warnings = []
         return rows, warnings
+
+
+class FinlifeSavingsBankAdapter(FinlifeAdapter):
+    """저축은행 (`030300`). 예전 `finlife`가 받던 것과 같은 데이터다.
+
+    본점 기준 공시라 지역별 지점금리가 아니다 (v3.1 §6.4). 저축은행중앙회
+    수집분과 같은 상품을 다시 싣기 때문에 화면 메인에는 FSB 쪽만 내고 이쪽은
+    교차검증용으로 둔다 (v4 §11.1, `config/presentation.yaml`).
+    """
+
+    source_id = "finlife_savings_bank"
+    source_name = "금융감독원 비교공시 — 저축은행"
+    sector = Sector.SAVINGS_BANK
+    groups = ("030300",)
+
+
+class FinlifeBankAdapter(FinlifeAdapter):
+    """시중은행 (`020000`). 메인 비교표가 아니라 참고지표다 (v4 §6.4).
+
+    전국 공시라 부산 구·군에 연결하지 않는다. finlife의 `companySearch`가
+    주는 지역정보는 시도별 점포 존재 여부이지 상품별 지역금리가 아니다
+    (v4 §6.3).
+    """
+
+    source_id = "finlife_bank"
+    source_name = "금융감독원 비교공시 — 시중은행"
+    sector = Sector.BANK
+    groups = ("020000",)

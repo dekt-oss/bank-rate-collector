@@ -26,7 +26,19 @@ from rate_monitor.domain.enums import (
 from rate_monitor.domain.normalization import parse_rate
 from rate_monitor.domain.schemas import ParsedRateRow
 
-SOURCE_ID = "finlife"
+# 권역코드 → source_id (v4 §6.2).
+#
+# 예전에는 `SOURCE_ID = "finlife"` 하나였다. 같은 API가 저축은행과 시중은행을
+# 함께 주는데 한 이름으로 묶어 두면 화면이 둘을 못 가른다 — 시중은행은
+# 참고지표로 내려가고 저축은행은 메인 비교표에 남아야 한다 (v4 §0.7).
+#
+# **행이 스스로 밝히게 한다.** 어댑터가 알려 주는 대신 응답에 실린 권역코드로
+# 정한다. 그러면 어댑터 설정이 어긋나도 저축은행 행이 은행 소스로 들어가는
+# 일이 구조적으로 없다 (v4 §6.5 "기존 저축은행 source와 레코드 혼합 0").
+GROUP_SOURCE_ID = {
+    "020000": "finlife_bank",
+    "030300": "finlife_savings_bank",
+}
 
 # breaking 판정 기준이 되는 필수 필드 (v3.1 §8)
 REQUIRED_BASE_FIELDS = frozenset({"fin_co_no", "fin_prdt_cd", "kor_co_nm", "fin_prdt_nm"})
@@ -189,6 +201,14 @@ def parse(
     product_type = SERVICE_PRODUCT_TYPE[service]
     rate_scope = GROUP_RATE_SCOPE.get(top_fin_grp_no, RateScope.UNKNOWN)
     sector = GROUP_SECTOR.get(top_fin_grp_no, Sector.BANK)
+    # 모르는 권역이면 여기서 멈춘다. 기본값으로 넘기면 그 행이 어느 원천
+    # 것인지 아무도 모르는 채 저장된다.
+    if top_fin_grp_no not in GROUP_SOURCE_ID:
+        raise ParseError(
+            f"source_id를 정할 수 없는 권역코드: {top_fin_grp_no!r} "
+            f"(아는 것: {sorted(GROUP_SOURCE_ID)})"
+        )
+    source_id = GROUP_SOURCE_ID[top_fin_grp_no]
 
     # 결합키: fin_co_no + fin_prdt_cd (docs/source-recon/finlife.md §3.2)
     base_index: dict[tuple[str, str], tuple[int, dict[str, Any]]] = {}
@@ -218,6 +238,7 @@ def parse(
                 product_type=product_type,
                 rate_scope=rate_scope,
                 sector=sector,
+                source_id=source_id,
             )
         )
 
@@ -233,6 +254,7 @@ def _build_row(
     product_type: str,
     rate_scope: str,
     sector: str,
+    source_id: str,
 ) -> ParsedRateRow:
     base_rate = parse_rate(option.get("intr_rate"))
     # intr_rate2가 없으면 base_rate와 같다고 단정하지 않는다 (v3 §8.4).
@@ -253,7 +275,7 @@ def _build_row(
         message = f"우대금리 변환 실패: {option.get('intr_rate2')!r}"
 
     return ParsedRateRow(
-        source_id=SOURCE_ID,
+        source_id=source_id,
         source_role=SourceRole.SECONDARY_OFFICIAL,
         trust_level=TrustLevel.OFFICIAL_DIRECT,
         sector=sector,
