@@ -191,6 +191,29 @@ def test_the_adapter_masks_the_key_in_the_url() -> None:
     )
 
 
+def test_a_key_with_stray_whitespace_is_trimmed(monkeypatch) -> None:
+    """개행 하나가 `%0A`로 경로에 붙어 INFO-100이 된다.
+
+    2026-08-06에 갈린 자리다. 같은 시크릿으로 정찰(run 31098447877)은 성공,
+    수집(run 31101956888)은 `INFO-100: 인증키가 유효하지 않습니다`로 실패했고
+    두 코드의 차이가 `.strip()` 하나였다.
+    """
+    monkeypatch.setenv("ECOS_API_KEY", "  SECRET123\n")
+    adapter = BokEcosAdapter()
+    assert adapter._api_key == "SECRET123"
+    # 마스킹도 다듬은 값을 기준으로 돌아야 원본 주소에서 키가 지워진다.
+    assert "SECRET123" not in adapter._mask(f"{'https://ecos.bok.or.kr/api'}/x/SECRET123/json")
+
+
+def test_a_key_that_is_only_whitespace_is_no_key(monkeypatch) -> None:
+    """공백만 든 시크릿은 "설정했다"로 보이지만 값이 없는 것이다."""
+    from rate_monitor.collectors.base import CollectorError
+
+    monkeypatch.setenv("ECOS_API_KEY", "   \n")
+    with pytest.raises(CollectorError, match="ECOS_API_KEY"):
+        BokEcosAdapter()
+
+
 def test_the_adapter_needs_the_key_from_the_environment(monkeypatch) -> None:
     """인증키는 환경변수로만 받는다. 파일에 두지 않는다."""
     from rate_monitor.collectors.base import CollectorError
@@ -233,6 +256,37 @@ def test_the_card_is_none_without_the_table(tmp_path: Path) -> None:
     conn = sqlite3.connect(db)
     assert _latest_indicator(conn, "bok_base_rate") is None
     conn.close()
+
+
+def test_a_parse_failure_ends_the_run_instead_of_leaving_it_running(
+    factory, tmp_path: Path
+) -> None:
+    """2026-08-06 run 31101956888에서 실제로 걸린 것이다.
+
+    ECOS가 인증키 오류를 **HTTP 200 본문**으로 줬다. fetch는 성공했고
+    `parse_points`가 `ParseError`를 던졌는데, 그 구간이 try 밖이라 예외가
+    그대로 올라가 `_finish`가 안 불렸다. `collection_runs` 행이 `running`으로
+    남았고 — 그 원천이 화면에서 "지금도 돌고 있다"로 보인다.
+    """
+
+    class BrokenParseAdapter(FixtureAdapter):
+        def parse_points(self, artifact):  # noqa: ANN001, ANN201
+            raise ParseError("ECOS 오류 INFO-100: 인증키가 유효하지 않습니다")
+
+    result = asyncio.run(
+        collect_indicator(
+            BrokenParseAdapter(), CollectionRequest(source_id="bok_ecos"), factory,
+            raw_root=tmp_path / "raw",
+        )
+    )
+    assert result.status == "failed"
+    assert "INFO-100" in result.message
+
+    with factory() as session:
+        run = session.query(m.CollectionRun).one()
+    assert run.status == "failed", "실행이 running으로 남으면 좀비 행이 쌓인다"
+    assert run.finished_at is not None
+    assert run.raw_count == 1  # 받기는 받았다는 사실은 남긴다
 
 
 def test_the_run_timestamp_is_naive_utc_like_every_other_source(

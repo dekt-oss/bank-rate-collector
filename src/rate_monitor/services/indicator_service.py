@@ -86,18 +86,31 @@ async def collect_indicator(
         return IndicatorResult(run_id, RunStatus.FAILED, 0, 0, 0, 0, 0, str(error))
 
     fetched = len(artifacts)
-    with session_scope(session_factory) as session:
-        run = session.get(m.CollectionRun, run_id)
-        records = save_raw_artifacts(session, run, artifacts, raw_root, now)
-        for artifact, record in zip(artifacts, records, strict=True):
-            points, notes = adapter.parse_points(artifact)
-            warnings.extend(notes)
-            parsed += len(points)
-            for point in points:
-                if _upsert(session, point, adapter.source_id, record.id, now):
-                    stored += 1
-                else:
-                    unchanged += 1
+    try:
+        with session_scope(session_factory) as session:
+            run = session.get(m.CollectionRun, run_id)
+            records = save_raw_artifacts(session, run, artifacts, raw_root, now)
+            for artifact, record in zip(artifacts, records, strict=True):
+                points, notes = adapter.parse_points(artifact)
+                warnings.extend(notes)
+                parsed += len(points)
+                for point in points:
+                    if _upsert(session, point, adapter.source_id, record.id, now):
+                        stored += 1
+                    else:
+                        unchanged += 1
+    except Exception as error:  # noqa: BLE001 - 무엇이든 실행에 기록하고 끝낸다
+        # **파싱·저장 실패도 실행을 끝내야 한다.**
+        #
+        # 2026-08-06 run 31101956888에서 실제로 걸렸다. ECOS가 오류 본문을
+        # 200으로 줘서 `ParseError`가 났는데, 그때 이 구간이 try 밖이라
+        # 예외가 그대로 올라갔다. 그 결과 `collection_runs` 행이 `running`
+        # 상태로 영원히 남았다 — 그 원천이 "지금도 돌고 있다"로 보이고,
+        # 다음 실행이 좀비 행을 하나씩 더 쌓는다.
+        _finish(session_factory, run_id, RunStatus.FAILED, str(error),
+                fetched, parsed, stored, len(warnings))
+        return IndicatorResult(run_id, RunStatus.FAILED, fetched, parsed, stored,
+                               unchanged, len(warnings), str(error))
 
     if parsed == 0:
         status, message = RunStatus.FAILED, "지표를 하나도 읽지 못했다"
