@@ -170,20 +170,61 @@ private이라 Vercel에 접근 권한을 주는 OAuth 승인이 필요하고, �
 
 Vercel 대시보드에서:
 
-| 항목 | 값 |
-|---|---|
-| Git Repository | `dekt-oss/bank-rate-collector` |
-| Production Branch | `rate-data` |
-| Root Directory | `site-public` |
-| Framework Preset | Other |
-| Build Command | 없음 (정적 파일) |
-| Output Directory | `.` |
+| 설정 위치 | 항목 | 값 |
+|---|---|---|
+| Settings → Git | Production Branch | `rate-data` |
+| Settings → Git | Ignored Build Step | `[ "$VERCEL_GIT_COMMIT_REF" != "rate-data" ]` |
+| Settings → Build | Root Directory | `site-public` |
+| Settings → Build | Framework Preset | Other |
+| Settings → Build | Build Command | Override 켜고 **비움** |
+| Settings → Build | Install Command | Override 켜고 **비움** |
+| Settings → Build | Output Directory | Override 켜고 `.` |
 
 연결하고 나면 수집이 돌 때마다 `rate-data`에 push가 일어나고 Vercel이
 그걸 받아 자동 배포한다. 별도 배포 단계를 워크플로우에 넣지 않아도 된다.
 
+**세 가지가 실제로 걸렸다 (2026-08-06 실측).**
+
+1. **저장소 루트를 파이썬 앱으로 오인한다.** 처음 연결하면 Vercel이
+   `framework: "python"`으로 잡고 `app.py`·`main.py` 같은 진입점을 찾다
+   실패한다 (`No python entrypoint found`). 이 저장소는 수집기라 그런
+   파일이 없다. Root Directory를 `site-public`으로 옮기고 Framework를
+   Other로 바꿔야 한다.
+
+2. **`main`을 배포하려 든다.** 화면 파일은 `main`에 없다. 수집 산출물이라
+   `.gitignore`에 걸려 있고 `rate-data`에만 있다.
+
+3. **PR마다 미리보기 배포가 실패한다.** `site-public/`이 없는 브랜치에서는
+   빌드가 시작도 못 한다. Ignored Build Step이 이걸 막는다 — 이 명령은
+   **0으로 끝나면 건너뛰고 1로 끝나면 빌드한다.** 위 조건은 `rate-data`가
+   아닐 때 0을 돌려주므로 그 브랜치만 배포된다.
+
 **MCP `deploy_to_vercel`로는 못 한다.** 그 도구는 파일 내용을 요청 안에
-직접 실어 보내는데, 여기 데이터가 9 MB다.
+직접 실어 보내는데, 전국 한 벌이 24 MB다.
+
+### 4.7 왜 파이썬 웹앱을 만들지 않는가
+
+정적이 더 안정적이다. 실패할 수 있는 부품이 적다 — 파일 두 개를 CDN이
+그냥 준다. 서버 프로세스도 DB 연결도 타임아웃도 없다.
+
+서버리스 함수로 만들면 요청마다 컨테이너가 뜨고 그 안에서 **262 MB짜리
+SQLite**를 열어야 한다. 함수 번들 크기 제한에 걸리고, 걸리지 않더라도
+콜드 스타트마다 그 비용이 붙는다. 게다가 이 데이터는 **하루에 한 번**
+바뀐다 — 실시간 조회가 아닌데 요청마다 DB를 읽을 이유가 없다.
+
+전국 132,502행 실측 (gzip 전송 기준, Vercel이 자동으로 한다):
+
+| 회선 | 표가 그려질 때까지 |
+|---|---|
+| 빠른 회선 | 0.6초 |
+| LTE (10 Mbps / 40 ms) | 1.3초 |
+| 느린 3G (1.6 Mbps / 300 ms) | 4.0초 |
+| 필터 한 번 누를 때 | 23 ms |
+
+**웹앱이 맞아지는 시점**은 셋이다. 표가 브라우저에 다 못 올라갈 만큼
+커질 때(지금 `table.json` 5.6 MB, 20 MB를 넘으면 재검토), 사용자별로
+저장할 것이 생길 때(관심 상품 알림 등), 로그인이 필요할 때. 지금은
+셋 다 해당하지 않는다.
 
 ---
 
