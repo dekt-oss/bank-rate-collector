@@ -16,7 +16,6 @@ import sqlite3
 import sys
 from pathlib import Path
 
-EXPECTED_TABLE_COUNT = 13
 results: list[tuple[bool, str, str]] = []
 
 
@@ -42,7 +41,20 @@ def main() -> int:
             "AND name NOT LIKE 'sqlite_%' AND name != 'alembic_version'"
         )
     ]
-    check(len(tables) == EXPECTED_TABLE_COUNT, "SQLite 테이블 13종", f"{len(tables)}종")
+    # 개수가 아니라 **모델과 같은 것들인가**를 묻는다.
+    #
+    # 예전에는 `len(tables) == 13`이었다. 표를 하나 더하면 스키마가 맞는데도
+    # 여기서 죽는다 — 2026-08-06 run 31084088559이 그렇게 발행 직전에 멈췄고,
+    # 정작 무엇이 다른지는 알려 주지 않았다. 이제 없는 것과 더 있는 것을
+    # 이름으로 말한다.
+    from rate_monitor.db.models import ALL_TABLES
+
+    missing = sorted(set(ALL_TABLES) - set(tables))
+    extra = sorted(set(tables) - set(ALL_TABLES))
+    detail = f"{len(tables)}종, 모델과 일치"
+    if missing or extra:
+        detail = f"없음 {missing} / 더 있음 {extra}"
+    check(not missing and not extra, "SQLite 표가 모델과 같은가", detail)
 
     observations = conn.execute("SELECT COUNT(*) FROM rate_observations").fetchone()[0]
     check(observations > 0, "실제 데이터 수집", f"관측 {observations}건")
