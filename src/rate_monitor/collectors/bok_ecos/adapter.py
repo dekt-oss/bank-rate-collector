@@ -58,7 +58,15 @@ class BokEcosAdapter:
     coverage_status = "partial"
 
     def __init__(self, api_key: str | None = None) -> None:
-        key = api_key or os.environ.get(API_KEY_ENV)
+        # **앞뒤 공백을 지운다.** 인증키가 경로에 들어가는 API라 개행 하나가
+        # `%0A`로 인코딩되어 붙고, ECOS는 그걸 다른 키로 읽어 INFO-100
+        # (인증키가 유효하지 않습니다)을 준다.
+        #
+        # 2026-08-06에 실제로 갈렸다. 같은 시크릿으로 정찰(run 31098447877)은
+        # 성공했고 수집(run 31101956888)은 INFO-100으로 실패했다. 두 코드의
+        # 인증키 처리 차이가 `.strip()` 하나였다 — 정찰 스크립트는 지웠고
+        # 어댑터는 안 지웠다.
+        key = (api_key or os.environ.get(API_KEY_ENV) or "").strip()
         if not key:
             raise CollectorError(
                 f"{API_KEY_ENV} 환경변수가 없다. 인증키는 환경변수로만 주입한다 (v3 §16.1)."
