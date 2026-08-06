@@ -406,3 +406,43 @@ def test_observations_survive_the_round_trip(db: Path, tmp_path: Path) -> None:
     # 그 변환이 값을 바꾸지 않았는지 본다.
     assert delivered == stored
     assert max(stored) > 0
+
+
+# ── 검색엔진 색인 ────────────────────────────────────────────────────────
+
+
+def test_the_page_asks_not_to_be_indexed(db: Path, tmp_path: Path) -> None:
+    """주소를 아는 사람은 들어오되, 검색으로는 안 걸리게 한다.
+
+    공시금리를 옮겨 실은 화면이 검색 결과에서 원천 공시처럼 보이면 안 된다
+    (v4 §17 금지사항과 같은 취지).
+    """
+    out = tmp_path / "site-public"
+    build_site(db, TEMPLATE, out)
+    html = (out / "index.html").read_text(encoding="utf-8")
+    assert '<meta name="robots" content="noindex, nofollow">' in html
+
+
+def test_robots_txt_covers_the_files_that_are_not_html(db: Path, tmp_path: Path) -> None:
+    """`<meta robots>`는 크롤러가 파일을 **받은 뒤에** 읽는다.
+
+    그래서 CSV·JSON처럼 HTML이 아닌 산출물은 그 태그가 닿지 않는다.
+    robots.txt는 받기 전에 읽히므로 그쪽을 맡는다.
+    """
+    out = tmp_path / "site-public"
+    manifest = build_site(db, TEMPLATE, out)
+    robots = out / "robots.txt"
+    assert robots.read_text(encoding="utf-8") == "User-agent: *\nDisallow: /\n"
+    # 발행 목록에 들어가야 실제로 배포된다.
+    assert "robots.txt" in manifest.files
+
+
+def test_hosting_config_sends_the_noindex_header() -> None:
+    """robots.txt를 무시하는 크롤러가 있고, 헤더는 파일 종류를 안 가린다."""
+    root = Path(__file__).resolve().parents[1]
+    config = json.loads((root / "vercel.json").read_text(encoding="utf-8"))
+    rules = {
+        r["source"]: {h["key"]: h["value"] for h in r["headers"]}
+        for r in config["headers"]
+    }
+    assert rules["/(.*)"]["X-Robots-Tag"] == "noindex, nofollow"

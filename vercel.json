@@ -7,6 +7,12 @@
   "ignoreCommand": "[ \"$VERCEL_GIT_COMMIT_REF\" != \"rate-data\" ]",
   "headers": [
     {
+      "source": "/(.*)",
+      "headers": [
+        { "key": "X-Robots-Tag", "value": "noindex, nofollow" }
+      ]
+    },
+    {
       "source": "/data/(.*)",
       "headers": [
         { "key": "Cache-Control", "value": "public, max-age=0, must-revalidate" }

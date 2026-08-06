@@ -209,6 +209,17 @@ def build_site(
     page_path.write_text(html, encoding="utf-8")
     files.insert(0, "index.html")
 
+    # 검색엔진에게 이 사이트를 통째로 긁지 말라고 한다.
+    #
+    # HTML의 `<meta name="robots">`는 크롤러가 파일을 **받은 뒤에** 읽는다.
+    # 그래서 index.html이 아닌 파일 — /data/rates.csv 17 MB 같은 것 — 은
+    # 색인되기 전에 이미 내려간다. robots.txt는 받기 전에 읽히므로 그걸
+    # 막는다. 두 개가 겹치는 게 아니라 서로 다른 시점을 맡는다.
+    (out_dir / "robots.txt").write_text(
+        "User-agent: *\nDisallow: /\n", encoding="utf-8"
+    )
+    files.append("robots.txt")
+
     manifest = SiteManifest(
         generated_at=now_kst().isoformat(),
         page_bytes=page_path.stat().st_size,
