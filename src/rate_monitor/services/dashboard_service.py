@@ -509,9 +509,17 @@ def build_dashboard(
         )
         _verify(public_html, summary)
 
+    # 금리표는 빼고 쓴다.
+    #
+    # 이 파일은 사람이 열어 보는 요약이고, 들여쓰기까지 넣어 저장한다.
+    # 금리표를 함께 담으면 전국 기준 24 MiB가 된다 — 같은 표가 이미
+    # `site-public/data/table.json`에 5.4 MiB로 들어 있으므로 두 벌이다.
+    # 게이트는 `totals`만 보므로 빼도 검증이 성립한다.
     summary_path.parent.mkdir(parents=True, exist_ok=True)
+    readable = {k: v for k, v in summary.items() if k != "table"}
+    readable["table_rows"] = len(summary.get("table", {}).get("rows") or [])
     summary_path.write_text(
-        json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8"
+        json.dumps(readable, ensure_ascii=False, indent=2), encoding="utf-8"
     )
     site_path.parent.mkdir(parents=True, exist_ok=True)
     site_path.write_text(html, encoding="utf-8")
