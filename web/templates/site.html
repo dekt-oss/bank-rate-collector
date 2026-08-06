@@ -307,9 +307,9 @@
     background: var(--surface); border: 1px solid var(--line);
     border-radius: 10px; padding: 12px 14px;
   }
-  .mark .t { font-size: 12px; color: var(--muted); letter-spacing: .02em; }
+  .mark .t { font-size: 12px; color: var(--ink-3); letter-spacing: .02em; }
   .mark .v { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
-  .mark .d { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .mark .d { font-size: 12px; color: var(--ink-3); margin-top: 2px; }
 
   /* ── 업권 탭 ──────────────────────────────────────────────────── */
   .tabs { display: flex; gap: 6px; margin: 16px 0 8px; flex-wrap: wrap; }
@@ -378,7 +378,7 @@
        값이 없으면 통째로 숨긴다 — 빈 카드는 "0%"로 읽힌다. -->
   <div class="marks" id="marks" hidden></div>
 
-  <!-- 업권 탭. 시중은행은 여기 없다 — 참고카드에만 나온다 (v4 §6.4). -->
+  <!-- 업권 탭. 시중은행도 여기 있다 (v4 §6.4 정정, 2026-08-06). -->
   <nav class="tabs" id="tabs" aria-label="업권"></nav>
 
   <!-- 부산 바로가기. 이 제품의 중심이 부산이라 한 번에 가는 길을 둔다.
@@ -499,8 +499,18 @@
   const GU_EXACT = new Set(["outlet_address"]);
 
   // 메인 비교표에 서는 업권. 순서가 화면의 탭 순서다.
-  // **시중은행은 없다** — 참고카드에만 나온다 (v4 §6.4).
-  const MAIN_SECTORS = ["savings_bank", "kfcc", "nh_local", "cu"];
+  //
+  // 시중은행은 2026-08-06 사용자 결정으로 들어왔다 (v4 §6.4 정정). 다른
+  // 넷과 지역 근거가 다르므로 **배지 없이 섞으면 안 된다** (§17). 배지는
+  // 아래 GEO_KO가 붙이고, 시도 필터에서의 예외는 NATIONWIDE_GEO가 맡는다.
+  const MAIN_SECTORS = ["savings_bank", "kfcc", "nh_local", "cu", "bank"];
+
+  // 전국 공시라 시도가 비어 있는 행. 시도를 골라도 남긴다.
+  //
+  // "지역 값이 없다"와 "그 지역에 해당하지 않는다"는 다르다. 전국 공시는
+  // 고른 시도에서도 가입할 수 있다는 뜻이므로, 시도를 골랐다고 떨어뜨리면
+  // 화면이 거짓말을 한다. 구·군의 GU_EXACT 규칙과 같은 취지다 (v4 §6.4).
+  const NATIONWIDE_GEO = new Set(["nationwide"]);
 
   // 부산 16개 구·군 (v4 §4.3).
   //
@@ -752,7 +762,11 @@
     }
     for (const g of GROUPS) {
       const picked = state.picked[g.key];
-      if (picked.size && !picked.has(String(r[g.key]))) return false;
+      if (!picked.size) continue;
+      // 시도만 예외다. 전국 공시 행은 시도가 비어 있지만 고른 시도에서도
+      // 가입할 수 있다 — 떨어뜨리면 "그 지역에 없다"고 말하는 셈이다.
+      if (g.key === "region" && NATIONWIDE_GEO.has(r.geo)) continue;
+      if (!picked.has(String(r[g.key]))) return false;
     }
     // 공시일이 없는 행은 날짜 조건을 걸면 빠진다. 모르는 값을 통과시키면
     // "최근 것만" 골랐는데 언제 것인지 모르는 행이 섞여 든다.

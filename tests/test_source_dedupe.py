@@ -109,5 +109,5 @@ def test_the_two_config_lists_do_different_things() -> None:
 
     한때 둘을 같은 필터로 쓰려다 finlife가 통째로 사라질 뻔했다.
     """
-    assert reference_sectors() == ("bank",)
+    assert reference_sectors() == ()
     assert dedupe_sources() == ("finlife_savings_bank",)

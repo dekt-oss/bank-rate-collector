@@ -104,14 +104,30 @@ def test_the_head_office_notice_is_still_there() -> None:
 # ── 업권 탭 ─────────────────────────────────────────────────────────────
 
 
-def test_the_commercial_bank_has_no_tab() -> None:
-    """시중은행은 참고카드에만 나온다 (v4 §6.4).
+def test_the_commercial_bank_has_a_tab_by_explicit_decision() -> None:
+    """시중은행도 메인 비교표에 선다 (v4 §6.4 정정, 2026-08-06).
 
-    탭을 만들면 2금융권 넷과 나란히 서서 비교 대상처럼 보인다.
+    한때 이 테스트는 정반대를 못박고 있었다. 사용자가 넣기로 정했다.
     """
     match = re.search(r"const MAIN_SECTORS = \[([^\]]+)\]", SOURCE)
     assert match, "MAIN_SECTORS를 찾지 못했다"
-    assert "bank" not in [s.strip().strip('"') for s in match.group(1).split(",")]
+    assert "bank" in [s.strip().strip('"') for s in match.group(1).split(",")]
+
+
+def test_nationwide_rows_survive_a_sido_filter() -> None:
+    """전국 공시 행은 시도를 골라도 남는다 (v4 §6.4 정정 조건 2).
+
+    시중은행 행은 `region_sido`가 비어 있다. 그대로 두면 시도를 고르는
+    순간 전부 사라져서 "그 지역에 해당 상품이 없다"고 말하는 셈이 된다.
+    구·군의 `GU_EXACT` 규칙과 같은 취지다.
+    """
+    assert 'NATIONWIDE_GEO = new Set(["nationwide"])' in SOURCE
+    assert 'g.key === "region" && NATIONWIDE_GEO.has(r.geo)' in SOURCE
+
+
+def test_the_nationwide_badge_still_exists() -> None:
+    """배지 없이 섞는 것이 §17의 금지다. 배지가 사라지면 결정이 무너진다."""
+    assert 'nationwide: "전국 공시"' in SOURCE
 
 
 def test_unknown_sectors_are_not_dropped_from_the_tabs() -> None:
