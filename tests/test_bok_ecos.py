@@ -233,3 +233,29 @@ def test_the_card_is_none_without_the_table(tmp_path: Path) -> None:
     conn = sqlite3.connect(db)
     assert _latest_indicator(conn, "bok_base_rate") is None
     conn.close()
+
+
+def test_the_run_timestamp_is_naive_utc_like_every_other_source(
+    factory, tmp_path: Path
+) -> None:
+    """다른 수집원과 같은 자를 써야 한다.
+
+    저장은 naive UTC다. 여기만 로컬 시각을 넣으면 두 곳이 깨진다 —
+    `latest_run_ids`의 `MAX(started_at)` 비교가 원천 간에 어긋나고, 화면의
+    KST 변환(`domain/timeutil`)이 9시간 틀린다.
+
+    한국에서 만들었으므로 로컬 시각을 넣으면 실제로 9시간이다.
+    """
+    import datetime as dt
+
+    asyncio.run(
+        collect_indicator(
+            FixtureAdapter(), CollectionRequest(source_id="bok_ecos"), factory,
+            raw_root=tmp_path / "raw",
+        )
+    )
+    with factory() as session:
+        started = session.query(m.CollectionRun).one().started_at
+
+    drift = abs((started - dt.datetime.now(dt.UTC).replace(tzinfo=None)).total_seconds())
+    assert drift < 60, f"UTC에서 {drift:.0f}초 어긋났다"

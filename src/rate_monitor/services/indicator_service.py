@@ -24,6 +24,7 @@ from rate_monitor.domain.enums import RunStatus
 from rate_monitor.domain.schemas import CollectionRequest
 from rate_monitor.services.collection_service import (
     DEFAULT_RAW_ROOT,
+    _utcnow,
     ensure_source,
     save_raw_artifacts,
 )
@@ -55,7 +56,10 @@ async def collect_indicator(
     방어선이지만, 여기서 먼저 세어 `no_change`로 끝낸다 — 그래야 "받았는데
     안 바뀐 것"과 "못 받은 것"이 구별된다.
     """
-    now = datetime.now(tz=None)
+    # 저장은 naive UTC다. 다른 수집원과 같은 자를 써야 `latest_run_ids`의
+    # MAX(started_at) 비교가 성립하고, 화면의 KST 변환도 맞는다
+    # (domain/timeutil). 로컬 시각을 넣으면 9시간 어긋난다.
+    now = _utcnow()
     run_id = m.new_id()
     warnings: list[str] = []
     fetched = parsed = stored = unchanged = 0
@@ -158,7 +162,7 @@ def _finish(session_factory, run_id, status, message, fetched, parsed, stored,
         run = session.get(m.CollectionRun, run_id)
         run.status = status
         run.message = message[:500] if message else None
-        run.finished_at = datetime.now(tz=None)
+        run.finished_at = _utcnow()
         run.raw_count = fetched
         run.parsed_count = parsed
         run.valid_count = stored
