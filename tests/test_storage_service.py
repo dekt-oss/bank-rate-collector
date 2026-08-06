@@ -276,3 +276,46 @@ def test_snapshot_keys_sort_by_time() -> None:
         snapshot_key(datetime(2026, 8, 6, h, tzinfo=UTC), f"{h:08d}" * 8) for h in (1, 5, 23)
     ]
     assert keys == sorted(keys)
+
+
+# ── 연결 왕복 시험 ──────────────────────────────────────────────────────
+
+
+def test_check_writes_reads_and_cleans_up(store) -> None:
+    """자격증명만 보면 "붙기는 하는데 못 쓰는" 상태를 통과시킨다."""
+    from rate_monitor.services.storage_service import CHECK_PREFIX, check_round_trip
+
+    result = check_round_trip(store)
+    assert result["bytes"] > 0
+    labels = [label for label, _ in result["steps"]]
+    assert labels == ["업로드", "존재 확인", "목록 조회", "다운로드", "SHA256 대조",
+                      "삭제", "삭제 확인"]
+    # 시험 흔적을 남기면 다음 사람이 진짜 데이터인 줄 안다.
+    assert store.list(CHECK_PREFIX) == []
+
+
+def test_check_fails_loudly_when_the_bytes_come_back_wrong(tmp_path) -> None:
+    """왕복이 깨졌는데 통과하면 시험이 아니다."""
+    from rate_monitor.services.storage_service import (
+        CHECK_PREFIX,
+        LocalObjectStore,
+        StorageError,
+        check_round_trip,
+    )
+
+    class Flipping(LocalObjectStore):
+        def get(self, key: str) -> bytes:
+            return super().get(key)[:-1]
+
+    bad = Flipping(tmp_path / "b")
+    with pytest.raises(StorageError, match="SHA256 불일치"):
+        check_round_trip(bad)
+    # 실패해도 치운다.
+    assert bad.list(CHECK_PREFIX) == []
+
+
+def test_region_defaults_to_auto_and_can_be_set() -> None:
+    """R2는 지역 개념이 없어 auto가 정답이다. Variables에 없어도 돌아야 한다."""
+    assert R2Config.from_env(SECRETS).region == "auto"
+    assert R2Config.from_env({**SECRETS, "R2_REGION": "auto"}).region == "auto"
+    assert R2Config.from_env({**SECRETS, "R2_REGION": "  "}).region == "auto"

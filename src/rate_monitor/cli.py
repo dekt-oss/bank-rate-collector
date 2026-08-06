@@ -37,6 +37,7 @@ from rate_monitor.services.storage_service import (
     R2Config,
     SnapshotRef,
     StorageError,
+    check_round_trip,
     load_backend,
     open_store,
     restore_snapshot,
@@ -176,6 +177,16 @@ def _storage(args: argparse.Namespace) -> int:
     """
     choice = load_backend(Path(args.config))
     print(f"backend : {choice.backend.value}  ({choice.source})")
+
+    if args.action == "check":
+        # 자격증명만 보지 않는다. 실제로 쓰고 읽고 지워 봐야 "붙기는 하는데
+        # 못 쓰는" 상태를 안 넘긴다.
+        store = _storage_store(args)
+        result = check_round_trip(store)
+        for label, detail in result["steps"]:
+            print(f"  [{label:9s}] {detail}")
+        print(f"\n  왕복 확인 — {result['bytes']:,} bytes, sha256 {result['sha256'][:16]}…")
+        return 0
 
     if args.action == "status":
         secrets = R2Config.from_env()
@@ -319,8 +330,9 @@ def build_parser() -> argparse.ArgumentParser:
     storage = sub.add_parser("storage", help="상태 DB 저장소를 다룬다 (R2)")
     storage.add_argument(
         "action",
-        choices=["status", "upload", "restore", "migrate", "verify"],
-        help="status=현황만 본다, upload=올린다, restore=받는다, "
+        choices=["check", "status", "upload", "restore", "migrate", "verify"],
+        help="check=쓰기·읽기·삭제 왕복 시험, status=현황만 본다, "
+             "upload=올린다, restore=받는다, "
              "migrate=기존 GitHub DB를 R2로 옮긴다, verify=받아서 확인만 한다",
     )
     storage.add_argument("--db", default="publish/rate_monitor.sqlite3",

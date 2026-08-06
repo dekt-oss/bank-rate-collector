@@ -1,0 +1,112 @@
+name: Storage check (R2)
+
+# R2 연결을 사람이 직접 확인하는 자리 (선행 수정안 v1 §6).
+#
+# 자격증명이 GitHub에만 있어서 로컬에서는 아무것도 못 해 본다. 여기가
+# boto3 배선이 실제로 맞는지 처음 드러나는 곳이다.
+#
+# **아무것도 전환하지 않는다.** rate-data의 DB도, config/storage.yaml의
+# backend도 건드리지 않는다. R2에 올려 두고 되받아 보는 것까지만 한다.
+# 전환은 사람이 config를 고쳐 커밋할 때 일어난다.
+
+on:
+  workflow_dispatch:
+    inputs:
+      migrate:
+        description: "기존 GitHub DB를 R2에 올린다 (7~13단계). 끄면 연결 시험만"
+        type: boolean
+        required: false
+        default: true
+
+concurrency:
+  group: rate-data-writer
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    env:
+      # 비밀 둘은 Secrets, 나머지는 Variables.
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+      R2_BUCKET: ${{ vars.R2_BUCKET }}
+      R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+      R2_REGION: ${{ vars.R2_REGION }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Sync dependencies
+        run: uv sync --locked
+
+      # 1~6단계. 쓰고 → 있는지 보고 → 목록에서 찾고 → 받고 → 해시 맞추고 → 지운다.
+      - name: 1-6. 연결과 왕복 시험
+        run: uv run rate-monitor storage check
+
+      - name: 현재 설정
+        run: uv run rate-monitor storage status
+
+      # 여기서부터는 실제 DB를 다룬다.
+      - name: 기존 GitHub DB 내려받기
+        if: ${{ inputs.migrate }}
+        run: |
+          set -euo pipefail
+          git fetch origin rate-data --depth=1
+          git checkout origin/rate-data -- latest/rate_monitor.sqlite3.gz
+          mkdir -p work
+          gunzip -c latest/rate_monitor.sqlite3.gz > work/github.sqlite3
+          echo "GitHub DB: $(stat -c%s work/github.sqlite3) bytes"
+          echo "압축본    : $(stat -c%s latest/rate_monitor.sqlite3.gz) bytes"
+          uv run python - <<'PY'
+          import hashlib, sqlite3
+          from pathlib import Path
+          p = Path("work/github.sqlite3")
+          h = hashlib.sha256(p.read_bytes()).hexdigest()
+          print(f"SHA256    : {h}")
+          c = sqlite3.connect(p)
+          print("integrity :", c.execute("PRAGMA integrity_check").fetchone()[0])
+          print("fk 위반   :", len(c.execute("PRAGMA foreign_key_check").fetchall()))
+          for t in ("rate_observations","institutions","products","product_variants","collection_runs"):
+              print(f"  {t:20s} {c.execute(f'SELECT COUNT(*) FROM {t}').fetchone()[0]:>8,}")
+          PY
+
+      # 7~13단계. 올리고 → 되받아 → 해시·integrity·fk·행 수 대조 →
+      # 그 다음에야 current.json을 만든다.
+      - name: 7-13. R2로 업로드하고 되받아 검증
+        if: ${{ inputs.migrate }}
+        run: |
+          set -euo pipefail
+          echo "── 업로드 (내부에서 재다운로드·해시·integrity·fk·행 수까지 대조한다)"
+          time uv run rate-monitor storage migrate --db work/github.sqlite3
+
+      # 14단계. 복원이 실제로 되는지. **전환하지 않고** 확인만 한다.
+      - name: 14. R2에서 복원 확인
+        if: ${{ inputs.migrate }}
+        run: |
+          set -euo pipefail
+          echo "── 복원"
+          time uv run rate-monitor storage restore --dest work/from_r2.sqlite3
+
+          echo
+          echo "── 원본과 바이트 비교"
+          if cmp -s work/github.sqlite3 work/from_r2.sqlite3; then
+            echo "완전히 동일"
+          else
+            echo "다르다" >&2
+            exit 1
+          fi
+
+      - name: 최종 상태
+        if: ${{ inputs.migrate }}
+        run: uv run rate-monitor storage status

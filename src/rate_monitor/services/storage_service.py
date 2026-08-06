@@ -112,7 +112,12 @@ class R2Config:
     secret_access_key: str
     bucket: str
     endpoint: str
+    region: str = "auto"
 
+    # 다섯 개가 다 있어야 설정된 것으로 본다.
+    #
+    # 저장 위치가 갈린다 — 비밀 둘은 Secrets, 나머지 셋은 Variables다.
+    # 워크플로우가 한쪽만 넘기면 여기서 걸린다.
     ENV_KEYS = (
         "R2_ACCOUNT_ID",
         "R2_ACCESS_KEY_ID",
@@ -120,6 +125,8 @@ class R2Config:
         "R2_BUCKET",
         "R2_ENDPOINT",
     )
+    # 없으면 auto. R2는 지역 개념이 없어 auto가 정답이다.
+    OPTIONAL_ENV_KEYS = ("R2_REGION",)
 
     @classmethod
     def from_env(cls, env: dict[str, str] | None = None) -> "R2Config | None":
@@ -148,6 +155,7 @@ class R2Config:
             secret_access_key=present["R2_SECRET_ACCESS_KEY"],
             bucket=present["R2_BUCKET"],
             endpoint=present["R2_ENDPOINT"],
+            region=(source.get("R2_REGION") or "auto").strip() or "auto",
         )
 
 
@@ -387,6 +395,61 @@ def upload_snapshot(
     return ref
 
 
+CHECK_PREFIX = "state/_check/"
+
+
+def check_round_trip(store: ObjectStore, *, now: datetime | None = None) -> dict[str, Any]:
+    """저장소가 실제로 오가는지 본다. 쓰고 → 확인하고 → 읽고 → 지운다.
+
+    자격증명이 맞는지, 버킷이 있는지, 권한이 쓰기·읽기·삭제까지 다 있는지를
+    한 번에 확인한다. 자격증명만 검사하면 "붙기는 하는데 못 쓰는" 상태를
+    통과시킨다.
+
+    **끝나면 지운다.** 시험 흔적을 저장소에 남기면 다음 사람이 그게 진짜
+    데이터인 줄 안다. 실패해도 지우려 시도한다.
+    """
+    stamp = (now or datetime.now(UTC)).strftime("%Y%m%dT%H%M%S%fZ")
+    key = f"{CHECK_PREFIX}{stamp}.bin"
+    # 압축이 잘 안 되는 내용이라야 왕복이 진짜인지 알 수 있다.
+    body = hashlib.sha256(stamp.encode()).digest() * 64  # 2 KiB
+    expected = hashlib.sha256(body).hexdigest()
+
+    steps: list[tuple[str, str]] = []
+    try:
+        store.put(key, body)
+        steps.append(("업로드", key))
+
+        if not store.exists(key):
+            raise StorageError(f"올렸는데 없다고 나온다: {key}")
+        steps.append(("존재 확인", "HEAD ok"))
+
+        listed = store.list(CHECK_PREFIX)
+        if key not in listed:
+            raise StorageError(f"목록에 안 보인다: {key} (목록 {len(listed)}건)")
+        steps.append(("목록 조회", f"{len(listed)}건 중 발견"))
+
+        fetched = store.get(key)
+        steps.append(("다운로드", f"{len(fetched):,} bytes"))
+
+        actual = hashlib.sha256(fetched).hexdigest()
+        if actual != expected:
+            raise StorageError(f"SHA256 불일치: 올림 {expected[:12]}, 받음 {actual[:12]}")
+        steps.append(("SHA256 대조", f"{actual[:16]}… 일치"))
+    finally:
+        # 실패해도 치운다. 못 지우면 그것도 알아야 한다.
+        try:
+            store.delete(key)
+            steps.append(("삭제", "완료"))
+        except Exception as exc:  # noqa: BLE001 — 삭제 실패가 검사를 가리면 안 된다
+            steps.append(("삭제", f"실패: {exc}"))
+
+    if store.exists(key):
+        raise StorageError(f"지웠는데 아직 있다: {key}")
+    steps.append(("삭제 확인", "없음"))
+
+    return {"key": key, "sha256": expected, "bytes": len(body), "steps": steps}
+
+
 def prune_snapshots(store: ObjectStore, keep: int = KEEP_SNAPSHOTS) -> list[str]:
     """오래된 스냅샷을 지운다. 키에 시각이 들어 있어 이름순이 곧 시간순이다.
 
@@ -470,7 +533,7 @@ class R2ObjectStore:
             endpoint_url=config.endpoint,
             aws_access_key_id=config.access_key_id,
             aws_secret_access_key=config.secret_access_key,
-            region_name="auto",
+            region_name=config.region,
         )
 
     def put(self, key: str, data: bytes) -> None:
