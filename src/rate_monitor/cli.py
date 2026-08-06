@@ -62,13 +62,20 @@ ADAPTERS = {
 
 
 def _finlife_request(args: argparse.Namespace) -> CollectionRequest:
-    return CollectionRequest(
-        source_id=args.source,
-        options={
-            "services": tuple(args.services),
-            "groups": tuple(args.groups),
-        },
-    )
+    """권역은 어댑터가 안다. `--groups`를 안 주면 넘기지 않는다.
+
+    예전에는 `--groups`의 기본값이 `030300`이라, 그 값이 어댑터 종류와
+    상관없이 항상 실려 갔다. 그래서 `--source finlife_bank`를 그냥 돌리면
+    저축은행 권역을 요청하는 꼴이 되어 어댑터가 거부했다.
+
+        finlife_bank가 맡지 않은 권역: ['030300']
+
+    이제 안 주면 비운다. 어댑터가 자기 권역을 쓴다.
+    """
+    options: dict[str, tuple[str, ...]] = {"services": tuple(args.services)}
+    if args.groups:
+        options["groups"] = tuple(args.groups)
+    return CollectionRequest(source_id=args.source, options=options)
 
 
 def _default_request(args: argparse.Namespace) -> CollectionRequest:
@@ -312,8 +319,9 @@ def build_parser() -> argparse.ArgumentParser:
         default=["depositProductsSearch", "savingProductsSearch"],
     )
     collect.add_argument(
-        "--groups", nargs="+", default=["030300"],
-        help="finlife 전용. 권역코드. 030300=저축은행, 020000=은행",
+        "--groups", nargs="+", default=None,
+        help="finlife 전용. 권역코드. 생략하면 수집원이 맡은 권역을 쓴다 "
+             "(finlife_savings_bank=030300, finlife_bank=020000)",
     )
     collect.add_argument(
         "--regions", nargs="+", default=None,

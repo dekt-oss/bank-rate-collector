@@ -207,3 +207,26 @@ def _seed_two_sectors(db: Path) -> None:
                 content_hash=f"sha256:{sector}-content",
             ))
         s.commit()
+
+
+def test_the_cli_lets_the_adapter_choose_its_own_group() -> None:
+    """`--groups`를 안 주면 넘기지 않는다.
+
+    예전에는 기본값 `030300`이 어댑터 종류와 상관없이 실려 가서,
+    `--source finlife_bank`를 그냥 돌리면 어댑터가 자기 권역이 아니라며
+    거부했다. 워크플로우는 `--groups 020000`을 명시해 안 걸렸지만,
+    손으로 돌리면 걸렸다.
+    """
+    import argparse
+
+    from rate_monitor.cli import REQUEST_BUILDERS
+
+    build = REQUEST_BUILDERS["finlife_bank"]
+    args = argparse.Namespace(
+        source="finlife_bank", services=["depositProductsSearch"], groups=None
+    )
+    assert "groups" not in build(args).options
+
+    # 명시하면 그대로 간다.
+    args.groups = ["020000"]
+    assert build(args).options["groups"] == ("020000",)
