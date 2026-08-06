@@ -638,7 +638,7 @@ storage_budget:
 
 완료 전에는 v4 기능 개발을 시작하지 않는다.
 
-## PR 2 — R2 상태 저장
+## PR 2 — R2 상태 저장 (끝, 시험 단계 진입)
 
 - R2 secrets 계약
 - `storage_service.py`
@@ -647,6 +647,12 @@ storage_budget:
 - 다운로드·해시·integrity 검증
 - Actions restore/publish 변경
 - 실패 안전성 테스트
+
+2026-08-06 run 31071740056에서 실제 버킷 `bank-rate-collector-prod`를 상대로
+14단계를 모두 통과했다. 275,714,048 bytes DB가 20.4초에 올라가 4.4초에
+되돌아왔고 바이트 단위로 동일했다. `config/storage.yaml`을 `r2_migration`으로
+바꿨다 — R2는 아직 시험 저장소이고, 복원은 GitHub에서 하며
+`rate-data/latest/rate_monitor.sqlite3.gz`는 그대로 둔다 (§6.4).
 
 ## PR 3 — 변경이력 저장
 
