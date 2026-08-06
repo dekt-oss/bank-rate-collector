@@ -189,21 +189,32 @@ PR 2가 대체 경로(R2)를 만들었다. **전환은 아직 안 했다** — �
 
 | 단계 | backend | 복원 | 발행 | R2 실패하면 |
 |---|---|---|---|---|
-| 지금 | `github_legacy` | GitHub | DB 포함 | 해당 없음 |
-| 시험 | `r2_migration` | GitHub | DB 포함 | 수집 계속 (빨간 X만) |
-| 전환 후 | `r2` | R2 | **DB 없음** | 멈춘다 |
+| 끝 | `github_legacy` | GitHub | DB 포함 | 해당 없음 |
+| **지금** | `r2_migration` | GitHub | DB 포함 | 수집 계속 (빨간 X만) |
+| 다음 | `r2` | R2 | **DB 없음** | 멈춘다 |
+
+2026-08-06에 시험 단계로 들어갔다. 근거는 run 31071740056 (Storage check
+(R2), 14단계 전부 success): 275,714,048 bytes DB가 20.4초에 올라가 4.4초에
+되돌아왔고, 되받은 파일이 원본과 바이트 단위로 같았다. R2 압축본은
+54,414,161 bytes (19.7%), `state/snapshots/20260806T043719Z-6ba3c773.sqlite3.gz`.
+
+**아직 GitHub DB가 공식 원본이다.** `rate-data/latest/rate_monitor.sqlite3.gz`는
+그대로 두고, `r2`로 넘어가 한 바퀴 정상으로 돈 뒤에야 지운다.
 
 ```bash
-# 1. 시크릿 5개를 저장소에 등록한다
-#    R2_ACCOUNT_ID R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY R2_BUCKET R2_ENDPOINT
+# 1. [끝] 시크릿과 변수를 저장소에 등록한다
+#    Secrets:   R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY
+#    Variables: R2_ACCOUNT_ID R2_BUCKET R2_ENDPOINT R2_REGION
 
-# 2. 지금 GitHub에 있는 DB를 R2로 올린다. 재다운로드 검증까지 한다
+# 2. [끝] 지금 GitHub에 있는 DB를 R2로 올린다. 재다운로드 검증까지 한다
+#    자격증명이 GitHub에만 있으므로 로컬이 아니라 Actions에서 돌린다:
+#    Actions → Storage check (R2) → Run workflow (migrate: true)
 uv run rate-monitor storage migrate --db publish/rate_monitor.sqlite3
 
-# 3. 한 번 더 확인한다. 받아서 검사만 하고 파일을 남기지 않는다
+# 3. [끝] 한 번 더 확인한다. 받아서 검사만 하고 파일을 남기지 않는다
 uv run rate-monitor storage verify
 
-# 4. config/storage.yaml의 backend를 r2_migration으로 바꿔 커밋한다
+# 4. [끝] config/storage.yaml의 backend를 r2_migration으로 바꿔 커밋한다
 #    이 상태로 수집을 몇 바퀴 돌린다. R2는 아직 시험 저장소다
 
 # 5. 문제가 없으면 backend를 r2로 바꾼다

@@ -20,4 +20,14 @@
 # 전환 절차는 docs/roadmap.md §4.2에 있다. 요약하면:
 #   시크릿 등록 → storage migrate → storage verify → 여기를 r2_migration으로
 #   → 한 바퀴 관찰 → 여기를 r2로
-backend: github_legacy
+# 2026-08-06: github_legacy → r2_migration.
+#
+# 근거는 run 31071740056이다 (Storage check (R2), 14단계 전부 success).
+# 실제 버킷에 2 KB 왕복이 되고, 275,714,048 bytes DB가 20.4초에 올라가
+# 4.4초에 되돌아왔으며, 되받은 파일이 원본과 바이트 단위로 같았다
+# (`cmp -s` → 완전히 동일). integrity_check ok, foreign_key_check 0건,
+# rate_observations 177,903행이 그대로였다.
+#
+# 여기서는 아직 R2가 시험 저장소다. 복원은 GitHub에서 하고 rate-data의
+# DB도 그대로 둔다. r2로 넘어가는 것은 이 상태로 몇 바퀴 돈 뒤다.
+backend: r2_migration

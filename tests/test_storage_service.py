@@ -116,10 +116,21 @@ def test_a_missing_config_is_not_an_error(tmp_path: Path) -> None:
     assert choice.source == "기본값"
 
 
-def test_the_repo_config_is_valid_and_still_legacy() -> None:
-    """저장소에 커밋된 값. r2로 바뀌는 순간이 곧 전환이다."""
-    choice = load_backend(Path("config/storage.yaml"), {})
-    assert choice.backend is StorageBackend.GITHUB_LEGACY
+def test_the_repo_config_does_not_make_r2_authoritative_yet() -> None:
+    """저장소에 커밋된 값. r2로 바뀌는 순간이 곧 전환이다.
+
+    2026-08-06에 github_legacy에서 r2_migration으로 옮겼다 (run 31071740056).
+    시험 단계라 R2에 올리기는 하지만 복원은 여전히 GitHub에서 하고,
+    rate-data의 DB도 그대로 둔다.
+
+    이 검사가 막는 것은 값이 아니라 **말없는 전환**이다. r2로 바꾸면
+    rate-data에 SQLite가 안 실리고 복원이 R2에서 오기 시작한다 — 그걸
+    커밋 하나로 조용히 넘기지 못하게, 이 테스트를 같이 고치게 만든다.
+    """
+    choice = load_backend(Path("config/storage.yaml"), {**SECRETS})
+    assert choice.backend is StorageBackend.R2_MIGRATION
+    assert choice.backend.uses_r2
+    assert not choice.backend.r2_is_authoritative
 
 
 # ── 올리기 ──────────────────────────────────────────────────────────────
