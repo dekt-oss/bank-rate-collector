@@ -113,7 +113,7 @@ def main() -> int:
     finlife_rows, finlife_null = conn.execute(
         "SELECT COUNT(*), COUNT(*) - COUNT(o.max_rate) FROM rate_observations o"
         "  JOIN collection_runs r ON r.id = o.run_id"
-        " WHERE r.source_id = 'finlife'"
+        " WHERE r.source_id LIKE 'finlife%'"
     ).fetchone()
     # 원본을 하나도 못 찾았는데 관측은 있다면, 대조가 성립하지 않은 것이다.
     # 0 == 0으로 조용히 통과시키면 검사가 아니라 장식이 된다.
@@ -127,6 +127,48 @@ def main() -> int:
         "max_rate NULL 규칙 — finlife (원본 대조)",
         f"저장 NULL {finlife_null}건 == 원본 결측 {source_missing}건",
     )
+
+    # 시중은행 분리 게이트 (v4 §6.5).
+    #
+    # 같은 API가 저축은행과 시중은행을 준다. 하나라도 섞이면 화면이 둘을
+    # 못 가르고, 참고지표여야 할 시중은행이 메인 비교표에 올라온다.
+    for source_id, sector, scope, label in (
+        ("finlife_bank", "bank", "nationwide", "시중은행"),
+        ("finlife_savings_bank", "savings_bank", "head_office_reference", "저축은행"),
+    ):
+        total, wrong_sector = conn.execute(
+            "SELECT COUNT(*), SUM(CASE WHEN i.sector <> ? THEN 1 ELSE 0 END)"
+            "  FROM rate_observations o"
+            "  JOIN collection_runs r  ON r.id = o.run_id"
+            "  JOIN product_variants v ON v.id = o.variant_id"
+            "  JOIN products p         ON p.id = v.product_id"
+            "  JOIN institutions i     ON i.id = p.institution_id"
+            " WHERE r.source_id = ?",
+            (sector, source_id),
+        ).fetchone()
+        check(
+            not wrong_sector,
+            f"finlife 소스 분리 — {label} 레코드 혼합 0",
+            f"관측 {total}건 중 sector<>{sector} {wrong_sector or 0}건",
+        )
+        wrong_scope = conn.execute(
+            "SELECT COUNT(*) FROM rate_observations o"
+            "  JOIN collection_runs r  ON r.id = o.run_id"
+            "  JOIN product_variants v ON v.id = o.variant_id"
+            " WHERE r.source_id = ? AND v.rate_scope <> ?",
+            (source_id, scope),
+        ).fetchone()[0]
+        check(
+            wrong_scope == 0,
+            f"finlife 소스 분리 — {label} rate_scope={scope}",
+            f"어긋난 행 {wrong_scope}건",
+        )
+
+    # 옛 이름이 남아 있으면 마이그레이션이 안 돈 것이다.
+    legacy = conn.execute(
+        "SELECT COUNT(*) FROM collection_runs WHERE source_id = 'finlife'"
+    ).fetchone()[0]
+    check(legacy == 0, "옛 finlife source_id 잔존 0", f"{legacy}건")
 
     # 공식 화면에 우대금리 열 자체가 없는 원천들. 전부 NULL이어야 한다.
     for source_id, label in (

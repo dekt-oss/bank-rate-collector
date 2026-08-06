@@ -370,7 +370,10 @@ def test_duplicate_guard_is_shared_across_artifacts(factory, raw_root) -> None:
     with factory() as s:
         ensure_source(s, adapter, now)
         run = m.CollectionRun(
-            id="run-dup", source_id="finlife", mode="api", started_at=now, status="running"
+            # ensure_source가 만든 행을 가리켜야 한다. 이름을 못 박으면
+            # 소스가 갈릴 때(v4 §6.2) 외래키가 깨진다.
+            id="run-dup", source_id=adapter.source_id, mode="api",
+            started_at=now, status="running",
         )
         artifact = m.RawArtifact(
             id="art-dup", run_id="run-dup", artifact_type="json", relative_path="p.json",

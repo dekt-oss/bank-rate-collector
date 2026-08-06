@@ -11,7 +11,10 @@ import tempfile
 from pathlib import Path
 
 from rate_monitor.collectors.cu.adapter import CuAdapter
-from rate_monitor.collectors.finlife.adapter import FinlifeAdapter
+from rate_monitor.collectors.finlife.adapter import (
+    FinlifeBankAdapter,
+    FinlifeSavingsBankAdapter,
+)
 from rate_monitor.collectors.fsb.adapter import FsbAdapter
 from rate_monitor.collectors.kfcc.adapter import KfccAdapter
 from rate_monitor.collectors.nh_local.adapter import NhLocalAdapter
@@ -47,7 +50,10 @@ from rate_monitor.services.storage_service import (
 from rate_monitor.services.validation_service import run_validations
 
 ADAPTERS = {
-    "finlife": FinlifeAdapter,
+    # finlife는 권역마다 소스가 갈린다 (v4 §6.2). 옛 이름 `finlife`는
+    # 더 받지 않는다 — 그 이름으로 돌리면 어느 권역인지 알 수 없다.
+    "finlife_savings_bank": FinlifeSavingsBankAdapter,
+    "finlife_bank": FinlifeBankAdapter,
     "fsb": FsbAdapter,
     "cu": CuAdapter,
     "kfcc": KfccAdapter,
@@ -100,7 +106,11 @@ def _nh_local_request(args: argparse.Namespace) -> CollectionRequest:
 
 # 수집원마다 필요한 인자가 다르다. finlife의 services/groups를 모든 원천에
 # 무조건 밀어 넣으면 지역 기반 수집원에서 뜻 없는 값이 실행 이력에 남는다.
-REQUEST_BUILDERS = {"finlife": _finlife_request, "nh_local": _nh_local_request}
+REQUEST_BUILDERS = {
+    "finlife_savings_bank": _finlife_request,
+    "finlife_bank": _finlife_request,
+    "nh_local": _nh_local_request,
+}
 
 
 def _collect(args: argparse.Namespace) -> int:
@@ -291,7 +301,9 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
 
     collect = sub.add_parser("collect", help="수집원을 실행해 SQLite에 저장한다")
-    collect.add_argument("--source", default="finlife", choices=sorted(ADAPTERS))
+    collect.add_argument(
+        "--source", default="finlife_savings_bank", choices=sorted(ADAPTERS)
+    )
     collect.add_argument("--db", default=str(DEFAULT_DB_PATH))
     collect.add_argument("--raw-root", default=str(DEFAULT_RAW_ROOT))
     collect.add_argument(
