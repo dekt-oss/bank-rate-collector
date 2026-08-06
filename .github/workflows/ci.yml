@@ -42,12 +42,19 @@ jobs:
           import os, sqlite3
           path = os.environ["RATE_MONITOR_DB_URL"].split("///")[1]
           conn = sqlite3.connect(path)
-          tables = [
+          tables = {
               r[0] for r in conn.execute(
                   "SELECT name FROM sqlite_master WHERE type='table' "
                   "AND name NOT LIKE 'sqlite_%' AND name != 'alembic_version'"
               )
-          ]
-          assert len(tables) == 13, f"테이블 13종이어야 하는데 {len(tables)}종: {sorted(tables)}"
-          print(f"테이블 {len(tables)}종 생성 확인")
+          }
+          # 개수를 여기 적어 두면 표가 늘 때마다 이 줄을 같이 못 고쳐 CI가
+          # 깬다 (2026-08-06 run 31082560282에서 실제로 그랬다). 모델과 맞는지
+          # 물어야 할 질문은 "몇 개인가"가 아니라 "같은 것들인가"다.
+          from rate_monitor.db.models import ALL_TABLES
+
+          missing = set(ALL_TABLES) - tables
+          extra = tables - set(ALL_TABLES)
+          assert not missing and not extra, f"모델과 다르다. 없음={sorted(missing)} 더={sorted(extra)}"
+          print(f"테이블 {len(tables)}종이 모델과 일치")
           PY
