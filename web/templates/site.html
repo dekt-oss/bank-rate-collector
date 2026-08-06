@@ -101,6 +101,23 @@
     text-align: right; line-height: 1.7; font-variant-numeric: tabular-nums;
   }
 
+  .head-right { display: flex; flex-direction: column; align-items: flex-end; gap: 7px; }
+  a.collect {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 12.5px; font-weight: 600; text-decoration: none;
+    padding: 6px 12px; border-radius: 6px;
+    background: var(--surface); color: var(--accent-ink);
+    border: 1px solid var(--accent);
+  }
+  a.collect:hover { background: var(--accent); color: #fff; }
+  /* 누구나 눌러도 아무 일이 안 일어난다는 것을 미리 알린다. */
+  a.collect .who {
+    font-size: 10.5px; font-weight: 700; letter-spacing: .04em;
+    color: var(--ink-3); border: 1px solid var(--line);
+    border-radius: 3px; padding: 0 4px;
+  }
+  a.collect:hover .who { color: #fff; border-color: rgba(255,255,255,.5); }
+
   .notice {
     margin: 14px 0 0; padding: 9px 13px;
     background: var(--warn-bg); color: var(--warn);
@@ -297,6 +314,12 @@
     font-size: 12px; color: var(--ink-3); line-height: 1.75;
   }
   footer code { font-family: var(--mono); font-size: 11.5px; }
+  .srcnote { margin-top: 12px; }
+  .srcnote ul { margin: 6px 0 0; padding-left: 18px; }
+  .srcnote li { margin-bottom: 7px; }
+  .srcnote .how { color: var(--ink-3); }
+  .srcnote .ref { font-family: var(--mono); font-size: 11px; color: var(--ink-3); }
+  .basis-note { margin-top: 12px; }
 
   @media (max-width: 640px) {
     .wrap { padding: 16px 12px 48px; }
@@ -384,7 +407,16 @@
       <h1>2금융권 수신금리 조회</h1>
       <p class="sub" id="sub">금리표를 불러오는 중입니다…</p>
     </div>
-    <div class="stamp" id="stamp"></div>
+    <div class="head-right">
+      <div class="stamp" id="stamp"></div>
+      <!-- 이 사이트는 서버가 없다. 페이지 안에서 수집을 돌릴 수 없으므로
+           GitHub Actions 실행 화면으로 보낸다. 토큰을 페이지에 싣지 않으니
+           실행 권한이 있는 사람만 실제로 돌릴 수 있다. 주소를 못 만들면
+           (저장소 이름을 모르는 빌드) 버튼을 통째로 숨긴다. -->
+      <a class="collect" id="collect" hidden target="_blank" rel="noopener">
+        지금 수집하기 <span class="who">관리자</span>
+      </a>
+    </div>
   </header>
 
   <p class="notice">
@@ -594,6 +626,42 @@
   const termBucket = (t) =>
     t == null ? null : (TERM_BUCKETS.find((b) => t >= b.lo && t <= b.hi) || null);
 
+  // ── 우대조건 분류 ────────────────────────────────────────────────
+  //
+  // 코드→표시명은 `config/preference_rules.yaml`이 정하지만, 화면은 표를
+  // 받기 전에도 그려져야 해서 여기 한 벌 둔다. 코드가 늘어 여기 없으면
+  // 코드 그대로 나온다 — 사라지지는 않는다.
+  const PREF_KO = {
+    PRODUCT_HOLDING: "계좌·상품 보유", CARD_USAGE: "카드 이용",
+    DIGITAL_CHANNEL: "비대면·가입채널", AUTO_PAYMENT: "자동이체·자동납부",
+    PAYMENT_PERFORMANCE: "납입 실적", MAINTENANCE: "만기·유지",
+    MEMBERSHIP: "회원·조합원", INCOME_TRANSFER: "급여·연금 수령",
+    CONTRACT_CONDITION: "가입금액·기간", AGE_LIFE_STAGE: "연령·생애 조건",
+    NEW_CUSTOMER: "신규·첫 거래", CONSENT_SERVICE: "동의·전자서비스",
+    EVENT_REFERRAL: "이벤트·추천", REGION_AFFILIATION: "지역·소속",
+    OTHER: "기타",
+  };
+
+  // 목록에서 앞에 세우는 분류. 2026-08-06 발행 DB에서 조건이 있는 8,876건
+  // 기준으로 많은 순서다.
+  //
+  //   계좌·상품 보유 35.6%   카드 이용 35.1%   비대면·가입채널 30.3%
+  //   자동이체 26.2%        납입 실적 22.8%
+  //
+  // 나머지는 뒤에 붙고, «기타»는 언제나 맨 끝이다. **기본 체크는 비운다** —
+  // 처음부터 몇 개를 켜 두면 첫 화면이 이미 걸러진 상태가 되고, 그걸
+  // 전체 목록으로 오해한다.
+  const PREF_TOP = ["PRODUCT_HOLDING", "CARD_USAGE", "DIGITAL_CHANNEL",
+                    "AUTO_PAYMENT", "PAYMENT_PERFORMANCE"];
+
+  // 우대조건 원문의 세 상태. 셋을 뭉개면 화면이 거짓말을 한다 —
+  // 새마을금고는 공식 화면에 우대금리 열 자체가 없어서 «미제공»이고,
+  // 그걸 «없음»으로 적으면 우대금리가 없는 상품처럼 보인다 (v4 §3.3).
+  const PREF_STATUS_KO = {
+    present: "우대조건 있음", none: "우대조건 없음(원천 명시)",
+    missing: "원천 미제공",
+  };
+
   const GROUPS = [
     { key: "sector", label: "권역", ko: SECTOR_KO },
     { key: "type", label: "상품유형", ko: TYPE_KO },
@@ -602,6 +670,7 @@
     { key: "channel", label: "가입채널", ko: CHANNEL_KO },
     { key: "scope", label: "가입제한", ko: SCOPE_KO },
     { key: "method", label: "이자방식", ko: METHOD_KO },
+    { key: "prefStatus", label: "우대조건", ko: PREF_STATUS_KO, pref: true },
   ];
   const state = {
     picked: Object.fromEntries(GROUPS.map((g) => [g.key, new Set()])),
@@ -615,6 +684,7 @@
     // 별도 축이 아니다. 부산이 꺼지면 `gu`도 함께 비운다.
     tab: null,        // null이면 전체
     gu: new Set(),
+    prefTags: new Set(),   // 세부 우대조건. 우대조건 그룹 안에서만 열린다
     open: new Set(),  // 우대조건을 펼친 행
   };
   const busanOn = () => state.picked.region.has(BUSAN_SIDO);
@@ -810,6 +880,35 @@
     </div>`;
   };
 
+  // 세부 우대조건. «우대조건 있음»을 켰을 때만 편다 — 미제공·없음 행에는
+  // 붙일 분류가 없어서, 켜 두면 조건을 걸수록 결과가 비는 것처럼 보인다.
+  const prefTagBoxes = () => {
+    if (!state.picked.prefStatus.has("present")) return "";
+    const counts = new Map();
+    ALL.forEach((r) => {
+      if (!r.prefTags) return;
+      r.prefTags.forEach((code) => counts.set(code, (counts.get(code) || 0) + 1));
+    });
+    // 실측 상위를 앞에, 나머지는 건수 순, «기타»는 언제나 맨 끝.
+    const rest = [...counts.keys()]
+      .filter((c) => !PREF_TOP.includes(c) && c !== "OTHER")
+      .sort((a, b) => counts.get(b) - counts.get(a));
+    const order = PREF_TOP.filter((c) => counts.has(c))
+      .concat(rest, counts.has("OTHER") ? ["OTHER"] : []);
+    if (!order.length) return "";
+    const boxes = order.map((code) => `<label>
+      <input type="checkbox" data-preftag="${esc(code)}"
+             ${state.prefTags.has(code) ? "checked" : ""}>
+      ${esc(PREF_KO[code] || code)}<span class="n">${num(counts.get(code))}</span>
+    </label>`).join("");
+    return `<div class="gu-inline">
+      <div class="gu-lbl">세부 조건
+        <a data-clear="prefTags" role="button" tabindex="0">전체</a>
+      </div>
+      <div class="checks">${boxes}</div>
+    </div>`;
+  };
+
   const renderGroups = () => {
     $("groups").innerHTML = GROUPS.map((g) => {
       let boxes;
@@ -853,6 +952,7 @@
         </div>
         <div class="checks">${boxes}</div>
         ${g.key === "region" ? busanGuBoxes() : ""}
+        ${g.pref ? prefTagBoxes() : ""}
       </div>`;
     }).join("");
   };
@@ -880,6 +980,14 @@
         continue;
       }
       if (!picked.has(String(r[g.key]))) return false;
+    }
+    // 세부 우대조건은 **하나라도 걸리면** 통과다. 조건은 여러 개가 함께
+    // 붙는 것이라 전부 만족을 요구하면 거의 아무것도 안 남는다.
+    if (state.prefTags.size) {
+      if (!r.prefTags || !r.prefTags.size) return false;
+      let hit = false;
+      state.prefTags.forEach((code) => { if (r.prefTags.has(code)) hit = true; });
+      if (!hit) return false;
     }
     // 공시일이 없는 행은 날짜 조건을 걸면 빠진다. 모르는 값을 통과시키면
     // "최근 것만" 골랐는데 언제 것인지 모르는 행이 섞여 든다.
@@ -1101,12 +1209,70 @@
     + "신협의 지역은 조회 조건이며 점포 주소가 아닙니다. "
     + "지역 표시는 주소에서 뽑은 파생값이고 행정구역 공식 코드가 아닙니다.";
 
+  // ── 수집원 주석 ──────────────────────────────────────────────────
+  //
+  // 표의 «수집원» 칸에는 `fsb`, `kfcc` 같은 코드가 그대로 찍힌다. 그게
+  // 무엇이고 어디서 온 값인지는 화면 어디에도 없었다.
+  //
+  // 목록은 DB의 `sources`가 정하고 (`data.sources`), 설명 문장만 여기 둔다.
+  // 코드에 목록을 박으면 수집원이 늘었을 때 주석만 조용히 뒤처진다.
+  // 아래에 없는 수집원이 들어오면 이름과 근거 주소만이라도 나온다.
+  // [무엇을 봤나, 그래서 무엇을 조심해야 하나]. **어떻게 받았는지는 여기
+  // 적지 않는다** — 그건 DB의 `mode`가 말한다. 두 곳에 적으면 "공시 화면
+  // 공시 화면 조회"처럼 겹쳐 나온다.
+  const SOURCE_NOTE = {
+    fsb: ["저축은행중앙회 소비자포털",
+          "지역은 <b>본점 소재지</b>입니다. 그 지점의 적용금리가 아닙니다."],
+    finlife_savings_bank: ["금융감독원 금융상품통합비교공시 — 저축은행",
+          "전국 공시입니다. 저축은행중앙회와 겹치는 상품은 표에서 물러납니다."],
+    finlife_bank: ["금융감독원 금융상품통합비교공시 — 시중은행",
+          "전국 공시라 시도·구·군에 매이지 않습니다. 표에서는 "
+          + "<b>전국 공시</b> 배지가 붙습니다."],
+    kfcc: ["새마을금고 금고위치안내 · 금고별 금리",
+          "지역은 <b>점포 주소</b>에서 뽑았습니다. 공식 화면에 우대금리 열이 "
+          + "없어 최고금리가 비어 있습니다."],
+    cu: ["신협 전자공시 금리비교",
+          "지역은 <b>조회 조건</b>이며 점포 주소가 아닙니다."],
+    nh_local: ["농협 금융상품몰 농·축협별 예금금리",
+          "점포마다 따로 받습니다. 지역은 <b>점포 주소</b>에서 뽑았습니다. "
+          + "이 화면의 우대조건 칸에는 조건이 아니라 <b>상품 설명</b>이 오는 "
+          + "경우가 많아, 세부 조건 분류에서는 대부분 «기타»로 잡힙니다."],
+    bok_ecos: ["한국은행 ECOS",
+          "금융상품이 아니라 지표입니다. 위 참고카드에만 나오고 표에는 "
+          + "없습니다."],
+  };
+  const MODE_KO = { api: "공식 오픈API", http: "공시 화면 조회" };
+
+  const sourceNotes = (data.sources || [])
+    // 한 건도 안 들어온 수집원은 적지 않는다. 없는 것을 설명하면 화면에
+    // 있는 줄 알게 된다.
+    .filter((s) => s.observation_count > 0 || s.id === "bok_ecos")
+    .map((s) => {
+      const [what, caveat] = SOURCE_NOTE[s.id] || [s.name || s.id, ""];
+      const how = MODE_KO[s.mode] || s.mode || "";
+      return `<li><code>${esc(s.id)}</code> — ${what}`
+        + (how ? ` <span class="how">${esc(how)}</span>` : "")
+        + (caveat ? `<br>${caveat}` : "")
+        + (s.base_reference ? `<br><span class="ref">${esc(s.base_reference)}</span>` : "")
+        + "</li>";
+    }).join("");
+
   $("foot").innerHTML =
     "이 표의 모든 수치는 공식 공시 화면에서 직접 수집해 SQLite에 저장한 값을 "
     + "집계한 것입니다. 하드코딩된 값이 없습니다.<br>"
     + "가입 전에는 반드시 해당 기관의 공식 안내를 확인하세요. "
-    + "우대금리는 조건을 모두 충족했을 때의 값입니다.<br>"
-    + `근거 — <code>site-manifest.json</code> · <code>data/table.json</code>`;
+    + "우대금리는 조건을 모두 충족했을 때의 값입니다."
+    + (sourceNotes
+        ? `<div class="srcnote"><b>표의 «수집원» 칸이 뜻하는 것</b>`
+          + `<ul>${sourceNotes}</ul></div>`
+        : "")
+    + `<div class="basis-note">근거 — <code>site-manifest.json</code> · `
+    + `<code>data/table.json</code></div>`;
+
+  if (data.collect_workflow_url) {
+    $("collect").href = data.collect_workflow_url;
+    $("collect").hidden = false;
+  }
 
   renderHead();
   skeleton(12);
@@ -1126,6 +1292,19 @@
       renderGroups();
       renderBusan();
     }
+    // «우대조건 있음»을 끄면 세부 조건도 비운다. 안 비우면 안 보이는
+    // 조건이 살아남아 왜 적게 나오는지 알 수 없다 — 구·군과 같은 이유다.
+    if (box.dataset.group === "prefStatus") {
+      if (!state.picked.prefStatus.has("present")) state.prefTags.clear();
+      renderGroups();
+    }
+    redraw();
+  });
+  $("groups").addEventListener("change", (e) => {
+    const box = e.target.closest("input[type=checkbox][data-preftag]");
+    if (!box) return;
+    const code = box.dataset.preftag;
+    if (box.checked) state.prefTags.add(code); else state.prefTags.delete(code);
     redraw();
   });
   // 구·군은 지역 그룹 안에 있어서 같은 컨테이너가 받는다.
@@ -1145,6 +1324,9 @@
       renderAsOf();
     } else if (clear.dataset.clear === "gu") {
       state.gu.clear();
+      renderGroups();
+    } else if (clear.dataset.clear === "prefTags") {
+      state.prefTags.clear();
       renderGroups();
     } else {
       state.picked[clear.dataset.clear].clear();
@@ -1232,6 +1414,7 @@
                            dfrom: null, dto: null, basis: "base",
                            sort: "base", dir: -1, shown: 100, tab: null });
     state.gu.clear();
+    state.prefTags.clear();
     state.open.clear();
     ["q", "rmin", "tmin", "tmax", "dfrom", "dto"].forEach((id) => { $(id).value = ""; });
     $("basis").querySelector('input[value="base"]').checked = true;
@@ -1283,6 +1466,13 @@
       rscope: col.rate_scope == null ? null : look("rate_scope", r[col.rate_scope]),
       amountMax: col.amount_max == null ? null : r[col.amount_max],
       pref: col.preference == null ? null : look("preference", r[col.preference]),
+      // 우대조건 판정. 옛 산출물에는 없으므로 기본값을 둔다.
+      prefStatus: col.preference_status == null
+        ? null : look("preference_status", r[col.preference_status]),
+      // 공백으로 이은 코드 목록을 집합으로 편다. 빈 문자열은 빈 집합이다.
+      prefTags: col.preference_tags == null ? null
+        : new Set((look("preference_tags", r[col.preference_tags]) || "")
+            .split(" ").filter(Boolean)),
     }));
   };
 

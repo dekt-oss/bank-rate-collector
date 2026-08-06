@@ -353,3 +353,121 @@ def test_the_average_is_computed_over_the_filtered_set_not_the_page() -> None:
     """보이는 100건으로 내면 정렬을 바꿀 때마다 평균이 움직인다."""
     assert "const base = average(current, (r) => r.base);" in SOURCE
     assert "average(ALL" not in SOURCE
+
+
+# ── 수집원 주석 · 수집 실행 링크 (2026-08-06) ───────────────────────────
+
+
+def test_every_collected_source_has_a_footnote() -> None:
+    """표의 «수집원» 칸에는 `fsb` 같은 코드가 그대로 찍힌다.
+
+    그게 무엇이고 어디서 온 값인지가 화면 어디에도 없었다. 수집기가 있는
+    원천은 전부 설명이 있어야 한다.
+    """
+    from rate_monitor.cli import ADAPTERS, INDICATOR_ADAPTERS
+
+    match = re.search(r"const SOURCE_NOTE = \{(.*?)\n  \};", SOURCE, re.S)
+    assert match, "SOURCE_NOTE를 찾지 못했다"
+    described = set(re.findall(r"^\s{4}(\w+):", match.group(1), re.M))
+    missing = (set(ADAPTERS) | set(INDICATOR_ADAPTERS)) - described
+    assert not missing, f"설명 없는 수집원: {sorted(missing)}"
+
+
+def test_the_footnote_says_what_each_region_means() -> None:
+    """같은 «부산»이라도 어디서 온 값인지가 원천마다 다르다.
+
+    이걸 안 적으면 신협의 조회조건과 새마을금고의 점포 주소가 같은 값으로
+    읽힌다 (v4 §4.1).
+    """
+    assert "본점 소재지" in SOURCE      # fsb
+    assert "조회 조건" in SOURCE        # cu
+    assert "점포 주소" in SOURCE        # kfcc · nh_local
+
+
+def test_the_footnote_does_not_repeat_the_collection_mode() -> None:
+    """수집 방식은 DB의 `mode`가 말한다. 두 곳에 적으면 겹쳐 나온다."""
+    assert "const MODE_KO = { api:" in SOURCE
+    match = re.search(r"const SOURCE_NOTE = \{(.*?)\n  \};", SOURCE, re.S)
+    assert "오픈API\"" not in match.group(1), "설명에 수집 방식이 또 들어갔다"
+
+
+def test_a_source_with_no_observations_is_not_described() -> None:
+    """없는 것을 설명하면 화면에 있는 줄 알게 된다."""
+    assert "s.observation_count > 0" in SOURCE
+
+
+def test_the_collect_link_carries_no_token_and_hides_without_a_repo() -> None:
+    """정적 사이트라 페이지 안에서 수집을 돌릴 수 없다.
+
+    링크만 건다 — 실행 권한이 있는 사람만 실제로 돌릴 수 있다. 저장소
+    이름은 빌드 때 환경에서 받고, 없으면 버튼을 통째로 숨긴다.
+    """
+    assert 'id="collect" hidden' in SOURCE
+    assert "if (data.collect_workflow_url) {" in SOURCE
+    # 주소를 화면에 박지 않는다. 포크나 로컬 빌드가 엉뚱한 곳을 가리킨다.
+    assert "github.com/dekt-oss" not in SOURCE
+
+
+def test_the_collect_url_comes_from_the_build_environment() -> None:
+    """저장소 이름을 코드에 박으면 포크가 원본을 가리킨다."""
+    import os
+
+    from rate_monitor.services.dashboard_service import _collect_workflow_url
+
+    before = os.environ.get("GITHUB_REPOSITORY")
+    try:
+        os.environ["GITHUB_REPOSITORY"] = "dekt-oss/bank-rate-collector"
+        assert _collect_workflow_url() == (
+            "https://github.com/dekt-oss/bank-rate-collector"
+            "/actions/workflows/collect.yml"
+        )
+        # 값이 없거나 모양이 아니면 링크를 만들지 않는다.
+        os.environ["GITHUB_REPOSITORY"] = ""
+        assert _collect_workflow_url() is None
+        os.environ["GITHUB_REPOSITORY"] = "이름만있음"
+        assert _collect_workflow_url() is None
+    finally:
+        if before is None:
+            os.environ.pop("GITHUB_REPOSITORY", None)
+        else:
+            os.environ["GITHUB_REPOSITORY"] = before
+
+
+# ── 우대조건 필터 (2026-08-06) ──────────────────────────────────────────
+
+
+def test_the_three_preference_states_stay_distinct() -> None:
+    """미제공 · 명시적 없음 · 있음. 셋을 뭉개면 화면이 거짓말을 한다.
+
+    실측(발행 DB 150,311건)으로 미제공이 72.6%다. 새마을금고는 공식 화면에
+    우대금리 열 자체가 없어서 그렇다. 그걸 "없음"으로 적으면 우대금리가
+    없는 상품처럼 보인다 (v4 §3.3).
+    """
+    assert 'present: "우대조건 있음"' in SOURCE
+    assert "none: \"우대조건 없음(원천 명시)\"" in SOURCE
+    assert 'missing: "원천 미제공"' in SOURCE
+
+
+def test_the_detail_conditions_open_only_under_present() -> None:
+    """미제공·없음 행에는 붙일 분류가 없다.
+
+    켜 둔 채로 두면 조건을 걸수록 결과가 비는 것처럼 보인다.
+    """
+    assert 'if (!state.picked.prefStatus.has("present")) return "";' in SOURCE
+    assert 'if (!state.picked.prefStatus.has("present")) state.prefTags.clear();' in SOURCE
+
+
+def test_the_top_conditions_lead_but_nothing_starts_checked() -> None:
+    """상위 분류를 앞에 세우되 기본 체크는 비운다.
+
+    처음부터 켜 두면 첫 화면이 이미 걸러진 상태가 되고, 그걸 전체 목록으로
+    오해한다. 순서는 실측 상위이고 «기타»는 언제나 맨 끝이다.
+    """
+    assert "const PREF_TOP = [" in SOURCE
+    assert 'counts.has("OTHER") ? ["OTHER"] : []' in SOURCE
+    assert "prefTags: new Set()," in SOURCE
+
+
+def test_the_detail_filter_is_an_or_not_an_and() -> None:
+    """조건은 여러 개가 함께 붙는다. 전부 만족을 요구하면 거의 안 남는다."""
+    assert "if (r.prefTags.has(code)) hit = true;" in SOURCE

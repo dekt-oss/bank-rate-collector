@@ -45,6 +45,9 @@ CSV_HEADERS = {
     "rate_scope": "금리적용범위",
     "amount_max": "최고한도",
     "preference": "우대조건",
+    # 원문에서 뽑은 판정. 원문 칸을 대체하지 않고 옆에 붙는다.
+    "preference_status": "우대조건유무",
+    "preference_tags": "우대조건분류",
 }
 
 # 지역근거. 같은 "부산"이라도 어디서 온 값인지가 다르다 (v4 §4.1).
