@@ -30,9 +30,11 @@ TIMEOUT = httpx.Timeout(30.0, connect=10.0)
 
 # 두드릴 곳. 명세서 v4 §5.1이 적은 화면 ID와, 그것이 있을 법한 호스트들.
 #
-# 사용자가 비로그인으로 SFDPW0160R/0161R/0162R을 봤다고 적었다. 그 화면이
-# 어느 호스트에 있는지가 이 정찰의 첫 질문이다.
+# 첫 질문은 "그 화면이 어느 호스트에 있나"였고, 답은 wmall.nonghyup.com이다.
+# 나머지 넷을 남겨 두는 이유는, 화면군이 호스트로 갈린다는 사실 자체가
+# 결과이기 때문이다 — BF*는 smartmarket, SF*는 wmall/mmall이다.
 HOSTS = (
+    ("wmall.nonghyup.com", "NH웹 (농·축협) — 여기에 있다"),
     ("smartmarket.nonghyup.com", "농협은행 금융상품몰"),
     ("mmall.nonghyup.com", "NH모바일웹 (농·축협)"),
     ("banking.nonghyup.com", "NH뱅킹"),

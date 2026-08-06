@@ -1,0 +1,3379 @@
+<!doctype html>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<html lang="ko">
+<head>
+    <meta charset="utf-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+<title></title>
+	
+	<link rel="shortcut icon" type="image/x-icon" href="/content/nhsangho/images/shfavicon.ico" />
+    <!-- js > F/W -->
+    <script type="text/javascript" src="/service/js/jquery-1.9.1.min.js"></script>
+    <script type="text/javascript" src="/service/alopex/script/jsrender.js"></script>
+    <script type="text/javascript" src="/service/alopex/script/alopex_controller.js"></script>
+    <script type="text/javascript" src="/service/alopex/script/alopex_nh_config.js"></script>
+    <script type="text/javascript" src="/service/alopex/script/alopex-ui-2.1.js?20181208"></script>
+
+	
+	<script type="text/javascript" src="/service/js/so/netfunnel/netfunnel.js"></script>
+	<script type="text/javascript" src="/service/js/so/netfunnel/netfunel_dfsf_skin.js"></script>
+	
+    <!-- 공통 js : common.js, date.js, format.js, util.js, validation.js, popup.js, constant.js 포함 -->
+    <script type="text/javascript" src="/service/js/common/nh.js"></script>
+   	<script type="text/javascript" src="/service/js/common/sfCommon.js"></script>
+	
+    <!-- js > IP -->
+    <script type="text/javascript" src="/service/js/cn/sfcn.js?2026080616"></script>
+    
+
+	
+
+
+		
+		<link rel="stylesheet" type="text/css" href="/content/nhsangho/css/alopex_ui.css"/>
+		<link rel="stylesheet" type="text/css" href="/content/nhsangho/css/common.css"/>
+		<link rel="stylesheet" type="text/css" href="/content/nhsangho/css/layout.css"/>
+		<link rel="stylesheet" type="text/css" href="/content/nhsangho/css/main.css"/>
+		<link rel="stylesheet" type="text/css" href="/content/nhsangho/css/temp.css"/>
+		<link rel="stylesheet" type="text/css" href="/content/nhsangho/css/jquery_ui.css"/>
+		<link rel="stylesheet" type="text/css" href="/content/nhsangho/css/temp_new.css"/>
+		<link rel="stylesheet" type="text/css" href="/content/nhsangho/css/dev2017.css"/>
+		<link rel="stylesheet" type="text/css" href="/content/nhsangho/css/dev2019.css"/>
+		<link rel="stylesheet" type="text/css" href="/content/nhsangho/css/ui.common.css"/>
+		<link rel="stylesheet" type="text/css" href="/content/nhsangho/css/ui.component.css"/>
+		<link rel="stylesheet" type="text/css" href="/content/nhsangho/css/ui.page.css"/>
+		<link rel="stylesheet" type="text/css" href="/content/nhsangho/css/ui.debug.css"/>
+		<script type="text/javascript" src="/content/nhsangho/js/jquery-ui.js"></script>   
+		<script type="text/javascript" src="/content/nhsangho/js/jquery.cycle.all.js"></script>   
+		<script type="text/javascript" src="/content/nhsangho/js/common_ui.js"></script>   
+		<script type="text/javascript" src="/content/nhsangho/js/ui.plugin.js"></script>   
+		<script type="text/javascript" src="/content/nhsangho/js/ui.common.js"></script>   	
+	<!-- 공통 jsp -->
+	<!-- 메뉴리로딩 jsp -->
+
+
+
+
+
+
+
+
+
+<script type="text/javascript">
+
+	var $ENV = {
+		isChannelIdentified : "true"   //channelDetector.isChannelIdentified()
+		, serverG : "PROD"
+	};
+
+	console.log(":::: $ENV.isChannelIdentified :::: ", $ENV.isChannelIdentified);
+	console.log(":::: $ENV.serverG :::: ", $ENV.serverG);
+
+	var DOMAINPROPCODE = {};
+	DOMAINPROPCODE['DFSF']='https://wmall.nonghyup.com';
+DOMAINPROPCODE['SB']='https://smartbank.nonghyup.com';
+DOMAINPROPCODE['IP00']='https://banking.nonghyup.com';
+DOMAINPROPCODE['IP01']='https://branch.nonghyup.com';
+DOMAINPROPCODE['IP02']='https://www.nhbank.com';
+DOMAINPROPCODE['IP04']='https://happy.nonghyup.com';
+DOMAINPROPCODE['CC00']='https://card.nonghyup.com';
+DOMAINPROPCODE['IH00']='https://funbank.nonghyup.com';
+DOMAINPROPCODE['IC00']='https://ibz.nonghyup.com';
+DOMAINPROPCODE['IC01']='https://ibzbranch.nonghyup.com';
+DOMAINPROPCODE['PS00']='https://pension.nonghyup.com';
+DOMAINPROPCODE['ES00']='https://escrow.nonghyup.com';
+DOMAINPROPCODE['IM00']='https://img.nonghyup.com';
+DOMAINPROPCODE['MP00']='https://smartcenter.nonghyup.com';
+DOMAINPROPCODE['MC00']='https://mbiz.nonghyup.com';
+DOMAINPROPCODE['SF00']='https://smartmarket.nonghyup.com';
+DOMAINPROPCODE['EF00']='https://smartmarket.nonghyup.com';
+DOMAINPROPCODE['ADDR_API_KEY']='U01TX0FVVEgyMDIxMTExNzE2MjkxMjExMTg5NzU=';
+DOMAINPROPCODE['ADDR_ENG_API_KEY']='U01TX0FVVEgyMDIyMDgwNTE3MDQxMTExMjg1NTg=';
+DOMAINPROPCODE['ADDR_API_URL']='https://www.juso.go.kr/addrlink/addrLinkApiJsonp.do';
+DOMAINPROPCODE['ADDR_ENG_API_URL']='https://www.juso.go.kr/addrlink/addrEngApiJsonp.do';
+DOMAINPROPCODE['FILE_DOWNLOAD_PATH']='https://nhimg.nonghyup.com';
+DOMAINPROPCODE['TRITOPSMAPSERVERURL']='https://nonghyup.ttmap.co.kr';
+DOMAINPROPCODE['KAKAO_API']='//dapi.kakao.com/v2/maps/sdk.js?appkey=f2b47317ea60ccc316154195240aa0f2&autoload=false';
+DOMAINPROPCODE['KAKAO_APP_KEY']='f2b47317ea60ccc316154195240aa0f2';
+DOMAINPROPCODE['COUNSELING_CHAT_API_URL']='https://jtvc.nonghyup.com:9010';
+DOMAINPROPCODE['COUNSELING_CHAT_WEBSOCKET_URL']='wss://jtvc.nonghyup.com:9011/clientws';
+DOMAINPROPCODE['COUNSELING_CHAT_EMO_URL']='https://jtvc.nonghyup.com:9010';
+DOMAINPROPCODE['COUNSELING_VIDEO_API_URL']='https://jtvc.nonghyup.com:9006';
+DOMAINPROPCODE['COUNSELING_APP_API_URL']='http://19.24.214.57:9010/jtis';
+
+
+	var DOMAINPROPCODE_REAL = {};
+	DOMAINPROPCODE_REAL['DFSF']='https://wmall.nonghyup.com';
+DOMAINPROPCODE_REAL['SB']='https://smartbank.nonghyup.com';
+DOMAINPROPCODE_REAL['IP00']='https://banking.nonghyup.com';
+DOMAINPROPCODE_REAL['IP01']='https://branch.nonghyup.com';
+DOMAINPROPCODE_REAL['IP02']='https://www.nhbank.com';
+DOMAINPROPCODE_REAL['IP04']='https://happy.nonghyup.com';
+DOMAINPROPCODE_REAL['CC00']='https://card.nonghyup.com';
+DOMAINPROPCODE_REAL['IH00']='https://funbank.nonghyup.com';
+DOMAINPROPCODE_REAL['IC00']='https://ibz.nonghyup.com';
+DOMAINPROPCODE_REAL['IC01']='https://ibzbranch.nonghyup.com';
+DOMAINPROPCODE_REAL['PS00']='https://pension.nonghyup.com';
+DOMAINPROPCODE_REAL['ES00']='https://escrow.nonghyup.com';
+DOMAINPROPCODE_REAL['IM00']='https://img.nonghyup.com';
+DOMAINPROPCODE_REAL['MP00']='https://smartcenter.nonghyup.com';
+DOMAINPROPCODE_REAL['MC00']='https://mbiz.nonghyup.com';
+DOMAINPROPCODE_REAL['SF00']='https://smartmarket.nonghyup.com';
+DOMAINPROPCODE_REAL['EF00']='https://smartmarket.nonghyup.com';
+DOMAINPROPCODE_REAL['TRITOPSMAPSERVERURL']='https://nonghyup.ttmap.co.kr';
+DOMAINPROPCODE_REAL['KAKAO_API']='//dapi.kakao.com/v2/maps/sdk.js?appkey=f2b47317ea60ccc316154195240aa0f2&autoload=false';
+DOMAINPROPCODE_REAL['KAKAO_APP_KEY']='f2b47317ea60ccc316154195240aa0f2';
+
+
+	function common_cfGetDomainProp(key, realYn){
+		var domain = "";
+
+		if($.trim(realYn) == "Y")	{
+			domain = DOMAINPROPCODE_REAL[key];
+			if (!domain) domain = DOMAINPROPCODE[key];
+		} else	{
+			domain = DOMAINPROPCODE[key];
+		}
+
+		return $.trim(domain);
+	}
+	
+	function common_cfIsDev(){
+		
+		return false;
+	}
+	function common_cfGetServerDateTime(format) {
+		var dateTime =  "20260806160517";
+		var yyyy = "";
+		var mm = "";
+		var dd = "";
+		var hh = "";
+		var mi = "";
+		var ss = "";
+		if(format) {
+			if(dateTime) {
+				yyyy = dateTime.substr(0, 4);
+				mm = dateTime.substr(4, 2);
+				dd = dateTime.substr(6, 2);
+				hh = dateTime.substr(8, 2);
+				mi = dateTime.substr(10, 2);
+				ss = dateTime.substr(12, 2);
+			}
+		
+			dateTime = format.replace("yyyy", yyyy)
+			.replace("mm", mm)
+			.replace("dd", dd)
+			.replace("hh", hh)
+			.replace("mi", mi)
+			.replace("ss", ss);
+		}
+		
+		return dateTime
+	}
+</script>
+
+<script defer="false" type="text/javascript" src="/service/js/so/ahnlab/astx/astx2.min.js"></script>
+<script defer="false" type="text/javascript" src="/service/js/so/ahnlab/astx/astx2_custom.js"></script>
+<script defer="false" type="text/javascript" src="/service/js/so/ahnlab/astx/astx2_run.js"></script>
+<script defer="false" type="text/javascript" src="/service/js/so/ahnlab/astx/astx2_ml.min.js"></script>
+
+<script type="text/javascript">
+
+var setE2Eelement = ["tel_no1:n:true","tel_no2:n:true","IgmGjaNbr:n:true","rv_acno:n:true","IchAmt:n:true","io_ftr_am_n:n:true","io_ea_rlno:n:true","InqKey:n:true","io_cd_crdnbr_1:n:true","io_cd_crdnbr_4:n:true","CrdNbr_input:n:true","InqGjaNbr_Input:n:true","CgmGjaNbr_Input:n:true","cd_mphno:n:true","cd_mpsqno:n:true","io_cd_crdnbr1:n:true","io_cd_crdnbr4:n:true","GjaNbr_input:n:true","cd_no1:n:true","cd_no2:n:true","cd_no3:n:true","cd_no4:n:true","rlno1:n:true","e2e_io_ea_ent_rrno1:n:true","io_cd_crdnbr_2:n:true","io_cd_crdnbr_3:n:true","io_cd_crdnbr_5:n:true","io_cd_crdnbr_6:n:true","io_cd_crdnbr_7:n:true","io_cd_crdnbr_8:n:true","io_cd_crdnbr_9:n:true","io_cd_crdnbr_10:n:true","io_cd_gjanbr1:n:true","io_cd_crdnbr1_1:n:true","io_cd_crdnbr1_2:n:true","io_cd_crdnbr1_3:n:true","io_cd_crdnbr1_4:n:true","io_cd_crdnbr1_5:n:true","io_cd_crdnbr1_6:n:true","io_cd_crdnbr1_7:n:true","io_cd_crdnbr1_8:n:true","io_cd_crdnbr1_9:n:true","io_cd_crdnbr1_10:n:true","io_cd_crdnbr4_1:n:true","io_cd_crdnbr4_2:n:true","io_cd_crdnbr4_3:n:true","io_cd_crdnbr4_4:n:true","io_cd_crdnbr4_5:n:true","io_cd_crdnbr4_6:n:true","io_cd_crdnbr4_7:n:true","io_cd_crdnbr4_8:n:true","io_cd_crdnbr4_9:n:true","io_cd_crdnbr4_10:n:true","io_inq_acno:n:true","EXTPARAM_crdNbr1:n:true","EXTPARAM_crdNbr4:n:true","SctGjaNbr:n:true","jumin_first:n:true","jumin_second:n:true"];
+
+
+/*############################################################
+ * Non-ActiveX 솔루션 적용 End
+ * 확장 E2E 적용 필드 전체 조회(raonsecure.properties)
+ ############################################################*/
+var ASTX2Loaded = false;
+
+
+
+    $.alopexready(function() {
+        
+        $("body").prepend("<script>checkInstallASTX2();<\/script>");
+        
+    });
+ 
+
+	if (navigator.userAgent.toLowerCase().indexOf('msie') !== -1){
+		document.oncontextmenu = function () {return false;};
+	}
+
+	window["SESSION_TOKEN"] = '';
+	window["TOKEN"] = '260806160517ODFSFINOWP0156640901';
+	window["VIEW_SERVICE_ID"] = 'SFDPW0163R';
+	window["IS_ERROR"] = '';
+
+    navigateConfig('additionalParam', {'SESSION_TOKEN' : window["SESSION_TOKEN"], 'TOKEN' : window["TOKEN"]});
+    navigateConfig('commonHeaders', {'SESSION_TOKEN' : window["SESSION_TOKEN"], 'TOKEN' : window["TOKEN"]});
+    httpSendConfig('commonHeaders', {'SESSION_TOKEN' : window["SESSION_TOKEN"], 'TOKEN' : window["TOKEN"]});
+
+    navigateConfig('commonHeaders', {'SF_NAAC_DS_DTLC' : '2'});
+    httpSendConfig('commonHeaders', {'SF_NAAC_DS_DTLC' : '2'});
+
+    common_blockHistoryBack();
+
+</script>
+
+	
+<script type="text/javascript">
+   /*
+	* LoadingBar init
+	*/
+	window["LOCALE_INFO"] = 'ko_KR';
+	
+	if("NORMAL" == common_cfGetDeviceType()){ //디바이스타입이 PC일때만
+		common_makeLoadingBar();
+		common_showInitLodingBar();
+	}
+	
+   /*
+	* script load 완료 시 loadingbar를 close
+	*/
+	$.alopexready(function() {
+		setTimeout(function(){
+			ASTX2Loaded = true;	
+			
+		}, 4000); 
+		if("NORMAL" == common_cfGetDeviceType()){ //디바이스타입이 PC일때만
+			common_closeInitLodingBar();	
+		}
+		
+		
+	});
+   
+	//script 에러 발생 시 loadingbar close
+	window.onerror = function(msg, url, linenumber) {
+		if (typeof (common_closeInitLodingBar) == 'function') {
+			_progressCount = 0;
+			if("NORMAL" == common_cfGetDeviceType()){ //디바이스타입이 PC일때만
+				common_closeInitLodingBar();
+			}
+		} else {
+			_progressCount = 0;
+			document.getElementById("INGSHOW").style.display = "none";
+			document.getElementById("SHOWBLOCK").style.display = "none";
+
+			$(window).unbind('resize', common_setPositionLoadingBar);
+		}
+		return false;
+	};
+	
+</script>
+
+<script type="text/javascript">
+$.alopexready(function() {
+	
+	// CABSOFT 리포트 솔루션 전송 Form
+	common_cfReportFormInit();
+	
+	// 에러레이어팝업 div영역 , 보안카드,OTP승인 레이어팝업 div영역
+	common_cfDivInit();
+	
+	$("#cnLogOutBtn").bind('singletap', function(){
+		var frm = document.cnLogOut;
+		navigateIP('SFBCW0020R', frm);
+		return false;
+	});
+});
+</script>
+
+<script type="text/javascript" src="/service/js/common/cn_return.js"></script>
+<script>
+
+var _wiselog_domain = 'dfebizhub.nonghyup.com';
+var _wiselog_sid = "03001";
+var _n_bank_uid = "";
+var logging_p8 = ""; // 푸시알림으로 방문시 남는 푸시키 
+var logEMarketing = function(f,d,k,h){var b;var a=m()+"ver="+c(d);g();function e(){var o=document.getElementsByTagName(f)[0];var n=document.createElement(f);n.async=true;n.charset="utf-8";n.src=a;o.parentNode.insertBefore(n,o)}function m(){return window.location.protocol=="https:"?"https://"+_wiselog_domain+"/static/"+_wiselog_sid+"/install.js?":"http://"+_wiselog_domain+"/static/"+_wiselog_sid+"/install.js?"}function c(n){var o=new Date().getTime();var p=n*1000*60;return n>0?Math.floor(o/p)*p:o}function g(){var n=l();if(!n){return false}n.open("GET",a,true);n.withCredentials=h;n.send(null);n.onload=function(){j();e()};n.onerror=n.onabort=function(){j()};i(function(){n.abort()},k)}function l(){var q;var o=[function(){return new XDomainRequest()},function(){return new XMLHttpRequest()},function(){return new ActiveXObject("Msxml2.XMLHTTP")},function(){return new ActiveXObject("Msxml3.XMLHTTP")},function(){return new ActiveXObject("Microsoft.XMLHTTP")}];for(var n=0;n<o.length;n++){try{q=o[n]()}catch(p){continue}break}return q}function i(o,n){b=setTimeout(o,n)}function j(){if(b){clearTimeout(b);b=null}}};
+
+
+var _n_p1 = "농축협금리상세정보-예금"; // 서비스명
+var _n_p3 = "";
+var _n_p6 = "2"; // 중앙회조합구분코드
+var _n_p7 = "SFDPW0163R"; // 서비스ID
+var logging_p8 =  "" // 푸시키
+logEMarketing("script",1440,/*{{timeout}}*/2000,/*{{withCredentials}}*/false);
+
+$.alopexready(function() {	
+	/*if ("" != '') {
+		_n_popup_logging('SFDPW0163R', '농축협금리상세정보-예금', '');
+	}*/
+});
+
+
+
+function _n_popup_logging(svc,svcNm,prd){
+	if($ENV.serverG && $ENV.serverG != 'LOCAL') {
+		var eParams={
+			"_n_p1":svcNm,
+			//"_n_p3":(prd)?prd:'',
+			"_n_p3":prd,
+			"_n_p6":_n_p6,
+			"_n_p7":svc,
+			"_n_p8":logging_p8,
+			"_n_bank_uid": _n_bank_uid
+		};
+		try{
+		    console.log("_n_popup_logging[NtmDF.Event.fireUserDefined(prdLayer)]:"+JSON.stringify(eParams));
+		    if (window.NtmDF) {
+		         NtmDF.Event.fireUserDefined("prdLayer",eParams);
+		    } else {
+		        window.addEventListener("nth_build", function(){
+		             NtmDF.Event.fireUserDefined("prdLayer",eParams);
+		            console.log("_n_popup_logging[NtmDF.Event.fireUserDefined(prdLayer)]:window event listen success");
+		        });
+		    }
+		}catch(e){
+		    console.log("_n_popup_logging ERROR ; " + e);
+		}
+	}
+}
+
+
+
+function event_click_logging(seq,prc){
+	console.log("event_click_logging[seq:"+seq+"][prc:"+prc+"]");
+	_n_p5=seq;
+
+	if(prc){
+		var eParams={
+			"_n_p1":_n_p1,
+			"_n_p5":_n_p5,
+			"_n_p7":_n_p7,
+			"step":"4"
+		};
+		try{
+			console.log("event_click_logging[Ntm.Event.fireUserDefined]:"+JSON.stringify(eParams));
+			Ntm.Event.fireUserDefined("pushEvent",eParams);
+		}catch(e){
+			console.log("event_click_logging ERROR ; " + e);
+		}
+	}
+}
+
+
+function push_click_logging(push){
+	console.log("push_click_logging[push]:"+push);
+	_n_p8=push?push:"";
+}
+
+
+function search_click_logging(kwd){
+	var url=document.location.href+"?nhkwd="+kwd;
+	try{
+		console.log("search_click_logging[Ntm.Plugin.nlogger.log]:"+url);
+		Ntm.Plugin.nlogger.log(url);
+	}catch(e){
+		console.log("search_click_logging ERROR ; " + e);
+	}
+}
+</script>
+
+<script type="text/javascript" src="/service/js/so/btworks/opensign.js?20181208"></script> 
+
+<script type="text/javascript">
+
+  	//비밀번호 안내레이어 시작.
+	var IchSctGbn = parseInt('0'); //이체비밀번호 오류 횟수(5회오류 시에만 표시)
+	var SecCadGbn1 = '0';  //보안매체 오류 횟수
+	var SecCadGbn2 = ''; //보안매체 종류 1이면 보안카드 2이면 OTP,5이면 휴대폰OTP,6이면 IS_OTP,7이면 OTP A-H이면 타기관 OTP
+	var IchGbn = '';          //이용고객 구분 0이면 조회고객 1이면 장기미사용자 2이면 이체가능고객 3이면 일괄이체 고객, 4이면 즉시,일괄이체고객
+	var IsNoErr = false; //오류메세지를 안띄워도 되는지 체크하는 변수
+	
+	
+	var IsOtherOTP = true; //타기관 OTP	
+	
+	
+	var rexp = /[A-I]/;
+	var SecCadNam = '';
+	var IsFirstAfterLogin = 'N';  //1) 로그인 후 처음 액세스하는 페이지이면 true
+	var IsAssignViewYn = '';	//전자금융사기예방 가입 레이어
+	
+	if(IchGbn == 0) IsNoErr = true;
+	if(SecCadGbn1 == "E") SecCadGbn1 = "10"; //10회 오류는 E로 내려오므로 10으로 바꿔줌.
+	if((IchSctGbn == 0 && IsOtherOTP == true) || (IchSctGbn == 0 && SecCadGbn1 == "0" )) {
+		IsNoErr = true; //이체비밀번호오류 0이고 타기관이면 안보여줌. 또한 이체비밀번호오류 0이고 OTP 오류0이면 안보여줌.
+	}
+  	//비밀번호 안내레이어 끝.
+
+  	// 스마트인증
+  	window["SMART_CERT_FLAG"] = '';
+  	window["SMART_CERT_TYPE"] = '';
+  	window["SMART_CERT_SERIAL"] = '';
+</script>
+
+
+<script type="text/javascript">
+    $.alopexready(function() {
+    	if (IsFirstAfterLogin == "Y" && !IsNoErr && window["G_WEB"]!="true") {
+
+    		infoLayerView();
+		}else{
+			if(IsFirstAfterLogin == "Y" && IchGbn == "1"){
+				/*장기미사용고객의 경우 
+				1.이체비밀번호, OTP 오류있으면서 장기미사용자는 오류레이어에 장기미사용자 안내도 같이 표시함. 
+				2.이체비밀번호, OTP 오류횟수 없는경우 - 장기미사용 레이어 보여줌
+				*/
+
+				//장기미사용안내팝업
+
+				//nonUseCustomerLayerView();    
+
+			}
+            
+        } 
+  
+    	
+    	
+
+    });
+    function infoLayerView(){
+    	if ( $('#header').offset() != 'undefined' && $('#header').offset() != null  ) {
+	    	var rightPos=$('#header').offset().left;
+	    	$('#pw_error').show();
+			$('.error_wrap').css('z-index',1000).css('position','fixed').css('right',rightPos).css('bottom',-$('.error_wrap').height()).css({"background-color": "#fff", "padding-top": "0" }).focus();
+			$('.error_wrap').animate({ bottom:0 });
+    	}
+		
+    }
+	//장기미사용안내 레이어
+	function nonUseCustomerLayerView(){
+	    if ( $('#header').offset() != 'undefined' && $('#header').offset() != null  ) {
+	        var rightPos=$('#header').offset().left;
+	        $('#nonUseCustomer_error').show();
+	        $('.error_wrap').css('z-index',1000).css('position','fixed').css('right',rightPos).css('bottom',-$('.error_wrap').height()).focus();
+	        $('.error_wrap').animate({ bottom:0 });
+	    }
+	}
+    $(window).resize(function(){ 
+    	if ( $('#header').offset() != 'undefined' && $('#header').offset() != null  ) {
+			var rightPos=$('#header').offset().left;
+			$('.error_wrap').css('right',rightPos);
+    	}
+	});
+</script>
+<form id="cnLogOut" name="cnLogOut" method="post">
+    <input type="hidden" id="fromGubun" name="fromGubun" value="" >
+</form>
+<div id="pw_error" class="error_wrap slideup_pw" style="display:none;">
+    <div class="pass_error_box">
+        
+       <h1>비밀번호 입력오류 안내</h1>
+        <ul>
+			<li>
+				<dl class="pass_error_notice">
+					<dt>대상비밀번호 -</dt>
+					<dd>자금이체비밀번호, <em>OTP</em>또는 <em>보안카드 비밀번호</em><br/>(단, 타기관 OTP는 오류횟수가 안내되지 않습니다.)</dd>
+				</dl>
+			</li>
+			<li>
+				<dl class="pass_error_notice">
+					<dt>입력오류횟수 -</dt>
+					<dd>자금이체비밀번호 : <em><script>document.write(IchSctGbn);</script>회</em>,</dd>
+					<script>
+			            if (!IsOtherOTP) {
+			              document.write("<dd>" + SecCadNam + " : <em>" + SecCadGbn1 + "회 </em></dd>");
+			            }
+			        </script>
+				</dl>
+			</li>
+		</ul>
+		<p class="pass_clear">
+			자금이체비밀번호는 5회, 보안카드는 5회, OTP 비밀번호는 10회 오류 발생 시 영업점 방문하여 해제 신청(신분증 지참)
+		</p>
+	</div>
+	<p class="etc_question_box">- 기타 궁금하신 사항은 농협 스마트상담센터 <em>(1661-2100)</em>으로 문의하여 주시기 바랍니다.</p>
+
+	<div class="btn_box_middle">
+		<a href="#" data-type="button" class="btn_page btnbg1" onClick="$(this).parents('.error_wrap').remove(); return false;">닫기</a>
+	</div>
+
+</div>
+
+
+<div id="nonUseCustomer_error" class="error_wrap slideup_pw" style="display:none;">
+    <div class="pass_error_box type1">
+    	<h1>장기미사용 고객안내</h1>
+    	<ul>
+			<li>고객님께서는 12개월 이상 이체거래가 없어 <em>안전을 위해 장기미사용 고객(이체거래 불가)으로 등록</em>되셨습니다.</li>
+			<li><a href="#none" onclick="common_toBank('/servlet/IPCA1001I', {menu_id: 'IPCA01'});return false;"><span>[이용등록]</span></a> 후 이체거래 가능하십니다. (조회거래는 계속 가능)</li>
+		</ul>
+    </div>						
+	<p class="etc_question_box">- 기타 궁금하신 사항은 농협 스마트상담센터 <em>(1661-2100)</em>으로 문의하여 주시기 바랍니다.</p>
+
+	<div class="btn_box_middle">
+		<a href="#" data-type="button" class="btn_page btnbg1" onClick="$('#nonUseCustomer_error').remove(); return false;">닫기</a>
+	</div>
+
+</div>
+<script type="text/javascript">
+$.alopexready(function() {
+	
+	// validation rule 정의
+	 $('#query').validator({rule :{required:true,nospace:true}}); // 검색어
+	
+	
+	$('#query').bind("keydown", function(event){
+		var keyCode = (window.netscape) ? event.which : event.keyCode ;
+	    
+	    if(keyCode == 13){
+	    	// validation 처리
+			if(!$('#query').validate()){
+				alert("검색어를 올바르게 입력해주세요.");
+				$('#query').focus();
+				return false;		
+			} 
+			
+			// form-submit
+			var frm = document.getElementById ("nhSearchFrm");
+			navigate('SFBCW0100R', frm);
+	    }
+	});
+	
+	$("#nhSearchBtn").bind('tap', function(){
+		
+		// validation 처리
+		if(!$('#query').validate()){
+			alert("검색어를 올바르게 입력해주세요.");
+			$('#query').focus();
+			return false;		
+		} 
+		
+		// form-submit
+		var frm = document.getElementById ("nhSearchFrm");
+		navigate('SFBCW0100R', frm);
+	});	
+});
+</script>
+
+<script type="text/javascript" src="/service/js/messages/message_ko_KR.js"></script>
+
+
+<script type="text/javascript">
+	$.alopexready(function() {
+		
+		var sfNaacDsDtlc = "2";
+		// 변수선언
+		var location_path =$('.location_path');
+		
+		// 타이틀에 메뉴 네비게이션 내용 넣기
+		if ( ( location_path.length > 0 ) &&
+			 ( window["G_WEB"] != "true" ) ) { // 국내뱅킹이고, 라인맵이 있는 경우
+			document.title = $('.location_path').text() + "";
+		} else {
+			document.title = "공시실 > 예금 > 예금금리 - 농축협 금융상품몰" + "" ;	
+		}
+
+		
+		
+	});
+</script>
+
+<script type="text/javascript">
+
+//스피드로그인 (지문인증 , 간편인증) signID조회
+function nhbCommon_cfSpeedLoginSignPop(signData , serviceID , type ){
+	var invokeParamCommon = {
+		SSIGN_CMD :			401,
+		SSIGN_VERSION :		1,
+		SSIGN_REQ_TYPE :	'SID',
+		SSIGN_QR_FORMAT :	'PNG',
+		SSIGN_CHARSET : 	'EUC-KR',
+		SSIGN_QR_WIDTH :	'70',
+		SSIGN_QR_HEIGHT :	'70',
+		SSIGN_RES_TYPE :	'URL',
+		SSIGN_DATA_TYPE :	'TEXT',
+		SSIGN_EXT_DATA :	'sign',
+		SSIGN_CERT_SERIAL :	window["SMART_CERT_SERIAL"],
+		SSIGN_PROTOCOL :	'https'
+	};
+	
+	var invokeParam = $.extend({} , invokeParamCommon , {SSIGN_DATA : signData, SSIGN_CERT_TYPE : type});
+	
+	common_cfSuperSignAjaxFinger( invokeParam, 
+		function(result){
+			popup_cfLayerOpenNoClose(serviceID, {'speedLoginType' : type , speedLoginSignData : signData});
+		}, 
+		function(xhr, status, error) {
+			var errObject = {
+				errMsg : common_cfGetMessage('I0606')
+				, errorCode : 'WFWF99999'
+				, orgErrorCode : 'NC99999'
+			};
+			showErrorLayerPop(errObject);
+		}
+	);
+	
+}
+
+</script>
+
+
+<script type="text/javascript">
+
+(function(){
+//	var nh_login_interface = {
+//			
+//		login : {
+//			isReqCertWindow  : false,
+//			checkCertWinOpen : function(){return this.isReqCertWindow;},
+//			
+//			pubCert : function(form , callbackFunc , paramUrl) {
+//				var THIS = this;
+//				cwModuleInstallWaitWithNoPopup(function(flag){
+//					common_closeInitLodingBar();
+//					if(!THIS.checkCertWinOpen()){
+//						THIS.isReqCertWindow = true;
+//						
+//						var url = common_cfGetGlobalVal()['G_WEB'] == 'true' ? '/servlet/loginWeb' : '/servlet/loginWebGB';
+//						if(typeof paramUrl != 'undefined') url = paramUrl;
+//
+//						SFLoginProcessWithForm(url, "postData", form, "", function(URL, postData, result){
+//							THIS.isReqCertWindow = false;
+//							if(!(result == "FALSE" || result == "CANCEL")) {
+//								try{
+//									var certInfo = JSON.parse(sessionStorage['SELECTED_CERT_INFO']);
+//									if(typeof certInfo == 'object'){
+//										// 길어서 짤린다고했으니..
+//										if(certInfo.openCert) 	delete certInfo.openCert;
+//										if(certInfo.ep) 		delete certInfo.ep;
+//										if(typeof setCookie == 'function'){
+//											setCookie('SELECTED_CERT_INFO', JSON.stringify(certInfo));	
+//										}
+//									}
+//								}catch(e){}
+//								if(typeof callbackFunc == 'function') callbackFunc(URL, postData, result);
+//		    				}
+//		    			});	
+//					}
+//				});
+//			},
+//			kftcCert : function(form , callbackFunc) {
+//				
+//				KFTC_loadScript(function(){			   //금융인증서 INIPASS JS 로드
+//					if(FINCERT_WRP){
+//						var param = {};
+//						param.polName = 'LOGIN_autoRenew'; 
+//						param.url 	  = location.origin + "/service/js/so/inipass/kftc/fincertConf.json";
+//			
+//						FINCERT_WRP.removeData().then(function(){
+//							return FINCERT_WRP.init({policyUrl : param.url});
+//						}).then(function (result){
+//							
+//							common_showInitLodingBar();
+//							return FINCERT_WRP.login({polName : param.polName});
+//							
+//						}).then(function (result){
+//							
+//							common_closeInitLodingBar();
+//							$("input[name=_shttp_client_signature_]").val(IniWebUtil.Converter.base64UrlToBase64(result.signedData.signedVals[0]));
+//							if(typeof callbackFunc == 'function') callbackFunc(result);
+//			
+//							
+//						})["catch"](function (error) {
+//							common_closeInitLodingBar();
+//							//에러 처리
+//						})
+//					}
+//				});
+//			}
+//		}	
+//	};
+
+	
+	var nh_esign_interface = {
+		crosswebex : {
+			divWrapper		 : '#initech_certificate_wrap',
+			isReqCertWindow  : false,
+			checkCertWinOpen : function(){return this.isReqCertWindow;},
+
+			sign : function(dataObj, form, callbackFunc , paramUrl){
+				common_showInitLodingBar();
+				
+				var THIS = this;
+				
+				cwModuleInstallWaitWithNoPopup(function(flag){
+					common_closeInitLodingBar();
+		    		if(!THIS.checkCertWinOpen()){
+		    			THIS.isReqCertWindow = true;
+		    			
+		    			var url = '/servlet/signCheck';
+		    			if(typeof paramUrl != 'undefined') url = paramUrl;
+						
+		    			SFSignProcessWithForm(url, dataObj, "postData", form, "", function(URL, postData, result){
+		    				THIS.isReqCertWindow = false;	    		
+		    				if(!(result == "FALSE" || result == "CANCEL")) {
+		    					if(typeof callbackFunc == 'function') callbackFunc(URL, postData, result);
+		    				} else {}
+		    				
+		    			} , "EUCKR");
+		    		}
+				});
+			},
+			signForCert : function(data, form, callbackFunc , paramUrl){
+				this.sign(data, form, callbackFunc , paramUrl);
+			},
+			_signViewSetForIH : function(m){
+				
+				var modalObj	= $('.modal-wrap');
+				var popObj		= $('.modal-popup');				
+				var dimObj		= $('.modal-dim');
+				var bodyObj		= $('body');
+				if(m == 0){
+					var bh 	= bodyObj.height();
+					
+					bodyObj.removeClass('position-fixed');
+					
+					var boh = bodyObj.get(0).offsetHeight;
+					var overflow = (bh - boh)/2;
+					
+					modalObj.data('height' , modalObj.height());
+					
+					if(overflow < 0){
+						modalObj.height(bodyObj.height());
+						popObj.css('top' , overflow);
+					}
+					
+					dimObj.hide();
+					
+				} else {
+					bodyObj.addClass('position-fixed');
+					modalObj.height(modalObj.data('height'));
+					popObj.css('top' , 0);
+					dimObj.show();
+				}
+				
+			},
+			
+			installSingle : function(){
+				common_toBank("IPCNPA304S");
+// 				var THIS = this;
+// 				var installSvc = common_cfGetGlobalVal()['G_WEB'] == 'true' ? 'PGCNPA304S' : 'IPCNPA304S';
+				
+// 				var dialog  = $.alopexWidget.dialog;
+// 				dialog.maxZindex = 9002;
+				
+// 				popup_cfLayerOpen( installSvc , {closeType : 'r' , saac : installSvc }).fail(function(){});
+				
+// 				if(typeof GINI_LoadingIndicatorStop == typeof function(){}) GINI_LoadingIndicatorStop();
+				
+// 				if(THIS.checkCertWinOpen()){
+// 					$(THIS.divWrapper).hide();
+// 				}
+				
+			},
+			triggerTap : function(target){
+				var THIS = this;
+				if( THIS.checkCertWinOpen() ){
+					switch(target){
+						case 'b' :
+							$('#BROWSER').trigger('click');		
+							break;
+						default :
+							$('#INI_certClose').trigger('click');
+							break;
+					}
+				}
+			}
+		},
+		
+		
+		inipass : {
+			sign : function(dataObj, form, callbackFunc){
+				KFTC_loadScript(function(){	//금융인증서 INIPASS JS 로드
+					if(FINCERT_WRP){
+						
+						var param 	  = {};
+						param.polName = 'SIGN';
+						param.type 	  = 'JOIN_PROD';
+						param.url 	  = location.origin + "/service/js/so/inipass/kftc/fincertConf.json";
+						if($ENV.serverG != "PROD") {
+							param.url 	  = location.origin + "/service/js/so/inipass/kftc/dev/fincertConf.json";	
+						}
+						FINCERT_WRP.init({policyUrl : param.url}).then(function (){
+						
+						//var contents = [getDataForSignature(dataObj)];
+						var contents = [dataObj];
+							
+						common_showInitLodingBar();
+						return FINCERT_WRP.sign({polName:param.polName, type:param.type, contents:contents});
+							
+						}).then(function (result){
+							
+							common_closeInitLodingBar();
+							$("input[name=_shttp_client_signature_]").val(IniWebUtil.Converter.base64UrlToBase64(result.signedData.signedVals[0]));
+							if(typeof callbackFunc == 'function') callbackFunc(URL, "postData", "TRUE");
+							
+						})["catch"](function (error) {
+							//에러처리
+							common_closeInitLodingBar();
+							if(typeof callbackFunc == 'function') callbackFunc(URL, "postData", "FALSE");
+						})
+					}
+				});
+			}
+		},
+		nhonepass : {
+			/* 원패스(모바일인증서)로 로그인시 전자서명 */
+			sign : function(data, form, callbackFunc){
+				var serverType;
+				$.ajax({
+						type		: 'get',
+						url 		: DOMAINPROPCODE.SB + "/servlet/SAAC9998R.cmd",
+						dataType	: "jsonp",
+						jsonpCallback : "jsonpCallback",
+						success		: function(result){
+							if($.trim(result.SERVER_GBN) != ""){
+								serverType = $.trim(result.SERVER_GBN);
+							}
+
+							var param = {
+								'serverType': serverType,  
+								'signData' : data, 
+								'form': form, 
+								'callbackFunc':callbackFunc, 
+								"enc":"Y"
+							}
+							
+							var ENC_CUSNO = $(form).data("ENC_CUSNO");
+							var SIGN_DATA = $(form).data("SIGN_DATA");
+							
+							if(typeof ENC_CUSNO !== "undefined") param.ENC_CUSNO = ENC_CUSNO;
+							if(typeof SIGN_DATA !== "undefined") param.SIGN_DATA = SIGN_DATA;
+							
+							popup_cfLayerOpen("SFBCW7010P", param);
+						}
+				})
+				//
+			}
+		},
+		nocert : {
+			sign : function() {
+				if($ENV.serverG == "PROD") {
+					popup_cfLayerAlertOpen("", "인증서 정보를 찾을 수 없습니다. 재로그인 후 이용해주세요.", function(){goLogin('SFBCW0000R', {});return false;})
+				}else {
+					popup_cfLayerConfirmOpen("", "인증서 정보를 찾을 수 없습니다. 재로그인 후 이용해주세요.", function(r){
+						if(r.rtn) {
+							goLogin('SFBCW0000R', {});return false;
+						}else{
+							navigate('SFEXW0000R', {});return false;
+						}
+					}, {leftBtnName:"더미로그인", rightBtnName:"인뱅로그인"})
+				}
+			}
+		}
+	}
+	
+	
+	//window['NHBCommLogin'] 		= nh_login_interface.login;
+	window['cwShowInstallPage'] = function() {
+		NHBCommCert.installSingle();	
+	};
+	
+window['NHBCommCert'] = nh_esign_interface.nocert;
+	
+	
+	
+	
+})();
+
+
+function isAvailableBrowserForFincert() {
+	if (typeof(GINI_supportHtml5) === "function" && GINI_supportHtml5()) {
+		return true;
+	}
+	
+	alert("미지원 브라우저 입니다. 최신 브라우저를 이용해주세요.");
+	return false;
+}
+
+//로그인, 전자서명 버튼 클릭시 금융인증서 JS로드
+function KFTC_loadScript(cbFinCertFunc){
+	if(isAvailableBrowserForFincert()){	//지원 브라우저 체크
+		if(typeof(FINCERT_WRP) === "object"){
+			return cbFinCertFunc();
+		}else{
+			createScriptFinCert(cbFinCertFunc);
+		}
+	}
+}
+
+//manifest.js 파일에 정의된 함수를 사용하여 연동에 필요한 js파일을 로드한다.
+function createScriptFinCert(cbFinCertFunc) {
+	
+	var js = document.createElement('script');
+	js.type = 'text/javascript';
+	js.src = '/service/js/so/inipass/lib/manifest.js';
+		js.onload = function(event){
+		try{
+			var manifestConf = "/service/js/so/inipass/kftc/manifestConf.json"; 
+			if($ENV.serverG != "PROD") {
+				manifestConf = "/service/js/so/inipass/kftc/dev/manifestConf.json";	
+			}
+			Comm.requestinitechScript(manifestConf, function(res){
+				if(res.chkErr){
+					alert("금융인증서 INIPASS JS LOAD 실패");
+					return;
+			    }else{
+					var List = res;	
+					//필요한 스크립트나 css 파일로드
+					Load.createScriptTag(List.script, cbFinCertFunc);
+				}
+			});
+		}catch(e){
+			alert("금융인증서 INIPASS JS LOAD 실패");
+		}
+	};
+	
+	var s = document.getElementsByTagName('script')[0];
+	s.parentNode.insertBefore(js, s);
+	 
+}
+
+//금융인증서 다건전자서명 처리(서명 데이터 다건 출력)
+function getArrayOfEncodedData(paramData) {
+    var decodedParamData    = decodeURIComponent(paramData); // KEY 중복값을 찾아내기위해
+    var mapOfKeys           = {}; // 서명DATA 의 KEY 중복판단용(금융인증서 전자서명화면에 다건DATA 표시용)
+
+    var arrayOfEncodedData  = []; // return 될 array
+    var encodedData         = ""; // array 안에 추가될 전자서명용 data
+
+    var arrayOfKeyAndValues = decodedParamData.split("&");
+    for(var i=0; i<arrayOfKeyAndValues.length; i++) {
+        var keyAndValue = arrayOfKeyAndValues[i].split("=");
+        var key         = keyAndValue[0];
+        var value       = keyAndValue[1];
+        
+        
+        if(key.match(/-+-/gi)){ continue; }
+        
+		if (mapOfKeys.hasOwnProperty(key)) { // 이미 중복된 KEY값이 있을 경우
+	        arrayOfEncodedData.push(encodedData);
+	        encodedData  = ""; // 초기화
+	        mapOfKeys    = {}; // 다음검사를 위해 초기화
+	        mapOfKeys[key] = value;
+		} else {
+		    mapOfKeys[key] = value;
+        }
+
+		if(encodedData != ""){ encodedData += "&"; }
+		encodedData += encodeURIComponent(key) +"="+ encodeURIComponent(value);
+    } // end of [for]
+
+    arrayOfEncodedData.push(encodedData);
+
+	return arrayOfEncodedData;
+
+}
+
+//금융인증서 단건전자서명 처리
+function getDataForSignature(encodedStr) {
+	var decodedStr = decodeURIComponent(encodedStr); // KEY 중복값을 찾아내기위해
+	var dataOfKeys = {}; // 서명DATA 의 KEY와 KEY사용횟수 저장용(KEY 중복판단용)
+	
+	// 1단계 : KEY가 사용되는 정보를 찾아내기
+	var arrayOfKeyAndValues = decodedStr.split("&");
+    for(var i=0; i<arrayOfKeyAndValues.length; i++) {
+        var keyAndValue = arrayOfKeyAndValues[i].split("=");
+        var key         = keyAndValue[0];
+      //var value       = keyAndValue[1];
+      
+        if(key.match(/-+-/gi)){ continue; }   // 다건 구분용선 skip처리 
+        
+		if (dataOfKeys.hasOwnProperty(key)) { // 이미 중복된 KEY값이 있을 경우
+			dataOfKeys[key] = dataOfKeys[key] + 1; // KEY가 사용된 횟수 증가처리
+		} else { // 중복된 KEY값이 없을 경우
+			dataOfKeys[key] = 1;                   // KEY가 사용된 횟수
+        }
+    } // end of [for]
+    
+ 	// 2단계 : 중복되는 KEY값을 찾기
+    var duplicatedKeys = {}; // 중복된 KEY값 저장용
+    jQuery.each(dataOfKeys, function(key, value) {
+    	if (value > 1) { // KEY 가 중복된 KEY값이였을 경우
+    		duplicatedKeys[key] = 1;
+    	}
+    });
+    
+    // 3단계 : 중복되는 KEY에 대한 DATA를 unique 한 KEY 값으로 저장하기
+    var encodedData = "";
+    for(var i=0; i<arrayOfKeyAndValues.length; i++) {
+        var keyAndValue = arrayOfKeyAndValues[i].split("=");
+        var key         = keyAndValue[0];
+        var value       = keyAndValue[1];
+        
+        if(key.match(/-+-/gi)){ continue; }  // 다건 구분용선 skip처리 
+        
+        var uniqueKey   = "";
+		if (duplicatedKeys.hasOwnProperty(key)) {  // 중복된 KEY일 경우
+			uniqueKey   = key +"_" + duplicatedKeys[key]; 
+			duplicatedKeys[key] = duplicatedKeys[key] + 1; // 다음 UNIQUE 한 KEY 를 만들기 위해 증가 처리
+		} else {                                   // 중복된 KEY가 아닐 경우
+			uniqueKey   = key;
+        }
+		 
+		if(encodedData != ""){ encodedData += "&"; }
+	    encodedData += encodeURIComponent(uniqueKey) +"="+ encodeURIComponent(value);
+	    
+    } // end of [for]
+    
+    return encodedData;
+}
+
+function getLoginType(loginType) {
+	var _loginType = "";
+	switch (loginType) {
+		case "21" :
+			_loginType = "PUB";
+			break;
+		case "22" :
+			_loginType = "FIN";
+			break;
+		case "" :
+			_loginType = "";
+			break;
+		default:
+			_loginType = "ONE";
+			break;
+	}
+	return _loginType;
+}
+
+var $CertInfo = {
+	IP : '160.79.106.139',
+	MAC : '',
+	isFinger : null,
+	isPinCert : null,
+	isSpeed : false
+}
+
+$CertInfo.LOGIN_TYPE = getLoginType("");
+
+</script>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<!-- 레이어팝업 -->
+<div id="layer_mcpsSso" class="popup_box thin active" style="width:400px;overflow: hidden;display:none;" data-type="dialog" data-dialog-modal="true" >
+	<div class="popup_header" data-dialog-movecursor="true"
+		style="cursor: move;">
+		<!-- h1 -->
+		<h1 class="popup_title">퇴직연금 이동 안내</h1>
+		<a href="javascript:void(0)" data-type="button" class="popup_close" title="현재 창 닫기" data-converted="true">현재 창 닫기</a>
+	</div>
+	<!-- popup_content -->
+	<div class="popup_content">
+		<div>
+			<div class="info_box3 mb0 mt0">
+				공동인증서 외의 다른 방식으로 로그인한 고객께서는 퇴직연금 홈페이지에서 로그인 후 서비스를 이용 하실 수 있습니다. <br/>퇴직연금 홈페이지로 이동하시겠습니까?
+			</div>
+		</div>
+		<div class="btn_box_small">
+			<a href="javascript:void(0)" data-type="button" id="btnClose" class="btn_page" data-converted="true">취소</a>
+			<a href="javascript:void(0)" data-type="button" id="btn_mcpsSso" class="btn_page btnbg1" data-converted="true">확인</a>
+		</div>
+	</div>
+</div>
+
+<div id="layer_ibipSso" class="popup_box thin active" style="width:400px;overflow: hidden;display:none;" data-type="dialog" data-dialog-modal="true" >
+	<div class="popup_header" data-dialog-movecursor="true" style="cursor: move;">
+		<h1 class="popup_title">개인인터넷뱅킹 이동 안내</h1>
+		<a href="javascript:void(0)" data-type="button" class="popup_close" title="현재 창 닫기" data-converted="true">현재 창 닫기</a>
+	</div>
+	<div class="popup_content">
+		<div class="info_box3 mb0 mt0">
+			NHOnepass 방식으로 로그인한 고객께서는  개인인터넷뱅킹 홈페이지에서 로그인 후 서비스를 이용 하실 수 있습니다. <br/>개인인터넷뱅킹 홈페이지로 이동하시겠습니까?
+		</div>
+		<div class="btn_box_small">
+			<a href="javascript:void(0)" data-type="button" id="btn_ibipSso" class="btn_page btnbg1" data-converted="true">확인</a>
+			<a href="javascript:void(0)" data-type="button" id="btnClose" class="btn_page" data-converted="true">취소</a>
+		</div>
+	</div>
+	<!-- <div class="pop_footer">
+		<p class="pop_logo">NH bank</p>
+		<button class="pop_close close_pop">현재 창 닫기</button>
+	</div> -->
+</div>
+<script>
+	function getIdFromLocalStorage(){
+		return localStorage.getItem("deviceSessionUniqueId");
+	}
+
+	function setIdLocalStorage(){
+		var t_deviceSessionUniqueId = generateUniqueId();
+		localStorage.setItem("deviceSessionUniqueId", t_deviceSessionUniqueId);
+		return t_deviceSessionUniqueId;
+	}
+
+	function generateUniqueId(){
+		return 'DF260806160517ODFSFINOWP0164541101'; 
+	}
+	var deviceSessionUniqueId = getIdFromLocalStorage();
+	if(!deviceSessionUniqueId) {
+		deviceSessionUniqueId = setIdLocalStorage();
+	}
+	console.log("deviceSessionUniqueId : ", deviceSessionUniqueId);
+	
+	navigateConfig('commonHeaders',{'DEVICE_SESSION' : deviceSessionUniqueId});
+    httpSendConfig('commonHeaders', {'DEVICE_SESSION' : deviceSessionUniqueId});
+    navigateConfig('additionalParam', {'DEVICE_SESSION' : deviceSessionUniqueId});
+    httpSendConfig('additionalParam', {'DEVICE_SESSION' : deviceSessionUniqueId});
+    
+</script>
+		
+
+    <!-- 라이브리JS -->
+	<!-- <script type="text/javascript" src="https://101.livere.co.kr/js/livere8_lib.js" charset="utf-8"></script> -->
+
+	<!-- 전문상담센터 spectra 관련 -->
+	<script language="javascript" src="/service/js/so/spectra/common/command.js"></script>
+	<script language="javascript" src="/service/js/so/spectra/common/common.js"></script>
+
+<script type="text/javascript">
+	window["TRANSACTION_ID"] = "";
+	window["USER_NAME"] = "";
+	window["NEW_QUERY"] = "";
+	
+	window["TOKEN"] = "260806160517ODFSFINOWP0156640901";
+	navigateConfig('additionalParam', {'TOKEN' : window["TOKEN"]});
+	httpSendConfig('commonHeaders', {'TOKEN' : window["TOKEN"]});
+	
+	
+	window.addEventListener('error', function(e) {
+		var errType = 'JS';
+		var _pathname = document.location.pathname;
+	    _pathname = _pathname.substring(_pathname.lastIndexOf('/') + 1, _pathname.length);
+	    var svcId = _pathname.substring(0, _pathname.lastIndexOf('.'));
+	    var svcType = _pathname.substring(_pathname.lastIndexOf('.') + 1);
+
+		if(svcId != "" && e.error !== null) {
+		    var errObj = {
+					SERVICE_ID: svcId,
+					SERVICE_TYPE: svcType,
+					ERROR_MSG: e.error.message,
+					ERROR_TYPE: errType,
+					ERROR_NAME: e.error.name,
+					ERROR_TRACE: e.error.stack
+				}
+
+			var xhr = new XMLHttpRequest();
+			xhr.onload = function () {
+				if(xhr.status == 200) {
+					console.log("Error Log Send Success")
+				} else {
+					console.error("Error Log Send Failed")
+				}
+			};
+
+			try {
+				xhr.open('POST', "/servlet/error", true);
+				xhr.setRequestHeader('content-type', 'application/json');
+				xhr.responseType = 'arraybuffer';
+				xhr.send(JSON.stringify(errObj));
+			} catch (ex) {
+				console.error(xhr.responseText);
+			}
+		}
+	});
+</script>
+</head>
+<body>
+<div id="wrapper">
+	<!-- skipnavi -->
+	<div id="skipnavi">
+	    <a href="#content"> 본문 바로가기 </a>
+	</div>
+
+
+	<div id="header" class="dev2017 dev2023">
+        ﻿<!doctype html>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+
+
+<script type="text/javascript">
+var mtrzBrc = '';
+var mainBankNm = '';
+$.alopexready(function(){
+	var _n_p7 = "SFDPW0163R"; // 서비스ID
+	
+	
+		
+	
+	//즐겨찾기는 ie만 보여줌.
+	if(util_cfGetBrowserIE() == "msie"){
+		$('#li_favor').show();	
+	}else{
+		$('#li_favor').hide();
+	}
+	
+	setCookie("sfNaacDs", '2' , 365);
+	
+	// Fix Menu 표시 처리
+	var menuId = "NFZZ100102";
+	var naacDs = "2";
+	
+	if (menuId != "") {
+		if (naacDs == "1") {
+
+			$("#selectSfNavi").append($("#"+menuId).html());
+
+		} else {
+			
+				$("#selectNfNavi").append($("#"+menuId).html());
+			
+		}
+	}
+
+
+});
+
+//쿠키 설정하기
+function setCookie(cName, cValue, expired, termType) {
+	var today = new Date();
+	var mSec = 1000 * 60 * 60 * 24;
+	today.setTime(today.getTime() + mSec * expired);
+	document.cookie = cName + "=" + escape(cValue) +";path=/;expires=" + today.toGMTString() + ";";
+}
+
+function lfn_nhbankClk(val){
+	var param = {};
+	if(val == "1"){
+		param['SF_NAAC_DS_DTLC'] = "1";	
+		
+		common_toEFBF("BFBCW0001R");
+	}else if(val == "2"){
+		param['SF_NAAC_DS_DTLC'] = "2";
+		
+		navigate('SFBCW0000R', param);
+	}
+	
+}
+
+// 인쇄
+function lfn_fPrintPopup() {
+	popup_cfWindowOpen('/servlet/SFBCW0040P.view', null, {'width':'1200px', 'height':'800px', 'scrollbars':'yes', 'resizable':'yes'});
+}
+
+function lf_cfFavoriteLoading(){
+	var domain = common_cfGetDomain("SF00");
+	
+	window.external.AddFavorite(domain,"NH스마트금융센터");
+	
+}
+
+//0718 팝업 호출
+function pageOpenPopup() {
+	popup_cfLayerOpen('SFBCW0000P'); // 시작페이지설정
+}
+
+//간편인증 고객일 경우 카드로 갈 경우 로그아웃(2017.09.25)
+function pinCertLogout(){
+	showErrorLayerPop({errorCode : 'MCPR98019'});
+	$('#btnPinCertLoginExit').tap(function(){
+		$("#btnPinCertLoginExit").bind('singletap', function(){
+			httpSend('SFBCW0020R', null, function(responseJson){
+				//common_toBank('/ip/cc/IPCC0001M.thtml', null);				
+				document.location.href=common_cfGetDomain('CC00');
+				return false;
+			});
+		});	
+	});
+}
+//금융인증 고객일 경우 카드로 갈 경우 로그아웃(2021.03.10)
+function finCertLogout(){
+	showErrorLayerPop({errorCode : 'MCPR98021'});
+	$('#btnFinCertLoginExit').tap(function(){
+		$("#btnFinCertLoginExit").bind('singletap', function(){
+			httpSend('SFBCW0020R', null, function(responseJson){
+				//common_toBank('/ip/cc/IPCC0001M.thtml', null);
+				document.location.href=common_cfGetDomain('CC00');
+				return false;
+			});
+		});	
+	});
+}
+</script>
+
+	<div class="nav_top">
+		<div class="nav_cont">
+			<!-- [2024.차세대] 마크업위치 변경 -->
+			<h1 class="logo"><a href="#header" data-tap="lfn_nhbankClk('2');"><img src="/content/nhsangho/images/cn/common/logo.jpg" alt="NH농협 금융상품몰"></a></h1>
+				
+			<ul class="nav_list">				
+
+			    	<li><a href="#header" onclick="lfn_nhbankClk('1');return false;" class="btn_style">농협은행</a></li>
+			    	<li><a href="#header" onclick="lfn_nhbankClk('2');return false;" class="btn_style color_typ1" title="선택됨">농ㆍ축협</a></li>
+			    
+<!-- 			    <li class="search_select_box"> -->
+<!-- 					<a href="#" class="search_select_title">NH Bank 개인</a> -->
+<!-- 					<ul class="search_select_list"> -->
+<!-- 						<li><a href="#header" class="color_typ1" data-tap="common_toBank('/ip/cn/IPCN0002M.thtml');return false;">NH Bank 개인</a></li> -->
+<!-- 						<li><a href="#header" class="color_typ1" data-tap="document.location.href=common_cfGetDomain('IC00');return false;">NH Bank 기업</a></li> -->
+
+<!-- 						<li><a href="#header" data-tap="pinCertLogout();return false;">NH농협카드</a></li> -->
+
+<!-- 						<li><a href="#header" data-tap="finCertLogout();return false;">NH농협카드</a></li> -->
+
+<!-- 						<li><a href="#header" data-tap="common_toBank('/ip/cc/IPCC0001M.thtml', null);return false;">NH농협카드</a></li> -->
+
+<!-- 					</ul> -->
+<!-- 				</li> -->
+			</ul>
+			<ul class="nav_list right">
+			
+				<li><a href="#header" data-tap="goLogin('SFBCW0000R', {});return false;">로그인</a></li>
+
+<!-- [2024.차세대] My금융센터 삭제
+<!-- 				<li><a href="#header" data-tap="navigate('/servlet/SFMY0001M');return false;">My금융센터</a></li> -->
+				<li><a href="#header" data-tap="navigate('/servlet/SFSTW1000R');return false;">고객지원</a></li>
+<!-- 				<li><a href="#" data-tap="pageOpenPopup()">시작페이지설정</a></li> --> 
+<!-- 				<li id="li_favor" style="display:none;"><a href="#header" class="favorites" data-tap="lf_cfFavoriteLoading();return false;" title="즐겨찾기목록 열기/닫기">즐겨찾기</a></li> -->
+<!-- 				<li><a href="#header" class="app" data-tap="common_navigateToContent('/nhsangho/ec/sfec0004c.thtml');" title="앱다운로드안내">앱다운로드</a></li> -->
+				<li class="search_select_box">
+					<a href="#" class="search_select_title">NH Bank 개인</a>
+					<ul class="search_select_list">
+						<li><a href="#header" class="color_typ1" data-tap="common_toBank('MAIN', false);return false;">NH Bank 개인</a></li>
+						<li><a href="#header" class="color_typ1" data-tap="document.location.href=common_cfGetDomain('IC00');return false;">NH Bank 기업</a></li>
+						
+						<li><a href="#header" data-tap="document.location.href=common_cfGetDomain('CC00');return false;">NH농협카드</a></li>
+						
+					</ul>
+				</li>
+		</div>
+	</div>
+	<div class="head_lay">
+		<div class="head_cont">
+			
+	        <div id="utilmenu">
+	        </div>
+			<!-- [2024.차세대] 선택농축협정보 위치이동
+				<span class="branch_txt"></span>
+			-->
+	        <script type="text/javascript">
+	        $.alopexready(function(){
+	        	// "/content/nhsangho/html/cn/gnb_menu_t02.html"
+	        	console.log("gnbMenu2"+ "/content/nhsangho/html/cn/gnb_menu_t02.html");
+	        	if ("" != '/content/nhsangho/html/cn/gnb_menu_t02.html') {
+        			$('#utilmenu').load('/content/nhsangho/html/cn/gnb_menu_t02.html', function() {
+        				console.log("load 완료");
+        				$.alopexready(function() {
+        					//통합검색 콜렉션 업데이트 처리 
+							var collection = '';
+							
+							if (collection) {
+								$("#el-select2 > data").prop("value", collection);
+								$("#el-select2 > data > div[data-attr=text]").html($("#el-select2 BUTTON[value="+collection+"]").text());
+							
+								$(".el-select3 > data").prop("value", collection);
+								$(".el-select3 > data > div[data-attr=text]").html($("#el-select2 BUTTON[value="+collection+"]").text());
+							
+								
+								$("#popword_select > data").prop("value", collection);
+								$("#popword_select > data > div[data-attr=text]").html($("#popword_select BUTTON[value="+collection+"]").text());
+								
+								var searchForm = document.nhSearchFrm;
+								searchForm.collection.value = collection;
+								
+								$("#query").val($("#query1").val());
+							}
+																			
+						});
+        				
+        			});
+	        	}
+        	
+	        });
+	        </script>
+	        
+        	
+        	
+			<div class="head_baner">
+				<div id = "left" class="hb_left" ></div>
+				<div id = "right" class="hb_right"></div>
+			</div>
+			<script type="text/javascript">
+		        $.alopexready(function(){
+		        	///content/nhsangho/html/cn/gnb_menu_t04.html
+		        	console.log("gnbMenu4"+ "/content/nhsangho/html/cn/gnb_menu_t04.html");
+		        	if ("" != '/content/nhsangho/html/cn/gnb_menu_t04.html') {
+			        	$('#left').load('/content/nhsangho/html/cn/gnb_menu_t04.html', function() {
+		        			$.cycReinit();
+		        		});
+		        	}
+		        	///content/nhsangho/html/cn/gnb_menu_t01.html
+		        	console.log("gnbMenu1"+ "/content/nhsangho/html/cn/gnb_menu_t01.html");
+		        	if ("" != '/content/nhsangho/html/cn/gnb_menu_t01.html') {
+			        	$('#right').load('/content/nhsangho/html/cn/gnb_menu_t01.html', function() {
+		        			$.cycReinit();
+		        		});
+		        	}
+	        	}); 
+		       </script>
+	        	
+		</div>
+	</div>		
+
+	<div class="head_menu type01">
+		<div class="head_gnb">
+			<div class="gnb_list_lay">
+<!-- [2024.차세대] 상단고정시 로고 삭제			
+<!-- 				<p class="logo"> -->
+<!-- 					<a href="#header"> -->
+					
+<!-- 						<img src="/content/nhsangho/images/cn/main/new/f_logo.png" alt="NHbank 금융상품몰"> -->
+					
+<!-- 					</a> -->
+<!-- 				</p> -->
+<!-- [2024.차세대] 상단고정시 로고 삭제 및 상단으로 이동 버튼 추가 -->
+<a href="#header" data-ui-btn="scrollfocus">상단 메뉴영역으로 이동</a>
+<!-- // --> 
+				<ul class='gnb_list2'><li id='NFZZ07'><a href="javascript:navigate('SFDPW0100R',{menu_id:'NFZZ0701'} )" >예·적금</a><div class='gnb_inner'>  <div class='gnb_inner_bg'>  <div class='gnb_inner_box'>  <div class='gnb_inner_lay'>  <div class='gnb_inner_list'>  <div class='gnb_group'>  <ul class='gnb_list'> <li id='NFZZ0701'><a href="#none" data-tap="javascript:navigate('SFDPW0100R',{menu_id:'NFZZ0701'} );return false;">전체상품</a></li><li id='NFZZ0704'><a href="#none" data-tap="javascript:navigate('SFDPW0103R',{menu_id:'NFZZ0704'} );return false;">입출금(수시입출식)</a></li><li id='NFZZ0702'><a href="#none" data-tap="javascript:navigate('SFDPW0101R',{menu_id:'NFZZ0702'} );return false;">예금(목돈굴리기)</a></li><li id='NFZZ0703'><a href="#none" data-tap="javascript:navigate('SFDPW0102R',{menu_id:'NFZZ0703'} );return false;">적금(목돈모으기)</a></li><li id='NFZZ0705'><a href="#none" data-tap="javascript:navigate('SFBCW0002R',{menu_id:'NFZZ0705'} );return false;">계약서 확인</a></li></ul></div></div></div><dl class='relate_menu'><dt>연관메뉴</dt><dd>
+<ul><li id='NFZZ070801'><a href="#none" data-tap="javascript:navigate('SFDPW0160R',null );return false;">예금금리안내</a></li><li id='NFZZ070802'><a href="#none" data-tap="javascript:navigate('SFSTW0200R',null );return false;">예금상품공시</a></li><li id='NFZZ070803'><a href="#none" data-tap="javascript:navigate('SFSTW1030R',null );return false;">예금상담하기</a></li></ul></dd></dl><div class='gnb_close'><a href='#'>레이어닫기</a></div></div></div></div></li><li id='NFZZ15'><a href="javascript:navigate('SFFDW1000R',{menu_id:'NFZZ1501'} )" >펀드</a><div class='gnb_inner'>  <div class='gnb_inner_bg'>  <div class='gnb_inner_box'>  <div class='gnb_inner_lay'>  <div class='gnb_inner_list'>  <div class='gnb_group'>  <ul class='gnb_list'> <li id='NFZZ1501'><a href="#none" data-tap="javascript:navigate('SFFDW1000R',{menu_id:'NFZZ1501'} );return false;">전체상품</a></li><li id='NFZZ1502'><a href="#none" data-tap="javascript:navigate('SFFDW3000R',{menu_id:'NFZZ150201'} );return false;">투자성향분석</a>
+<ul> <li id='NFZZ150201'><a href="#none" data-tap="javascript:navigate('SFFDW3000R',null );return false;">투자성향분석안내</a></li><li id='NFZZ150202'><a href="#none" data-tap="javascript:navigate('SFFDW3020R',null );return false;">투자성향분석하기</a></li></ul></li><li id='NFZZ1503'><a href="#none" data-tap="javascript:navigate('SFSTW0360R',{menu_id:'NFZZ150301'} );return false;">정보광장</a>
+<ul> <li id='NFZZ150301'><a href="#none" data-tap="javascript:navigate('SFSTW0360R',null );return false;">기준가/수익률조회</a></li><li id='NFZZ150302'><a href="#none" data-tap="javascript:navigate('SFSTW0300R',null );return false;">펀드상품공시</a></li></ul></li><li id='NFZZ1504'><a href="#none" data-tap="javascript:navigate('SFBCW0002R',{menu_id:'NFZZ1504'} );return false;">계약서 확인</a></li></ul></div></div></div><div class='gnb_close'><a href='#'>레이어닫기</a></div></div></div></div></li><li id='NFZZ08'><a href="javascript:navigate('SFLNW2100R',{menu_id:'NFZZ0801'} )" >대출</a><div class='gnb_inner'>  <div class='gnb_inner_bg'>  <div class='gnb_inner_box'>  <div class='gnb_inner_lay'>  <div class='gnb_inner_list'>  <div class='gnb_group'>  <ul class='gnb_list'> <li id='NFZZ0801'><a href="#none" data-tap="javascript:navigate('SFLNW2100R',{menu_id:'NFZZ0801'} );return false;">전체상품</a></li><li id='NFZZ0802'><a href="#none" data-tap="javascript:navigate('SFLNW2130R',{menu_id:'NFZZ0802'} );return false;">신용대출</a></li><li id='NFZZ0803'><a href="#none" data-tap="javascript:navigate('SFLNW2133R',{menu_id:'NFZZ0803'} );return false;">예적금대출</a></li><li id='NFZZ0804'><a href="#none" data-tap="javascript:navigate('SFLNW2145R',{menu_id:'NFZZ0804'} );return false;">사업자대출</a></li><li id='NFZZ0805'><a href="#none" data-tap="javascript:navigate('SFLNW2139R',{menu_id:'NFZZ0805'} );return false;">농협특색대출</a></li><li id='NFZZ0806'><a href="#none" data-tap="javascript:navigate('SFLNW2136R',{menu_id:'NFZZ0806'} );return false;">주택/전세대출</a></li> </ul>  </div>  <div class='gnb_group'>  <ul class='gnb_list'> <li id='NFZZ0816'><a href="#none" data-tap="javascript:navigate('SFLNW2142R',{menu_id:'NFZZ0816'} );return false;">정책자금</a></li><li id='NFZZ0808'><a href="#none" data-tap="javascript:navigate('SFLNW2500R',{menu_id:'NFZZ0808'} );return false;">대출약정서 확인</a></li></ul></div></div></div><dl class='relate_menu'><dt>연관메뉴</dt><dd>
+<ul><li id='NFZZ081001'><a href="#none" data-tap="javascript:navigate('SFSTW0430R',null );return false;">대출금리안내</a></li><li id='NFZZ081002'><a href="#none" data-tap="javascript:navigate('SFSTW1030R',null );return false;">대출상담하기</a></li></ul></dd></dl><div class='gnb_close'><a href='#'>레이어닫기</a></div></div></div></div></li><li id='NFZZ09'><a href="javascript:common_navigateToContent('/nhsangho/sb/sfsb0023c.thtml',{menu_id:'NFZZ09'} )" >보험</a></li><li id='NFZZ13'><a href="javascript:common_navigateToContent('/nhsangho/sz/sfsz1016c.thtml',{menu_id:'NFZZ13'} )" >카드</a></li><li id='NFZZ10' class='active'><a href="javascript:common_navigateToContent('/nhsangho/pd/WEBNMFPD610000c.thtml',{menu_id:'NFZZ10'} )" >공시실</a><div class='gnb_inner'>  <div class='gnb_inner_bg'>  <div class='gnb_inner_box'>  <div class='gnb_inner_lay'>  <div class='gnb_inner_list'>  <div class='gnb_group'>  <ul class='gnb_list'> <li id='NFZZ1001'><a href="#none" data-tap="javascript:navigate('SFSTW0200R',{menu_id:'NFZZ1001'} );return false;" class='active'>예금</a>
+<ul> <li id='NFZZ100101'><a href="#none" data-tap="javascript:navigate('SFSTW0200R',null );return false;">예금상품공시</a></li><li id='NFZZ100102' class='active'><a href="#none" data-tap="javascript:navigate('SFDPW0160R',null );return false;">예금금리</a></li></ul></li><li id='NFZZ1010'><a href="#none" data-tap="javascript:navigate('SFSTW0300R',{menu_id:'NFZZ1010'} );return false;">펀드</a>
+<ul> <li id='NFZZ101001'><a href="#none" data-tap="javascript:navigate('SFSTW0300R',null );return false;">펀드상품공시</a></li><li id='NFZZ101002'><a href="#none" data-tap="javascript:navigate('SFSTW0310R',null );return false;">수시공시</a></li><li id='NFZZ101003'><a href="#none" data-tap="javascript:navigate('SFSTW0340R',null );return false;">운용/수탁보고서</a></li><li id='NFZZ101005'><a href="#none" data-tap="javascript:navigate('SFSTW0360R',null );return false;">기준가/수익률조회</a></li></ul></li><li id='NFZZ1002'><a href="#none" data-tap="javascript:navigate('SFSTW0400R',{menu_id:'NFZZ1002'} );return false;">대출</a>
+<ul> <li id='NFZZ100201'><a href="#none" data-tap="javascript:navigate('SFSTW0400R',null );return false;">대출상품공시</a></li><li id='NFZZ100203'><a href="#none" data-tap="javascript:common_navigateToContent('/nhsangho/pd/WEBNMFPD646000c.thtml',null);return false;">중금리신용대출 공시</a></li><li id='NFZZ100204'><a href="#none" data-tap="javascript:common_navigateToContent('/nhsangho/pd/WEBNMFPD647000c.thtml',null);return false;">대출모집인 수수료율 공시</a></li><li id='NFZZ100202'><a href="#none" data-tap="javascript:navigate('SFSTW0430R',null );return false;">대출금리</a></li></ul></li><li id='NFZZ1005'><a href="#none" data-tap="javascript:navigate('SFSTW0500R',{menu_id:'NFZZ1005'} );return false;">보험</a>
+<ul> <li id='NFZZ100501'><a href="#none" data-tap="javascript:navigate('SFSTW0500R',null );return false;">보험수수료율공시</a></li><li id='NFZZ100502'><a href="#none" data-tap="javascript:navigate('SFSTW0540R',null );return false;">판매비중공시</a></li></ul></li><li id='NFZZ1008'><a href="#none" data-tap="javascript:common_navigateToContent('/nhsangho/pd/WEBNMFPD661000c.thtml',{menu_id:'NFZZ1008'} );return false;">예금자보호제도</a>
+<ul> <li id='NFZZ100801'><a href="#none" data-tap="javascript:common_navigateToContent('/nhsangho/pd/WEBNMFPD661000c.thtml',null);return false;">예금자보호안내</a></li></ul></li><li id='NFZZ1009'><a href="#none" data-tap="javascript:common_navigateToContent('/nhsangho/pd/WEBNMFPD610000c.thtml',{menu_id:'NFZZ1009'} );return false;">서식/약관자료실</a>
+<ul> <li id='NFZZ100902'><a href="#none" data-tap="javascript:common_navigateToContent('/nhsangho/pd/WEBNMFPD610000c.thtml',null);return false;">서식/약관자료실</a></li><li id='NFZZ100901'><a href="#none" data-tap="javascript:navigate('SFSTW0620R',null );return false;">수수료안내</a></li></ul></li></ul></div></div></div><div class='gnb_close'><a href='#'>레이어닫기</a></div></div></div></div></li><li id='NFZZ06'><a href="javascript:navigate('SFSTW1000R',{menu_id:'NFZZ06'} )" >고객지원</a><div class='gnb_inner'>  <div class='gnb_inner_bg'>  <div class='gnb_inner_box'>  <div class='gnb_inner_lay'>  <div class='gnb_inner_list'>  <div class='gnb_group'>  <ul class='gnb_list'> <li id='NFZZ0601'><a href="#none" data-tap="javascript:common_navigateToContent('/nhsangho/ec/WEBNMFEC811000.thtml',{menu_id:'NFZZ0601'} );return false;">상품몰안내</a></li><li id='NFZZ0606'><a href="#none" data-tap="javascript:common_navigateToContent('/nhsangho/ec/WEBNMFEC850000.thtml',{menu_id:'NFZZ0606'} );return false;">이용시간안내</a></li><li id='NFZZ0612'><a href="#none" data-tap="javascript:navigate('SFSTW1030R',{menu_id:'NFZZ0612'} );return false;">스마트상담센터</a></li><li id='NFZZ0608'><a href="#none" data-tap="javascript:navigate('SFSTW1600R',{menu_id:'NFZZ0608'} );return false;">새소식</a></li><li id='NFZZ0607'><a href="#none" data-tap="javascript:navigate('SFSTW1500R',{menu_id:'NFZZ0607'} );return false;">자주묻는질문</a></li></ul></div></div></div><div class='gnb_close'><a href='#'>레이어닫기</a></div></div></div></div></li></ul>
+			</div>
+		</div>
+		
+		
+<!-- 		<div class="all_menu_wrap"> -->
+<!-- 			<div class="amw_inr"> -->
+<!-- 				<a href="#n" class="all_m">전체메뉴</a> -->
+<!-- 				<div class="all_m_bx"> -->
+<!-- 					<div class="all_m_inr"> -->
+<!-- 						<p class="title">전체메뉴</p> -->
+<!-- 						<div class="gnb_list_bx"> -->
+
+
+<!-- 							<ul class="gnb_list"> -->
+<!-- 								<li class=q1"> -->
+<!-- 									<a href="javascript:navigate('SFPR0111R',{menu_id:'SFZZ01'} );"><span class="icn"></span><span class="lbl">BEST 금융상품</span></a> -->
+<!-- 								</li> -->
+<!-- 								<li class="q2"> -->
+<!-- 									<a href="javascript:navigate('SFPR0415R',{menu_id:'SFZZ032'} );"><span class="icn"></span><span class="lbl">직업별Pick</span></a> -->
+<!-- 								</li> -->
+<!-- 								<li class="q3"> -->
+<!-- 									<a href="javascript:navigate('SFPR0411R',{menu_id:'SFZZ03'} );"><span class="icn"></span><span class="lbl">테마별Pick</span></a> -->
+<!-- 								</li> -->
+<!-- 								<li class="q4"> -->
+<!-- 									<a href="javascript:navigate('SFEV0011R',{menu_id:'SFZZ04'} );"><span class="icn"></span><span class="lbl">이벤트</span></a> -->
+<!-- 									</li> -->
+<!-- 								<li class="ic04">
+									<a href="javascript:navigate('SFPR0311R');">추천기획전</a>
+									</li>
+<!-- 							</ul>  -->
+
+
+<!-- 							<ul class="gnb_list"> -->
+<!-- 								<li class="ic01"> -->
+<!-- 									<a href="javascript:navigate('SFPR0111R',{menu_id:'NFZZ01'} );">BEST 금융상품</a> -->
+<!-- 								</li> -->
+<!-- 								<li class="ic02"> -->
+<!-- 									<a href="javascript:navigate('SFPR0411R',{menu_id:'NFZZ03'} );">테마상품</a> -->
+<!-- 								</li> -->
+<!-- 								<li class="ic03"> -->
+<!-- 									<a href="javascript:navigate('SFEV0011R',{menu_id:'NFZZ04'} );">이벤트</a> -->
+<!-- 								</li> -->
+<!-- 								<li class="ic04"> -->
+
+<!-- 									<a href="javascript:navigate('SFPR0311R');">추천기획전</a> -->
+<!-- 								</li> -->
+<!-- 							</ul> -->
+
+<!-- 						</div> -->
+<!-- 						<div class="m_bx_wrap"> -->
+<!-- 							<div class="m_bx on"> -->
+
+<!-- 								<a href="#n" class="all_close"><span class="blind">레이어 닫기</span></a> -->
+<!-- 							</div> -->
+<!-- 						</div> -->
+<!-- 					</div> -->
+<!-- 				</div> -->
+<!-- 			</div> -->
+<!-- 		</div> -->
+	</div>
+	
+	
+	<div class="navigation">
+		<div class="navi_lay">
+			<a href="#header" class="navi_home" data-tap="navigate('SFBCW0000R');return false;">			
+				농ㆍ축협 홈
+			</a>
+			
+				<ul class='navi_list'><li id='NFZZ10'><a href="javascript:common_navigateToContent('/nhsangho/pd/WEBNMFPD610000c.thtml',null)">공시실</a></li><li id='NFZZ1001'><a href="javascript:navigate('SFSTW0200R',null )">예금</a><ul> <li id='NFZZ1001' class='active'><a href="#none" data-tap="javascript:navigate('SFSTW0200R',null );return false;">예금</a></li><li id='NFZZ1010'><a href="#none" data-tap="javascript:navigate('SFSTW0300R',null );return false;">펀드</a></li><li id='NFZZ1002'><a href="#none" data-tap="javascript:navigate('SFSTW0400R',null );return false;">대출</a></li><li id='NFZZ1005'><a href="#none" data-tap="javascript:navigate('SFSTW0500R',null );return false;">보험</a></li><li id='NFZZ1008'><a href="#none" data-tap="javascript:common_navigateToContent('/nhsangho/pd/WEBNMFPD661000c.thtml',null);return false;">예금자보호제도</a></li><li id='NFZZ1009'><a href="#none" data-tap="javascript:common_navigateToContent('/nhsangho/pd/WEBNMFPD610000c.thtml',null);return false;">서식/약관자료실</a></li></ul></li><li id='NFZZ100102' class='hover'><a href="javascript:navigate('SFDPW0160R',null )">예금금리</a><ul> <li id='NFZZ100101'><a href="#none" data-tap="javascript:navigate('SFSTW0200R',null );return false;">예금상품공시</a></li><li id='NFZZ100102' class='active'><a href="#none" data-tap="javascript:navigate('SFDPW0160R',null );return false;">예금금리</a></li></ul></li></ul>
+			
+		<!-- [2024.차세대] 선택농축협정보 위치이동 -->
+			
+			
+			
+				<dl class="branch_txt">
+						<dt>관리영업점</dt>
+						<dd>
+							<a href="#" data-type="button" data-converted="true" onclick="goLogin('SFBCW0000R', {});return false;" class="af-button af-default">
+								농&middot;축협을 선택해 금리를 확인하세요.
+							</a>
+						</dd>
+				</dl>
+			
+			<!-- [2024.차세대] 프린트 삭제 -->
+			<!--  a title="새창열림" href="#header" class="navi_print" data-tap="lfn_fPrintPopup();return false;">프린트</a-->
+		</div>
+	</div>
+	
+	
+    </div><!-- //header -->
+
+    <div id="container" class="dev2017">
+        <div id="content" >
+            <div class="processBar">
+	            <ol class="BarStep">
+	                <li class="on"></li>
+	                <li class="off"></li>
+	                <li class="off"></li>
+	                <li class="off"></li>
+	            </ol>
+	        </div>
+            
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<!-- ###########################################################################  -->
+<!-- PAGE -->
+<!-- ###########################################################################  -->
+<main>
+
+ <header>
+     <div class="tit-headline1">
+         <h1>
+             <em>예금금리</em>
+             강릉농협 강동지점<br/>
+             <strong>금리 상세정보</strong>를 확인해 보세요
+         </h1>
+     </div>
+ </header>
+
+<!-- ### 검색 결과 ### -->
+<div class="area-t1">
+    <div class="el-tab1" data-autoset="form">
+        <div><input type="radio" id="rdo_01" name="tab_radio1" onclick="lfViewInquiry('1');" ><span>입출금</span></div>
+        <div><input type="radio" id="rdo_02" name="tab_radio1" onclick="lfViewInquiry('2');" checked><span>예금(거치식)</span></div>
+        <div><input type="radio" id="rdo_03" name="tab_radio1" onclick="lfViewInquiry('3');"><span>적금(적립식)</span></div>
+    </div>
+    <p class="txt-t1 date">기준: <span>2026.08.06, %</span></p>
+</div>
+
+<!-- 입출금 -->
+<div class="tbl-data1 line1 active" data-format="rate">
+
+<!-- ### 1 = 입출금 ### -->
+    
+    <!--  조회된 데이터가 없는 경우 -->
+    
+    
+    
+    
+    <table>
+        <caption>금리 상세정보</caption>
+        <colgroup><col /><col width="300"/><col width="120"/><col width="280"/><col width="140"/></colgroup>
+        <thead>
+            <tr>
+                <th scope="col">상품명</th>
+                <th scope="col" colspan="2">금리</th>
+                <th scope="col" colspan="2">비고</th>
+            </tr>
+        </thead>
+
+        <tbody>
+        
+     
+
+            <tr>
+                <td rowspan="8">정기예탁금</td>
+                <td>1개월 이상~3개월 미만</td>
+                <td class="data2"><strong>1%</strong></td>
+                <td rowspan="8">- 만기이자지급식 기준<br> - 월이자지급식과<br> &nbsp;&nbsp; 금리가 다를 수 있음</td>
+                <td rowspan="8">고정금리</td>
+            </tr>
+
+           
+            <tr>
+                <td >3개월 이상~6개월 미만</td>
+                <td class="data2"><strong>1.5%</strong></td>
+            </tr>
+   
+            <tr>
+                <td >6개월 이상~12개월 미만</td>
+                <td class="data2"><strong>2%</strong></td>
+            </tr>
+   
+            <tr>
+                <td >12개월 이상~24개월 미만</td>
+                <td class="data2"><strong>3%</strong></td>
+            </tr>
+   
+            <tr>
+                <td >24개월 이상~36개월 미만</td>
+                <td class="data2"><strong>2.5%</strong></td>
+            </tr>
+   
+            <tr>
+                <td >36개월 이상~48개월 미만</td>
+                <td class="data2"><strong>2.4%</strong></td>
+            </tr>
+   
+            <tr>
+                <td >48개월 이상~60개월 미만</td>
+                <td class="data2"><strong>2.4%</strong></td>
+            </tr>
+   
+            <tr>
+                <td >60개월~</td>
+                <td class="data2"><strong>2.4%</strong></td>
+            </tr>
+   
+
+            <tr>
+                <td rowspan="4">복리식정기예탁금</td>
+                <td>6개월 이상~12개월 미만</td>
+                <td class="data2"><strong>2%</strong></td>
+                <td rowspan="4">- 6개월 이상 3년 이내에서 <br> &nbsp;&nbsp; 월단위로 가입가능<br> - 정기예탁금 이자를 월복리로<br> &nbsp;&nbsp; 계산하여 만기시 지급<br> - 연단위 이자지급도 가능</td>
+                <td rowspan="4">고정금리</td>
+            </tr>
+
+           
+            <tr>
+                <td >12개월 이상~24개월 미만</td>
+                <td class="data2"><strong>3%</strong></td>
+            </tr>
+   
+            <tr>
+                <td >24개월 이상~36개월 미만</td>
+                <td class="data2"><strong>2.5%</strong></td>
+            </tr>
+   
+            <tr>
+                <td >36개월~</td>
+                <td class="data2"><strong>2.4%</strong></td>
+            </tr>
+   
+
+            <tr>
+                <td rowspan="4">e-joy 인터넷예금 우대금리</td>
+                <td>1개월 이상~12개월 미만</td>
+                <td class="data2"><strong>0.1%</strong></td>
+                <td rowspan="4">- 대상예금 <br> &nbsp;&nbsp; <span class='emp'><font color='#FF0000'>&lt;거치식&gt;</font></span>정기예탁금, 복리식<br> &nbsp;&nbsp;&nbsp; 정기예탁금 <br> &nbsp;&nbsp; <font color='#FF0000'>&lt;적립식&gt;</font>정기적금, 자유적립<br> &nbsp;&nbsp;&nbsp; 적금, 자유로 부금 <br>- 상품별 금리 + 우대금리 적용 </td>
+                <td rowspan="4">-</td>
+            </tr>
+
+           
+            <tr>
+                <td >12개월 이상~24개월 미만</td>
+                <td class="data2"><strong>0.1%</strong></td>
+            </tr>
+   
+            <tr>
+                <td >24개월 이상~36개월 미만</td>
+                <td class="data2"><strong>0.1%</strong></td>
+            </tr>
+   
+            <tr>
+                <td >36개월 이상</td>
+                <td class="data2"><strong>0.1%</strong></td>
+            </tr>
+   
+
+            <tr>
+                <td rowspan="8">만기자유정기예탁금</td>
+                <td>1개월 이상~3개월 미만</td>
+                <td class="data2"><strong>1%</strong></td>
+                <td rowspan="8">- 100만원 이상<br>- 가입기간별 정기예탁금 <br> &nbsp;&nbsp; 금리적용</td>
+                <td rowspan="8">고정금리</td>
+            </tr>
+
+           
+            <tr>
+                <td >3개월 이상~6개월 미만</td>
+                <td class="data2"><strong>1.5%</strong></td>
+            </tr>
+   
+            <tr>
+                <td >6개월 이상~12개월 미만</td>
+                <td class="data2"><strong>2%</strong></td>
+            </tr>
+   
+            <tr>
+                <td >12개월 이상~24개월 미만</td>
+                <td class="data2"><strong>3%</strong></td>
+            </tr>
+   
+            <tr>
+                <td >24개월 이상~36개월 미만</td>
+                <td class="data2"><strong>2.5%</strong></td>
+            </tr>
+   
+            <tr>
+                <td >36개월 이상~48개월 미만</td>
+                <td class="data2"><strong>2.4%</strong></td>
+            </tr>
+   
+            <tr>
+                <td >48개월 이상~60개월 미만</td>
+                <td class="data2"><strong>2.4%</strong></td>
+            </tr>
+   
+            <tr>
+                <td >60개월~</td>
+                <td class="data2"><strong>2.4%</strong></td>
+            </tr>
+   
+
+        </tbody>
+
+    </table>
+    
+    
+
+    </div>
+
+    <!-- ### 하단문구 ### -->
+    <div class="info-section2">
+        <ul>
+            <li>변동금리 상품은 가입시점의 금리로 만기까지 적용되는 것이 아니라, 금리 변경 시 변경된 금리로 구분 적용됩니다.</li>
+            <li>금리가 0.000%로 표시되는 상품은 상품 취급 여부를 농&middot;축협 영업점으로 문의해주시기 바랍니다.</li>
+        </ul>
+    </div>
+
+<!-- ### 하단버튼 ### -->
+<div class="area-action1">
+    <button type="button" id="btn_list" class="btn-action1">목록</button>
+    <button type="button" id="btn_list1" class="btn-action1 c2">재검색</button>
+</div>
+
+</main>
+<!-- ###########################################################################  -->
+
+<script type="text/javascript">
+//<![CDATA[
+
+   /**
+    * 초기화면 자동실행
+    */
+   $.alopexready(function() {
+
+      $("#btn_list").bind("singletap", lfGoList); //목록으로
+      $("#btn_list1").bind("singletap", lfGoList1); //목록으로
+
+   });
+
+   /**
+    * 전송
+    */
+   function lfViewInquiry(inq_dsc) {
+
+      var param = {
+         "brc" : '333072'
+        , "brnm" : '강릉농협 강동지점'
+        , "inq_dsc" : ''
+        , "inq_str" : ''
+        , "searchContent" : ''
+      };
+
+      //입출금식
+      if(inq_dsc == '1') {
+         navigate("SFDPW0162R", param);
+      } else if(inq_dsc == '2') {  //거치식
+         navigate("SFDPW0163R", param);
+      } else if(inq_dsc == '3') {  //적립식
+         navigate("SFDPW0164R", param);
+      } 
+   }
+
+   /**
+    * 목록으로
+    */
+   function lfGoList() {
+
+      //지점
+      var brc = '333072';
+
+      //상품분류
+      var inq_dsc = '';
+      var inq_str = '';
+
+      //검색명
+      var searchContent = '';
+
+      var param = {
+         "brc" : brc
+         , "brnm" : '강릉농협 강동지점'
+        , "inq_dsc" : inq_dsc
+        , "inq_str" : inq_str
+        , "searchContent" : searchContent
+         };
+
+      navigate("SFDPW0161R", param);
+
+   }
+
+   /**
+    * 재검색
+    */
+   function lfGoList1() {
+
+      //상품분류
+      var inq_dsc = '';
+      var inq_str = '';
+
+      //검색명
+      var searchContent = '';
+
+      var param = {
+         "inq_dsc" : inq_dsc
+        , "inq_str" : inq_str
+        , "searchContent" : searchContent
+         };
+
+      navigate("SFDPW0160R", param);
+   }
+//]]>
+</script>
+        </div><!-- //content -->
+
+		<!-- banner1 -->
+		<div class="banner1"></div>
+		<!-- //banner1 -->
+
+		<!-- banner2 -->
+		<div class="banner2"></div>
+		<!-- //banner2 -->
+
+		<!-- banner3 -->
+		<div class="banner3"></div>
+		<!-- //banner3 -->
+
+		<!-- quick -->
+		<div class="quick"></div>
+		<!-- //quick -->
+		
+    </div><!-- //container -->
+
+	<!-- quickmenu -->
+	
+	<div id="quickmenu" class="dev2017 dev2023">
+		
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<script type="text/javascript">
+var console = window.console || {log:function(){}};
+var certLoginUrl = "";
+var naacDsDtlc = "";
+//메뉴(예금)
+var dp_nh = "SFDPW0100R";
+var dp_sangho = "SFDPW0100R";
+//메뉴(펀드)
+var fnd_nh = "SFFDW1000R";
+var fnd_sangho = "SFFDW1000R";
+//메뉴(외환)
+var sz_nh = "SFSF0611I";
+var sz_sangho = "SFSF0611I";
+//메뉴(신탁)
+var st_nh = "SFSTW0020R";
+var st_sangho = "SFSTW0020R";
+//메뉴(대출)
+var ln_nh = "SFLNW2100R";
+var ln_sangho = "SFLNW2100R";
+
+$.alopexready(function(){
+	
+	innerHtmlTodayWrsC();			//최근본상품
+	
+
+	$('#btn_cartbox').bind('singletap', function(){
+		if(!false) {
+			if(confirm("보관함은 로그인 후 이용 가능합니다.\n로그인 하시겠습니까?")) {
+				goLogin('');
+			}else{
+				return;
+			}
+		}
+	});
+	
+	$('#btn_inetBox').bind('singletap', function(){
+		if(!false) {
+			if(confirm("관심상품은 로그인 후 이용 가능합니다.\n로그인 하시겠습니까?")) {
+				goLogin('');
+			}else{
+				return;
+			}
+		}
+	});
+	
+	$('#btn_recommBox').bind('singletap', function(){
+		if(!false) {
+			if(confirm("추천상품은 로그인 후 이용 가능합니다.\n로그인 하시겠습니까?")) {
+				goLogin('');
+			}else{
+				return;
+			}
+		}
+	});
+	
+	$("#quickLogOutBtn").bind('singletap', function(){
+		var frm = document.cnLogOut;
+		navigateIP('SFBCW0020R', frm);
+		return false;
+	});
+	
+	$('#headerContinued').click(function(){
+		continueLoginLeft();
+		return false;
+	});
+
+	$('#headerOut').click(function(){
+		popExecuteLogout();
+		$('#pop_wrap_autoTime').close();
+	});
+	
+	$("#quickLogOutBtnGE").bind('singletap', function(){
+		 var cfm = false;
+	        cfm = confirm('공직자뱅킹 로그아웃 하시겠습니까?');
+	        if (cfm) {
+	            httpSend('SFBCW0020R', null, function(responseJson){
+	                // success
+	                var ret = window.close();
+	                if (!ret) {
+	                    common_toBank('WSME0001R', {cmd:''
+	                    	                     , q:''});
+	                }
+	            });
+	        }
+	});
+	
+	var quickState = util_cfGetCookie("quickState");
+	if (quickState == "quick_left") {
+		$("."+quickState).trigger("click");
+	}
+	
+});
+
+
+
+//나를위한추천상품 
+function recommendWrsc(){
+	
+	sfcn_cfGetECRM("DFIF_DFMH_0015", "", lfQuickProductSuccess, lfQuickProductFail);
+	
+}
+
+//상품정보불러오기성공
+
+function lfQuickProductSuccess(dataJSON, dataList){
+	
+		
+		if (dataList.length == 0) {
+			return false;
+		}
+		var reHtml = "";
+
+		var loggingUrl = "";
+		var itemValue;
+		var prdCd;
+		var prdCdName;
+		var msgCon;	
+		var linkUrl;
+		var sDetailLink;
+		var maxCnt;
+		var imgUrl;
+		var wrsDsc;
+		var bankType;
+		var cnt = dataList.length;
+		var disp_cnt = 0;
+		
+		/*
+		if(dataList.length < maxCnt){
+			maxCnt = dataList.length;
+		}else{
+			maxCnt = 3;
+		}
+		*/
+		
+		
+		// 데이터 파싱
+		
+ 		for (var i = 0; i < cnt; i++) {
+ 			
+ 			var item = dataList[i];
+	 		try{
+	 			loggingUrl = item.clickurl;
+	 			itemValue = item.content.ITEM_VALUE; //dataList[i]["ITEM_VALUE"];	
+	 			prdCd = item.content.PRD_CD; //dataList[i]["PRD_CD"];					// 상품코드
+	 			prdCdName =  item.content.PRD_CD_NAME; //dataList[i]["PRD_CD_NAME"];		// 상품명
+	 			msgCon = item.content.MSG_CON; //dataList[i]["MSG_CON"];				// 상품설명
+	 			bankType = item.content.BANK_TYPE; //dataList[i]["BANK_TYPE"];				// 은행상호구분
+	 			linkUrl = item.content.IMG_URL; //dataList[i]["IMG_URL"];			// 가입url (todo)
+	 				
+	 			if(bankType == naacDsDtlc){ 
+	 			     disp_cnt++;
+		 			 wrsDsc = prdCd.substring(0,1);
+		 			
+		 			var newYn = prdCd.substring(2, 4);
+		 			//신규등록 상품 여부 판단
+		 			//채번규칙 : 은행상호구분(1자리 - 1:은행, 2:상호) + 상품구분(1자리 - 1:예금, 2:신탁, 4:대출, 5:펀드, 6:외환, 7:방카) + 등록년(2자리) + 일련번호(4자리 - 키인)
+
+		 			if (Number(newYn) >= 24) {
+		 				wrsDsc = prdCd.substring(1,2);	
+		 			}
+		 			
+		 			// 상품 상세페이지로 이동 링크 생성
+		 			sDetailLink = "";
+		 			sDetailLink = "sfcn_fLoggingECRM('" + loggingUrl + "&click=1&itemValue=" + itemValue + "');";  // 클릭 로깅 추가
+		 			sDetailLink += "lfGoDetailMoveChk(\"" + prdCd + "\",\"" + bankType + "\");";					// 상품 상세페이지로 이동 링크
+		 
+		 			// HTML 생성
+		 		
+		 			reHtml += "<div class='qh_box'>";
+		          	reHtml += "<ul class='qh_icon'>";
+		          		if(wrsDsc == '1'){
+		          			reHtml += "<li><img src='/content/nhbank/images/cn/common/ico_deposit02.png' alt='예금'></li>";
+		          		}else if(wrsDsc == '2'){
+		          			reHtml += "<li><img src='/content/nhbank/images/cn/common/ico_trust02.png' alt='신탁'></li>";
+		          		}else if(wrsDsc == '4'){
+		          			reHtml += "<li><img src='/content/nhbank/images/cn/common/ico_loan02.png' alt='대출'></li>";
+		          		}else if(wrsDsc == '5'){
+		          			reHtml += "<li><img src='/content/nhbank/images/cn/common/ico_fund02.png' alt='펀드'></li>";
+		          		}else if(wrsDsc == '6'){
+		          			reHtml += "<li><img src='/content/nhbank/images/cn/common/ico_exchange02.png' alt='외환'></li>";
+		          		}else if(wrsDsc == '7'){
+		          			reHtml += "<li><img src='/content/nhbank/images/cn/common/ico_insurance02.png' alt='보험'></li>";
+		          		}else if(wrsDsc == '9'){
+		          			reHtml += "<li><img src='/content/nhbank/images/cn/common/ico_card02.png' alt='카드'></li>";
+		          		}
+		 			
+		          		reHtml += "</ul>";
+		          		
+		          		if(bankType == '1'){
+		          			reHtml += "<p class='f_right'><img src='/content/nhbank/images/cn/common/icon_pro_recom03.png' alt='농협생명'></p>";
+		          		}else{
+		          			reHtml += "<p class='f_right'><img src='/content/nhbank/images/cn/common/icon_pro_recom02.png' alt='농축협'></p>";
+		          		}
+		          		
+		          		
+		          		reHtml += "<div class='qh_img'><img src=\""+linkUrl+"\" alt='아이콘 이미지'></div>";	
+		              	reHtml += "<div class='qh_tit'><a href='#none' onclick="+sDetailLink+">"+prdCdName+"</a></div>";
+		              	reHtml += "<div class='qh_txt'>"+msgCon+"</div>";
+		              	reHtml += "<div class='qh_btns'>";
+		              	//reHtml += "<div class='qh_btn'>";
+		              	//reHtml += "<a href='#' onclick='contQuickPopupOpne(\""+prdCd+"\",\""+prdCdName+"\",\""+wrsDsc+"\");' class='qh_btn1'>상담하기</a>";
+		              	//reHtml += "</div>";
+		              	reHtml += "</div>";
+		              	reHtml += "</div>";
+		          
+	 			}
+	              	
+	           			if(disp_cnt > 3){break;}
+	 			 
+	 		}catch(e){
+	 			console.log(e.message);
+	 		}  	
+	 			
+ 		}	
+		
+			
+ 		//$('#div_recWrsc_cnt').html(cnt);	
+        $('#div_recWrsc').html(reHtml);		
+		
+}
+
+
+
+
+//상품정보 불러오기 실패
+function lfQuickProductFail(){
+	//$('#div_recWrsc_cnt').html('3');
+	$('#div_recWrsc').load('/content/nhbank/html/cn/quick_default_0001.html');
+}
+
+
+/*
+* 상품상세 이동체크
+* 농협은행 <-> 농축협 이동간 알림메시지 띄움  
+* 상품상세 페이지로 이동
+* 퇴직연금일경우 (예금,펀드) 는 퇴직연금예금(펀드)서비스로 이동
+*/
+
+function lfGoDetailMoveChk(wrsc, prdGbn, prdDsc, dtlDsc){
+	var msg;
+	if(prdGbn == '1'){
+		msg = '농협은행';
+	}else{
+		msg = '농축협';
+	}
+	
+	if(prdGbn != naacDsDtlc){
+		if(confirm(msg + "상품마켓으로 이동하시겠습니까?")) {
+		  if(prdDsc == '8'){
+			
+			  if(dtlDsc == '11'){ //퇴직연금(예금) 페이지
+				  var param = {
+							psnFncWrsDtlDsc1 : dtlDsc,
+							BACK_URL : "SFPS0411R",
+							SF_NAAC_DS_DTLC: dtlDsc
+						};
+					navigate("SFPS0411R",param);
+				}else if(dtlDsc == '21' || dtlDsc == '22' || dtlDsc == '23'|| dtlDsc == '24' || dtlDsc == '25'){ //퇴직연금(펀드) 페이지
+					var param = {
+							psnFncWrsDtlDsc1 : dtlDsc,
+							BACK_URL : "SFPS0430R",
+							SF_NAAC_DS_DTLC: dtlDsc
+						};
+						
+					navigate("SFPS0430R",param);
+				}
+		  }else if(prdDsc == '1'){ //ELF
+			  var param = {
+					  BACK_URL : "SFFDW1010R",
+					  SF_NAAC_DS_DTLC : prdGbn,
+		              psnFncWrsC : wrsc,
+		              detailPsnFncWrsC : wrsc,
+		              listServiceId : "SFFDW1010R"
+					};
+				navigate("SFFDW1010R",param);	 			  
+		  }else if(dtlDsc == '1'){ //모집식
+			  var param = {
+					  BACK_URL : "SFSI0702R",
+					  SF_NAAC_DS_DTLC : prdGbn,
+		              psnFncWrsC : wrsc,
+		              detailPsnFncWrsC : wrsc,
+		              listServiceId : "SFSI0702R"
+
+					};
+				navigate("SFSI0702R",param);	
+		  }else{
+			  sfcn_fGetWrs(wrsc, prdGbn);
+		  } 
+		}else{
+			return false;
+		}
+	}else{
+		
+		if(prdDsc == '8'){
+			if(dtlDsc == '11'){ //퇴직연금(예금) 페이지
+				var param = {
+						psnFncWrsDtlDsc1 : dtlDsc,
+						BACK_URL : "SFPS0411R",
+						SF_NAAC_DS_DTLC: dtlDsc
+					};
+				navigate("SFPS0411R",param);
+			}else if(dtlDsc == '21' || dtlDsc == '22' || dtlDsc == '23'|| dtlDsc == '24' || dtlDsc == '25'){ //퇴직연금(펀드) 페이지
+				var param = {
+						psnFncWrsDtlDsc1 : dtlDsc,
+						BACK_URL : "SFPS0430R",
+						SF_NAAC_DS_DTLC: dtlDsc
+					};
+				navigate("SFPS0430R",param);
+			}
+		  }else if(prdDsc == '1'){ //ELF
+			  var param = {
+						BACK_URL : "SFFDW1010R",
+		                naacDsDtlc : naacDsDtlc,
+		                psnFncWrsC : wrsc
+					};
+				navigate("SFFDW1010R",param);	 			  
+		  }else if(dtlDsc == '1'){ //모집식
+			  var param = {
+					  BACK_URL : "SFSI0702R",
+		                naacDsDtlc : naacDsDtlc,
+		                psnFncWrsC : wrsc
+					};
+				navigate("SFSI0702R",param);			  
+		  }else{
+			  sfcn_fGetWrs(wrsc, prdGbn);
+		} 
+	
+	}
+	
+}
+
+
+
+
+//최근본상품 
+function innerHtmlTodayWrsC(){
+	
+	var todayWrscJson = sfcn_getTodayWrscCookie();
+	var todayWrscArray = todayWrscJson.todayWrsC;   //최근본상품
+	var todayWrscCount = todayWrscArray.length;     //최근본상품건수
+	var html = "";
+	var html_detail = "";
+	var wrsc = "";
+	var sDetailLink = "";
+	var wrscDS;			//상품구분코드
+	var csltPsbYn;  	//상담가능여부
+	var inetEntPsbYn; 	//인터넷가입가능여부
+	var naacDscDtlc;	//은행상호구분
+	
+	$('#today_wrsc').html(todayWrscCount);			//건수세팅
+	
+	
+	if(todayWrscCount > 0){
+		$.each(todayWrscArray, function(i){
+	
+			wrsc = todayWrscArray[i].PSN_FNC_WRS_C;
+			csltPsbYn = todayWrscArray[i].CSLT_PSB_YN;
+			inetEntPsbYn = todayWrscArray[i].INET_ENT_PSB_YN;
+			naacDscDtlc = todayWrscArray[i].NAAC_DS_DTLC;
+			elf_yn = todayWrscArray[i].ELF_YN; //ELF 펀드 여부
+			rctp_unmd_fnd_yn = todayWrscArray[i].RCTP_UNMD_FND_YN; //모집식 펀드 여부
+			
+			wrscDS = wrsc.substring(0,1);   //(1:예금, 2:신탁  4:대출: 5:펀드  6:외환  7:보험  9:카드)
+			
+			var newYn = wrsc.substring(2, 4);
+ 			//신규등록 상품 여부 판단
+ 			//채번규칙 : 은행상호구분(1자리 - 1:은행, 2:상호) + 상품구분(1자리 - 1:예금, 2:신탁, 4:대출, 5:펀드, 6:외환, 7:방카) + 등록년(2자리) + 일련번호(4자리 - 키인)
+
+ 			if (Number(newYn) >= 24) {
+ 				wrscDS = wrsc.substring(1,2);	
+ 			}
+			
+			// 상품 상세페이지로 이동 링크 생성
+ 			sDetailLink = "";
+			
+ 			if(wrscDS == '9'){
+ 				sDetailLink = "common_navigateToContent('/sf/sz/sfsz1015c.thtml');";
+ 			}else{
+ 				//sDetailLink =  "lfGoDetailMoveChk(\"" + wrsc + "\",\"" + naacDscDtlc + "\");";
+ 				sDetailLink =  "lfGoDetailMoveChk(\""+wrsc+"\",\""+naacDscDtlc+"\",\""+elf_yn+"\",\""+rctp_unmd_fnd_yn+"\");";
+ 			}
+			
+			
+			html += "<li>";
+			
+			html += "<ul class='qh_icon'>";
+			if(wrscDS == '1'){
+				html +="<li><img src='/content/nhbank/images/cn/common/ico_deposit02.png' alt='예금'></li>";
+			}else if(wrscDS == '2'){  
+				html +="<li><img src='/content/nhbank/images/cn/common/ico_trust02.png' alt='신탁'></li>";
+			}else if(wrscDS == '4'){
+				html +="<li><img src='/content/nhbank/images/cn/common/ico_loan02.png' alt='대출'></li>";
+			}else if(wrscDS == '5'){
+				html +="<li><img src='/content/nhbank/images/cn/common/ico_fund02.png' alt='펀드'></li>";
+			}else if(wrscDS == '6'){
+				html +="<li><img src='/content/nhbank/images/cn/common/ico_exchange02.png' alt='외환'></li>";
+			}else if(wrscDS == '7'){
+				html +="<li><img src='/content/nhbank/images/cn/common/ico_insurance02.png' alt='보험'></li>";
+			}else if(wrscDS == '9'){
+				html +="<li><img src='/content/nhbank/images/cn/common/ico_card02.png' alt='카드'></li>";
+			}
+			
+			
+			if(todayWrscArray[i].CUS_MN_PV_WRS_YN == '1'){	
+				html +="<li><img src='/content/nhbank/images/cn/common/ico_renewal_state_02.png' alt='인기'></li>";
+			}
+			if(todayWrscArray[i].RCM_WRS_YN == '1'){
+				html +="<li><img src='/content/nhbank/images/cn/common/ico_renewal_state_03.png' alt='추천'></li>";
+			}
+			html += "</ul>";
+			
+			if(naacDscDtlc == '1'){
+				html += "<p class='f_right'><img src='/content/nhbank/images/cn/common/icon_pro_recom03.png' alt='농협생명'></p>";
+			}else{
+				html += "<p class='f_right'><img src='/content/nhbank/images/cn/common/icon_pro_recom02.png' alt='농축협'></p>";
+			}
+			
+			
+			html+="<div class='qh_img'><img src=\""+todayWrscArray[i].WRS_IMG_URLNM+"\" alt='아이콘 이미지'></div>";
+			html+="<div class='qh_tit'><a href='#none' onclick='"+sDetailLink+"'>"+todayWrscArray[i].PSN_FNC_WRSNM+"</a></div>";
+			html+="<div class='qh_txt'>"+todayWrscArray[i].WRS_EXPL+"</div>";
+			html+="<div class='qh_btns'>";
+			html+="<div class='qh_btn'>";
+			
+			if(csltPsbYn == '1'){
+				html+="<a href='#' onclick='contQuickPopupOpne(\""+wrsc+"\",\""+todayWrscArray[i].PSN_FNC_WRSNM+"\",\""+wrscDS+"\");' class='qh_btn1'>상담하기</a>";
+			}
+			if(inetEntPsbYn != '0'){
+				html+="<a href='#none' class='qh_btn2' onclick='lfMoveRegWrsc(\""+wrsc+"\",\""+todayWrscArray[i].PSN_FNC_WRS_C+"\",\""+todayWrscArray[i].WRS_ENT_URLNM+"\",\""+todayWrscArray[i].NAAC_DS_DTLC+"\");' >가입하기</a>";
+			}
+			
+			html+="</div>";
+			html+="</div>";
+			html+="</li>";
+			
+			html_detail+= "<li>";
+			html_detail+="<a href='#none' onclick='"+sDetailLink+"'>"+todayWrscArray[i].PSN_FNC_WRSNM+"</a>";
+			html_detail+= "</li>";
+			
+		
+		});
+		
+	}else{
+		html_detail+= "<li>";
+		html_detail+="최근상품이 없습니다.";
+		html_detail+= "</li>";
+		
+		$('#view_moveBtn').css('display','none');
+	}
+	
+		
+		$.when($("#qh_listView").html(html)).done(function() {
+			$.cycReinit();
+		});
+		
+		$(".quick_list2").html(html_detail);
+		
+	
+}
+
+
+
+/*
+ * 관심상품 새로고침표시 
+ */
+function reLoadInterestWrsc(){
+	
+	httpSend('SFCNQ001S').done(function(data){
+	
+		var sHtml = "";
+		var result = data['list']['interestWrsList'];
+		
+		var prdCd;
+		var prdDsc;
+		var cusMnPvWrsYn;
+		var rcmWrsYn;
+		var psnFncWrsNm;
+		var wrsExpl;
+		var wrsImgUrlNm;
+		var wrsEntUrlNm;
+		var csltPsbYn;		 //상담가능여부
+		var inetEntPsbYn;	 //가입가능여부
+		var naacDsDtlc;		 //중앙회조합구분
+		var wrsC;			 //코어상품코드
+		var psnFncWrsDtlDsc; //상품유형코드
+		
+		var cnt = result.length;
+		var maxcnt = 3;
+		if(cnt < maxcnt){maxcnt = cnt;}
+		
+		for(var i=0;i<maxcnt;i++){
+			
+			 prdCd = result[i]['PSN_FNC_WRS_C'];					//상품코드
+			 prdDsc = result[i]['PSN_FNC_WRS_DSC'];   				//상품구분코드
+			 cusMnPvWrsYn = result[i]['CUS_MN_PV_WRS_YN'];   		//인기상품여부
+			 rcmWrsYn = result[i]['RCM_WRS_YN'];   					//추천상품여부
+			 psnFncWrsNm = result[i]['PSN_FNC_WRSNM'];   			//상품명
+			 wrsExpl = result[i]['WRS_EXPL'];   					//상품설명
+			 wrsImgUrlNm = result[i]['WRS_IMG_URLNM'];   			//아이콘이미지
+			 if(wrsImgUrlNm == ""){
+				 wrsImgUrlNm = "/content/nhbank/images/cn/product/img_sd_ca001.png";
+			 }
+			 wrsEntUrlNm = result[i]['WRS_ENT_URLNM'];   			//가입url
+			 csltPsbYn = result[i]['CSLT_PSB_YN'];					//상담가능여부
+			 inetEntPsbYn = result[i]['INET_ENT_PSB_YN'];			//인터넷가입여부
+			 naacDsDtlc = result[i]['NAAC_DS_DTLC'];				//중앙회조합구분
+			 wrsC = result[i]['WRS_C'];								//코어상품코드
+			 psnFncWrsDtlDsc = result[i]['PSN_FNC_WRS_DTL_DSC1'];	//상품유형코드
+			 
+			sHtml += "<div class='qh_box'>";
+			sHtml += "<ul class='qh_icon'>";
+			  if(prdDsc == '1'){
+				  sHtml += "<li><img src='/content/nhbank/images/cn/common/ico_deposit02.png' alt='예금'></li>";
+			  }else if(prdDsc == '2'){
+				  sHtml += "<li><img src='/content/nhbank/images/cn/common/ico_trust02.png' alt='신탁'></li>";
+			  }else if(prdDsc == '4'){
+				  sHtml += "<li><img src='/content/nhbank/images/cn/common/ico_loan02.png' alt='대출'></li>";
+			  }else if(prdDsc == '5'){
+				  sHtml += "<li><img src='/content/nhbank/images/cn/common/ico_fund02.png' alt='펀드'></li>";
+			  }else if(prdDsc == '6'){
+				  sHtml += "<li><img src='/content/nhbank/images/cn/common/ico_exchange02.png' alt='외환'></li>";
+			  }else if(prdDsc == '7'){
+				  sHtml += "<li><img src='/content/nhbank/images/cn/common/ico_insurance02.png' alt='보험'></li>";
+			  }
+			  
+			  if(cusMnPvWrsYn == '7'){
+				  sHtml += "<li><img src='/content/nhbank/images/cn/common/ico_renewal_state_02.png' alt='인기'></li>";
+			  }
+			  if(rcmWrsYn == '1'){
+				  sHtml += "<li><img src='/content/nhbank/images/cn/common/ico_renewal_state_03.png' alt='추천'></li>";
+			  }
+			sHtml += "</ul>";
+			
+			
+			if(naacDsDtlc == '1'){
+				sHtml += "<p class='f_right'><img src='/content/nhbank/images/cn/common/icon_pro_recom03.png' alt='농협생명'></p>";
+			}else{
+				sHtml += "<p class='f_right'><img src='/content/nhbank/images/cn/common/icon_pro_recom02.png' alt='농축협'></p>";
+			}
+			
+			
+			sHtml += "<div class='qh_img'><img src='"+wrsImgUrlNm+"' alt='아이콘 이미지'></div>";
+			sHtml += "<div class='qh_tit'><a href='#' data-tap='lfGoDetailMoveChk(\""+prdCd+"\",\""+naacDsDtlc+"\",\""+prdDsc+"\",\""+psnFncWrsDtlDsc+"\")'>"+psnFncWrsNm+"</a></div>";
+			sHtml += "<div class='qh_txt'>"+wrsExpl+"</div>";
+			
+			sHtml += "<div class='qh_btns'>";
+			
+				sHtml += "<div class='qh_btn'>";
+				if(csltPsbYn == '1'){
+					sHtml += "<a href='#none' class='qh_btn1' data-tap='contQuickPopupOpne(\""+prdCd+"\",\""+psnFncWrsNm+"\",\""+prdDsc+"\");' class='ph_btn1'>상담하기</a>";
+				}
+				if(inetEntPsbYn != '0' && prdDsc != '8'){
+					sHtml += "<a href='#none' class='qh_btn2' data-tap='lfMoveRegWrsc(\""+wrsC+"\",\""+prdCd+"\",\""+wrsEntUrlNm+"\",\""+naacDsDtlc+"\");' class='qh_btn2'>가입하기</a>";
+				}
+				if(prdDsc == '8'){
+					sHtml += "<span class='btn_table btnbg2' style='width: 65px;'>영업점가입</span>";
+				}
+				sHtml += "</div>";
+				
+			sHtml +="</div>";
+			
+			sHtml += "</div>";
+			
+		}
+		
+		$('#inet_cnt').html(cnt);
+		$('#div_interestWrsc').html(sHtml);
+		
+	});
+
+	
+}
+
+
+/*
+ * 상품보관함 새로고침표시
+ */
+
+function reLoadCartWrsc(){
+	
+	
+	httpSend('SFCNQ001S').done(function(data){
+		var sHtml = "";
+		var result = data['list']['cartWrsList'];
+		
+		var prdCd;
+		var prdDsc;
+		var cusMnPvWrsYn;
+		var rcmWrsYn;
+		var psnFncWrsNm;
+		var wrsExpl;
+		var wrsImgUrlNm;
+		var wrsEntUrlNm;
+		var rgDt;
+		var naacDsDtlc;
+		var wrsC;		
+		var psnEpbnkDsc;
+		
+		var cnt = result.length;
+		var maxcnt = 3;
+		if(cnt < maxcnt){maxcnt = cnt;}
+		
+		for(var i=0;i<maxcnt;i++){
+		
+			 prdCd = result[i]['PSN_FNC_WRS_C'];				//상품코드
+			 prdDsc = result[i]['PSN_FNC_WRS_DSC'];   			//상품구분코드
+			 cusMnPvWrsYn = result[i]['CUS_MN_PV_WRS_YN'];   	//인기상품여부
+			 rcmWrsYn = result[i]['RCM_WRS_YN'];   				//추천상품여부
+			 psnFncWrsNm = result[i]['PSN_FNC_WRSNM'];   		//상품명
+			 wrsExpl = result[i]['WRS_EXPL'];   				//상품설명
+			 wrsImgUrlNm = result[i]['WRS_IMG_URLNM'];   		//아이콘이미지
+			 wrsEntUrlNm = result[i]['WRS_ENT_URLNM'];   		//가입url
+			 rgDt = result[i]['RG_DT'];   						//등록일자
+			 menuStpSqno = result[i]['MENU_STP_SQNO'];			//메뉴입력단계
+			 naacDsDtlc = result[i]['NAAC_DS_DTLC'];			//중앙회조합구분
+			 wrsC = result[i]['WRS_C'];							//코어상품코드
+			 psnEpbnkDsc = result[i]['PSN_EPBNK_DSC'];			//개인기업스마트구분
+			 
+			sHtml += "<div class='qh_box'>";
+			sHtml += "<ul class='qh_icon'>";
+			  if(prdDsc == '1'){
+				  sHtml += "<li><img src='/content/nhbank/images/cn/common/ico_deposit02.png' alt='예금'></li>";
+			  }else if(prdDsc == '2'){
+				  sHtml += "<li><img src='/content/nhbank/images/cn/common/ico_trust02.png' alt='신탁'></li>";
+			  }else if(prdDsc == '4'){
+				  sHtml += "<li><img src='/content/nhbank/images/cn/common/ico_loan02.png' alt='대출'></li>";
+			  }else if(prdDsc == '5'){
+				  sHtml += "<li><img src='/content/nhbank/images/cn/common/ico_fund02.png' alt='펀드'></li>";
+			  }else if(prdDsc == '6'){
+				  sHtml += "<li><img src='/content/nhbank/images/cn/common/ico_exchange02.png' alt='외환'></li>";
+			  }else if(prdDsc == '7'){
+				  sHtml += "<li><img src='/content/nhbank/images/cn/common/ico_insurance02.png' alt='보험'></li>";
+			  }
+			  
+			  if(cusMnPvWrsYn == '7'){
+				  sHtml += "<li><img src='/content/nhbank/images/cn/common/ico_renewal_state_02.png' alt='인기'></li>";
+			  }
+			  if(rcmWrsYn == '1'){
+				  sHtml += "<li><img src='/content/nhbank/images/cn/common/ico_renewal_state_03.png' alt='추천'></li>";
+			  }
+			sHtml += "</ul>";
+			
+			if(naacDsDtlc == '1'){
+				sHtml += "<p class='f_right'><img src='/content/nhbank/images/cn/common/icon_pro_recom03.png' alt='농협생명'></p>";
+			}else{
+				sHtml += "<p class='f_right'><img src='/content/nhbank/images/cn/common/icon_pro_recom02.png' alt='농축협'></p>";
+			}
+			
+			
+			sHtml += "<div class='qh_img'><img src='"+wrsImgUrlNm+"' alt='아이콘 이미지'></div>";
+			sHtml += "<div class='qh_tit'><a href='#' data-tap='lfGoDetailMoveChk(\""+prdCd+"\",\""+naacDsDtlc+"\")'>"+psnFncWrsNm+"</a></div>";
+			sHtml += "<div class='qh_txt'>"+wrsExpl+"</div>";
+			sHtml += "<div class='qh_date'>"+format_cfDateTypeFormat(rgDt)+"</div>";
+			
+			sHtml += "<div class='qh_btns'>";
+			
+				sHtml += "<div class='qh_btn'>";
+				sHtml += "<a href='#none' class='qh_btn1' data-tap='popup_cfWinOpenContactOpen(\""+prdCd+"\",\""+psnFncWrsNm+"\",\""+prdDsc+"\");' class='ph_btn1'>상담하기</a>";
+				
+				if(prdDsc != '7'){
+					sHtml += "<a href='#none' class='qh_btn2' data-tap='lfMoveRegCartWrsc(\""+wrsC+"\",\""+prdCd+"\",\""+wrsEntUrlNm+"\",\""+naacDsDtlc+"\",\""+menuStpSqno+"\",\""+psnEpbnkDsc+"\"); class='qh_btn2'>가입하기</a>";
+				}
+				sHtml += "</div>";
+				
+			sHtml +="</div>";
+			sHtml += "</div>";
+			
+		}	
+
+		$('#cart_cnt').html(cnt);
+		$('#div_cartWrsc').html(sHtml);
+		
+	});
+	
+}
+
+
+
+function contQuickPopupOpne(psnFncWrsC, psnFncWrsnm, psnFncWrsDsc) {
+	var param = {
+		"psnFncWrsC" : psnFncWrsC,
+		"psnFncWrsnm" : psnFncWrsnm,
+		"psnFncWrsDsc" : psnFncWrsDsc
+	};
+	popup_cfLayerOpen('SFSA0150P', param);
+}
+
+/*
+ * 상품가입하기 서비스로 이동 (최근본상품,관심상품)
+ * wrsc : 코어 상품코드
+ * psnFncWrsC : e금융상품코드
+ * entUrl : 상품가입url
+ * listServiceId : 가입취소시 이동할 상품목록 서비스
+ * naacDscDtlc : 농협은행/상호금융 구분코드
+ */
+
+function lfMoveRegWrsc(wrsC, psnFncWrsC, entUrl, naacDscDtlc){
+	 var regUrl = entUrl.toUpperCase().substring(0,2);
+	 var psnFncDsc = psnFncWrsC.substring(0,1);
+	 var newYn = psnFncWrsC.substring(2, 4);
+
+	// 신규등록 상품 여부 판단
+	// 상품코드 채번규칙 : 은행상호구분(1자리 - 1:은행, 2:상호) + 상품구분(1자리 - 1:예금, 2:신탁, 4:대출, 5:펀드, 6:외환, 7:방카) + 등록년(2자리) + 일련번호(4자리 - 키인)
+	if (Number(newYn) >= 24) {
+		psnFncDsc = psnFncWrsC.substring(1,2);	
+	}
+	
+	 var menu_id;
+	 
+	 if(psnFncDsc == '6'){
+		 if(regUrl == 'IP'){
+			 entUrl = 'SFEF065AI';
+		 }
+	 
+	 }else if(psnFncDsc == '1'){
+		 
+		 if(regUrl == 'IP'){
+			 	entUrl = "SFDT0081I";
+
+			    if(psnFncWrsC=="10000587" || psnFncWrsC=="10000004" || psnFncWrsC=="10000019") {
+			    	entUrl = "SFDT0091I";      // 주택
+			    	
+			    }else if(psnFncWrsC=="10000030") {
+			       	entUrl = "SFDT0101I";      // 아이계좌
+			       	
+			    }else if(psnFncWrsC=="10000751" || psnFncWrsC=="10000752") {
+			       	entUrl = "SFSE0370R";      // 꿈이룸 (SFDT0111I) : 농협
+			       	
+			    }else if(psnFncWrsC=="10000753" || psnFncWrsC=="10000754") {
+			    	entUrl = "SFSE0360R";      // 꿈이룸 (SFDT0111I) : 농축협
+			    	
+			    }else if(psnFncWrsC=="10000832") {
+			    	entUrl = "SFDT0071I";      // NH All100플랜 연금예금
+			    }
+		 }
+	 	
+	 }else{
+		 if(regUrl == 'IP'){
+			 entUrl = 'SF' + entUrl.substring(2);
+		 }
+	 } 	 
+	 
+	 /* 예금가입 이동 */
+	 if(psnFncDsc == '1'){
+		
+		 if(naacDscDtlc == "1"){
+			 menu_id = dp_nh;
+		 }else{
+			 menu_id = dp_sangho;
+		 }
+		 
+		//영업시간 체크
+			if ("1605" < "0030" || "1605" > "2400"){ 
+				alert("예금상품  신규가입은 00시30분 ~ 24시 가능합니다.\n(단, 채움상품등 일부 개별상품에 따라 상품가입시간이  다를 수 있습니다.)"); //가입테스트 주석처리 했습니다 개인뱅킹 전석훈
+				return;
+			}
+		
+		
+		//로그인 체크
+			if(!false) {
+				if(confirm("가입하기는 공동인증서 로그인 후 이용 가능합니다.\n로그인 하시겠습니까?")) {
+					//꿈이룸 분기
+					//  농협-적금                                         농축협-적금                                     농협-정기예금                                   농축협-정기예금
+					
+					var param1 = {
+							"LOCAL_PREVIOUS_SERVICE_ID": entUrl,
+							"_Login_Before_data": 'Y',
+							"SF_NAAC_DS_DTLC": naacDscDtlc,
+							"prodNewCD": wrsC,
+							"psnFncWrsC": psnFncWrsC,
+							"productCd" : psnFncWrsC,
+							"menu_id": menu_id
+					};
+					navigateIP(certLoginUrl, param1);
+					return;
+				} else {
+					return;
+				}
+			
+			}
+		
+			var param = {
+					"prodNewCD": wrsC,
+					"SF_NAAC_DS_DTLC": naacDscDtlc,
+					"psnFncWrsC": psnFncWrsC,
+					"productCd" : psnFncWrsC,
+					"menu_id": menu_id
+				};
+
+			
+				navigateIP(entUrl, param);
+		
+		
+	 }else if(psnFncDsc == '2'){	//신탁
+		
+		 if(naacDscDtlc == "1"){
+			 menu_id = st_nh;
+		 }else{
+			 menu_id = st_sangho;
+		 }
+	 
+		//로그인 체크
+			if(!false) {
+				if(confirm("가입하기는 공동인증서 후 이용 가능합니다.\n로그인 하시겠습니까?")) {
+					var param1 = {
+							"LOCAL_PREVIOUS_SERVICE_ID": entUrl,
+							"_Login_Before_data": 'Y',
+							"SF_NAAC_DS_DTLC": naacDscDtlc,
+							"psnFncWrsC": psnFncWrsC,
+							"wrsC" : wrsC,
+							"BACK_URL": "SFBCW0000R",
+							"listServiceId": "SFSTW0020R",
+							"menu_id": menu_id
+					};
+					
+					navigateIP(certLoginUrl, param1);
+					return;
+				} else {
+					return;
+				}
+			}
+	 
+			var param = {
+					"psnFncWrsC": psnFncWrsC,
+					"wrsC" : wrsC,
+					"SF_NAAC_DS_DTLC": naacDscDtlc,
+					"BACK_URL": "SFBCW0000R",
+					"listServiceId": "SFST0020R",
+					"menu_id": menu_id
+				};
+			navigateIP(entUrl, param);
+	 	 
+	 }else if(psnFncDsc == '4'){	//대출
+	 
+		//로그인 체크
+			if(!false) {
+				if(confirm("가입하기는 공동인증서 후 이용 가능합니다.\n로그인 하시겠습니까?")) {
+					var param1 = {
+							"LOCAL_PREVIOUS_SERVICE_ID": entUrl,
+							"_Login_Before_data": 'Y',
+							"SF_NAAC_DS_DTLC": naacDscDtlc,
+							"psnFncWrsC": psnFncWrsC,
+							"BACK_URL": "SFBCW0000R",
+							"listServiceId": "SFLNW2100R",
+							"menu_id": menu_id
+					};
+					
+				
+					navigateIP(certLoginUrl, param1);
+					return;
+				} else {
+					return;
+				}
+			}
+	 
+			var param = {
+					"psnFncWrsC": psnFncWrsC,
+					"BACK_URL": "SFBCW0000R",
+					"SF_NAAC_DS_DTLC": naacDscDtlc,
+					"listServiceId": "SFLNW2100R",
+					"menu_id": menu_id
+				};
+			navigateIP(entUrl, param);
+	 
+	 
+	 }else if(psnFncDsc == '5'){	//펀드
+	 
+		 if(naacDscDtlc == "1"){
+			 menu_id = fnd_nh;
+		 }else{
+			 menu_id = fnd_sangho;
+		 }
+			//영업시간 체크
+			if ("1605" < "0900" || "1605" > "2200"){
+				alert("펀드 신규개설은 09시부터 22시까지 가능합니다.");
+				return;
+			}
+	 
+			//로그인 체크
+			if(!false) {
+				if(confirm("가입하기는 로그인 후 이용 가능합니다.\n로그인 하시겠습니까?")) {
+					var param1 = {
+							"LOCAL_PREVIOUS_SERVICE_ID": entUrl,
+							"_Login_Before_data": 'Y',
+							"SF_NAAC_DS_DTLC": naacDscDtlc,
+							"fundCode": wrsC,
+							"menu_id": menu_id
+					};
+					
+					
+					navigateIP(certLoginUrl, param1);
+					return;
+				} else {
+					return;
+				}
+			}
+			var param = {
+					"SF_NAAC_DS_DTLC": naacDscDtlc,
+					"fundCode": wrsC,
+					"menu_id": menu_id
+			};
+			navigateIP(entUrl, param);
+	 
+	 }else if(psnFncDsc == '6'){	//외환
+	 	
+		//로그인 체크
+			if(!false) {
+				if(confirm("가입하기는 로그인 후 이용 가능합니다.\n로그인 하시겠습니까?")) {
+					var param1 = {
+							"LOCAL_PREVIOUS_SERVICE_ID": entUrl,
+							"_Login_Before_data": 'Y',
+							"SF_NAAC_DS_DTLC": naacDscDtlc,
+							"PSN_FNC_WRS_C": psnFncWrsC,
+							"BACK_URL": "SFBCW0000R",
+							"listServiceId": "SFSF0611I",
+							"menu_id" : menu_id
+					};
+					
+					
+					navigateIP(certLoginUrl, param1);
+					return;
+				} else {
+					return;
+				}
+			}
+	 
+			var param = {
+					"PSN_FNC_WRS_C": psnFncWrsC,
+					"SF_NAAC_DS_DTLC": naacDscDtlc,
+					"BACK_URL": "SFBCW0000R",
+					"listServiceId": "SFSF0611I",
+					"menu_id" : menu_id
+					};
+	 
+	 
+			navigateIP(entUrl, param);
+	 }
+	 
+	 
+}
+
+
+/*
+ * 장바구니에서 상품가입하기 서비스로 이동
+ * wrsc : 코어 상품코드
+ * psnFncWrsC : e금융상품코드
+ * entUrl : 상품가입url
+ * listServiceId : 가입취소시 이동할 상품목록 서비스
+ * naacDscDtlc : 농협은행/상호금융 구분코드
+ */
+
+function lfMoveRegCartWrsc(wrsC, psnFncWrsC, entUrl, naacDscDtlc, menuStpSqno, psnDsc){
+	 
+	 if(psnDsc == '3'){
+		 alert('해당상품은 스마트뱅킹 보관함에서 저장된 상품입니다.\n확인을 누르시면 보관함으로 이동합니다.');
+		 navigate('SFMY0051R');
+		 return false;
+	 }
+	 
+	 var regUrl = entUrl.toUpperCase().substring(0,2);
+	 var psnFncDsc = psnFncWrsC.substring(0,1);
+	 var newYn = psnFncWrsC.substring(2, 4);
+
+	// 신규등록 상품 여부 판단
+		// 상품코드 채번규칙 : 은행상호구분(1자리 - 1:은행, 2:상호) + 상품구분(1자리 - 1:예금, 2:신탁, 4:대출, 5:펀드, 6:외환, 7:방카) + 등록년(2자리) + 일련번호(4자리 - 키인)
+	if (Number(newYn) >= 24) {
+		psnFncDsc = psnFncWrsC.substring(1,2);	
+	}
+	
+	 var menu_id;
+	 
+	 //외환일경우
+	 if(psnFncDsc == '6'){
+		 if(regUrl == 'IP'){
+			 entUrl = 'SFEF065AI';
+		 }
+	 }else if(psnFncDsc == '1'){
+		 if(regUrl == 'IP'){
+			 	entUrl = "SFDT0081I";
+
+			    if(psnFncWrsC=="10000587" || psnFncWrsC=="10000004" || psnFncWrsC=="10000019") {
+			    	entUrl = "SFDT0091I";      // 주택
+			    	
+			    }else if(psnFncWrsC=="10000030") {
+			       	entUrl = "SFDT0101I";      // 아이계좌
+			       	
+			    }else if(psnFncWrsC=="10000751" || psnFncWrsC=="10000752") {
+			       	entUrl = "SFSE0370R";      // 꿈이룸 (SFDT0111I) : 농협
+			       	
+			    }else if(psnFncWrsC=="10000753" || psnFncWrsC=="10000754") {
+			    	entUrl = "SFSE0360R";      // 꿈이룸 (SFDT0111I) : 농축협
+			    	
+			    }else if(psnFncWrsC=="10000832") {
+			    	entUrl = "SFDT0071I";      // NH All100플랜 연금예금
+			    }
+		 }
+	
+	 }else{
+		 if(regUrl == 'IP'){
+			 entUrl = 'SF' + entUrl.substring(2);
+		 }
+	 } 	 
+	 
+	 /* 예금가입 이동 */
+	 if(psnFncDsc == '1'){
+		
+		 if(naacDscDtlc == "1"){
+			 menu_id = dp_nh;
+		 }else{
+			 menu_id = dp_sangho;
+		 }
+		 
+		 
+		//영업시간 체크
+			if ("1605" < "0030" || "1605" > "2400"){ 
+				alert("예금상품  신규가입은 00시30분 ~ 24시 가능합니다.\n(단, 채움상품등 일부 개별상품에 따라 상품가입시간이  다를 수 있습니다.)"); //가입테스트 주석처리 했습니다 개인뱅킹 전석훈
+				return;
+			}
+		
+		//로그인 체크
+			if(!false) {
+				if(confirm("가입하기는 공동인증서 로그인 후 이용 가능합니다.\n로그인 하시겠습니까?")) {
+					
+					var param1 = {
+							"LOCAL_PREVIOUS_SERVICE_ID": entUrl,
+							"_Login_Before_data": 'Y',
+							"prodNewCD": wrsC,
+							"psnFncWrsC": psnFncWrsC,
+							"productCd" : psnFncWrsC,
+							"SF_NAAC_DS_DTLC": naacDscDtlc,
+							"menu_id": menu_id,
+							"CART_YN" : "1",
+							"menuStpSqno":menuStpSqno
+					};
+					navigateIP(certLoginUrl, param1);
+					return;
+				} else {
+					return;
+				}
+			
+			}
+		
+			var param = {
+		    		"CART_YN" : "1",
+		            "prodNewCd": wrsC,
+		            "psnFncWrsC": psnFncWrsC,
+		            "BACK_URL": "SFBCW0000R",
+		            "listServiceId": "SFDPW0100R",
+		            "SF_NAAC_DS_DTLC" : naacDscDtlc,
+		            "menu_id": menu_id
+		    };
+		    
+		    navigateIP(entUrl, param);
+		    
+	 }else if(psnFncDsc == '2'){	//신탁
+		
+		//로그인 체크
+			if(!false) {
+				if(confirm("가입하기는 공동인증서 후 이용 가능합니다.\n로그인 하시겠습니까?")) {
+					var param1 = {
+							"LOCAL_PREVIOUS_SERVICE_ID": entUrl,
+							"_Login_Before_data": 'Y',
+							"psnFncWrsC": psnFncWrsC,
+							"wrsC" : wrsC,
+							"SF_NAAC_DS_DTLC" : naacDscDtlc,
+							"BACK_URL": "SFBCW0000R",
+							"listServiceId": "SFSTW0020R",
+							"CART_YN" : "1",
+							"menu_id": menu_id,
+							"menuStpSqno":menuStpSqno
+					};
+					
+					navigateIP(certLoginUrl, param1);
+					return;
+				} else {
+					return;
+				}
+			}
+	 
+			var param = {
+					"psnFncWrsC": psnFncWrsC,
+					"wrsC" : wrsC,
+					"SF_NAAC_DS_DTLC" : naacDscDtlc,
+					"BACK_URL": "SFBCW0000R",
+					"listServiceId": "SFSTW0020R",
+					"CART_YN" : "1",
+					"menu_id": menu_id,
+					"menuStpSqno":menuStpSqno
+				};
+			navigateIP(entUrl, param);
+	 	 
+	 }else if(psnFncDsc == '4'){	//대출
+	 
+		//로그인 체크
+			if(!false) {
+				if(confirm("가입하기는 공동인증서 후 이용 가능합니다.\n로그인 하시겠습니까?")) {
+					var param1 = {
+							"LOCAL_PREVIOUS_SERVICE_ID": entUrl,
+							"_Login_Before_data": 'Y',
+							"SF_NAAC_DS_DTLC" : naacDscDtlc,
+							"psnFncWrsC": psnFncWrsC,
+							"BACK_URL": "SFBCW0000R",
+							"listServiceId": "SFLNW2100R",
+							"CART_YN" : "1",
+							"menu_id": menu_id,
+							"menuStpSqno":menuStpSqno
+					};
+					
+				
+					navigateIP(certLoginUrl, param1);
+					return;
+				} else {
+					return;
+				}
+			}
+	 
+			var param = {
+					"psnFncWrsC": psnFncWrsC,
+					"SF_NAAC_DS_DTLC" : naacDscDtlc,
+					"BACK_URL": "SFBCW0000R",
+					"listServiceId": "SFLNW2100R",
+					"CART_YN" : "1",
+					"menu_id": menu_id,
+					"menuStpSqno":menuStpSqno
+				};
+			navigateIP(entUrl, param);
+	 
+	 
+	 }else if(psnFncDsc == '5'){	//펀드
+	 
+		 if(naacDscDtlc == "1"){
+			 menu_id = fnd_nh;
+		 }else{
+			 menu_id = fnd_sangho;
+		 }
+		 
+	     //영업시간 체크
+			if ("1605" < "0900" || "1605" > "2200"){
+				alert("펀드 신규개설은 09시부터 22시까지 가능합니다.");
+				return;
+			}
+	 
+			//로그인 체크
+			if(!false) {
+				if(confirm("가입하기는 로그인 후 이용 가능합니다.\n로그인 하시겠습니까?")) {
+					var param1 = {
+							"LOCAL_PREVIOUS_SERVICE_ID": entUrl,
+							"_Login_Before_data": 'Y',
+							"SF_NAAC_DS_DTLC" : naacDscDtlc,
+							"fundCode": psnFncWrsC,
+							"psnFncWrsC": psnFncWrsC,
+							"wrsC": wrsC,
+							"menu_id": menu_id,
+							"CART_YN" : "1",
+							"menuStpSqno":menuStpSqno
+					};
+					
+					
+					navigateIP(certLoginUrl, param1);
+					return;
+				} else {
+					return;
+				}
+			}
+			var param = {
+					"fundCode": psnFncWrsC,
+					"psnFncWrsC": psnFncWrsC,
+					"SF_NAAC_DS_DTLC" : naacDscDtlc,
+					"wrsC": wrsC,
+					"menu_id": menu_id,
+					"CART_YN" : "1",
+					"menuStpSqno":menuStpSqno
+			};
+			navigateIP(entUrl, param);
+	 
+	 }else if(psnFncDsc == '6'){	//외환
+	 	
+		 if(naacDscDtlc == "1"){
+			 menu_id = sz_nh;
+		 }else{
+			 menu_id = sz_sangho;
+		 }
+	 
+		 //로그인 체크
+			if(!false) {
+				if(confirm("가입하기는 로그인 후 이용 가능합니다.\n로그인 하시겠습니까?")) {
+					var param1 = {
+							"LOCAL_PREVIOUS_SERVICE_ID": entUrl,
+							"_Login_Before_data": 'Y',
+							"PSN_FNC_WRS_C": psnFncWrsC,
+							"SF_NAAC_DS_DTLC" : naacDscDtlc,
+							"BACK_URL": "SFBCW0000R",
+							"listServiceId": "SFSF0611I",
+							"menu_id" : menu_id,
+							"CART_YN" : "1",
+							"menuStpSqno":menuStpSqno
+					};
+					
+					
+					navigateIP(certLoginUrl, param1);
+					return;
+				} else {
+					return;
+				}
+			}
+	 
+			var param = {
+					"PSN_FNC_WRS_C": psnFncWrsC,
+					"SF_NAAC_DS_DTLC" : naacDscDtlc,
+					"BACK_URL": "SFBCW0000R",
+					"listServiceId": "SFSF0611I",
+					"menu_id" : menu_id,
+					"CART_YN" : "1",
+					"menuStpSqno":menuStpSqno
+					};
+	 
+	 
+			navigateIP(entUrl, param);
+	 }
+	 
+}
+
+function gologging(gubun){
+	//n_click_logging('https://' + document.location.hostname + '/wlarea.do?area01=smartmarket&area02=bnk&area03=' + gubun);
+}
+
+
+function setQuickState(obj) {
+	setCookie('quickState', obj.className);	
+}
+</script>
+
+<div class="quick_control" onclick="gologging('quic00100');">
+	<a href="#" class="quick_left" onclick="setQuickState(this)">열기</a>
+	<a href="#" class="quick_right" onclick="setQuickState(this)">닫기</a>
+</div>
+<ul class="quick_dlist">
+
+			<!-- 로그인 -->
+			<li class="nav_login">
+				<a href="#none" data-tap="gologging('quic00200');goLogin('SFBCW0000R', {});return false;">로그인</a>
+			</li>
+			<!-- //로그인 -->
+
+
+<!-- 	<li class="nav_my"><a href="#" data-tap="gologging('quic00300');navigate('SFMY0001M');return false;">My금융센터</a></li> -->
+</ul>
+<!-- 최근 상품 -->
+<div class="quick_list_lay" onclick="gologging('quic00400');">
+	<div class="quick_box">
+		<a href="#">
+			<em class="quick_txt">최근 상품</em>
+			<em class="quick_num type2" id="today_wrsc">0</em>
+		</a>
+	</div>
+	<div class="quick_list_slide">
+		<ul class="quick_list2">
+			
+		</ul>
+	</div>
+</div>
+<!-- 최근 상품 -->
+<!-- 이용 가이드 -->
+<ul class="quick_etc_list">		
+		<li class="quick_calculator"><a href="#" data-tap="popup_cfLayerOpen('SFSTW1900P'); return false;">금융계산기</a></li>
+<!-- 	<li class="quick_etc_link">
+		<a title="새창열림" href="#none" onclick="common_toBankPopup('IPQK0011R','IPQK0011R','width=850,height=678');return false;">빠른 <em>조회·이체</em></a>
+	</li> -->
+			<!-- [2024.차세대] My금융센터 삭제 -->
+			<!--	
+	<li class="quick_event">
+		<a href="#" data-tap="gologging('quic00700');navigate('SFEV0011R');return false;">이벤트</em></a>
+	</li>
+	-->
+</ul>
+<!-- 이용 가이드 -->
+<!-- 가가가 -->
+<ul class="quick_font_size">
+	<li class="font_size1"><a href="#" title="화면크기 기본크기로 보기">가</a></li>
+	<li class="font_size2"><a href="#" title="화면크기 중간크기로 보기">가</a></li>
+	<li class="font_size3"><a href="#" title="화면크기 큰크기로 보기">가</a></li>
+</ul>
+<!-- 가가가 -->
+<!-- go Top -->
+<a href="#" class="quick_scroll_top">TOP</a>
+<!-- go Top -->
+	</div>
+	<!-- //quickmenu -->
+
+  
+	<div id="footer" class="dev2017 dev2023">
+        
+
+
+
+
+
+
+
+
+
+
+<script type="text/javascript" src="/service/js/cp/sfcp_js_common.js"></script>
+<script type="text/javascript">
+
+var naacDsDtlc = "2";
+var serviceId = "SFDPW0163R";
+
+$.alopexready(function() {
+
+	if(naacDsDtlc == '1'){
+		
+
+		$('#footerMiddle').load('/content/nhbank/html/cn/footer_middle.html');
+		$('#footerBottom').load('/content/nhbank/html/cn/footer_bottom.html');
+		
+	} else if(naacDsDtlc == '2') {
+// 		$('#footerTop').load('/content/nhsangho/html/cn/footer_top.html');
+		var footerMid = '';
+		var footerBot = '';
+		footerMid += '<div id="footer_lay1">';
+		footerMid += '<div class="main_link_wrap">';
+        footerMid += '<ul class="advice_list">';
+        footerMid += '<li class="list01"><a href="#" data-tap="navigate(\'SFDPW0160R\'); return false;">금리조회</a></li>';
+		footerMid += '<li class="list02"><a href="#" data-tap="navigate(\'SFSTW1030R\', {nextSrv:\'SFSTW1200R\'}); return false;">채팅상담</a></li>';
+		footerMid += '<li class="list03"><a href="#" data-tap="navigate(\'SFSTW1030R\', {nextSrv:\'SFSTW1300R\'}); return false;">이메일상담</a></li>';
+		footerMid += '<li class="list04"><a href="#" data-tap="navigate(\'SFSTW1030R\', {nextSrv:\'SFSTW1100R\'}); return false;">전화상담</a></li>';
+        footerMid += '<li class="list05"><a href="#" data-tap="common_navigateToContent(\'/nhsangho/ec/WEBNMFEC811000.thtml\'); return false;">이용안내</a></li></ul></div></div>';	
+        
+        footerBot += '<div id="footer_lay2" class="footerMenu">';
+       	footerBot += '<div class="footer_auto">';
+    	footerBot += '<ul class="footer_menu_list">';
+   		footerBot += '<li><a href="#" data-tap="common_toBank(\'/ip/ec/IPEC0500M.thtml\')">보안센터</a></li>';
+  		footerBot += '<li><a href="#" data-tap="common_toBank(\'/ip/ec/ipec0209c.thtml\')">전자민원접수</a></li>';
+  		footerBot += '<li><a href="#" data-tap="common_toBank(\'/ip/ec/ipec0522c.thtml\')" class="fc_point10">개인정보처리(취급)방침</a></li>';
+  		footerBot += '<li><a href="#" data-tap="common_navigateToContent(\'/nhsangho/pd/WEBNMFPD610000c.thtml\',{menu_id:\'SFZZ16\'})">상품공시실</a></li></ul>';
+ 		footerBot += '<div class="footer_btn_box">';
+ 		footerBot += '<a href="#none" data-tap="sfcn_fGlobalLink(\'IPAL\');return false;" title="새창열림">농•축협소개</a>';
+ 		footerBot += '<a href="#none" data-tap="sfcn_fGlobalLink(\'IPNB\');return false;" title="새창열림">농협은행소개</a></div></div><div>';
+ 		footerBot +='<div id="footer_box">';
+ 		footerBot += '<div class="footer_logo"><img src="/content/nhsangho/images/cn/main/new/footer_logo.png" alt="NH농협"></div>';
+ 		footerBot += '<div class="footer_copright">';
+ 		footerBot += '<p class="copright_txt">국내 <em>1661-2100, 1522-2100</em> 해외 <em>82-2-3704-1004</em> 카드  <em>1644-4000</em> 금융상품상담 <em>1600-2800</em> <br>상담시간 : 평일09시~18시(공휴일제외)</p>';
+ 		footerBot += '<a href="#" data-tap="common_toBank(\'/ip/ne/ipne1252c.thtml\')" class="copright_btn">ARS코드안내</a>';
+ 		footerBot += '<p class="copright">COPYRIGHT © 2018 NH농협 ALL RIGHT RESERVED.</p></div>';
+ 		footerBot += '<div class="logo_wa"><a title="새창열기" href="http://www.wa.or.kr/board/list.asp?BoardID=0006" target="_blank"><img src="/content/nhbank/images/cn/main/new/bg_wa.png" alt="WA. 과학기술정보통신부 WEB ACCESSIBILITY (사)한국장애인단체총연합회 한국웹접근성인증평가원" width="100"></a></div></div></div>';
+
+		// $('#footerMiddle').load('/content/nhsangho/html/cn/footer_middle.html');
+        $('#footerMiddle').html(footerMid);
+ 		// $('#footerBottom').load('/content/nhsangho/html/cn/footer_bottom.html');
+		$('#footerBottom').html(footerBot);
+	}
+
+});
+
+// 자산관리 금융계산기
+function smartCal(){
+	popup_cfLayerOpen('SFMM5110I');
+}
+
+ /*
+ *스마트상담센터로 이동
+ */
+ function lfMoveSmartCenter(ServiceID, psnFncWrsDsc){
+	 if(!false) {
+			if(confirm("상담문의는 로그인 후 이용 가능합니다.\n로그인 하시겠습니까?")) {
+				var param1 = {
+						"LOCAL_PREVIOUS_SERVICE_ID": ServiceID,
+						"_Login_Before_data": 'Y',
+						"psnFncWrsDsc": psnFncWrsDsc 
+				};
+				navigate('SFBCW0000R', param1);
+				return;
+			} else {
+				return;
+			}
+		}
+	
+	 //체팅상담일경우 상품구분코드없이 Navigate
+	 if(ServiceID == 'SFSTW1200P'){
+		 navigate(ServiceID);
+	 }else{
+		navigate(ServiceID, {"psnFncWrsDsc":psnFncWrsDsc}); 
+ 	 }
+ } 
+
+</script>
+
+<!-- 하단영역 베너추가 (3개) -->
+<!-- <div id="footer_banner"></div> -->
+
+<!-- NH스마트금융센터 스마트상담센터 안내 -->
+<div id="footerTop">
+</div>
+	
+<!-- 부가서비스 -->
+<div id="footerMiddle"></div>
+	
+<!-- COPYRIGHT -->
+<div id="footerBottom"></div>
+
+    </div><!-- //footer -->
+
+</div><!-- //wrapper -->
+</body>
+</html>
