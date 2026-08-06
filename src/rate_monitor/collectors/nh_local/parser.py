@@ -13,6 +13,7 @@ GET 두 번이다.
 import re
 from datetime import date
 from hashlib import sha256
+from html import unescape
 from typing import NamedTuple
 
 from rate_monitor.collectors.base import SchemaChangedError
@@ -51,8 +52,19 @@ DETAIL_CAPTION = "금리 상세정보"
 
 
 def _text(raw: str) -> str:
-    """태그를 걷어내고 공백을 하나로. `<br>`은 줄바꿈 대신 공백으로 둔다."""
-    return re.sub(r"\s+", " ", _TAG.sub(" ", raw)).replace("&nbsp;", " ").strip()
+    """태그를 걷어내고 공백을 하나로. `<br>`은 줄바꿈 대신 공백으로 둔다.
+
+    순서가 중요하다. **태그를 먼저 걷고, 그 다음에 엔티티를 풀고, 마지막에
+    공백을 줄인다.**
+
+    엔티티를 먼저 풀면 `&lt;table&gt;` 같은 글자가 태그가 되어 통째로
+    사라진다. 공백을 먼저 줄이면 `&nbsp;`가 아직 글자라서 안 줄고, 풀린
+    뒤에 공백 뭉치로 남는다.
+
+    >>> _text("<td>- 대상예금 &lt;거치식&gt;&nbsp;&nbsp;&nbsp;정기예탁금</td>")
+    '- 대상예금 <거치식> 정기예탁금'
+    """
+    return re.sub(r"\s+", " ", unescape(_TAG.sub(" ", raw))).strip()
 
 
 class NhOutlet(NamedTuple):
