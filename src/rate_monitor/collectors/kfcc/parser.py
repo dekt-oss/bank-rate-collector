@@ -60,6 +60,8 @@ _TR = re.compile(r"<tr[^>]*>(.*?)</tr>", re.S)
 _TD = re.compile(r"<td([^>]*)>(.*?)</td>", re.S)
 _ROWSPAN = re.compile(r'rowspan="(\d+)"')
 _BASIS = re.compile(r"조회기준일\s*\(([0-9]{4})[./-]([0-9]{2})[./-]([0-9]{2})\)")
+# 사이트가 "없다"고 직접 답하는 모양. 본문 없이 alert 하나만 돌려준다.
+_NO_DATA_ALERT = re.compile(r"alert\(\s*[\"']조회할 자료가 없습니다")
 
 # "1개월 이상", "12개월", "3년" 등 서술형 계약기간
 _TERM_MONTH = re.compile(r"(\d+)\s*개월")
@@ -245,8 +247,41 @@ def _sections(html: str) -> list[tuple[str, str]]:
     return sections
 
 
+def has_no_products(html: str) -> bool:
+    """이 금고가 이 상품군을 **취급하지 않는가**.
+
+    구조가 바뀐 것과 다르다. 새마을금고는 금고마다 취급 품목이 달라서,
+    거치식만 하고 적립식은 안 하는 곳이 실제로 있다.
+
+    2026-08-06 실측 — 두 가지 모양으로 나온다.
+
+    1. 정상 페이지에 상품만 없다 (10.5 KB). `조회기준일`도 제목도 그대로
+       있고 `.tbl-tit`만 없다. 0225·2415·3568, 그리고 서울대학교병원금고의
+       적립식 화면이 이랬다.
+    2. 사이트가 대놓고 없다고 답한다 (375 바이트). 본문이 통째로
+       `alert("조회할 자료가 없습니다 ...")` 하나다. 1965가 이랬다.
+
+    >>> has_no_products('<script>alert("조회할 자료가 없습니다 (...)");</script>')
+    True
+    >>> has_no_products('<h3>거치식예탁금 기본이율</h3> 조회기준일(2026/08/06) 없습니다.')
+    True
+    >>> has_no_products('<div class="tbl-tit">정기예탁금</div><table></table>')
+    False
+    >>> has_no_products('<html><body>전혀 다른 화면</body></html>')
+    False
+    """
+    if _NO_DATA_ALERT.search(html):
+        return True
+    # 상품 제목이 없더라도, 기준일이 찍힌 정상 페이지라면 취급을 안 하는
+    # 것이다. 기준일조차 없으면 우리가 아는 화면이 아니다 — 그건 오류다.
+    return not _TBL_TIT.search(html) and bool(_BASIS.search(html))
+
+
 def check_rate_schema(html: str) -> list[str]:
-    """금리 페이지 구조 검사."""
+    """금리 페이지 구조 검사.
+
+    취급 상품이 없는 페이지는 여기 오기 전에 걸러진다 (`has_no_products`).
+    """
     if not _TBL_TIT.search(html):
         raise SchemaChangedError("금리 페이지에 .tbl-tit 상품 제목이 없다")
     sections = _sections(html)
@@ -352,6 +387,13 @@ def parse_rates(
     이 페이지를 감싸는 `view.do`에 있어서, 금리 페이지만 보고는 알 수 없다.
     페이지 안에 문구가 있으면 그쪽을 우선한다.
     """
+    # 취급 상품이 없는 것은 오류가 아니다. 금고마다 품목이 달라서 거치식만
+    # 하고 적립식은 안 하는 곳이 실제로 있다. 예전에는 이걸 구조 변경으로
+    # 보고 실행 전체를 partial로 떨어뜨렸다 — 전국 한 바퀴에 9장이 그랬고,
+    # 확인해 보니 아홉 장 다 취급 상품이 없는 것이었다.
+    if has_no_products(html):
+        return [], []
+
     warnings = check_rate_schema(html)
     basis = parse_basis_date(html)
     product_type = GROUP_PRODUCT_TYPE.get(gubuncode, ProductType.OTHER)
