@@ -18,8 +18,9 @@ import hashlib
 import json
 import sqlite3
 from dataclasses import asdict, dataclass, field
-from datetime import UTC, datetime
 from pathlib import Path
+
+from rate_monitor.domain.timeutil import now_kst
 
 DEFAULT_PUBLISH_PATH = Path("publish/rate_monitor.sqlite3")
 DEFAULT_MANIFEST_PATH = Path("publish/manifest.json")
@@ -125,7 +126,7 @@ def create_snapshot(
         raise SnapshotIntegrityError(f"foreign_key_check 위반 {len(violations)}건")
 
     manifest = Manifest(
-        generated_at=datetime.now(UTC).isoformat(),
+        generated_at=now_kst().isoformat(),
         run_id=run_id,
         sqlite_sha256=sha256_of(publish_db),
         sqlite_bytes=publish_db.stat().st_size,

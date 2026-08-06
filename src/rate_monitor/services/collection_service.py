@@ -24,6 +24,7 @@ from rate_monitor.db.models import (
 from rate_monitor.db.session import session_scope
 from rate_monitor.domain.enums import RunStatus, ValidationStatus
 from rate_monitor.domain.schemas import CollectionRequest, ParsedRateRow, RawArtifactData
+from rate_monitor.domain.timeutil import kst_path_stamp
 from rate_monitor.services import entity_service
 
 DEFAULT_RAW_ROOT = Path("data/raw")
@@ -62,7 +63,7 @@ def save_raw_artifacts(
     now: datetime,
 ) -> list[RawArtifact]:
     """원본을 파일로 쓰고 DB에는 경로·해시만 남긴다 (v3 §5.3)."""
-    day_dir = raw_root / now.strftime("%Y/%m/%d") / run.id
+    day_dir = raw_root / kst_path_stamp(now) / run.id
     day_dir.mkdir(parents=True, exist_ok=True)
 
     saved: list[RawArtifact] = []

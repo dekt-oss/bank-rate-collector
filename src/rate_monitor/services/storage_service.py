@@ -42,6 +42,8 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any, Protocol
 
+from rate_monitor.domain.timeutil import to_kst as _kst
+
 CURRENT_KEY = "state/current.json"
 SNAPSHOT_PREFIX = "state/snapshots/"
 
@@ -320,10 +322,21 @@ def _decompress(src: Path, dest: Path) -> None:
 def snapshot_key(generated_at: datetime, digest: str) -> str:
     """시각이 앞에 오는 키. 이름순이 곧 시간순이라야 오래된 것을 고를 수 있다.
 
+    시각은 한국시간이다. 버킷을 열어 보는 사람이 한국에 있고, `Z`가 붙어
+    있으면 UTC로 읽는다 — 그래서 붙이지 않는다.
+
     >>> snapshot_key(datetime(2026, 8, 6, 2, 15, tzinfo=UTC), "abcd1234" * 8)
-    'state/snapshots/20260806T021500Z-abcd1234.sqlite3.gz'
+    'state/snapshots/20260806T111500-abcd1234.sqlite3.gz'
+
+    이름순 정렬이 시간순과 어긋나지 않는다. 모두 같은 시간대를 쓰므로
+    UTC일 때와 순서가 같다.
+
+    >>> a = snapshot_key(datetime(2026, 8, 5, 23, 0, tzinfo=UTC), "a" * 64)
+    >>> b = snapshot_key(datetime(2026, 8, 6, 1, 0, tzinfo=UTC), "b" * 64)
+    >>> a < b
+    True
     """
-    stamp = generated_at.strftime("%Y%m%dT%H%M%SZ")
+    stamp = _kst(generated_at).strftime("%Y%m%dT%H%M%S")
     return f"{SNAPSHOT_PREFIX}{stamp}-{digest[:8]}.sqlite3.gz"
 
 
@@ -408,7 +421,7 @@ def check_round_trip(store: ObjectStore, *, now: datetime | None = None) -> dict
     **끝나면 지운다.** 시험 흔적을 저장소에 남기면 다음 사람이 그게 진짜
     데이터인 줄 안다. 실패해도 지우려 시도한다.
     """
-    stamp = (now or datetime.now(UTC)).strftime("%Y%m%dT%H%M%S%fZ")
+    stamp = _kst(now or datetime.now(UTC)).strftime("%Y%m%dT%H%M%S%f")
     key = f"{CHECK_PREFIX}{stamp}.bin"
     # 압축이 잘 안 되는 내용이라야 왕복이 진짜인지 알 수 있다.
     body = hashlib.sha256(stamp.encode()).digest() * 64  # 2 KiB

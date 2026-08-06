@@ -11,10 +11,10 @@
 import csv
 import json
 import sqlite3
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from rate_monitor.domain.timeutil import kst_date_stamp, now_kst
 from rate_monitor.services.dashboard_service import (
     TABLE_COLUMNS,
     build_rate_table,
@@ -92,7 +92,7 @@ def export_dataset(
 
     records = expand(table)
     out_dir.mkdir(parents=True, exist_ok=True)
-    stamp = datetime.now(UTC).strftime("%Y%m%d")
+    stamp = kst_date_stamp()
     written: list[Path] = []
 
     if "csv" in formats:
@@ -110,7 +110,7 @@ def export_dataset(
         path.write_text(
             json.dumps(
                 {
-                    "generated_at": datetime.now(UTC).isoformat(),
+                    "generated_at": now_kst().isoformat(),
                     "columns": list(TABLE_COLUMNS),
                     "count": len(records),
                     "records": records,

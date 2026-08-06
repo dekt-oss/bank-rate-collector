@@ -633,7 +633,7 @@
     .map(([s, n]) => `${SECTOR_KO[s] || s} ${n.toLocaleString("ko-KR")}건`)
     .join(" · ");
 
-  $("stamp").innerHTML = `생성 ${esc((data.generated_at || "").slice(0, 19).replace("T", " "))} UTC`
+  $("stamp").innerHTML = `생성 ${esc((data.generated_at || "").slice(0, 19).replace("T", " "))} KST`
     + `<br>공시기준일 ${esc([...new Set(ALL.map((r) => r.asOf).filter(Boolean))].sort().at(-1) || "—")}`;
 
   $("notice-detail").textContent =

@@ -10,9 +10,10 @@ site/index.html을 생성한다. 게시된 페이지는 외부 fetch가 차단�
 import json
 import re
 import sqlite3
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+
+from rate_monitor.domain.timeutil import kst_iso, now_kst
 
 DEFAULT_TEMPLATE = Path("web/templates/dashboard.html")
 DEFAULT_SITE = Path("site/index.html")
@@ -91,6 +92,22 @@ DISTRICT_EXPR = "COALESCE(ot.region_sigungu, i.region_sigungu)"
 # 같은 행이 조용히 생긴다. 인자를 없애고 여기서만 정한다.
 TABLE_SIDO_EXPR = "i.region_sido"
 TABLE_DISTRICT_EXPR = "i.region_sigungu"
+
+RUN_TIME_KEYS = ("started_at", "finished_at")
+
+
+def _to_kst_times(records: list[dict[str, Any]]) -> None:
+    """실행 시각 칸을 한국시간 ISO로 바꾼다. 제자리에서 고친다.
+
+    >>> rows = [{"id": "r", "started_at": "2026-08-06 05:20:52", "finished_at": None}]
+    >>> _to_kst_times(rows); rows[0]["started_at"]
+    '2026-08-06T14:20:52+09:00'
+    """
+    for record in records:
+        for key in RUN_TIME_KEYS:
+            if key in record:
+                record[key] = kst_iso(record[key])
+
 
 def latest_run_ids(conn: sqlite3.Connection) -> list[str]:
     """수집원마다 마지막 실행의 id.
@@ -206,6 +223,11 @@ def build_summary(db_path: Path) -> dict[str, Any]:
             "       valid_count, error_count"
             "  FROM collection_runs ORDER BY started_at DESC LIMIT 10",
         )
+        # DB의 실행 시각은 naive UTC다. 화면에 그대로 내보내면 07:00에 도는
+        # 정기 수집이 22:00으로 보인다 — 읽는 사람은 전부 한국에 있다.
+        # 저장은 그대로 두고 나가는 자리에서만 바꾼다 (domain/timeutil.py).
+        _to_kst_times(latest_run)
+        _to_kst_times(runs)
 
         totals = _rows(
             conn,
@@ -382,7 +404,7 @@ def build_summary(db_path: Path) -> dict[str, Any]:
         conn.close()
 
     return {
-        "generated_at": datetime.now(UTC).isoformat(),
+        "generated_at": now_kst().isoformat(),
         "notice": HEAD_OFFICE_NOTICE,
         "latest_run": latest_run[0] if latest_run else None,
         "runs": runs,

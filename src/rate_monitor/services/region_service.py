@@ -86,6 +86,17 @@ DISTRICT_CAPABLE = frozenset({GeoBasis.OUTLET_ADDRESS, GeoBasis.INSTITUTION_ADDR
 # 아는 시도 이름. 위 별칭표가 내놓는 값들이 전부다.
 KNOWN_SIDO = frozenset(SIDO_ALIASES.values())
 
+# 시도 이름이 끝나는 말. 별칭표에 없는 이름이라도 이걸로 끝나면 시도로 본다.
+#
+# 별칭표를 늘리는 것만으로는 부족하다. 행정구역은 바뀐다 — 강원도가
+# 강원특별자치도가 됐고, 실측 데이터에 `전남광주통합특별시`가 들어 있다.
+# 모르는 이름을 전부 버리면 그때마다 지역이 통째로 사라진다.
+#
+# `시`는 일부러 뺐다. 시도 중에 그냥 `○○시`인 곳은 없다 — 전부 특별시나
+# 광역시나 특별자치시다. `시`까지 받으면 `여수시`처럼 시군구가 앞으로
+# 올라온 주소를 시도로 착각한다.
+SIDO_SUFFIXES = ("특별시", "광역시", "특별자치시", "도")
+
 
 def normalize_sido(sido: str | None) -> str | None:
     """시도 표기를 표준형으로.
@@ -189,9 +200,26 @@ def region_fields(source_id: str, address: str | None) -> RegionFields:
     >>> f = region_fields("finlife", None)
     >>> f.sido, f.sigungu, f.basis.value, f.confidence
     (None, None, 'nationwide', 'none')
+
+    주소처럼 안 생긴 값도 지역 자리에 넣지 않는다. 원문은 `address` 칸에
+    남으니 잃는 것은 없다.
+
+    >>> f = region_fields("fsb", "신동해빌딩 1,2,3층")
+    >>> f.sido, f.sigungu, f.confidence
+    (None, None, 'none')
+
+    별칭표가 모르는 시도는 그대로 살린다. 시군구가 붙어 있는 진짜 주소다.
+
+    >>> f = region_fields("kfcc", "전남광주통합특별시 여수시 쌍봉로 23-2")
+    >>> f.sido, f.sigungu, f.confidence
+    ('전남광주통합특별시', '여수시', 'high')
     """
     basis = geo_basis_for(source_id)
     sido, sigungu = split_address(address)
+    if not looks_like_sido(sido):
+        # 지역이 아니면 지역 자리에 넣지 않는다. 주소 원문은 `address` 칸에
+        # 그대로 남으므로 잃는 것은 없고, 화면의 지역 필터만 깨끗해진다.
+        sido, sigungu = None, None
     if sido is None:
         confidence = "none"
     elif sigungu is not None and supports_district(basis):
@@ -202,25 +230,41 @@ def region_fields(source_id: str, address: str | None) -> RegionFields:
 
 
 def is_known_sido(sido: str | None) -> bool:
-    """아는 시도 이름인가.
-
-    아니라고 해서 버리지 않는다. 실측에 두 가지가 있는데 성격이 다르다.
+    """별칭표가 아는 이름인가.
 
     >>> is_known_sido("부산"), is_known_sido(None)
     (True, False)
-
-    `신동해빌딩 1,2,3층`은 주소가 아니라 층 표기다. 반면
-    `전남광주통합특별시 여수시 쌍봉로 23-2`는 시군구가 멀쩡히 붙어 있는
-    진짜 주소이고, 우리 별칭표가 그 이름을 모를 뿐이다.
-
-    >>> is_known_sido("신동해빌딩"), is_known_sido("전남광주통합특별시")
-    (False, False)
-
-    둘을 코드가 구별할 방법이 없으므로 **둘 다 남기고 표시만 한다.**
-    버리면 뒤쪽 11건의 진짜 지역이 사라지고, 별칭표에 넣으면 어디로
-    보낼지 모르는 채 없는 지역을 만든다.
+    >>> is_known_sido("전남광주통합특별시")
+    False
     """
     return sido in KNOWN_SIDO
+
+
+def looks_like_sido(token: str | None) -> bool:
+    """이 토막이 시도 이름 자리에 올 수 있는 말인가.
+
+    별칭표에 없어도 시도처럼 끝나면 시도로 본다. 행정구역 이름은 바뀌고,
+    실측에 `전남광주통합특별시`가 있다 — 여수시·구례군·서구 같은 시군구가
+    멀쩡히 붙어 있는 진짜 주소다. 모르는 이름을 버리면 그 11건의 지역이
+    통째로 사라진다.
+
+    >>> looks_like_sido("부산"), looks_like_sido("전남광주통합특별시")
+    (True, True)
+
+    반대로 이건 지역이 아니다. 저축은행중앙회가 동양저축은행 주소로
+    `신동해빌딩 1,2,3층`을 준다 — 시도도 구도 없는 세부 주소 조각이라
+    같은 원천의 다른 기관(`부산광역시 동구 범일로 92`)과 형태가 다르다.
+    이걸 시도로 두면 화면의 지역 필터에 `신동해빌딩`이, 구·군 필터에
+    `1,2,3층`이 뜬다.
+
+    >>> looks_like_sido("신동해빌딩"), looks_like_sido("1,2,3층")
+    (False, False)
+    >>> looks_like_sido(None)
+    False
+    """
+    if not token:
+        return False
+    return token in KNOWN_SIDO or token.endswith(SIDO_SUFFIXES)
 
 
 def normalize_sido_sql(column: str) -> str:

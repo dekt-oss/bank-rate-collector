@@ -559,7 +559,7 @@
   };
 
   $("sub-line").textContent = "지역별 비교 / 저축은행 · 새마을금고 · 신협 · 지역농축협";
-  $("stamp").innerHTML = `생성 ${esc(when(data.generated_at))}<br>`
+  $("stamp").innerHTML = `생성 ${esc(when(data.generated_at))} KST<br>`
     + `명세서 v3.1<br>dekt-oss/bank-rate-collector`;
 
   const t = data.totals || {};
