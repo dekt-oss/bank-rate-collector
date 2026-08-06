@@ -120,6 +120,14 @@ class Institution(Base):
     # 공식 행정구역 코드 확보 전까지 NULL (v3.1 §11)
     sido_code: Mapped[str | None] = mapped_column(String(16), nullable=True)
     sigungu_code: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    # 주소에서 뽑은 지역 (v4 §4.2). 위 두 칸과 다른 것이다 — 저 둘은 행정구역
+    # 공식 코드 자리이고 아직 비어 있다. 이 둘은 주소 문자열의 파생값이다.
+    region_sido: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
+    region_sigungu: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
+    # 그 지역이 무엇에서 왔는가. 기본값이 'none'인 이유는, 모르는 원천의 행이
+    # 근거 있는 행처럼 보이면 안 되기 때문이다 (services/region_service.py).
+    geo_basis: Mapped[str] = mapped_column(String(32), default="none", server_default="none")
+    geo_confidence: Mapped[str | None] = mapped_column(String(16), nullable=True)
     address: Mapped[str | None] = mapped_column(Text, nullable=True)
     phone: Mapped[str | None] = mapped_column(String(32), nullable=True)
     availability_scope: Mapped[str] = mapped_column(String(32), default="unknown")
@@ -140,6 +148,12 @@ class Outlet(Base):
     outlet_type: Mapped[str] = mapped_column(String(16), default="branch")
     sido_code: Mapped[str | None] = mapped_column(String(16), nullable=True)
     sigungu_code: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    # 기관과 같은 네 칸. 구·군 집계는 이쪽을 먼저 본다 — 한 금고가 두 구에
+    # 점포를 두면 두 구 모두에 잡혀야 한다 (부산 실측 3건).
+    region_sido: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
+    region_sigungu: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
+    geo_basis: Mapped[str] = mapped_column(String(32), default="none", server_default="none")
+    geo_confidence: Mapped[str | None] = mapped_column(String(16), nullable=True)
     address: Mapped[str | None] = mapped_column(Text, nullable=True)
     phone: Mapped[str | None] = mapped_column(String(32), nullable=True)
     active: Mapped[bool] = mapped_column(Boolean, default=True)

@@ -60,32 +60,22 @@ TABLE_COLUMNS = (
 )
 
 
-# 지역은 주소 토막에서 만든다 ("부산 중구 대청로 101-1" → 시도 "부산", 구 "중구").
-# 점포 주소를 먼저 보고, 점포 명부가 없는 원천은 기관 주소로 되돌아간다.
-# 행정구역 공식 코드가 아니라 파생값이다.
+# 지역은 이제 칸에서 읽는다 (v4 §4.2, 마이그레이션 8c1a4f2b9d07).
 #
-# 시도를 함께 뽑는 이유: 구 이름은 전국에서 겹친다. 중구만 해도 서울·부산·
-# 대구·인천·대전·울산에 있다. 부산만 볼 때는 구 하나로 충분했지만 전국을
-# 수집하면 여섯 도시의 중구가 한 줄로 합쳐지고 최고금리가 뒤섞인다.
+# 예전에는 여기 SQL이 주소 문자열을 INSTR/SUBSTR로 잘랐고, 수집 쪽에서는
+# `kfcc/parser.split_region`이 같은 일을 파이썬으로 했다. 규칙이 두 벌이라
+# 한쪽만 고치면 수집한 값과 보이는 값이 갈라진다. 이제 둘 다
+# `services/region_service.split_address`를 쓰고, 그 결과가
+# `institutions.region_sido` / `outlets.region_sigungu` 같은 칸에 들어 있다.
+#
+# 시도를 함께 보는 이유는 그대로다: 구 이름은 전국에서 겹친다. 중구만 해도
+# 서울·부산·대구·인천·대전·울산에 있다. 시도 축이 없으면 여섯 도시의 중구가
+# 한 줄로 합쳐지고 최고금리가 뒤섞인다.
 
-def _sido_of(address: str) -> str:
-    return f"TRIM(SUBSTR({address}, 1, INSTR({address} || ' ', ' ') - 1))"
-
-
-def _district_of(address: str) -> str:
-    return (
-        f"TRIM(SUBSTR({address},"
-        f"     INSTR({address}, ' ') + 1,"
-        f"     INSTR(SUBSTR({address},"
-        f"           INSTR({address}, ' ') + 1), ' ')))"
-    )
-
-
-# 구·군 **집계**는 점포 주소를 먼저 본다. 한 금고가 두 구에 점포를 두면 두
-# 구 모두에 그 금고의 금리가 잡혀야 한다 (부산 실측 3건).
-_ADDRESS = "COALESCE(ot.address, i.address)"
-SIDO_EXPR = _sido_of(_ADDRESS)
-DISTRICT_EXPR = _district_of(_ADDRESS)
+# 구·군 **집계**는 점포를 먼저 본다. 한 금고가 두 구에 점포를 두면 두 구
+# 모두에 그 금고의 금리가 잡혀야 한다 (부산 실측 3건).
+SIDO_EXPR = "COALESCE(ot.region_sido, i.region_sido)"
+DISTRICT_EXPR = "COALESCE(ot.region_sigungu, i.region_sigungu)"
 
 # 금리표는 다르다. **기관 주소만** 본다.
 #
@@ -99,48 +89,8 @@ DISTRICT_EXPR = _district_of(_ADDRESS)
 # 둘은 반드시 같은 주소에서 나와야 한다. 예전에는 구만 인자로 받을 수 있게
 # 열어뒀는데, 시도는 하드코딩이라 호출자가 점포 기준 식을 넘기면 "부산 강남구"
 # 같은 행이 조용히 생긴다. 인자를 없애고 여기서만 정한다.
-TABLE_SIDO_EXPR = _sido_of("i.address")
-TABLE_DISTRICT_EXPR = _district_of("i.address")
-
-# 같은 시도를 두 가지로 적는 점포가 있다. 부산 실측에서 금고 한 곳이
-# "부산광역시 부산진구"로 적어, 시도 축을 넣자마자 부산진구가 두 줄로
-# 갈라졌다. 전국에서는 "경기"와 "경기도"가 같은 화면에 함께 나온다.
-#
-# 이름 표기를 맞추는 것일 뿐 행정구역 공식 코드가 아니다. 모르는 표기는
-# 건드리지 않고 그대로 둔다 — 실측에서 본 "전남광주통합특별시"처럼 무엇으로
-# 줄여야 할지 모르는 값을 임의로 자르면 없는 지역을 만들어낸다.
-SIDO_ALIASES = {
-    "서울특별시": "서울", "서울시": "서울",
-    "부산광역시": "부산", "부산시": "부산",
-    "대구광역시": "대구", "대구시": "대구",
-    "인천광역시": "인천", "인천시": "인천",
-    "광주광역시": "광주", "광주시": "광주",
-    "대전광역시": "대전", "대전시": "대전",
-    "울산광역시": "울산", "울산시": "울산",
-    "세종특별자치시": "세종", "세종시": "세종",
-    "경기도": "경기",
-    "강원도": "강원", "강원특별자치도": "강원",
-    "충청북도": "충북", "충청남도": "충남",
-    "전라북도": "전북", "전북특별자치도": "전북",
-    "전라남도": "전남",
-    "경상북도": "경북", "경상남도": "경남",
-    "제주도": "제주", "제주특별자치도": "제주",
-}
-
-
-def normalize_sido_sql(column: str) -> str:
-    """시도 표기를 맞추는 SQL 식.
-
-    값은 위 표의 열쇠뿐이라 문자열을 그대로 넣어도 안전하다.
-
-    >>> normalize_sido_sql("x").startswith("CASE x WHEN '서울특별시' THEN '서울'")
-    True
-    >>> normalize_sido_sql("x").endswith("ELSE x END")
-    True
-    """
-    whens = " ".join(f"WHEN '{k}' THEN '{v}'" for k, v in SIDO_ALIASES.items())
-    return f"CASE {column} {whens} ELSE {column} END"
-
+TABLE_SIDO_EXPR = "i.region_sido"
+TABLE_DISTRICT_EXPR = "i.region_sigungu"
 
 def latest_run_ids(conn: sqlite3.Connection) -> list[str]:
     """수집원마다 마지막 실행의 id.
@@ -184,7 +134,7 @@ def build_rate_table(
         conn,
         "SELECT i.sector                AS sector,"
         "       i.canonical_name        AS institution,"
-        f"      {normalize_sido_sql(TABLE_SIDO_EXPR)} AS region,"
+        f"      {TABLE_SIDO_EXPR} AS region,"
         f"      {TABLE_DISTRICT_EXPR}   AS district,"
         "       p.name                  AS product,"
         "       p.product_type          AS product_type,"
@@ -331,13 +281,15 @@ def build_summary(db_path: Path) -> dict[str, Any]:
             "  LEFT JOIN outlets ot    ON ot.institution_id = i.id"
             f" WHERE o.run_id IN ({placeholders})"
             "   AND o.validation_status != 'error'"
-            "   AND COALESCE(ot.address, i.address) IS NOT NULL"
-            "   AND COALESCE(ot.address, i.address) != ''"
+            # 지역을 못 읽은 행은 뺀다. 예전에는 주소가 비었는지로 걸렀는데,
+            # 이제 걸러야 하는 것은 "주소가 있는가"가 아니라 "그 주소에서
+            # 지역이 나왔는가"다. 둘은 다르다 — 주소가 있어도 못 읽을 수 있다.
+            f"   AND {SIDO_EXPR} IS NOT NULL"
         )
         district_expr = DISTRICT_EXPR
         by_district = _rows(
             conn,
-            f"SELECT {normalize_sido_sql(SIDO_EXPR)} AS sido,"
+            f"SELECT {SIDO_EXPR} AS sido,"
             f"       {district_expr} AS sigungu,"
             "       i.sector             AS sector,"
             "       COUNT(DISTINCT i.id) AS institutions,"
@@ -359,14 +311,14 @@ def build_summary(db_path: Path) -> dict[str, Any]:
             conn,
             "SELECT sido, sigungu, institution, product, term_months, base_rate,"
             "       source_effective_at FROM ("
-            f"  SELECT {normalize_sido_sql(SIDO_EXPR)} AS sido,"
+            f"  SELECT {SIDO_EXPR} AS sido,"
             f"         {district_expr} AS sigungu,"
             "         i.canonical_name AS institution,"
             "         p.name           AS product,"
             "         v.term_months    AS term_months,"
             "         o.base_rate      AS base_rate,"
             "         o.source_effective_at AS source_effective_at,"
-            f"        ROW_NUMBER() OVER (PARTITION BY {normalize_sido_sql(SIDO_EXPR)},"
+            f"        ROW_NUMBER() OVER (PARTITION BY {SIDO_EXPR},"
             f"                                        {district_expr}"
             "           ORDER BY o.base_rate DESC) AS rn"
             + district_sql

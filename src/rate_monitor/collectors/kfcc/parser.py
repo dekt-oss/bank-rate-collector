@@ -36,6 +36,7 @@ from rate_monitor.domain.enums import (
 )
 from rate_monitor.domain.normalization import parse_rate
 from rate_monitor.domain.schemas import ParsedRateRow
+from rate_monitor.services.region_service import split_address
 
 SOURCE_ID = "kfcc"
 
@@ -320,24 +321,23 @@ def split_region(address: str | None) -> tuple[str | None, str | None]:
     주소가 유일하게 믿을 수 있는 근거다. 대시보드도 같은 규칙(주소 두 번째
     토막)으로 구·군을 만든다.
 
+    규칙 자체는 `services/region_service.split_address`에 있다. 여기서 따로
+    구현하지 않는 이유는, 예전에 그랬다가 대시보드 SQL과 두 벌이 됐기
+    때문이다 — 한쪽만 고치면 수집한 값과 보이는 값이 갈라진다 (v4 §4).
+
     >>> split_region("부산 중구 대청로 101-1")
     ('부산', '중구')
     >>> split_region("전남광주통합특별시 동구 필문대로 1")
     ('전남광주통합특별시', '동구')
 
-    토막이 모자라면 지어내지 않고 비운다.
+    시도 표기는 공용 계층이 맞춰서 돌려준다.
 
     >>> split_region("세종특별자치시")
-    ('세종특별자치시', None)
+    ('세종', None)
     >>> split_region(None)
     (None, None)
     """
-    tokens = (address or "").split()
-    if not tokens:
-        return None, None
-    if len(tokens) == 1:
-        return tokens[0], None
-    return tokens[0], tokens[1]
+    return split_address(address)
 
 
 def build_outlet_directory(rows: list[dict[str, str]]) -> tuple[dict[str, Any], ...]:
