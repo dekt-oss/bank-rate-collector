@@ -70,14 +70,16 @@ BUSAN_DISTRICTS = (
 
 # 원천별 지역 근거. **정찰로 확인된 것만 적는다** (v4 §0.2).
 #
-# nh_local은 일부러 비어 있다. 수집기가 없고, 상세화면이 점포 단위인지
-# 조합 단위인지 아직 모른다 — 추정해 넣으면 나중에 데이터를 다시 훑어야
-# 한다. v4 PR 3 정찰 뒤에 채운다.
+# nh_local은 2026-08-06 정찰로 확정했다. 명부의 주소가 조합이 아니라
+# **점포마다 다르다** — 대저농협 하나가 맥도지점(공항로393번길)·공항지점
+# (공항로811번길)·평강지점(낙동북로188번길)을 서로 다른 주소로 싣는다.
+# 부산 120개 점포 중 지점이 둘 이상인 조합 16개가 전부 그랬다.
 SOURCE_GEO_BASIS = {
     "kfcc": GeoBasis.OUTLET_ADDRESS,
     "cu": GeoBasis.SOURCE_QUERY_REGION,
     "fsb": GeoBasis.HEAD_OFFICE,
     "finlife": GeoBasis.NATIONWIDE,
+    "nh_local": GeoBasis.OUTLET_ADDRESS,
 }
 
 # 구·군까지 좁힐 수 있는 근거. 나머지는 시도까지만 말할 수 있다.
@@ -156,7 +158,7 @@ def geo_basis_for(source_id: str) -> GeoBasis:
 
     >>> geo_basis_for("kfcc"), geo_basis_for("fsb")
     (<GeoBasis.OUTLET_ADDRESS: 'outlet_address'>, <GeoBasis.HEAD_OFFICE: 'head_office'>)
-    >>> geo_basis_for("nh_local")
+    >>> geo_basis_for("어디도아님")
     <GeoBasis.NONE: 'none'>
     """
     return SOURCE_GEO_BASIS.get(source_id, GeoBasis.NONE)

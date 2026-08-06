@@ -64,7 +64,18 @@ def test_head_office_never_claims_a_district() -> None:
 
 def test_an_unknown_source_gets_no_basis() -> None:
     """기본값을 outlet_address로 두면 근거 없는 값이 근거 있어 보인다."""
-    assert region_fields("nh_local", "부산 중구 대청로 101-1").basis is GeoBasis.NONE
+    assert region_fields("아직없는원천", "부산 중구 대청로 101-1").basis is GeoBasis.NONE
+
+
+def test_nh_local_reads_the_outlet_address() -> None:
+    """2026-08-06 정찰: 명부 주소가 조합이 아니라 점포마다 다르다.
+
+    대저농협 하나가 맥도지점·공항지점·평강지점을 서로 다른 주소로 싣는다.
+    부산 120개 점포 중 지점이 둘 이상인 조합 16개가 전부 그랬다.
+    """
+    fields = region_fields("nh_local", "부산광역시 강서구 공항로393번길 34 (대저2동)")
+    assert fields.basis is GeoBasis.OUTLET_ADDRESS
+    assert (fields.sido, fields.sigungu, fields.confidence) == ("부산", "강서구", "high")
 
 
 def test_a_missing_address_stays_empty() -> None:
