@@ -62,7 +62,10 @@ jobs:
         if: ${{ inputs.migrate }}
         run: |
           set -euo pipefail
-          git fetch origin rate-data --depth=1
+          # actions/checkout이 남기는 refspec은 main뿐이라 `git fetch origin rate-data`만
+          # 하면 refs/remotes/origin/rate-data가 안 생긴다. 목적지를 직접 적는다.
+          # rate-data는 고아 커밋으로 통째로 갈아끼우므로 fast-forward가 아니다. +로 받는다.
+          git fetch --depth=1 origin +rate-data:refs/remotes/origin/rate-data
           git checkout origin/rate-data -- latest/rate_monitor.sqlite3.gz
           mkdir -p work
           gunzip -c latest/rate_monitor.sqlite3.gz > work/github.sqlite3
@@ -77,8 +80,12 @@ jobs:
           c = sqlite3.connect(p)
           print("integrity :", c.execute("PRAGMA integrity_check").fetchone()[0])
           print("fk 위반   :", len(c.execute("PRAGMA foreign_key_check").fetchall()))
-          for t in ("rate_observations","institutions","products","product_variants","collection_runs"):
-              print(f"  {t:20s} {c.execute(f'SELECT COUNT(*) FROM {t}').fetchone()[0]:>8,}")
+          names = [r[0] for r in c.execute(
+              "SELECT name FROM sqlite_master WHERE type='table'"
+              " AND name NOT LIKE 'sqlite_%' ORDER BY name")]
+          for t in names:
+              n = c.execute('SELECT COUNT(*) FROM "%s"' % t).fetchone()[0]
+              print("  %-22s %9s" % (t, format(n, ",")))
           PY
 
       # 7~13단계. 올리고 → 되받아 → 해시·integrity·fk·행 수 대조 →
