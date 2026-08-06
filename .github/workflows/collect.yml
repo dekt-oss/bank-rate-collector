@@ -77,6 +77,18 @@ jobs:
         id: storage
         env:
           STORAGE_BACKEND: ${{ vars.STORAGE_BACKEND }}
+          # 이 단계도 시크릿을 봐야 한다. load_backend가 backend를 읽자마자
+          # 시크릿이 있는지 검사하기 때문이다 — 없으면 여기서 죽는다.
+          #
+          # 2026-08-06 run 31073323624에서 실제로 죽었다. backend를 r2_migration
+          # 으로 바꾼 뒤 첫 실행이었고, 아래 단계들에만 시크릿을 넣어 뒀다.
+          # "값을 읽기만 하는 단계"로 보였지만 검사도 같이 한다.
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+          R2_REGION: ${{ vars.R2_REGION }}
         run: |
           BACKEND=$(uv run python -c "
           from pathlib import Path
