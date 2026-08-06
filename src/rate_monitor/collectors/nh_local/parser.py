@@ -300,11 +300,37 @@ def schema_fingerprint(html: str) -> str:
     return sha256("|".join(_text(h) for h in headers).encode()).hexdigest()[:16]
 
 
+BUSAN_PREFIXES = ("부산광역시", "부산 ")
+
+
+def outlets_in(
+    outlets: list[NhOutlet], prefixes: tuple[str, ...] | None
+) -> list[NhOutlet]:
+    """주소 접두어로 수집 범위를 거른다.
+
+    원천이 지역 요청 인자를 주지 않아 명부가 통째로 온다. 범위는 받아 온
+    뒤에 주소로 정한다 (정찰 §0.2).
+
+    **이름이 아니라 주소가 근거다.** 기관명에 '부산'이 들어가도 주소가
+    경남인 점포가 있다 (v4 §4.3).
+
+    >>> rows = [NhOutlet("1", "가락농협", "부산광역시 강서구 가락대로 1459"),
+    ...         NhOutlet("2", "부산경남양돈농협", "경상남도 김해시 주촌면")]
+    >>> outlets_in(rows, ("부산광역시", "부산 "))
+    [NhOutlet(brc='1', name='가락농협', address='부산광역시 강서구 가락대로 1459')]
+
+    `None`은 전국이다. 빈 목록과 다르다 — 빈 목록은 아무것도 안 남는다.
+
+    >>> len(outlets_in(rows, None)), len(outlets_in(rows, ()))
+    (2, 0)
+    """
+    if prefixes is None:
+        return list(outlets)
+    return [o for o in outlets if o.address.startswith(tuple(prefixes))]
+
+
 def busan_outlets(outlets: list[NhOutlet]) -> list[NhOutlet]:
     """부산 점포만. 세로절단의 모집단이다 (v4 §5.3).
-
-    주소로 거른다. 기관명에 '부산'이 들어가도 주소가 경남인 점포가 있다
-    (v4 §4.3) — 이름이 아니라 주소가 근거다.
 
     >>> busan_outlets([
     ...     NhOutlet("1", "가락농협", "부산광역시 강서구 가락대로 1459"),
@@ -312,4 +338,4 @@ def busan_outlets(outlets: list[NhOutlet]) -> list[NhOutlet]:
     ... ])
     [NhOutlet(brc='1', name='가락농협', address='부산광역시 강서구 가락대로 1459')]
     """
-    return [o for o in outlets if o.address.startswith(("부산광역시", "부산 "))]
+    return outlets_in(outlets, BUSAN_PREFIXES)

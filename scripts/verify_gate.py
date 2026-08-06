@@ -128,16 +128,22 @@ def main() -> int:
         f"저장 NULL {finlife_null}건 == 원본 결측 {source_missing}건",
     )
 
-    kfcc_total, kfcc_filled = conn.execute(
-        "SELECT COUNT(*), COUNT(o.max_rate) FROM rate_observations o"
-        "  JOIN collection_runs r ON r.id = o.run_id"
-        " WHERE r.source_id = 'kfcc'"
-    ).fetchone()
-    check(
-        kfcc_filled == 0,
-        "max_rate NULL 규칙 — 새마을금고 (우대금리 열 없음)",
-        f"관측 {kfcc_total}건 중 채워진 값 {kfcc_filled}건",
-    )
+    # 공식 화면에 우대금리 열 자체가 없는 원천들. 전부 NULL이어야 한다.
+    for source_id, label in (
+        ("kfcc", "새마을금고"),
+        ("nh_local", "농·축협"),
+    ):
+        total, filled = conn.execute(
+            "SELECT COUNT(*), COUNT(o.max_rate) FROM rate_observations o"
+            "  JOIN collection_runs r ON r.id = o.run_id"
+            " WHERE r.source_id = ?",
+            (source_id,),
+        ).fetchone()
+        check(
+            filled == 0,
+            f"max_rate NULL 규칙 — {label} (우대금리 열 없음)",
+            f"관측 {total}건 중 채워진 값 {filled}건",
+        )
 
     integrity = conn.execute("PRAGMA integrity_check").fetchone()[0]
     check(integrity == "ok", "PRAGMA integrity_check", integrity)
