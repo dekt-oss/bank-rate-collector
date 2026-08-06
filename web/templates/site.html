@@ -367,6 +367,11 @@
     <span id="notice-detail"></span>
   </p>
 
+  <!-- 마지막 수집이 실패한 원천. 화면에는 직전에 확인한 값이 남아 있으므로
+       **그 사실을 반드시 알린다** — 조용히 어제 값을 보여주면 보는 사람은
+       그게 오늘 확인된 것이라고 믿는다. -->
+  <p class="notice" id="stale-notice" hidden></p>
+
   <div class="totals" id="totals"></div>
 
   <!-- 참고카드. 메인 4개 업권 순위에 포함되지 않는다 (v4 §10.6).
@@ -904,6 +909,18 @@
         + `${esc(LABEL[kind] || kind)}${f.compressed ? " (압축)" : ""} `
         + `<span class="sz">${esc(size(f.bytes))}</span></a>`).join(" ")
     : '<span class="hint">준비된 파일이 없습니다.</span>';
+
+  const stale = data.stale_sources || [];
+  if (stale.length) {
+    const when = (t) => esc(String(t || "").slice(0, 16).replace("T", " "));
+    $("stale-notice").hidden = false;
+    $("stale-notice").innerHTML =
+      `마지막 수집이 실패한 원천이 ${stale.length}곳 있습니다. `
+      + "아래 표의 해당 원천 값은 그 이전에 확인된 것입니다."
+      + stale.map((s) =>
+          `<span>${esc(s.source_id)} — 실패 ${when(s.failed_at)}`
+          + `, 표시 중인 값은 ${when(s.showing_from)} 확인분</span>`).join("");
+  }
 
   $("notice-detail").textContent =
     "저축은행 금리는 본점 기준 공시라 지점별 적용금리가 아닙니다. "

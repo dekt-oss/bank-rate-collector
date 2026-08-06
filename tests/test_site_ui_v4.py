@@ -185,3 +185,69 @@ def test_the_split_still_keeps_the_table_out_of_the_page() -> None:
     assert "benchmarks" in page
     assert "table" not in page
     assert table["rows"] == [[1]]
+
+
+# ── 원천이 실패했을 때 ──────────────────────────────────────────────────
+
+
+def _fail_the_last_run(db: Path, source_id: str = "kfcc") -> None:
+    import datetime as dt
+    import sqlite3
+
+    now = dt.datetime.now(dt.UTC).replace(tzinfo=None).isoformat(sep=" ")
+    conn = sqlite3.connect(db)
+    conn.execute(
+        "INSERT INTO collection_runs (id, source_id, mode, started_at, finished_at,"
+        " status, query_context_json, raw_count, parsed_count, valid_count,"
+        " warning_count, error_count, fallback_used)"
+        " VALUES ('run-failed', ?, 'http', ?, ?, 'failed', '{}', 0, 0, 0, 0, 0, 0)",
+        (source_id, now, now),
+    )
+    conn.commit()
+    conn.close()
+
+
+def test_a_failed_source_does_not_empty_the_screen(db: Path) -> None:
+    """실패한 실행을 "이번에 확인한 금리"로 취급하면 그 원천이 통째로 사라진다.
+
+    2026-08-06 재현: 정상 수집 뒤 78행 → 그 원천이 실패한 뒤 **0행**.
+    어제 확인한 금리는 DB에 멀쩡히 있는데도 그랬다. `volume_gate`는 실패
+    실행을 빼고 비교하므로 급감으로도 안 잡혀, 아무도 모르는 채 발행된다.
+    """
+    import sqlite3
+
+    from rate_monitor.services.dashboard_service import build_rate_table, latest_run_ids
+
+    conn = sqlite3.connect(db)
+    conn.row_factory = sqlite3.Row
+    before = len(build_rate_table(conn, latest_run_ids(conn))["rows"])
+    conn.close()
+    assert before > 0
+
+    _fail_the_last_run(db)
+
+    conn = sqlite3.connect(db)
+    conn.row_factory = sqlite3.Row
+    after = len(build_rate_table(conn, latest_run_ids(conn))["rows"])
+    conn.close()
+    assert after == before, "원천이 실패하자 화면이 비었다"
+
+
+def test_the_screen_says_which_source_failed(db: Path) -> None:
+    """직전 값을 보여주되 **조용히** 그러면 안 된다."""
+    from rate_monitor.services.dashboard_service import build_summary
+
+    assert build_summary(db)["stale_sources"] == []
+
+    _fail_the_last_run(db)
+    stale = build_summary(db)["stale_sources"]
+    assert len(stale) == 1
+    assert stale[0]["source_id"] == "kfcc"
+    # 언제 실패했고 지금 보이는 값이 언제 것인지 둘 다 있어야 한다.
+    assert stale[0]["failed_at"] and stale[0]["showing_from"]
+
+
+def test_the_stale_notice_starts_hidden() -> None:
+    """실패가 없으면 경고가 안 보여야 한다."""
+    assert 'id="stale-notice" hidden' in SOURCE
+    assert '$("stale-notice").hidden = false;' in SOURCE

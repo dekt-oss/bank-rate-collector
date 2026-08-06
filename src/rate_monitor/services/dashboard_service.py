@@ -176,21 +176,46 @@ def _to_kst_times(records: list[dict[str, Any]]) -> None:
 # 통째로 사라진다 — 실측으로 132,502행 중 대부분이 그렇다.
 
 
+# 화면이 "이번에 확인한 금리"로 인정하는 실행 상태.
+#
+# **실패는 확인한 것이 아니다.** 이걸 안 걸렀을 때 실제로 무슨 일이
+# 벌어지는지 재현해 봤다 (2026-08-06).
+#
+#     정상 수집 뒤 화면       78행
+#     그 원천이 실패한 뒤     0행     ← 78행이 조용히 사라진다
+#
+# 실패한 실행이 "가장 최근"이 되면서 그 원천의 관측이 전부 화면 밖으로
+# 나간다. 어제 확인한 금리는 멀쩡히 DB에 있는데도 그렇다. 게다가
+# `volume_gate`는 실패 실행을 빼고 비교하므로 급감으로도 안 잡힌다 —
+# 아무도 모르는 채 발행된다.
+#
+# 실패했으면 **직전에 확인한 값을 그대로 보여준다.** 그게 빈 화면보다 낫고,
+# 얼마나 오래된 값인지는 공시일과 `stale` 표시가 말한다.
+CONFIRMED_RUN_STATUSES = ("success", "partial", "no_change")
+
+
 def latest_run_ids(conn: sqlite3.Connection) -> list[str]:
-    """수집원마다 마지막 실행의 id.
+    """수집원마다 **마지막으로 성공한** 실행의 id.
 
     전체에서 가장 최근 실행 하나만 보면, 저축은행 다음에 새마을금고를
-    돌렸을 때 저축은행 수치가 통째로 사라진다.
+    돌렸을 때 저축은행 수치가 통째로 사라진다. 그래서 수집원별로 본다.
+
+    실패한 실행은 세지 않는다 — 위 상수의 주석 참조.
     """
+    placeholders = ",".join("?" for _ in CONFIRMED_RUN_STATUSES)
     return [
         r["id"]
         for r in _rows(
             conn,
             "SELECT r.id, r.source_id FROM collection_runs r"
             "  JOIN (SELECT source_id, MAX(started_at) AS started_at"
-            "          FROM collection_runs GROUP BY source_id) latest"
+            "          FROM collection_runs"
+            f"        WHERE status IN ({placeholders})"
+            "         GROUP BY source_id) latest"
             "    ON latest.source_id = r.source_id"
-            "   AND latest.started_at = r.started_at",
+            "   AND latest.started_at = r.started_at"
+            f" WHERE r.status IN ({placeholders})",
+            (*CONFIRMED_RUN_STATUSES, *CONFIRMED_RUN_STATUSES),
         )
     ]
 
@@ -433,6 +458,39 @@ def build_benchmarks(
     return empty
 
 
+def _stale_sources(conn: sqlite3.Connection) -> list[dict[str, Any]]:
+    """가장 최근 실행이 실패한 수집원.
+
+    `latest_run_ids`가 실패를 걸러 주므로 화면에는 직전에 확인한 값이 남는다.
+    그건 빈 화면보다 낫지만, **조용히 그러면 안 된다.** 보는 사람은 그 금리가
+    오늘 확인된 것이라고 믿는다.
+
+    그래서 "이 원천은 마지막 수집이 실패했고 지금 보이는 값은 언제 것이다"를
+    화면에 내보낸다.
+    """
+    placeholders = ",".join("?" for _ in CONFIRMED_RUN_STATUSES)
+    return _rows(
+        conn,
+        "SELECT last.source_id            AS source_id,"
+        "       last.status               AS status,"
+        "       last.started_at           AS failed_at,"
+        "       last.message              AS message,"
+        "       ok.started_at             AS showing_from"
+        "  FROM (SELECT r.* FROM collection_runs r"
+        "          JOIN (SELECT source_id, MAX(started_at) AS started_at"
+        "                  FROM collection_runs GROUP BY source_id) m"
+        "            ON m.source_id = r.source_id AND m.started_at = r.started_at) last"
+        "  LEFT JOIN (SELECT source_id, MAX(started_at) AS started_at"
+        "               FROM collection_runs"
+        f"             WHERE status IN ({placeholders})"
+        "              GROUP BY source_id) ok"
+        "    ON ok.source_id = last.source_id"
+        f" WHERE last.status NOT IN ({placeholders})"
+        " ORDER BY last.source_id",
+        (*CONFIRMED_RUN_STATUSES, *CONFIRMED_RUN_STATUSES),
+    )
+
+
 def build_summary(db_path: Path) -> dict[str, Any]:
     """대시보드가 쓸 집계값. 전부 SQL에서 나온 실측이다."""
     conn = sqlite3.connect(db_path)
@@ -626,6 +684,7 @@ def build_summary(db_path: Path) -> dict[str, Any]:
             " GROUP BY v.rate_scope",
         )
 
+        stale_sources = _stale_sources(conn)
         table = build_rate_table(conn, run_ids)
         benchmarks = build_benchmarks(conn, run_ids)
     finally:
@@ -647,6 +706,7 @@ def build_summary(db_path: Path) -> dict[str, Any]:
         "sources": sources,
         "rate_scopes": rate_scopes,
         "benchmarks": benchmarks,
+        "stale_sources": stale_sources,
         "table": table,
     }
 

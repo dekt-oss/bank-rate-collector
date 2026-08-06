@@ -68,6 +68,8 @@ INLINE_KEYS = (
     "top_rates", "reviews", "review_samples", "sources", "rate_scopes",
     # 참고카드 (v4 §10.6). 표를 받기 전에 그려야 하므로 인라인에 넣는다.
     "benchmarks",
+    # 마지막 수집이 실패한 원천. 화면이 그 사실을 알려야 한다.
+    "stale_sources",
 )
 
 
