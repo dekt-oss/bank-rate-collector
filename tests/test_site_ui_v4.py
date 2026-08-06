@@ -3,9 +3,21 @@
 화면 자체는 브라우저에서 돌지만, **화면이 기대하는 데이터가 실제로 나가는지**와
 **금지사항을 어기지 않는지**는 여기서 못 박는다.
 
-브라우저 확인은 별도로 했다 (2026-08-06, Chromium + Playwright, 발행 DB
-137,422행): 첫 렌더 1.5초, 업권 탭 5개, 부산 구·군 16개, 참고카드 2장,
-우대조건 펼치기, 콘솔 오류 0건.
+브라우저 확인은 별도로 했다 (2026-08-06, Chromium + Playwright, 발행 DB).
+
+    1차 (137,422행)  첫 렌더 1.5초, 업권 탭 5개, 부산 구·군 16개,
+                     참고카드 2장, 우대조건 펼치기, 콘솔 오류 0건
+
+    2차 (133,764행, 조회 조건 개편 뒤)
+        업권 탭 6개 — 전체·저축은행·새마을금고·지역농축협·신협·은행
+        지역에서 부산을 켜니 구·군 16개가 그 자리에서 펼쳐졌다
+        동구를 고르니 15,822 → 1,537건
+        부산을 끄니 구·군이 접히고 133,764건으로 돌아왔다
+        7~12개월 구간 45,736건
+        우대금리 기준으로 바꾸니 금리칸 이름이 «최고금리 이상 (%)»로 바뀌었다
+        시중은행 탭 333건. **서울 시도를 걸어도 333건 그대로**였고
+        보이는 100행 전부에 «전국 공시» 배지가 붙었다
+        콘솔 오류 0건
 """
 
 import json
@@ -267,3 +279,77 @@ def test_the_stale_notice_starts_hidden() -> None:
     """실패가 없으면 경고가 안 보여야 한다."""
     assert 'id="stale-notice" hidden' in SOURCE
     assert '$("stale-notice").hidden = false;' in SOURCE
+
+
+# ── 조회 조건 개편 (2026-08-06) ─────────────────────────────────────────
+#
+# 아래는 실제 브라우저(Chromium)에서 한 번 돌려 확인한 동작을 소스에 못박는
+# 것이다. 실측 결과는 커밋 메시지에 있다. 여기서는 그 동작을 만드는 코드가
+# 사라지지 않았는지만 본다 — 이 파일은 JS를 실행하지 않는다.
+
+
+def test_the_busan_districts_open_inside_the_region_filter() -> None:
+    """구·군은 지역 조건 안에서 펼친다.
+
+    예전에는 표 위에 `부산으로 보기` 버튼과 구 버튼 줄이 따로 있었다. 같은
+    축(지역)을 두 곳에서 켜면 어느 쪽이 이겼는지 화면으로 알 수 없다.
+    """
+    assert 'id="busan-gu"' not in SOURCE, "구·군 목록이 아직 지역 조건 밖에 있다"
+    assert "const busanGuBoxes = () =>" in SOURCE
+    assert 'g.key === "region" ? busanGuBoxes() : ""' in SOURCE
+
+
+def test_unchecking_busan_also_clears_the_districts() -> None:
+    """안 보이는 조건이 살아남으면 왜 적게 나오는지 알 수 없다."""
+    assert "if (!busanOn()) state.gu.clear();" in SOURCE
+
+
+def test_busan_leads_the_region_list() -> None:
+    """이 제품의 중심이 부산이라 건수 순서에 묻히면 안 된다.
+
+    서울이 17,818건으로 부산 15,489건보다 많아서, 정렬을 그대로 두면
+    부산이 둘째 줄로 밀린다.
+    """
+    assert "if (a === BUSAN_SIDO) return -1;" in SOURCE
+
+
+def test_the_term_filter_is_bucketed_with_measured_edges() -> None:
+    """46종을 그대로 늘어놓으면 고를 수 없다.
+
+    경계 옆에 실측 몫이 주석으로 붙어 있어야 한다. 근거 없이 정한 경계는
+    나중에 데이터가 그 경계를 넘어설 때 조용히 깨진다.
+    """
+    assert "const TERM_BUCKETS = [" in SOURCE
+    assert '{ id: "37+"' in SOURCE
+    # 60개월 초과는 0건이라 칸을 두지 않았다. 그 근거가 남아 있어야 한다.
+    assert "60개월 초과는 **0건**" in SOURCE
+
+
+def test_the_disclosure_date_takes_a_range() -> None:
+    """"최근 것만"으로는 "작년 6월에 무엇이 있었나"를 물을 수 없다."""
+    assert 'id="dto"' in SOURCE
+    assert "state.dto != null && !(r.asOf && r.asOf <= state.dto)" in SOURCE
+
+
+def test_the_rate_basis_moves_both_the_filter_and_the_sort() -> None:
+    """한쪽만 옮기면 최고금리로 걸러 놓고 기본금리로 정렬된다."""
+    assert 'const rateOf = (r) => (state.basis === "max" ? r.max : r.base);' in SOURCE
+    assert "if (state.rmin != null && !(rateOf(r) >= state.rmin)) return false;" in SOURCE
+    assert 'if (state.sort === "base" || state.sort === "max") state.sort = state.basis;' \
+        in SOURCE
+
+
+def test_the_average_never_hides_its_denominator() -> None:
+    """최고금리는 전체의 27.6%에만 있다.
+
+    없는 것을 0으로 세면 평균이 통째로 거짓이 된다. 분모를 값 옆에 적는다.
+    """
+    assert "원천 미제공" in SOURCE
+    assert "건 기준" in SOURCE
+    assert "const average = (rows, pick) =>" in SOURCE
+
+
+def test_the_average_is_computed_over_the_filtered_set_not_the_page() -> None:
+    """보이는 100건으로 내면 정렬을 바꿀 때마다 평균이 움직인다."""
+    assert "const base = average(current, (r) => r.base);" in SOURCE
+    assert "average(ALL" not in SOURCE
