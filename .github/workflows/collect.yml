@@ -237,58 +237,91 @@ jobs:
           path: site-public/
           if-no-files-found: warn
 
-      - name: Publish to rate-data branch
+      # rate-data에 실을 것만 모은다.
+      #
+      # 여기 넣지 않기로 한 것들 (선행 수정안 v1 §2.2, 2026-08-06 실측):
+      #
+      #   publish/export/*.json   50.67 MiB. 같은 내용이 site-public에
+      #                           rates.json.gz 0.94 MiB로 이미 들어간다
+      #   publish/export/*.csv    16.57 MiB. site-public/data/rates.csv와
+      #                           바이트가 같다. 두 벌 실을 이유가 없다
+      #   site/*.html             5.51 MiB × 2. 데이터를 통째로 박아 넣던
+      #                           아티팩트 시절 화면이다. site-public이
+      #                           대신하고, 원본은 Actions 아티팩트로 남는다
+      #
+      # 합계 94 MiB를 덜어낸다. 셋 다 Actions 아티팩트(90일)에는 그대로
+      # 올라가므로 필요하면 거기서 받는다.
+      - name: Stage rate-data payload
         run: |
           set -euo pipefail
           gzip -kf publish/rate_monitor.sqlite3
 
-          STAGE=$(mktemp -d)
-          mkdir -p "$STAGE/latest" "$STAGE/site"
-          cp publish/rate_monitor.sqlite3.gz "$STAGE/latest/"
-          cp publish/manifest.json publish/summary.json "$STAGE/latest/"
-          # 전체 조사 파일도 함께 싣는다. 화면 없이 받아갈 수 있어야 한다.
-          cp -r publish/export "$STAGE/latest/export"
-          # 두 화면 다 싣는다. 예전에는 index.html만 복사해서 공개용 조회
-          # 화면(public.html)이 rate-data에 영영 올라가지 않았다.
-          cp site/index.html site/public.html "$STAGE/site/"
+          rm -rf stage && mkdir -p stage/latest
+          cp publish/rate_monitor.sqlite3.gz stage/latest/
+          cp publish/manifest.json publish/summary.json stage/latest/
           # 호스팅에 그대로 올릴 수 있는 한 벌.
-          cp -r site-public "$STAGE/site-public"
+          cp -r site-public stage/site-public
           # Vercel은 **저장소 루트**의 vercel.json만 읽는다. main에 있는
           # 원본을 rate-data 루트로 옮겨 놓지 않으면, 저장소를 파이썬 앱으로
           # 잡고 진입점을 찾다 실패한다 (2026-08-06 실측).
-          cp vercel.json "$STAGE/vercel.json"
+          cp vercel.json stage/vercel.json
+
+      # 한도를 넘으면 여기서 멈춘다. push가 거부되는 것보다 낫다 —
+      # 발행이 멈추면 어제 사이트가 그대로 살아 있다.
+      - name: Size gate
+        run: uv run python scripts/size_gate.py stage
+
+      - name: Publish to rate-data branch
+        run: |
+          set -euo pipefail
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
+          # 이전 SHA를 기억해 둔다. --force-with-lease가 이 값을 쓴다 —
+          # 그 사이 누가 밀어 넣었으면 덮어쓰지 않고 실패한다.
+          git fetch origin rate-data --depth=1 2>/dev/null || true
+          BEFORE=$(git rev-parse origin/rate-data 2>/dev/null || echo "")
+
           for attempt in 1 2; do
-            # 커밋 직전에 최신 상태를 다시 가져온다
-            git fetch origin rate-data --depth=1 2>/dev/null || true
-            if git show-ref --verify --quiet refs/remotes/origin/rate-data; then
-              git checkout -B rate-data origin/rate-data
-            else
-              git checkout --orphan rate-data
-              git rm -rq --cached . 2>/dev/null || true
-            fi
+            # 매번 부모 없는 커밋을 새로 만든다.
+            #
+            # 예전에는 기존 브랜치 위에 커밋을 쌓았다. 파일을 지우는 커밋을
+            # 올려도 과거 커밋의 blob은 그대로 남아서, 수집할 때마다 50 MiB
+            # 짜리 DB가 한 벌씩 저장소에 영구히 쌓였다. 이력이 필요한 것은
+            # main이지 데이터 브랜치가 아니다.
+            #
+            # 임시 브랜치를 먼저 지운다. 재시도 때 이미 있으면
+            # `a branch named 'rate-data-new' already exists`로 죽는다.
+            git checkout -q --detach 2>/dev/null || true
+            git branch -D rate-data-new 2>/dev/null || true
+            git checkout -q --orphan rate-data-new
+            git rm -rq --cached . 2>/dev/null || true
 
             find . -maxdepth 1 -mindepth 1 \
-              -not -name .git -not -name work -not -name publish -not -name site \
-              -not -name site-public -not -name data -exec rm -rf {} +
-            rm -rf latest site site-public
-            cp -r "$STAGE/latest" "$STAGE/site" "$STAGE/site-public" .
-            cp "$STAGE/vercel.json" .
+              -not -name .git -not -name work -not -name publish \
+              -not -name stage -not -name data -not -name site \
+              -not -name site-public -exec rm -rf {} +
+            rm -rf latest site site-public vercel.json
+            cp -r stage/latest stage/site-public .
+            cp stage/vercel.json .
 
-            git add -f latest site site-public vercel.json
-            if git diff --cached --quiet; then
-              echo "변경 없음"
-              exit 0
-            fi
+            git add -f latest site-public vercel.json
             git commit -q -m "data: 수집 결과 갱신 (run ${{ github.run_id }})"
-            if git push origin rate-data; then
+
+            if [ -n "$BEFORE" ]; then
+              PUSH="git push --force-with-lease=rate-data:$BEFORE origin HEAD:rate-data"
+            else
+              PUSH="git push origin HEAD:rate-data"
+            fi
+            if $PUSH; then
               echo "push 성공 (시도 $attempt)"
               exit 0
             fi
-            echo "push 충돌. 재시도 $attempt"
+
+            echo "push 거부됨. 원격이 그 사이 바뀌었다. 재시도 $attempt"
+            git fetch origin rate-data --depth=1 2>/dev/null || true
+            BEFORE=$(git rev-parse origin/rate-data 2>/dev/null || echo "")
           done
           echo "push 재시도 실패" >&2
           exit 1
