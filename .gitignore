@@ -28,3 +28,14 @@ __pycache__/
 
 # 발행 직전 스테이지 — Actions에서만 만든다
 stage/
+
+# 다른 프로젝트에서 이식한 Claude 스킬은 다시 싣지 않는다.
+#
+# 2026-08-06에 23개가 통째로 들어왔다가 19개를 지웠다. 이 저장소가 쓰는
+# 것은 훅이 강제하는 work-completion-report와 방법론 3종뿐이다. 나머지는
+# 남의 저작물이고, 공개 저장소에 재배포할 근거가 없다.
+.claude/skills/*
+!.claude/skills/work-completion-report/
+!.claude/skills/magic-number-audit/
+!.claude/skills/deploy-staleness-check/
+!.claude/skills/log-driven-integration-debug/

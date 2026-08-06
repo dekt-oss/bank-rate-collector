@@ -1,6 +1,0 @@
-interface:
-  display_name: "주가 분석"
-  short_description: "상장종목의 가치·전망·리스크·진입시점을 종합 분석"
-  default_prompt: "Analyze a named listed stock using current valuation, forward revisions, scenarios, risks, and entry timing."
-policy:
-  allow_implicit_invocation: true
