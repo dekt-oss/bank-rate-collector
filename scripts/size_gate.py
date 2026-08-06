@@ -74,13 +74,19 @@ class Finding:
         return self.level == "fail"
 
 
-def limits_for(relative: str) -> tuple[int, int]:
+def limits_for(relative: str, backend: str = "github_legacy") -> tuple[int, int]:
     """그 파일에 적용할 (경고, 실패) 한도.
 
     화면이 자동으로 받는 조각만 조각 한도를 쓴다. 같은 폴더에 있어도
     사람이 눌러야 받아지는 파일은 일반 Git 파일로 본다.
 
+    상태 DB의 예외는 `backend`가 `r2`가 되는 순간 사라진다. 그 모드에서는
+    이 파일이 아예 없어야 하므로, 있으면 일반 한도로 걸려 실패한다 —
+    예외가 스스로 사라지는 구조라야 잊히지 않는다.
+
     >>> limits_for(STATE_DB) == (STATE_DB_WARN, STATE_DB_FAIL)
+    True
+    >>> limits_for(STATE_DB, backend="r2") == (GIT_FILE_WARN, GIT_FILE_FAIL)
     True
     >>> limits_for("site-public/data/table.json") == (SHARD_WARN, SHARD_FAIL)
     True
@@ -91,7 +97,7 @@ def limits_for(relative: str) -> tuple[int, int]:
     >>> limits_for("latest/summary.json") == (GIT_FILE_WARN, GIT_FILE_FAIL)
     True
     """
-    if relative == STATE_DB:
+    if relative == STATE_DB and backend != "r2":
         return STATE_DB_WARN, STATE_DB_FAIL
     if relative.startswith(SHARD_PREFIX):
         name = relative[len(SHARD_PREFIX) :]
@@ -114,7 +120,7 @@ def classify(size: int, warn: int, fail: int) -> str:
     return "ok"
 
 
-def inspect(root: Path) -> list[Finding]:
+def inspect(root: Path, backend: str = "github_legacy") -> list[Finding]:
     """트리 전체를 재고 판정한다. 합계도 한 항목으로 넣는다."""
     findings: list[Finding] = []
     total = 0
@@ -124,7 +130,7 @@ def inspect(root: Path) -> list[Finding]:
         size = path.stat().st_size
         total += size
         relative = path.relative_to(root).as_posix()
-        warn, fail = limits_for(relative)
+        warn, fail = limits_for(relative, backend)
         findings.append(Finding(classify(size, warn, fail), relative, size, fail))
 
     findings.sort(key=lambda f: -f.size)
@@ -134,7 +140,7 @@ def inspect(root: Path) -> list[Finding]:
     return findings
 
 
-def report(findings: list[Finding]) -> int:
+def report(findings: list[Finding], backend: str = "github_legacy") -> int:
     """사람이 읽을 표를 찍고 종료코드를 돌려준다."""
     mark = {"ok": "    ", "warn": "경고", "fail": "실패"}
     shown = [f for f in findings if f.level != "ok" or f.size >= MIB]
@@ -154,7 +160,7 @@ def report(findings: list[Finding]) -> int:
 
     # 예외를 조용히 두지 않는다. 통과할 때마다 적어야 잊히지 않는다.
     state = next((f for f in findings if f.path == STATE_DB), None)
-    if state is not None:
+    if state is not None and backend != "r2":
         print(
             f"\n  ※ {STATE_DB}는 한시 예외다 ({state.size / MIB:.2f} MiB, "
             f"한도 {STATE_DB_FAIL / MIB:.0f} MiB).\n"
@@ -170,12 +176,16 @@ def report(findings: list[Finding]) -> int:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="발행 전 파일 크기 검사")
     parser.add_argument("root", type=Path, help="검사할 트리 (발행 직전 스테이지)")
+    parser.add_argument(
+        "--backend", default="github_legacy",
+        help="상태 저장소. r2면 상태 DB 예외가 사라진다 (그 모드에선 파일이 없어야 한다)",
+    )
     args = parser.parse_args(argv)
     if not args.root.is_dir():
         print(f"디렉터리가 아니다: {args.root}", file=sys.stderr)
         return 2
-    print(f"파일 크기 검사 — {args.root}")
-    return report(inspect(args.root))
+    print(f"파일 크기 검사 — {args.root}  (backend={args.backend})")
+    return report(inspect(args.root, args.backend), args.backend)
 
 
 if __name__ == "__main__":

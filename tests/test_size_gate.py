@@ -45,6 +45,20 @@ def test_the_state_db_has_its_own_limit() -> None:
     assert gate.STATE_DB_FAIL < 100 * MIB
 
 
+def test_the_exemption_disappears_when_r2_takes_over(tmp_path: Path, capsys) -> None:
+    """전환이 끝나면 예외도 없어져야 한다.
+
+    `r2` 모드에서는 상태 DB가 Git에 아예 없어야 한다. 있으면 전환이 덜 된
+    것이므로 일반 한도로 걸려 실패한다. 예외가 스스로 사라지는 구조라야
+    "나중에 지우자"가 영원히 안 온다.
+    """
+    _file(tmp_path, gate.STATE_DB, 50.75)
+
+    assert gate.main([str(tmp_path)]) == 0                        # 전환 전 — 통과
+    assert gate.main([str(tmp_path), "--backend", "r2"]) == 1      # 전환 후 — 실패
+    assert "한시 예외" not in capsys.readouterr().out.split("backend=r2")[-1]
+
+
 def test_every_limit_stays_under_the_github_wall() -> None:
     """어떤 한도도 100 MB를 넘지 않는다. 넘으면 게이트가 무의미하다."""
     for name, value in vars(gate).items():

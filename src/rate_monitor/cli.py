@@ -7,6 +7,7 @@
 import argparse
 import asyncio
 import sys
+import tempfile
 from pathlib import Path
 
 from rate_monitor.collectors.cu.adapter import CuAdapter
@@ -29,6 +30,18 @@ from rate_monitor.services.site_service import DEFAULT_OUT as DEFAULT_SITE_OUT
 from rate_monitor.services.site_service import DEFAULT_TEMPLATE as DEFAULT_SITE_TEMPLATE
 from rate_monitor.services.site_service import build_site
 from rate_monitor.services.snapshot_service import create_snapshot
+from rate_monitor.services.storage_service import (
+    CURRENT_KEY,
+    SNAPSHOT_PREFIX,
+    LocalObjectStore,
+    R2Config,
+    SnapshotRef,
+    StorageError,
+    load_backend,
+    open_store,
+    restore_snapshot,
+    upload_snapshot,
+)
 from rate_monitor.services.validation_service import run_validations
 
 ADAPTERS = {
@@ -142,6 +155,82 @@ def _export(args: argparse.Namespace) -> int:
     return 0
 
 
+def _storage_store(args: argparse.Namespace):
+    """R2 또는 로컬 디렉터리. 후자는 R2 없이 전 구간을 돌려 보기 위한 것이다."""
+    if args.local_root:
+        return LocalObjectStore(Path(args.local_root))
+    config = R2Config.from_env()
+    if config is None:
+        raise StorageError(
+            "R2 시크릿이 없다. 실제 R2에 붙으려면 "
+            f"{', '.join(R2Config.ENV_KEYS)}를 넣거나, 시험용이면 --local-root를 준다"
+        )
+    return open_store(config)
+
+
+def _storage(args: argparse.Namespace) -> int:
+    """상태 DB 저장소를 다룬다 (선행 수정안 v1 §6).
+
+    `status`와 `verify`는 아무것도 바꾸지 않는다. 전환을 결정하기 전에
+    지금 상태를 확인하는 용도다.
+    """
+    choice = load_backend(Path(args.config))
+    print(f"backend : {choice.backend.value}  ({choice.source})")
+
+    if args.action == "status":
+        secrets = R2Config.from_env()
+        print(f"R2 시크릿: {'있음' if secrets else '없음'}")
+        if not (secrets or args.local_root):
+            print("R2 저장소를 볼 수 없다. --local-root를 주거나 시크릿을 넣는다")
+            return 0
+        store = _storage_store(args)
+        if not store.exists(CURRENT_KEY):
+            print(f"{CURRENT_KEY} 없음 — 아직 한 번도 올린 적이 없다")
+            return 0
+        ref = SnapshotRef.from_json(store.get(CURRENT_KEY))
+        print(f"current : {ref.object_key}")
+        print(f"  생성   : {ref.generated_at}")
+        print(f"  압축   : {ref.compressed_bytes:,} bytes  (원본 {ref.sqlite_bytes:,})")
+        print(f"  무결성 : {ref.integrity_check}, fk 위반 {ref.foreign_key_check_violations}")
+        print(f"  행 수  : {ref.row_counts}")
+        print(f"  보관   : 스냅샷 {len(store.list(SNAPSHOT_PREFIX))}개")
+        return 0
+
+    store = _storage_store(args)
+    work = Path(args.work_dir)
+
+    if args.action in ("upload", "migrate"):
+        ref = upload_snapshot(store, Path(args.db), work)
+        ratio = ref.compressed_bytes / ref.sqlite_bytes if ref.sqlite_bytes else 0
+        print(f"올림    : {ref.object_key}")
+        print(f"  크기   : {ref.sqlite_bytes:,} → {ref.compressed_bytes:,} bytes"
+              f"  ({ratio:.1%})")
+        print(f"  해시   : {ref.sha256}")
+        print(f"  행 수  : {ref.row_counts}")
+        print("  검증   : 다시 받아 해시·무결성·행 수까지 대조했다")
+        if args.action == "migrate":
+            print("\n다음: `storage verify`로 한 번 더 확인한 뒤")
+            print("config/storage.yaml의 backend를 r2_migration으로 바꾼다")
+        return 0
+
+    if args.action == "verify":
+        # 받아서 확인만 하고 지운다. 여기서 남기면 그게 진짜 DB인 줄 알고
+        # 누가 쓰기 시작한다.
+        with tempfile.TemporaryDirectory() as tmp:
+            ref = restore_snapshot(store, Path(tmp) / "verify.sqlite3", Path(tmp))
+        print(f"확인    : {ref.object_key}")
+        print("  해시   : 기록과 일치")
+        print(f"  무결성 : {ref.integrity_check}, fk 위반 {ref.foreign_key_check_violations}")
+        print(f"  행 수  : {ref.row_counts}")
+        return 0
+
+    ref = restore_snapshot(store, Path(args.dest), work)
+    print(f"복원    : {args.dest}")
+    print(f"  출처   : {ref.object_key}  ({ref.generated_at})")
+    print(f"  행 수  : {ref.row_counts}")
+    return 0
+
+
 def _build_site(args: argparse.Namespace) -> int:
     """공개 웹사이트 한 벌을 만든다.
 
@@ -223,6 +312,31 @@ def build_parser() -> argparse.ArgumentParser:
     )
     site.set_defaults(func=_build_site)
 
+    # 상태 DB 저장소 (선행 수정안 v1 §6).
+    #
+    # status와 verify는 아무것도 바꾸지 않는다. R2 계정이 생긴 뒤 전환을
+    # 결정하기 전에 이 둘로 지금 상태를 본다.
+    storage = sub.add_parser("storage", help="상태 DB 저장소를 다룬다 (R2)")
+    storage.add_argument(
+        "action",
+        choices=["status", "upload", "restore", "migrate", "verify"],
+        help="status=현황만 본다, upload=올린다, restore=받는다, "
+             "migrate=기존 GitHub DB를 R2로 옮긴다, verify=받아서 확인만 한다",
+    )
+    storage.add_argument("--db", default="publish/rate_monitor.sqlite3",
+                         help="upload·migrate가 올릴 DB")
+    storage.add_argument("--dest", default="work/rate_monitor.sqlite3",
+                         help="restore가 쓸 자리")
+    storage.add_argument("--config", default="config/storage.yaml")
+    storage.add_argument("--work-dir", default="work/storage",
+                         help="압축·검증에 쓰는 임시 자리")
+    storage.add_argument(
+        "--local-root", default=None,
+        help="R2 대신 이 디렉터리를 저장소처럼 쓴다. 시크릿 없이 전 구간을 "
+             "돌려 볼 때 쓴다",
+    )
+    storage.set_defaults(func=_storage)
+
     validate = sub.add_parser("validate", help="저장된 데이터의 계약 위반을 찾는다")
     validate.add_argument("--db", default=str(DEFAULT_DB_PATH))
     validate.set_defaults(func=_validate)
@@ -240,7 +354,13 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    return args.func(args)
+    try:
+        return args.func(args)
+    except StorageError as exc:
+        # 저장소 실패는 설정이 틀렸거나 R2가 안 되는 것이고, 둘 다 사람이
+        # 읽고 고칠 문제다. traceback은 그걸 가린다.
+        print(f"저장소 오류: {exc}", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":
