@@ -83,6 +83,13 @@ TABLE_COLUMNS = (
     "availability_scope",
     "source_id",
     "source_effective_at",
+    # v4 §10.4. `amount_min`은 일부러 뺐다 — 135,384행 중 채워진 값이
+    # 0건이다. 빈 칸을 화면에 만들면 "정보 없음"이 아니라 "0원부터"로 읽힌다.
+    "outlet",
+    "geo_basis",
+    "rate_scope",
+    "amount_max",
+    "preference",
 )
 
 
@@ -117,6 +124,14 @@ DISTRICT_EXPR = "COALESCE(ot.region_sigungu, i.region_sigungu)"
 # 같은 행이 조용히 생긴다. 인자를 없애고 여기서만 정한다.
 TABLE_SIDO_EXPR = "i.region_sido"
 TABLE_DISTRICT_EXPR = "i.region_sigungu"
+
+# 지역근거는 점포 것이 우선이다 (v4 §4.1).
+#
+# 시도·구는 위처럼 기관 칸을 쓰는데, **근거만은 점포를 먼저 본다.** 농·축협은
+# 같은 조합의 지점들이 서로 다른 주소를 갖는다(대저농협 3지점 실측). 그 행의
+# 지역이 어디서 왔는지를 기관 근거로 덮으면 "점포 기준"이 "기관 기준"으로
+# 보이고, 화면 배지가 거짓말을 한다.
+TABLE_GEO_BASIS_EXPR = "COALESCE(ot.geo_basis, i.geo_basis)"
 
 RUN_TIME_KEYS = ("started_at", "finished_at")
 
@@ -198,13 +213,26 @@ def build_rate_table(
         "       o.max_rate              AS max_rate,"
         "       i.availability_scope    AS availability_scope,"
         "       r.source_id             AS source_id,"
-        "       o.source_effective_at   AS source_effective_at"
+        "       o.source_effective_at   AS source_effective_at,"
+        # ── v4 §10.4가 표 행에 요구하는 칸들 ────────────────────────────
+        "       ot.name                 AS outlet,"
+        # 지역근거. 점포 것이 있으면 그쪽이 맞다 — 농·축협은 같은 조합의
+        # 지점들이 서로 다른 주소를 갖는다. 기관 것으로 덮으면 점포 기준이
+        # 기관 기준으로 보인다 (v4 §4.1).
+        f"      {TABLE_GEO_BASIS_EXPR}  AS geo_basis,"
+        "       v.rate_scope            AS rate_scope,"
+        "       v.amount_max            AS amount_max,"
+        # 우대조건 원문. 조회표로 나가므로 크기가 안 는다 — 실측 38,305행에
+        # 서로 다른 문장이 387가지뿐이라 7.5 MB가 0.08 MB가 된다.
+        "       o.raw_preference_text   AS preference"
         "  FROM rate_observations o"
         "  JOIN collection_runs r  ON r.id = o.run_id"
         "  JOIN product_variants v ON v.id = o.variant_id"
         "  JOIN products p         ON p.id = v.product_id"
         "  JOIN institutions i     ON i.id = p.institution_id"
-        # 점포를 조인하지 않는다. 조인하면 관측 하나가 점포 수만큼 복제된다.
+        # 점포는 `product_variants.outlet_id`로만 잇는다. 기관으로 이으면
+        # 관측 하나가 그 기관의 점포 수만큼 복제된다.
+        "  LEFT JOIN outlets ot    ON ot.id = v.outlet_id"
         f" WHERE o.last_run_id IN ({placeholders})"
         "   AND o.validation_status != 'error'"
         # 참고지표는 메인 비교표에 넣지 않는다 (v4 §6.4).
@@ -214,9 +242,15 @@ def build_rate_table(
     )
 
     # 같은 값이 수천 번 되풀이되는 열만 조회표로 뺀다.
-    indexed = ("sector", "institution", "region", "district", "product", "product_type",
-               "payment_method", "interest_method", "join_channel",
-               "availability_scope", "source_id", "source_effective_at")
+    # 같은 값이 수천 번 되풀이되는 열만 조회표로 뺀다.
+    #
+    # `preference`가 여기 있는 것이 이번 확장의 핵심이다. 우대조건 원문을
+    # 행마다 그대로 실으면 7.5 MB인데, 서로 다른 문장이 387가지뿐이라
+    # 조회표로 빼면 0.08 MB다 (2026-08-06 발행 DB 실측, 90배).
+    indexed = ("sector", "institution", "outlet", "region", "district",
+               "product", "product_type", "payment_method", "interest_method",
+               "join_channel", "availability_scope", "source_id",
+               "source_effective_at", "geo_basis", "rate_scope", "preference")
     lookups: dict[str, list[Any]] = {name: [] for name in indexed}
     positions: dict[str, dict[Any, int]] = {name: {} for name in indexed}
 
@@ -241,6 +275,91 @@ def build_rate_table(
         rows.append(row)
 
     return {"columns": list(TABLE_COLUMNS), "lookups": lookups, "rows": rows}
+
+
+# 참고카드가 쓰는 상품. 12개월 정기예금 하나다 (v4 §6.4).
+BENCHMARK_TERM_MONTHS = 12
+BENCHMARK_PRODUCT_TYPE = "term_deposit"
+
+
+def _percentile(values: list[float], q: float) -> float | None:
+    """정렬된 값에서 백분위. 보간하지 않고 가장 가까운 실측값을 고른다.
+
+    보간하면 화면에 **아무 은행도 주지 않는 금리**가 뜬다. 참고카드는
+    "이런 값이 실제로 있다"를 말해야 하므로 있는 값 중에서 고른다.
+
+    >>> _percentile([1.0, 2.0, 3.0, 4.0], 0.5)
+    3.0
+    >>> _percentile([], 0.5) is None
+    True
+    """
+    if not values:
+        return None
+    index = min(int(q * len(values)), len(values) - 1)
+    return values[index]
+
+
+def build_benchmarks(
+    conn: sqlite3.Connection, run_ids: list[str]
+) -> dict[str, Any]:
+    """상단 참고카드 (v4 §6.4, §10.6).
+
+    시중은행은 메인 비교표에서 빠지지만 DB에는 있다. 그 값을 12개월
+    정기예금 한 상품으로 좁혀 분포로 보여준다.
+
+    §6.4가 여섯 값을 요구한다 — `record_count`·`institution_count`·`p10`·
+    `median`·`p90`·`max`. 화면에는 셋만 띄우지만 전부 계산해 둔다. 이상치가
+    카드를 왜곡했는지 나중에 확인할 수 있어야 한다.
+
+    **기준금리와의 차이를 계산하지 않는다** (v4 §7.4). 예금금리에서
+    기준금리를 뺀 값을 "수익"이나 "마진"이라 부르는 순간 그건 참고지표가
+    아니라 투자 권유가 된다.
+    """
+    empty: dict[str, Any] = {
+        # 한국은행 기준금리. v4 PR 6에서 채운다. `None`이면 화면이 카드를
+        # 통째로 숨긴다 — 빈 카드를 띄우면 "0%"로 읽힌다.
+        "bok_base_rate": None,
+        "commercial_bank_12m": None,
+    }
+    if not run_ids:
+        return empty
+
+    placeholders = ",".join("?" for _ in run_ids)
+    rows = _rows(
+        conn,
+        "SELECT o.base_rate AS base_rate, o.max_rate AS max_rate,"
+        "       i.id AS institution_id, o.source_effective_at AS source_effective_at"
+        "  FROM rate_observations o"
+        "  JOIN collection_runs r  ON r.id = o.run_id"
+        "  JOIN product_variants v ON v.id = o.variant_id"
+        "  JOIN products p         ON p.id = v.product_id"
+        "  JOIN institutions i     ON i.id = p.institution_id"
+        f" WHERE o.last_run_id IN ({placeholders})"
+        "   AND o.validation_status != 'error'"
+        "   AND i.sector = 'bank'"
+        "   AND v.term_months = ?"
+        "   AND p.product_type = ?",
+        (*run_ids, BENCHMARK_TERM_MONTHS, BENCHMARK_PRODUCT_TYPE),
+    )
+    if not rows:
+        return empty
+
+    base = sorted(float(r["base_rate"]) for r in rows if r["base_rate"] is not None)
+    tops = [float(r["max_rate"]) for r in rows if r["max_rate"] is not None]
+    dates = [r["source_effective_at"] for r in rows if r["source_effective_at"]]
+
+    empty["commercial_bank_12m"] = {
+        "record_count": len(rows),
+        "institution_count": len({r["institution_id"] for r in rows}),
+        "p10": _percentile(base, 0.10),
+        "median": _percentile(base, 0.50),
+        "p90": _percentile(base, 0.90),
+        # 최고금리는 우대 포함값이라 기본금리와 섞지 않는다.
+        "max": max(tops) if tops else None,
+        "max_is_from_max_rate": bool(tops),
+        "source_effective_at": max(dates) if dates else None,
+    }
+    return empty
 
 
 def build_summary(db_path: Path) -> dict[str, Any]:
@@ -437,6 +556,7 @@ def build_summary(db_path: Path) -> dict[str, Any]:
         )
 
         table = build_rate_table(conn, run_ids)
+        benchmarks = build_benchmarks(conn, run_ids)
     finally:
         conn.close()
 
@@ -455,6 +575,7 @@ def build_summary(db_path: Path) -> dict[str, Any]:
         "review_samples": review_samples,
         "sources": sources,
         "rate_scopes": rate_scopes,
+        "benchmarks": benchmarks,
         "table": table,
     }
 
