@@ -61,6 +61,84 @@ v4 §5.2의 정찰(PR 3)에서 확정한다.
 
 ---
 
+## 0.1 2차 정찰 (2026-08-06) — 호스트는 찾았고 화면은 못 찾았다
+
+재현 방법: `uv run python scripts/p2_nh_local_recon.py`
+기계 판독 결과: `docs/source-recon/nh-local-recon-v2.json` (30회 탐침)
+
+### 확인된 것
+
+**`mmall.nonghyup.com`이 농·축협 몰이다.** 문서 제목이
+`NH모바일웹(농·축협)`이고, 본문에 `모바일 농·축협`·`농·축협 특판 기획전`이
+들어 있다.
+
+```
+mmall.nonghyup.com/servlet/SFDPM0130R.view  200   48,940 B   농·축협 특판 기획전
+mmall.nonghyup.com/servlet/SFDPM0100R.view  200   50,587 B
+```
+
+**`smartmarket.nonghyup.com`은 농협은행 쪽이다.** 진입 화면이
+`/servlet/BFBCW0001R.view`이고(200, 127,209 B), 여기서 `SF*` 화면은 전부
+404다. 화면군이 호스트로 갈린다.
+
+```
+BF*   농협은행    smartmarket.nonghyup.com
+SF*   상호금융    mmall.nonghyup.com (모바일 SFDPM*)
+```
+
+**채널 전환 방식.** 농협은행 화면의 `농ㆍ축협` 탭이 이렇게 돈다.
+
+```javascript
+function lfn_nhbankClk(val){
+    if(val == "1"){ param['SF_NAAC_DS_DTLC'] = "1"; navigate("BFBCW0001R", param); }
+    else if(val == "2"){ param['SF_NAAC_DS_DTLC'] = "2"; common_toSangho('SFBCW0000R', param); }
+}
+```
+
+`sfcn_cfSubscriptionGuide`가 같은 구분값을 콘텐츠 폴더로 옮긴다 —
+`naacDscDtlc == '2'` 이면 폴더가 `nhbank`에서 `nhsangho`로 바뀐다. 즉
+**농·축협은 별도 채널이고 `SF_NAAC_DS_DTLC=2`가 그 스위치다.**
+
+### 아직 못 찾은 것 — 이게 이번 정찰의 결론이다
+
+명세서 v4 §5.1이 적은 세 화면이 **어느 호스트에서도 200을 주지 않는다.**
+
+```
+SFDPW0160R  농·축협별 예금금리 검색
+SFDPW0161R  검색 결과
+SFDPW0162R  점포별 금리 상세
+```
+
+| 호스트 | 응답 |
+|---|---|
+| smartmarket.nonghyup.com | 404 (105 KB 오류 화면) |
+| mmall.nonghyup.com | 404 (0 B) |
+| banking.nonghyup.com | 404 (134 KB) |
+| www.nonghyup.com | 404 (2 KB) |
+
+같은 화면군의 모바일 변형(`SFDPM0160R`/`0161R`/`0162R`)도 404다.
+
+`common_toSangho`의 정의를 정적 JS 8개에서 찾지 못했다 — 화면 단위
+스크립트에 있는 것으로 보인다. 브라우저로 실행해 잡으려 했으나 이 실행
+환경의 프록시가 Chromium 연결을 막는다(`ERR_CONNECTION_RESET`). curl은
+같은 호스트에 정상으로 붙으므로 호스트 차단은 아니다.
+
+### 확인해 본 다른 길
+
+`www.nonghyup.com/introduce/interest/`에는 농·축협 **대출**금리만 있다
+(`loan1~6.do`, 각 90~107 KB). 예금 쪽 대응 페이지는 없다 —
+`deposit1.do`·`save1.do` 등 8가지를 두드려 전부 404였다.
+
+### 다음에 필요한 것
+
+**사용자가 그 화면을 실제로 열었을 때의 주소.** 화면 ID는 맞는데 호스트나
+경로 접두사가 다르다. 주소창 값 하나면 남은 계약(요청 method·payload·
+페이지네이션·식별자)은 이 스크립트를 확장해 확정할 수 있다.
+
+추정으로 화면 ID를 만들어 두드리는 것은 여기서 멈춘다 (v4 §0.2).
+
+---
+
 ## 1. (2026-08-05 기록 · §0에서 정정됨) 결론 — 중앙 수집이 새마을금고·신협처럼은 안 된다
 
 **지역농축협은 조합마다 독립 법인이고 각자 홈페이지에 금리를 공시한다.**
