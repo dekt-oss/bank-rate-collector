@@ -251,6 +251,20 @@ def test_template_points_at_the_files_the_build_writes(db: Path, tmp_path: Path)
         assert target.exists(), f"{href}가 가리키는 파일이 없다"
 
 
+def test_data_files_are_not_cached_long(db: Path, tmp_path: Path) -> None:
+    """`data/` 아래는 주소가 그대로인 채 내용만 바뀐다.
+
+    오래 캐시하면 새로고침해도 어제 금리가 나온다. 수집을 아무리 자주
+    돌려도 보는 사람에게는 안 바뀐 것과 같다.
+    """
+    out = tmp_path / "site-public"
+    build_site(db, TEMPLATE, out)
+    config = json.loads((out / "vercel.json").read_text(encoding="utf-8"))
+    rules = {r["source"]: r["headers"][0]["value"] for r in config["headers"]}
+    assert "must-revalidate" in rules["/data/(.*)"]
+    assert "max-age=0" in rules["/data/(.*)"]
+
+
 def test_page_declares_utf8(db: Path, tmp_path: Path) -> None:
     """charset이 없으면 화면의 한글 낱말이 통째로 깨진다.
 

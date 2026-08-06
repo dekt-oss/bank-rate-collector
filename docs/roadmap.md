@@ -147,6 +147,44 @@ FSB 수집기가 선행이다. 기관코드 체계가 서로 다르다는 것까
 private 저장소의 Pages 공개 범위를 확인하지 못해 배포하지 않았다.
 `collect.yml`에 주석으로 자리만 있다.
 
+### 4.6 Vercel 배포 — 한 단계가 사람 손을 탄다
+
+산출물은 준비돼 있다. `rate-monitor build-site`가 그대로 올릴 수 있는
+한 벌을 만들고, 수집 워크플로우가 이것을 `rate-data` 브랜치의
+`site-public/`에 밀어 넣는다.
+
+```
+site-public/
+  index.html          78 KB   요약과 조회 UI
+  data/table.json    720 KB   금리표 (부산 16,913행 기준)
+  data/table.json.gz
+  data/rates.csv     2.1 MB   사람이 받아가는 파일
+  data/rates.json    6.4 MB
+  vercel.json                 캐시 헤더
+  site-manifest.json
+```
+
+남은 것은 **Vercel 프로젝트를 이 저장소에 연결하는 일**이다. 저장소가
+private이라 Vercel에 접근 권한을 주는 OAuth 승인이 필요하고, 그건 계정
+주인만 할 수 있다. 자동화 경로로는 대신 못 한다.
+
+Vercel 대시보드에서:
+
+| 항목 | 값 |
+|---|---|
+| Git Repository | `dekt-oss/bank-rate-collector` |
+| Production Branch | `rate-data` |
+| Root Directory | `site-public` |
+| Framework Preset | Other |
+| Build Command | 없음 (정적 파일) |
+| Output Directory | `.` |
+
+연결하고 나면 수집이 돌 때마다 `rate-data`에 push가 일어나고 Vercel이
+그걸 받아 자동 배포한다. 별도 배포 단계를 워크플로우에 넣지 않아도 된다.
+
+**MCP `deploy_to_vercel`로는 못 한다.** 그 도구는 파일 내용을 요청 안에
+직접 실어 보내는데, 여기 데이터가 9 MB다.
+
 ---
 
 ## 5. 알려진 데이터 한계
