@@ -188,8 +188,21 @@ Vercel 대시보드에서:
 원본)와 `rate-data`의 저장소 루트(Vercel이 실제로 읽는 자리)다. 수집
 워크플로우의 Publish 단계가 전자를 후자로 복사한다.
 
-**사람이 대시보드에서 바꿀 것은 하나뿐이다** — Production Branch를
-`rate-data`로. 나머지는 위 파일이 정한다.
+**배포 주소는 두 개다.**
+
+| 주소 | 상태 |
+|---|---|
+| `bank-rate-collector-git-rate-data-dekt-oss-projects.vercel.app` | **동작한다.** rate-data의 최신 배포를 늘 가리킨다 |
+| `bank-rate-collector-dekt-oss-projects.vercel.app` | 404. 프로덕션 별칭인데 프로덕션 브랜치가 아직 `main`이고, `main` 배포는 실패한다 |
+
+짧은 주소를 쓰려면 프로덕션 브랜치를 `rate-data`로 바꿔야 한다. **이 항목은
+Settings → Git에 없다** (2026-08-06 확인). Vercel이 UI를 옮겨서 Settings →
+Environments 아래 Production 환경의 브랜치 설정으로 간 것으로 보인다 —
+경로는 미확인이다.
+
+바꾸지 않아도 막히는 것은 없다. 긴 주소가 같은 내용을 같은 방식으로
+서빙한다. 차이는 주소 길이와, 미리보기 배포에 붙는 `x-robots-tag: noindex`
+뿐이다 (검색 노출을 원할 때만 문제가 된다).
 
 **세 가지가 실제로 걸렸다 (2026-08-06 실측).**
 
