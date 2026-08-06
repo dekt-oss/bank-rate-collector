@@ -15,6 +15,7 @@ work/
 
 # 생성 산출물 — rate-data 브랜치로 배포한다
 site/
+site-public/
 publish/
 
 # 파이썬 기본
