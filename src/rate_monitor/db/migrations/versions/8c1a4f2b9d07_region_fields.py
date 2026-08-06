@@ -105,11 +105,13 @@ def _backfill(bind: sa.engine.Connection) -> None:
                 }
             )
             if fields.sido is None:
-                unresolved.append(("region_unresolved", entity_type, row["id"], row["address"]))
+                # "주소가 없다"와 "주소가 있는데 지역이 아니다"는 다르다.
+                # 전자는 원천의 성격(전국 공시)이고 후자는 데이터 문제다.
+                kind = "region_unresolved" if not row["address"] else "region_not_an_address"
+                unresolved.append((kind, entity_type, row["id"], row["address"]))
             elif not is_known_sido(fields.sido):
-                # 버리지 않는다. 실측 두 종 중 하나는 층 표기(`신동해빌딩`)이고
-                # 다른 하나는 시군구가 멀쩡한 진짜 주소(`전남광주통합특별시`)라,
-                # 코드가 둘을 구별할 방법이 없다. 세어 둘 뿐이다.
+                # 별칭표가 모르는 시도 이름. 값은 그대로 두고 세기만 한다 —
+                # 실측 `전남광주통합특별시`는 시군구가 멀쩡한 진짜 주소다.
                 unresolved.append(("region_unknown_sido", entity_type, row["id"], row["address"]))
 
         if updates:
@@ -126,7 +128,8 @@ def _backfill(bind: sa.engine.Connection) -> None:
 
 
 MESSAGES = {
-    "region_unresolved": "주소에서 시도를 뽑지 못해 지역을 비워 뒀다",
+    "region_unresolved": "주소가 없어 지역을 비워 뒀다",
+    "region_not_an_address": "주소에 시도가 없어 지역 칸을 비웠다. 주소 원문은 그대로다",
     "region_unknown_sido": "시도 이름을 별칭표가 모른다. 값은 그대로 뒀다",
 }
 

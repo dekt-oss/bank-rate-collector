@@ -670,7 +670,7 @@
   ].map(([k, v]) => `<div><div class="k">${k}</div><div class="v">${v}</div></div>`).join("");
 
   $("stamp").innerHTML =
-    `생성 ${esc((data.generated_at || "").slice(0, 19).replace("T", " "))} UTC`;
+    `생성 ${esc((data.generated_at || "").slice(0, 19).replace("T", " "))} KST`;
 
   // ── 전체 자료 링크 ───────────────────────────────────────────────
   //

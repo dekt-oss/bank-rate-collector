@@ -42,6 +42,7 @@ from rate_monitor.collectors.base import SourceBlockedError
 from rate_monitor.collectors.fsb import parser
 from rate_monitor.domain.enums import CollectionMode, Sector, SourceRole, TrustLevel
 from rate_monitor.domain.schemas import CollectionRequest, ParsedRateRow, RawArtifactData
+from rate_monitor.domain.timeutil import now_kst
 
 BASE_URL = "https://www.fsb.or.kr"
 
@@ -311,6 +312,10 @@ class FsbAdapter:
 
 
 def _today():
-    from datetime import UTC, datetime
+    """오늘, **한국 날짜로**.
 
-    return datetime.now(UTC).date()
+    저축은행중앙회에 "오늘 기준 공시"를 물어보는 값이다. UTC 날짜를 쓰면
+    정기 수집(22:00 UTC)이 도는 시점에 한국은 이미 다음 날 07:00이라
+    하루 전 날짜로 물어보게 된다.
+    """
+    return now_kst().date()

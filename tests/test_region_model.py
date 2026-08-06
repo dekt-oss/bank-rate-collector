@@ -17,6 +17,7 @@ import pytest
 from rate_monitor.domain.enums import GeoBasis
 from rate_monitor.services.region_service import (
     is_known_sido,
+    looks_like_sido,
     region_fields,
     split_address,
 )
@@ -150,8 +151,8 @@ def test_backfill_fills_what_it_can_and_leaves_the_rest(seeded_db: Path) -> None
     assert got["i-1"] == ("부산", "동구", "outlet_address", "high")
     # 주소가 없으면 지어내지 않는다. 근거는 원천에서 오므로 그대로 남는다.
     assert got["i-2"] == (None, None, "outlet_address", "none")
-    # 주소처럼 안 생긴 값도 버리지 않는다. 버리면 그 기관이 화면에서 사라진다.
-    assert got["i-3"] == ("신동해빌딩", "1,2,3층", "outlet_address", "high")
+    # 주소가 아닌 값은 지역 자리에 넣지 않는다 (b47e0a91c3d5).
+    assert got["i-3"] == (None, None, "outlet_address", "none")
 
     issues = dict(
         conn.execute(
@@ -161,7 +162,7 @@ def test_backfill_fills_what_it_can_and_leaves_the_rest(seeded_db: Path) -> None
     )
     conn.close()
     # 조용히 NULL만 남으면 "원래 없는 것"과 "채우다 실패한 것"이 구별되지 않는다.
-    assert issues == {"region_unresolved": 1, "region_unknown_sido": 1}
+    assert issues == {"region_unresolved": 1, "region_not_an_address": 1}
 
 
 def test_downgrade_puts_the_schema_back(seeded_db: Path) -> None:
@@ -186,3 +187,50 @@ def test_indexes_exist_after_migration(seeded_db: Path) -> None:
     for table in ("institutions", "outlets"):
         assert f"ix_{table}_region_sido" in names
         assert f"ix_{table}_region_sigungu" in names
+
+
+def test_a_detail_address_is_not_a_region() -> None:
+    """저축은행중앙회가 동양저축은행 주소로 주는 실측값이다.
+
+    같은 원천의 다른 기관은 `부산광역시 동구 범일로 92` 형태인데 이 한 곳만
+    시도도 구도 없다. 첫 토막을 무조건 시도로 넣으면 화면의 지역 필터에
+    `신동해빌딩`이, 구·군 필터에 `1,2,3층`이 뜬다.
+    """
+    fields = region_fields("fsb", "신동해빌딩 1,2,3층")
+    assert (fields.sido, fields.sigungu, fields.confidence) == (None, None, "none")
+
+
+def test_an_unfamiliar_sido_name_still_counts_as_one() -> None:
+    """행정구역 이름은 바뀐다. 모르는 이름을 다 버리면 지역이 통째로 사라진다."""
+    assert looks_like_sido("전남광주통합특별시")
+    assert not is_known_sido("전남광주통합특별시")
+    fields = region_fields("kfcc", "전남광주통합특별시 여수시 쌍봉로 23-2")
+    assert (fields.sido, fields.sigungu) == ("전남광주통합특별시", "여수시")
+
+
+def test_a_sigungu_alone_is_not_promoted_to_a_sido() -> None:
+    """`시`까지 시도로 받으면 시군구가 앞으로 올라온 주소를 시도로 착각한다."""
+    assert not looks_like_sido("여수시")
+    assert looks_like_sido("부산광역시") and looks_like_sido("경기도")
+
+
+def test_the_cleanup_migration_empties_only_the_region_columns(seeded_db: Path) -> None:
+    """주소 원문은 남아야 한다. 지우면 나중에 다시 판정할 근거가 없다."""
+    result = _alembic("upgrade head", seeded_db)
+    assert result.returncode == 0, result.stderr
+
+    conn = sqlite3.connect(seeded_db)
+    row = conn.execute(
+        "SELECT address, region_sido, region_sigungu, geo_confidence"
+        "  FROM institutions WHERE id = 'i-3'"
+    ).fetchone()
+    issues = dict(
+        conn.execute(
+            "SELECT issue_type, COUNT(*) FROM review_items"
+            " WHERE issue_type LIKE 'region_%' GROUP BY 1"
+        )
+    )
+    conn.close()
+
+    assert row == ("신동해빌딩 1,2,3층", None, None, "none")
+    assert issues == {"region_unresolved": 1, "region_not_an_address": 1}

@@ -28,10 +28,10 @@ import gzip
 import json
 import shutil
 from dataclasses import dataclass
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from rate_monitor.domain.timeutil import now_kst
 from rate_monitor.services.dashboard_service import (
     DATA_END,
     DATA_MARKER,
@@ -210,7 +210,7 @@ def build_site(
     files.insert(0, "index.html")
 
     manifest = SiteManifest(
-        generated_at=datetime.now(UTC).isoformat(),
+        generated_at=now_kst().isoformat(),
         page_bytes=page_path.stat().st_size,
         data_bytes=table_path.stat().st_size,
         rows=len(table.get("rows") or []),
