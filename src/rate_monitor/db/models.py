@@ -33,6 +33,19 @@ def new_id() -> str:
     return str(uuid4())
 
 
+def _same_as(column: str):
+    """다른 칸의 값을 그대로 쓰는 기본값.
+
+    INSERT 시점에 같은 행의 다른 칸을 본다. `last_run_id`처럼 "따로 안 주면
+    이것과 같다"가 맞는 칸에 쓴다.
+    """
+
+    def default(context) -> object:
+        return context.get_current_parameters()[column]
+
+    return default
+
+
 class Base(DeclarativeBase):
     pass
 
@@ -245,22 +258,63 @@ class ProductVariant(Base):
 
 # ── 5.9 rate_observations (+ v3.1 §7.2) ────────────────────────────────
 class RateObservation(Base):
+    """금리 한 건. **값이 바뀔 때만 새 행이 생긴다** (선행 수정안 §3.2).
+
+    예전에는 수집할 때마다 새 행을 만들었다. 같은 3.10%가 8월 6일·7일·8일에
+    세 줄로 쌓였다. 실측으로 185,923행 중 43,116행이 그런 중복이었고, 평일
+    수집으로 1년을 돌면 1,272만 행 — 약 19 GB가 된다.
+
+    이제는 직전 값과 `content_hash`를 견줘 같으면 행을 만들지 않고
+    `last_seen_at`·`seen_count`·`last_run_id`만 갱신한다.
+
+    `run_id`와 `last_run_id`가 갈린다.
+
+        run_id       이 값을 **처음** 본 실행. 원본 아티팩트가 거기 있다
+        last_run_id  이 값을 **마지막으로 확인한** 실행
+
+    화면은 `last_run_id`를 본다. 그래야 "이번 실행이 확인한 금리"라는 뜻이
+    예전과 같게 유지된다 — `run_id`로 걸면 안 바뀐 금리가 화면에서 사라진다.
+    """
+
     __tablename__ = "rate_observations"
     __table_args__ = (
-        UniqueConstraint(
-            "variant_id", "run_id", name="uq_rate_observations_variant_run"
+        # 한 비교 단위에 **살아 있는 행은 하나뿐이다.** 예전의
+        # (variant_id, run_id) 유니크는 실행마다 행이 생길 때만 뜻이 있었다.
+        Index(
+            "uq_rate_observations_current",
+            "variant_id",
+            unique=True,
+            sqlite_where=text("valid_to IS NULL"),
         ),
-        # 위 유니크는 variant_id가 선두라 WHERE run_id = ? 조회에 쓰이지 않는다.
-        # 대시보드는 실행 단위로 집계하므로 단독 인덱스가 필요하다.
         Index("ix_rate_observations_run_id", "run_id"),
+        # 화면이 이 열로 건다.
+        Index("ix_rate_observations_last_run_id", "last_run_id"),
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     variant_id: Mapped[str] = mapped_column(ForeignKey("product_variants.id"))
     run_id: Mapped[str] = mapped_column(ForeignKey("collection_runs.id"))
+    last_run_id: Mapped[str] = mapped_column(
+        ForeignKey("collection_runs.id"), default=_same_as("run_id")
+    )
     raw_artifact_id: Mapped[str] = mapped_column(ForeignKey("raw_artifacts.id"))
     as_of: Mapped[date | None] = mapped_column(Date, nullable=True)
     observed_at: Mapped[datetime] = mapped_column(DateTime)
+    # 언제부터 언제까지 이 값이었나. valid_to가 NULL이면 지금 값이다.
+    #
+    # 새 행은 "지금 처음 봤고 지금도 유효하다"가 기본이다. 안 그러면 호출부가
+    # 네 칸을 매번 같은 값으로 채워야 하고, 한 곳만 빠뜨려도 NOT NULL로 죽는다.
+    first_seen_at: Mapped[datetime] = mapped_column(
+        DateTime, default=_same_as("observed_at")
+    )
+    last_seen_at: Mapped[datetime] = mapped_column(
+        DateTime, default=_same_as("observed_at")
+    )
+    seen_count: Mapped[int] = mapped_column(Integer, default=1)
+    valid_from: Mapped[datetime] = mapped_column(
+        DateTime, default=_same_as("observed_at")
+    )
+    valid_to: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     # 금리는 문자열 고정소수로 저장한다 (db/types.Rate). float 왕복 손실 방지.
     base_rate: Mapped[Decimal | None] = mapped_column(Rate, nullable=True)
     max_rate: Mapped[Decimal | None] = mapped_column(Rate, nullable=True)
@@ -279,7 +333,8 @@ class RateObservation(Base):
     source_effective_at: Mapped[date | None] = mapped_column(Date, nullable=True)
 
     variant: Mapped["ProductVariant"] = relationship()
-    run: Mapped["CollectionRun"] = relationship()
+    run: Mapped["CollectionRun"] = relationship(foreign_keys=[run_id])
+    last_run: Mapped["CollectionRun"] = relationship(foreign_keys=[last_run_id])
     raw_artifact: Mapped["RawArtifact"] = relationship()
 
 
@@ -355,6 +410,37 @@ class ReviewItem(Base):
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     run: Mapped["CollectionRun | None"] = relationship()
+
+
+# ── 5.14 collection_run_stats (선행 수정안 §3.2) ───────────────────────
+class CollectionRunStat(Base):
+    """실행 한 번의 품질·건수.
+
+    관측이 값 단위로 바뀌면서 `collection_runs.parsed_count`만으로는 그 실행이
+    무엇을 했는지 알 수 없게 됐다. 4,010행을 받았는데 관측이 하나도 안 늘었다면
+    그것은 실패가 아니라 **아무것도 안 바뀐 것**이다 — 둘을 구별할 자리가
+    필요하다.
+    """
+
+    __tablename__ = "collection_run_stats"
+    __table_args__ = (UniqueConstraint("run_id", name="uq_collection_run_stats_run"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    run_id: Mapped[str] = mapped_column(ForeignKey("collection_runs.id"))
+    source_id: Mapped[str] = mapped_column(ForeignKey("sources.id"))
+    fetched_count: Mapped[int] = mapped_column(Integer, default=0)
+    parsed_count: Mapped[int] = mapped_column(Integer, default=0)
+    # 값이 그대로라 행을 만들지 않은 건수. 이 값이 크면 정상이다.
+    unchanged_count: Mapped[int] = mapped_column(Integer, default=0)
+    changed_count: Mapped[int] = mapped_column(Integer, default=0)
+    new_variant_count: Mapped[int] = mapped_column(Integer, default=0)
+    # 직전 실행에는 있었는데 이번에 안 온 비교 단위. 원천이 상품을 내렸거나
+    # 우리가 덜 받아 온 것이다 — 둘을 구별하지 않고 세기만 한다.
+    missing_variant_count: Mapped[int] = mapped_column(Integer, default=0)
+    error_count: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime)
+
+    run: Mapped["CollectionRun"] = relationship()
 
 
 ALL_TABLES = tuple(sorted(Base.metadata.tables))

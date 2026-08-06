@@ -11,11 +11,13 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
 from rate_monitor.collectors.base import SchemaChangedError, SourceBlockedError
 from rate_monitor.db.models import (
     CollectionRun,
+    CollectionRunStat,
     RateObservation,
     RawArtifact,
     ReviewItem,
@@ -86,6 +88,86 @@ def save_raw_artifacts(
     return saved
 
 
+@dataclass
+class ChangeTally:
+    """이번 실행이 관측에 무엇을 했는가 (선행 수정안 §3.2).
+
+    `parsed_count`만으로는 4,010행을 받고 관측이 안 늘어난 것이 실패인지
+    "아무것도 안 바뀐 것"인지 알 수 없다. 여기서 갈라 센다.
+    """
+
+    unchanged: int = 0
+    changed: int = 0
+    new_variants: int = 0
+
+
+def _record_observation(
+    session: Session,
+    run: CollectionRun,
+    row: ParsedRateRow,
+    variant_id: str,
+    artifact: RawArtifact,
+    now: datetime,
+    tally: ChangeTally,
+) -> None:
+    """값이 바뀌었을 때만 새 관측을 만든다 (선행 수정안 §3.2).
+
+    같으면  → 행을 만들지 않고 last_seen_at·seen_count·last_run_id만 갱신
+    다르면  → 살아 있던 행에 valid_to를 찍고 새 행을 만든다
+    """
+    content_hash = _content_hash(row)
+    current = session.scalar(
+        select(RateObservation).where(
+            RateObservation.variant_id == variant_id,
+            RateObservation.valid_to.is_(None),
+        )
+    )
+
+    if current is not None and current.content_hash == content_hash:
+        current.last_seen_at = now
+        current.seen_count += 1
+        current.last_run_id = run.id
+        # 원천 기준일은 값이 같아도 움직일 수 있다. 최신을 남긴다.
+        current.as_of = row.source_effective_at
+        current.source_effective_at = row.source_effective_at
+        tally.unchanged += 1
+        return
+
+    if current is None:
+        tally.new_variants += 1
+    else:
+        # 옛 값을 지우지 않는다. 언제까지 그 값이었는지가 이력이다.
+        current.valid_to = now
+        tally.changed += 1
+
+    session.add(
+        RateObservation(
+            variant_id=variant_id,
+            run_id=run.id,
+            last_run_id=run.id,
+            raw_artifact_id=artifact.id,
+            as_of=row.source_effective_at,
+            observed_at=now,
+            first_seen_at=now,
+            last_seen_at=now,
+            seen_count=1,
+            valid_from=now,
+            valid_to=None,
+            base_rate=row.base_rate,
+            max_rate=row.max_rate,
+            source_detail_json=row.extra,
+            raw_preference_text=row.preference_raw,
+            validation_status=row.validation_status,
+            validation_message=row.validation_message,
+            content_hash=content_hash,
+            base_source_locator=row.base_source_locator,
+            option_source_locator=row.option_source_locator,
+            source_record_hash=row.source_record_hash,
+            source_effective_at=row.source_effective_at,
+        )
+    )
+
+
 def persist_rows(
     session: Session,
     run: CollectionRun,
@@ -93,17 +175,26 @@ def persist_rows(
     artifact: RawArtifact,
     now: datetime,
     seen_variants: set[str],
+    tally: ChangeTally | None = None,
 ) -> tuple[int, int]:
     """표준 행을 저장한다. (정상 건수, 오류 건수)를 돌려준다.
 
+    **값이 바뀔 때만 새 관측을 만든다** (선행 수정안 §3.2). 직전 값과
+    `content_hash`가 같으면 행을 만들지 않고 `last_seen_at`·`seen_count`·
+    `last_run_id`만 갱신한다. 예전에는 수집할 때마다 새 행이 생겨 같은
+    3.10%가 날짜마다 한 줄씩 쌓였다 — 실측 185,923행 중 43,116행이 그것이고,
+    평일 수집으로 1년을 돌면 약 19 GB가 된다.
+
     같은 실행 안에서 같은 비교 단위가 두 번 나오면 뒤엣것을 버리고 검수항목을
-    남긴다. (variant_id, run_id) 유니크 제약을 미리 지킨다.
+    남긴다. 살아 있는 관측이 비교 단위마다 하나뿐이라는 부분 유니크 인덱스를
+    미리 지킨다.
 
     `seen_variants`는 호출자가 실행 단위로 넘긴다. 아티팩트(페이지)마다
     새로 만들면 페이지 경계를 넘는 중복을 놓친다.
     """
     valid = 0
     errors = 0
+    tally = tally if tally is not None else ChangeTally()
 
     for row in rows:
         institution = entity_service.resolve_institution(session, row, now)
@@ -130,26 +221,7 @@ def persist_rows(
             continue
         seen_variants.add(variant.id)
 
-        session.add(
-            RateObservation(
-                variant_id=variant.id,
-                run_id=run.id,
-                raw_artifact_id=artifact.id,
-                as_of=row.source_effective_at,
-                observed_at=now,
-                base_rate=row.base_rate,
-                max_rate=row.max_rate,
-                source_detail_json=row.extra,
-                raw_preference_text=row.preference_raw,
-                validation_status=row.validation_status,
-                validation_message=row.validation_message,
-                content_hash=_content_hash(row),
-                base_source_locator=row.base_source_locator,
-                option_source_locator=row.option_source_locator,
-                source_record_hash=row.source_record_hash,
-                source_effective_at=row.source_effective_at,
-            )
-        )
+        _record_observation(session, run, row, variant.id, artifact, now, tally)
 
         if row.validation_status == ValidationStatus.ERROR:
             errors += 1
@@ -324,6 +396,7 @@ def _process(
             # 실행 단위로 유지한다. 페이지마다 초기화하면 페이지 경계를 넘는
             # 중복을 놓쳐 (variant_id, run_id) 유니크 제약에 걸린다.
             seen_variants: set[str] = set()
+            tally = ChangeTally()
             for artifact_data, artifact_row in zip(artifacts, saved, strict=True):
                 try:
                     rows, page_warnings = adapter.parse_with_warnings(artifact_data)
@@ -333,7 +406,7 @@ def _process(
                 warnings.extend(page_warnings)
                 parsed += len(rows)
                 page_valid, page_errors = persist_rows(
-                    session, run, rows, artifact_row, now, seen_variants
+                    session, run, rows, artifact_row, now, seen_variants, tally
                 )
                 valid += page_valid
                 errors += page_errors
@@ -378,6 +451,28 @@ def _process(
             run.warning_count = len(warnings)
             run.error_count = errors
             run.schema_fingerprint = artifacts[0].schema_fingerprint if artifacts else None
+
+            # 실행별 품질·건수 (선행 수정안 §3.2).
+            #
+            # parsed_count만 보면 4,010행을 받고 관측이 안 늘어난 것이 실패인지
+            # "아무것도 안 바뀐 것"인지 알 수 없다. 여기서 갈라 남긴다.
+            session.add(
+                CollectionRunStat(
+                    run_id=run.id,
+                    source_id=run.source_id,
+                    fetched_count=len(artifacts),
+                    parsed_count=parsed,
+                    unchanged_count=tally.unchanged,
+                    changed_count=tally.changed,
+                    new_variant_count=tally.new_variants,
+                    # 직전 실행에 있었는데 이번에 안 온 비교 단위는 아직 세지
+                    # 않는다. 부산만 돌린 실행이 전국 단위를 "사라졌다"고
+                    # 셀 수 있어서다 — 원천별 범위를 알기 전에는 0으로 둔다.
+                    missing_variant_count=0,
+                    error_count=errors,
+                    created_at=now,
+                )
+            )
             skipped = (
                 f", 구조 어긋나 건너뜀 {len(schema_failures)}장" if schema_failures else ""
             )

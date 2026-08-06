@@ -109,6 +109,12 @@ def _to_kst_times(records: list[dict[str, Any]]) -> None:
                 record[key] = kst_iso(record[key])
 
 
+# 관측은 값이 바뀔 때만 새 행이 된다 (선행 수정안 §3.2). 그래서 "이번 실행이
+# 확인한 금리"를 물으려면 `run_id`(처음 본 실행)가 아니라 `last_run_id`
+# (마지막으로 확인한 실행)로 걸어야 한다. run_id로 걸면 안 바뀐 금리가 화면에서
+# 통째로 사라진다 — 실측으로 132,502행 중 대부분이 그렇다.
+
+
 def latest_run_ids(conn: sqlite3.Connection) -> list[str]:
     """수집원마다 마지막 실행의 id.
 
@@ -170,7 +176,7 @@ def build_rate_table(
         "  JOIN products p         ON p.id = v.product_id"
         "  JOIN institutions i     ON i.id = p.institution_id"
         # 점포를 조인하지 않는다. 조인하면 관측 하나가 점포 수만큼 복제된다.
-        f" WHERE o.run_id IN ({placeholders})"
+        f" WHERE o.last_run_id IN ({placeholders})"
         "   AND o.validation_status != 'error'"
         " ORDER BY o.base_rate DESC",
         tuple(run_ids),
@@ -256,7 +262,7 @@ def build_summary(db_path: Path) -> dict[str, Any]:
             "       MAX(o.max_rate)         AS max_rate_top"
             "  FROM rate_observations o"
             "  JOIN product_variants v ON v.id = o.variant_id"
-            f" WHERE o.run_id IN ({placeholders})"
+            f" WHERE o.last_run_id IN ({placeholders})"
             " GROUP BY v.term_months"
             " ORDER BY v.term_months",
             tuple(run_ids),
@@ -275,7 +281,7 @@ def build_summary(db_path: Path) -> dict[str, Any]:
             "  JOIN product_variants v ON v.id = o.variant_id"
             "  JOIN products p         ON p.id = v.product_id"
             "  JOIN institutions i     ON i.id = p.institution_id"
-            f" WHERE o.run_id IN ({placeholders}) AND o.validation_status != 'error'"
+            f" WHERE o.last_run_id IN ({placeholders}) AND o.validation_status != 'error'"
             " ORDER BY o.base_rate DESC LIMIT 15",
             tuple(run_ids),
         ) if run_ids else []
@@ -301,7 +307,7 @@ def build_summary(db_path: Path) -> dict[str, Any]:
             "  JOIN products p         ON p.id = v.product_id"
             "  JOIN institutions i     ON i.id = p.institution_id"
             "  LEFT JOIN outlets ot    ON ot.institution_id = i.id"
-            f" WHERE o.run_id IN ({placeholders})"
+            f" WHERE o.last_run_id IN ({placeholders})"
             "   AND o.validation_status != 'error'"
             # 지역을 못 읽은 행은 뺀다. 예전에는 주소가 비었는지로 걸렀는데,
             # 이제 걸러야 하는 것은 "주소가 있는가"가 아니라 "그 주소에서
@@ -363,7 +369,7 @@ def build_summary(db_path: Path) -> dict[str, Any]:
             "  JOIN product_variants v ON v.id = o.variant_id"
             "  JOIN products p         ON p.id = v.product_id"
             "  JOIN institutions i     ON i.id = p.institution_id"
-            f" WHERE o.run_id IN ({placeholders})"
+            f" WHERE o.last_run_id IN ({placeholders})"
             "   AND i.availability_scope = 'workplace_members'"
             "   AND o.validation_status != 'error'"
             " ORDER BY o.base_rate DESC LIMIT 10",

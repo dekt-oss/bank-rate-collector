@@ -189,7 +189,9 @@ def test_run_counters_are_real(factory, raw_root) -> None:
 def test_recollect_does_not_duplicate_canonical_entities(factory, raw_root) -> None:
     """같은 표본 재수집 시 정규 엔터티 증가 0 (v3.1 §12.2).
 
-    관측은 실행별로 다시 쌓여야 한다. 이력이 남아야 하므로.
+    **관측도 늘지 않는다** (선행 수정안 §3.2). 예전에는 실행마다 다시 쌓였다.
+    같은 3.10%가 날짜마다 한 줄씩 생겨, 평일 수집으로 1년을 돌면 약 19 GB가
+    된다. 이제는 값이 바뀔 때만 행이 생기고, 같으면 seen_count가 오른다.
     """
     run_collect(factory, raw_root)
     with factory() as s:
@@ -208,9 +210,18 @@ def test_recollect_does_not_duplicate_canonical_entities(factory, raw_root) -> N
         }
         assert after == before
         assert s.scalar(select(func.count()).select_from(m.CollectionRun)) == 2
+        # 값이 그대로이므로 행이 늘지 않는다.
         assert s.scalar(select(func.count()).select_from(m.RateObservation)) == (
-            EXPECTED_OPTION_ROWS * 2
+            EXPECTED_OPTION_ROWS
         )
+        # 대신 두 번 봤다는 사실이 남는다.
+        assert s.scalar(select(func.min(m.RateObservation.seen_count))) == 2
+        # 살아 있는 행은 비교 단위마다 하나뿐이다.
+        assert s.scalar(
+            select(func.count()).select_from(m.RateObservation).where(
+                m.RateObservation.valid_to.is_(None)
+            )
+        ) == EXPECTED_OPTION_ROWS
 
 
 def test_no_duplicate_observation_within_a_run(factory, raw_root) -> None:
