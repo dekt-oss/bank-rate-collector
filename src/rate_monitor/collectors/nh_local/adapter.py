@@ -84,6 +84,8 @@ class NhLocalAdapter:
     # 사용자가 2026-08-06에 이용약관을 직접 확인했고 자동수집을 제한하는
     # 조항이 없었다. 확인한 사람이 있으므로 review에 두지 않는다.
     policy_status = "allowed"
+    # 상세표에 최고우대금리 열이 없다 (정찰 §0.2).
+    provides_max_rate = False
     # 입출금식 화면을 아직 안 받는다.
     coverage_status = "partial"
 

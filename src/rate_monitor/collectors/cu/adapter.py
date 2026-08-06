@@ -111,6 +111,8 @@ class CuAdapter:
     base_reference = "cu.co.kr/cu/ad/inrstCmpr"
     # 이용약관상 수집 허용 범위를 확인하지 못했다. allowed로 올리지 않는다.
     policy_status = "review"
+    # 지역과 최고 우대금리를 동시에 주는 유일한 원천이다.
+    provides_max_rate = True
     coverage_status = "partial"
 
     # ── 요청 ────────────────────────────────────────────────────────────

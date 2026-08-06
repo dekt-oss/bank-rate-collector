@@ -22,7 +22,13 @@ from rate_monitor.collectors.base import (
     mask_auth_in_meta,
 )
 from rate_monitor.collectors.finlife import parser
-from rate_monitor.domain.enums import CollectionMode, Sector, SourceRole, TrustLevel
+from rate_monitor.domain.enums import (
+    CollectionMode,
+    RateScope,
+    Sector,
+    SourceRole,
+    TrustLevel,
+)
 from rate_monitor.domain.schemas import CollectionRequest, ParsedRateRow, RawArtifactData
 
 # 2026-08-05 실측: http로 요청하면 서버가 307로 https에 리다이렉트한다.
@@ -80,6 +86,8 @@ class FinlifeAdapter:
     base_reference = "finlife.fss.or.kr/finlifeapi"
     policy_status = "allowed"
     coverage_status = "partial"
+    # optionList의 intr_rate2가 최고금리다. 없는 행은 NULL로 남는다.
+    provides_max_rate = True
 
     # 이 어댑터가 받는 권역. 하나만 둔다 — 하나의 실행이 하나의 소스에
     # 대응해야 `collection_runs.source_id`가 그 실행의 행들과 맞는다.
@@ -238,6 +246,7 @@ class FinlifeSavingsBankAdapter(FinlifeAdapter):
     source_name = "금융감독원 비교공시 — 저축은행"
     sector = Sector.SAVINGS_BANK
     groups = ("030300",)
+    expected_rate_scope = RateScope.HEAD_OFFICE_REFERENCE
 
 
 class FinlifeBankAdapter(FinlifeAdapter):
@@ -252,3 +261,4 @@ class FinlifeBankAdapter(FinlifeAdapter):
     source_name = "금융감독원 비교공시 — 시중은행"
     sector = Sector.BANK
     groups = ("020000",)
+    expected_rate_scope = RateScope.NATIONWIDE

@@ -128,41 +128,75 @@ def main() -> int:
         f"저장 NULL {finlife_null}건 == 원본 결측 {source_missing}건",
     )
 
-    # 시중은행 분리 게이트 (v4 §6.5).
+    # ── 원천별 계약 검사 (v4 §5.8·§6.5) ────────────────────────────
     #
-    # 같은 API가 저축은행과 시중은행을 준다. 하나라도 섞이면 화면이 둘을
-    # 못 가르고, 참고지표여야 할 시중은행이 메인 비교표에 올라온다.
-    for source_id, sector, scope, label in (
-        ("finlife_bank", "bank", "nationwide", "시중은행"),
-        ("finlife_savings_bank", "savings_bank", "head_office_reference", "저축은행"),
-    ):
-        total, wrong_sector = conn.execute(
-            "SELECT COUNT(*), SUM(CASE WHEN i.sector <> ? THEN 1 ELSE 0 END)"
-            "  FROM rate_observations o"
+    # **어댑터가 자기 계약을 밝히고 게이트가 그걸 읽는다.**
+    #
+    # 예전에는 여기 원천 이름을 손으로 적었다 — `("kfcc", "새마을금고")`,
+    # `("nh_local", "농·축협")` 같은 목록이 세 군데 흩어져 있었다. 원천을
+    # 하나 더할 때마다 이 파일을 고쳐야 하고, 잊으면 그 원천은 아무 검사도
+    # 안 받은 채 발행된다. 이제 어댑터를 더하면 검사도 같이 는다.
+    from rate_monitor.cli import ADAPTERS
+
+    for source_id, adapter_cls in sorted(ADAPTERS.items()):
+        total = conn.execute(
+            "SELECT COUNT(*) FROM rate_observations o"
+            "  JOIN collection_runs r ON r.id = o.run_id"
+            " WHERE r.source_id = ?",
+            (source_id,),
+        ).fetchone()[0]
+        if total == 0:
+            # 안 돌린 원천은 검사하지 않는다. 0 == 0으로 통과시키면 검사가
+            # 아니라 장식이 된다 — 그 사실만 적어 둔다.
+            check(True, f"[건너뜀] {source_id} — 관측 0건", "이번 DB에 없다")
+            continue
+
+        # 우대금리 열이 없는 원천은 저장값도 전부 NULL이어야 한다 (v3 §8.4).
+        if not getattr(adapter_cls, "provides_max_rate", True):
+            filled = conn.execute(
+                "SELECT COUNT(o.max_rate) FROM rate_observations o"
+                "  JOIN collection_runs r ON r.id = o.run_id"
+                " WHERE r.source_id = ?",
+                (source_id,),
+            ).fetchone()[0]
+            check(
+                filled == 0,
+                f"max_rate NULL 규칙 — {source_id} (원천이 우대금리를 안 준다)",
+                f"관측 {total}건 중 채워진 값 {filled}건",
+            )
+
+        # 업권이 섞이면 화면이 둘을 못 가른다.
+        wrong_sector = conn.execute(
+            "SELECT COUNT(*) FROM rate_observations o"
             "  JOIN collection_runs r  ON r.id = o.run_id"
             "  JOIN product_variants v ON v.id = o.variant_id"
             "  JOIN products p         ON p.id = v.product_id"
             "  JOIN institutions i     ON i.id = p.institution_id"
-            " WHERE r.source_id = ?",
-            (sector, source_id),
-        ).fetchone()
-        check(
-            not wrong_sector,
-            f"finlife 소스 분리 — {label} 레코드 혼합 0",
-            f"관측 {total}건 중 sector<>{sector} {wrong_sector or 0}건",
-        )
-        wrong_scope = conn.execute(
-            "SELECT COUNT(*) FROM rate_observations o"
-            "  JOIN collection_runs r  ON r.id = o.run_id"
-            "  JOIN product_variants v ON v.id = o.variant_id"
-            " WHERE r.source_id = ? AND v.rate_scope <> ?",
-            (source_id, scope),
+            " WHERE r.source_id = ? AND i.sector <> ?",
+            (source_id, adapter_cls.sector),
         ).fetchone()[0]
         check(
-            wrong_scope == 0,
-            f"finlife 소스 분리 — {label} rate_scope={scope}",
-            f"어긋난 행 {wrong_scope}건",
+            wrong_sector == 0,
+            f"업권 혼합 0 — {source_id} (sector={adapter_cls.sector})",
+            f"관측 {total}건 중 어긋남 {wrong_sector}건",
         )
+
+        # 금리 적용범위가 고정된 원천만 검사한다. 원천에 따라 갈리는 곳은
+        # 기대값을 안 적어 뒀다 — 없는 규칙을 지어내지 않는다.
+        expected_scope = getattr(adapter_cls, "expected_rate_scope", None)
+        if expected_scope:
+            wrong_scope = conn.execute(
+                "SELECT COUNT(*) FROM rate_observations o"
+                "  JOIN collection_runs r  ON r.id = o.run_id"
+                "  JOIN product_variants v ON v.id = o.variant_id"
+                " WHERE r.source_id = ? AND v.rate_scope <> ?",
+                (source_id, expected_scope),
+            ).fetchone()[0]
+            check(
+                wrong_scope == 0,
+                f"rate_scope={expected_scope} — {source_id}",
+                f"어긋난 행 {wrong_scope}건",
+            )
 
     # 옛 이름이 남아 있으면 마이그레이션이 안 돈 것이다.
     legacy = conn.execute(
@@ -170,22 +204,23 @@ def main() -> int:
     ).fetchone()[0]
     check(legacy == 0, "옛 finlife source_id 잔존 0", f"{legacy}건")
 
-    # 공식 화면에 우대금리 열 자체가 없는 원천들. 전부 NULL이어야 한다.
-    for source_id, label in (
-        ("kfcc", "새마을금고"),
-        ("nh_local", "농·축협"),
-    ):
-        total, filled = conn.execute(
-            "SELECT COUNT(*), COUNT(o.max_rate) FROM rate_observations o"
-            "  JOIN collection_runs r ON r.id = o.run_id"
-            " WHERE r.source_id = ?",
-            (source_id,),
-        ).fetchone()
-        check(
-            filled == 0,
-            f"max_rate NULL 규칙 — {label} (우대금리 열 없음)",
-            f"관측 {total}건 중 채워진 값 {filled}건",
-        )
+    # 마지막 수집이 실패한 원천. 화면은 직전 값을 보여주지만 그 사실이
+    # 발행 로그에도 남아야 한다 — 조용히 어제 값을 내보내면 안 된다.
+    from rate_monitor.services.dashboard_service import CONFIRMED_RUN_STATUSES
+
+    marks = ",".join("?" for _ in CONFIRMED_RUN_STATUSES)
+    stale = conn.execute(
+        "SELECT last.source_id, last.status FROM ("
+        "  SELECT r.* FROM collection_runs r"
+        "    JOIN (SELECT source_id, MAX(started_at) AS started_at"
+        "            FROM collection_runs GROUP BY source_id) m"
+        "      ON m.source_id = r.source_id AND m.started_at = r.started_at) last"
+        f" WHERE last.status NOT IN ({marks})",
+        CONFIRMED_RUN_STATUSES,
+    ).fetchall()
+    # 막지는 않는다. 한 원천이 실패해도 나머지를 발행하는 편이 낫다.
+    check(True, "마지막 수집이 실패한 원천",
+          ", ".join(f"{s}({st})" for s, st in stale) if stale else "없음")
 
     integrity = conn.execute("PRAGMA integrity_check").fetchone()[0]
     check(integrity == "ok", "PRAGMA integrity_check", integrity)

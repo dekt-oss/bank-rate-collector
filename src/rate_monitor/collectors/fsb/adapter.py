@@ -99,6 +99,8 @@ class FsbAdapter:
     # 사이트 이용약관 자체가 없어 수집 허용 범위를 확인할 수 없었다
     # (docs/source-recon/fsb.md §5.1). allowed로 올리지 않는다.
     policy_status = "unknown"
+    # 우대조건 3종과 최고금리를 준다. 다만 모든 행에 있지는 않다.
+    provides_max_rate = True
     coverage_status = "partial"
 
     def __init__(self) -> None:
