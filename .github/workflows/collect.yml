@@ -90,11 +90,15 @@ jobs:
 
       - name: Restore previous database
         env:
-          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          # 비밀은 Secrets, 나머지는 Variables에 있다. 다섯 개가 모두
+          # 차지 않으면 storage_service가 "일부만 있다"로 실패한다 —
+          # 절반만 채운 채 R2에 올라간다고 믿는 상태를 막기 위한 것이다.
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          R2_BUCKET: ${{ secrets.R2_BUCKET }}
-          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+          R2_REGION: ${{ vars.R2_REGION }}
         run: |
           set -euo pipefail
           mkdir -p work
@@ -303,11 +307,15 @@ jobs:
         if: steps.storage.outputs.backend != 'github_legacy'
         continue-on-error: ${{ steps.storage.outputs.backend == 'r2_migration' }}
         env:
-          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          # 비밀은 Secrets, 나머지는 Variables에 있다. 다섯 개가 모두
+          # 차지 않으면 storage_service가 "일부만 있다"로 실패한다 —
+          # 절반만 채운 채 R2에 올라간다고 믿는 상태를 막기 위한 것이다.
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          R2_BUCKET: ${{ secrets.R2_BUCKET }}
-          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+          R2_REGION: ${{ vars.R2_REGION }}
         run: uv run rate-monitor storage upload --db publish/rate_monitor.sqlite3
 
       - name: Stage rate-data payload
