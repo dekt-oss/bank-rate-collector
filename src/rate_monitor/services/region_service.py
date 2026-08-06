@@ -16,7 +16,25 @@
 사람이 네 가지 다른 뜻을 하나로 본다. `GeoBasis`가 그 차이를 남긴다.
 """
 
+from typing import NamedTuple
+
 from rate_monitor.domain.enums import GeoBasis
+
+
+class RegionFields(NamedTuple):
+    """기관·점포 행에 저장하는 지역 네 칸 (v4 §4.2).
+
+    `confidence`는 "얼마나 믿는가"가 아니라 **어디까지 좁혀 말할 수 있는가**다.
+
+        high     구·군까지. 점포 주소에서 나왔다
+        medium   시도까지. 본점 기준이거나 조회조건이거나 주소가 시도뿐이다
+        none     주소가 없다
+    """
+
+    sido: str | None
+    sigungu: str | None
+    basis: GeoBasis
+    confidence: str
 
 # 시도 표기를 맞춘다.
 #
@@ -64,6 +82,9 @@ SOURCE_GEO_BASIS = {
 
 # 구·군까지 좁힐 수 있는 근거. 나머지는 시도까지만 말할 수 있다.
 DISTRICT_CAPABLE = frozenset({GeoBasis.OUTLET_ADDRESS, GeoBasis.INSTITUTION_ADDRESS})
+
+# 아는 시도 이름. 위 별칭표가 내놓는 값들이 전부다.
+KNOWN_SIDO = frozenset(SIDO_ALIASES.values())
 
 
 def normalize_sido(sido: str | None) -> str | None:
@@ -143,6 +164,63 @@ def supports_district(basis: GeoBasis | str) -> bool:
     (False, False)
     """
     return GeoBasis(basis) in DISTRICT_CAPABLE
+
+
+def region_fields(source_id: str, address: str | None) -> RegionFields:
+    """기관·점포 행에 넣을 지역 네 칸. 규칙은 여기 한 곳에만 있다.
+
+    수집할 때(`entity_service`)와 옛 데이터를 채울 때(마이그레이션)가 같은
+    함수를 써야 한다. 두 벌로 두면 백필한 행과 새로 들어온 행이 다른
+    규칙으로 채워지고, 그 차이는 몇 달 뒤 집계가 어긋날 때까지 안 보인다.
+
+    >>> f = region_fields("kfcc", "부산광역시 동구 중앙대로 260")
+    >>> f.sido, f.sigungu, f.basis.value, f.confidence
+    ('부산', '동구', 'outlet_address', 'high')
+
+    본점 주소는 구까지 적혀 있어도 구를 말할 수 없다. 그 구에 지점이 있다는
+    뜻이 아니라 본점이 거기 있다는 뜻이다 (v4 §4.3).
+
+    >>> f = region_fields("fsb", "부산광역시 동구 중앙대로 260")
+    >>> f.sigungu, f.basis.value, f.confidence
+    ('동구', 'head_office', 'medium')
+
+    주소가 없으면 지어내지 않는다.
+
+    >>> f = region_fields("finlife", None)
+    >>> f.sido, f.sigungu, f.basis.value, f.confidence
+    (None, None, 'nationwide', 'none')
+    """
+    basis = geo_basis_for(source_id)
+    sido, sigungu = split_address(address)
+    if sido is None:
+        confidence = "none"
+    elif sigungu is not None and supports_district(basis):
+        confidence = "high"
+    else:
+        confidence = "medium"
+    return RegionFields(sido, sigungu, basis, confidence)
+
+
+def is_known_sido(sido: str | None) -> bool:
+    """아는 시도 이름인가.
+
+    아니라고 해서 버리지 않는다. 실측에 두 가지가 있는데 성격이 다르다.
+
+    >>> is_known_sido("부산"), is_known_sido(None)
+    (True, False)
+
+    `신동해빌딩 1,2,3층`은 주소가 아니라 층 표기다. 반면
+    `전남광주통합특별시 여수시 쌍봉로 23-2`는 시군구가 멀쩡히 붙어 있는
+    진짜 주소이고, 우리 별칭표가 그 이름을 모를 뿐이다.
+
+    >>> is_known_sido("신동해빌딩"), is_known_sido("전남광주통합특별시")
+    (False, False)
+
+    둘을 코드가 구별할 방법이 없으므로 **둘 다 남기고 표시만 한다.**
+    버리면 뒤쪽 11건의 진짜 지역이 사라지고, 별칭표에 넣으면 어디로
+    보낼지 모르는 채 없는 지역을 만든다.
+    """
+    return sido in KNOWN_SIDO
 
 
 def normalize_sido_sql(column: str) -> str:

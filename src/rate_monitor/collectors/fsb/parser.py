@@ -61,6 +61,7 @@ from rate_monitor.domain.enums import (
 )
 from rate_monitor.domain.normalization import parse_rate
 from rate_monitor.domain.schemas import ParsedRateRow
+from rate_monitor.services.region_service import split_address
 
 SOURCE_ID = "fsb"
 
@@ -405,8 +406,8 @@ def _build_row(  # noqa: PLR0913 — 한 행을 옮기는 데 필요한 맥락�
         outlet_name=None,
         institution_type=None,
         # 주소는 **본점 소재지**다. 그 지점의 적용금리를 뜻하지 않는다.
-        sido=_token(address, 0),
-        sigungu=_token(address, 1),
+        sido=split_address(address)[0],
+        sigungu=split_address(address)[1],
         address=address,
         product_type=product_type,
         product_name=clean(record.get("PRODUCT_NAME")),
@@ -440,20 +441,6 @@ def _build_row(  # noqa: PLR0913 — 한 행을 옮기는 데 필요한 맥락�
             "submit_month": clean(record.get("SUBMIT_MONTH")) or None,
         },
     )
-
-
-def _token(address: str | None, position: int) -> str | None:
-    """주소에서 시도·시군구 토막을 뽑는다.
-
-    >>> _token("부산광역시 동구 범일로 92", 0)
-    '부산광역시'
-    >>> _token("부산광역시 동구 범일로 92", 1)
-    '동구'
-    >>> _token(None, 0) is None
-    True
-    """
-    tokens = (address or "").split()
-    return tokens[position] if len(tokens) > position else None
 
 
 def _record_hash(record: dict[str, Any]) -> str:

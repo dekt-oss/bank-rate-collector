@@ -22,6 +22,7 @@ from rate_monitor.domain.normalization import (
     normalize_product_name,
 )
 from rate_monitor.domain.schemas import ParsedRateRow
+from rate_monitor.services.region_service import region_fields
 
 
 def _find_link(
@@ -82,6 +83,7 @@ def resolve_institution(session: Session, row: ParsedRateRow, now: datetime) -> 
             institution.last_seen_at = now
             return institution
 
+    region = region_fields(row.source_id, row.address)
     institution = Institution(
         sector=_sector_of(row),
         canonical_name=row.institution_name,
@@ -89,6 +91,10 @@ def resolve_institution(session: Session, row: ParsedRateRow, now: datetime) -> 
         institution_type=row.institution_type,
         sido_code=None,
         sigungu_code=None,
+        region_sido=region.sido,
+        region_sigungu=region.sigungu,
+        geo_basis=region.basis.value,
+        geo_confidence=region.confidence,
         address=row.address,
         availability_scope=row.availability_scope,
         first_seen_at=now,
@@ -133,11 +139,16 @@ def resolve_outlet(
         if outlet is not None:
             return outlet
 
+    region = region_fields(row.source_id, row.address)
     outlet = Outlet(
         institution_id=institution.id,
         name=row.outlet_name or row.source_outlet_key,
         sido_code=None,
         sigungu_code=None,
+        region_sido=region.sido,
+        region_sigungu=region.sigungu,
+        geo_basis=region.basis.value,
+        geo_confidence=region.confidence,
         address=row.address,
         active=True,
     )
@@ -181,13 +192,25 @@ def resolve_outlet_directory(
                 # 주소·전화는 바뀔 수 있으므로 최신값으로 맞춘다.
                 existing.address = entry.get("address") or existing.address
                 existing.phone = entry.get("phone") or existing.phone
+                # 주소가 바뀌면 지역도 따라가야 한다. 안 그러면 이사한 점포가
+                # 옛 구에 남아 그 구의 최고금리를 계속 만든다.
+                region = region_fields(row.source_id, existing.address)
+                existing.region_sido = region.sido
+                existing.region_sigungu = region.sigungu
+                existing.geo_basis = region.basis.value
+                existing.geo_confidence = region.confidence
                 continue
 
+        region = region_fields(row.source_id, entry.get("address"))
         outlet = Outlet(
             institution_id=institution.id,
             name=entry.get("name") or source_key,
             sido_code=None,
             sigungu_code=None,
+            region_sido=region.sido,
+            region_sigungu=region.sigungu,
+            geo_basis=region.basis.value,
+            geo_confidence=region.confidence,
             address=entry.get("address"),
             phone=entry.get("phone"),
             active=True,
