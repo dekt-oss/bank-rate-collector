@@ -13,6 +13,7 @@ import pytest
 
 from rate_monitor.collectors.base import ParseError, SchemaChangedError, mask_auth
 from rate_monitor.collectors.finlife import parser
+from rate_monitor.collectors.finlife.adapter import _page_number
 from rate_monitor.domain.enums import (
     InterestMethod,
     JoinChannel,
@@ -278,3 +279,34 @@ def test_mask_auth_redacts_query_param() -> None:
     assert "abc123def" not in masked
     assert "[REDACTED]" in masked
     assert "pageNo=1" in masked
+
+
+# ── 쪽수 판정 (2026-08-06 사고) ─────────────────────────────────────────
+#
+# run 31069995734에서 finlife가 4,010행 → 1,075행이 됐다. 원본이 7개에서
+# 2개로 줄었고, 남은 둘은 양쪽 서비스의 1쪽이었다. 즉 1쪽에서 멈췄다.
+#
+# 원인은 `int(result.get("max_page_no") or page_no)`였다. 값이 없거나 0이면
+# 현재 쪽이 되어 그 자리에서 끝난 것으로 친다 — 모르는 것을 완료로 바꾸는
+# 기본값이다. 그리고 상태는 success로 남아 아무도 몰랐다.
+
+
+def test_an_unreadable_page_number_is_not_treated_as_done() -> None:
+    """못 읽은 것과 1쪽인 것은 다르다.
+
+    예전 코드는 둘을 같게 봤다. 그래서 응답이 쪽수를 안 주면 조용히
+    첫 쪽만 받고 끝냈다.
+    """
+    assert _page_number(None) is None
+    assert _page_number("") is None
+    assert _page_number("x") is None
+    assert _page_number(0) is None
+    # 0쪽은 있을 수 없다. 있으면 그것도 못 읽은 것으로 본다.
+    assert _page_number(-1) is None
+
+
+def test_a_real_page_number_survives_either_type() -> None:
+    """API가 숫자로 줄 때도 문자열로 줄 때도 있다."""
+    assert _page_number(4) == 4
+    assert _page_number("4") == 4
+    assert _page_number(1) == 1
