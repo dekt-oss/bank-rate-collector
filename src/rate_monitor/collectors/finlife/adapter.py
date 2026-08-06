@@ -38,6 +38,24 @@ READ_TIMEOUT = 20.0
 MAX_PAGES = 200  # 무한 순회 방지. 실측 최대 4페이지.
 
 
+def _page_number(value: object) -> int | None:
+    """응답의 쪽 번호. 못 읽으면 None이다.
+
+    `or` 대체값을 쓰지 않는다 — 0이나 빈 문자열을 "현재 쪽"으로 바꾸면
+    모르는 것이 완료가 된다.
+
+    >>> _page_number(3), _page_number("3")
+    (3, 3)
+    >>> _page_number(None), _page_number(""), _page_number("x"), _page_number(0)
+    (None, None, None, None)
+    """
+    try:
+        number = int(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    return number if number > 0 else None
+
+
 class FinlifeAdapter:
     """저축은행·은행 정기예금/적금 수집기."""
 
@@ -62,6 +80,9 @@ class FinlifeAdapter:
                 f"{API_KEY_ENV} 환경변수가 없다. 인증키는 환경변수로만 주입한다 (v3 §16.1)."
             )
         self._api_key = key
+        # fetch에서 생긴 경고를 담아 둔다. 저장 계층은 parse 단계의 경고만
+        # 받아 가므로, 여기 모아 뒀다가 첫 아티팩트를 파싱할 때 얹는다.
+        self._warnings: list[str] = []
 
     async def fetch(self, request: CollectionRequest) -> list[RawArtifactData]:
         """권역 × 서비스 조합을 페이지 끝까지 순회한다.
@@ -115,8 +136,26 @@ class FinlifeAdapter:
                 )
             )
 
-            now_page = int(result.get("now_page_no") or page_no)
-            max_page = int(result.get("max_page_no") or page_no)
+            # 쪽수를 못 읽으면 **끝난 것으로 치지 않는다.**
+            #
+            # 예전에는 `int(result.get("max_page_no") or page_no)`였다. 값이
+            # 없거나 0이면 현재 쪽이 되어 그 자리에서 멈춘다 — 모르는 것을
+            # 완료로 바꾸는 기본값이다. 2026-08-06 run 31069995734에서
+            # 양쪽 서비스가 1쪽에서 멈춰 4,010행이 1,075행이 됐고, 상태는
+            # success였다.
+            #
+            # 이제는 못 읽으면 경고를 남기고 멈춘다. 멈추는 것은 같지만
+            # 조용하지 않다 — 물량 게이트(scripts/volume_gate.py)가 뒤에서
+            # 한 번 더 잡는다.
+            now_page = _page_number(result.get("now_page_no"))
+            max_page = _page_number(result.get("max_page_no"))
+            if max_page is None or now_page is None:
+                self._warnings.append(
+                    f"쪽수를 읽지 못해 {page_no}쪽에서 멈춘다 "
+                    f"({service}/{group}: now={result.get('now_page_no')!r}, "
+                    f"max={result.get('max_page_no')!r})"
+                )
+                break
             if now_page >= max_page:
                 break
             page_no += 1
@@ -158,4 +197,9 @@ class FinlifeAdapter:
         payload = json.loads(artifact.content.decode("utf-8"))
         service = artifact.request_meta["service"]
         group = artifact.request_meta["topFinGrpNo"]
-        return parser.parse(payload, service, group)
+        rows, warnings = parser.parse(payload, service, group)
+        if self._warnings:
+            # fetch 단계의 경고를 여기서 흘려보낸다. 한 번만 나가도록 비운다.
+            warnings = [*self._warnings, *warnings]
+            self._warnings = []
+        return rows, warnings

@@ -28,6 +28,11 @@ on:
         type: boolean
         required: false
         default: false
+      accept_volume_drop:
+        description: "물량 급감을 알고도 발행한다 (원천이 정말 줄었을 때만)"
+        type: boolean
+        required: false
+        default: false
   schedule:
     # 평일 07:00 KST = 22:00 UTC 전날
     - cron: "0 22 * * 0-4"
@@ -331,6 +336,20 @@ jobs:
       # 발행이 멈추면 어제 사이트가 그대로 살아 있다.
       - name: Size gate
         run: uv run python scripts/size_gate.py stage --backend ${{ steps.storage.outputs.backend }}
+
+      # 물량이 급감했으면 발행하지 않는다.
+      #
+      # 2026-08-06 run 31069995734에서 finlife가 4,010 → 1,075행(26.8%)이
+      # 됐는데 상태 success, validate 12/12, P1-A 게이트 15/15로 전부
+      # 통과해 그대로 발행됐다. 기존 검사는 "이 실행 안에서 앞뒤가 맞는가"만
+      # 봐서, 절반이 사라져도 남은 절반끼리는 완벽하게 맞는다.
+      #
+      # 원천이 정말 줄었을 때는 --accept로 한 번 통과시킨다.
+      - name: Volume gate
+        run: |
+          uv run python scripts/volume_gate.py \
+            --summary publish/summary.json \
+            ${{ inputs.accept_volume_drop && '--accept' || '' }}
 
       - name: Publish to rate-data branch
         run: |

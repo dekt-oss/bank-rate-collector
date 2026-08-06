@@ -15,6 +15,23 @@ class Sector(StrEnum):
     NH_LOCAL = "nh_local"
 
 
+class GeoBasis(StrEnum):
+    """이 행의 지역이 **무엇에서 나왔는가** (v4 §4.1).
+
+    지역을 한 종류로 취급하면 안 된다. 원천마다 "부산"이라는 말의 근거가
+    달라서, 같은 칸에 넣으면 화면에서 부산을 고른 사람이 네 가지 다른 뜻을
+    하나로 본다.
+    """
+
+    OUTLET_ADDRESS = "outlet_address"          # 실제 점포 주소에서 파생
+    INSTITUTION_ADDRESS = "institution_address"  # 기관 본점 주소에서 파생
+    SOURCE_QUERY_REGION = "source_query_region"  # 공식 조회조건으로만 확인
+    AVAILABILITY_REGION = "availability_region"  # 그 지역에서 가입 가능
+    HEAD_OFFICE = "head_office"                # 본점 기준 공시
+    NATIONWIDE = "nationwide"                  # 전국 단일 공시
+    NONE = "none"                              # 지역 근거 없음
+
+
 class ProductType(StrEnum):
     TERM_DEPOSIT = "term_deposit"
     INSTALLMENT_SAVINGS = "installment_savings"
