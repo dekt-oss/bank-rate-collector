@@ -16,6 +16,7 @@ from rate_monitor.db.session import create_db_engine, make_session_factory, prag
 NOW = datetime(2026, 8, 5, 0, 0, tzinfo=UTC).replace(tzinfo=None)
 
 EXPECTED_TABLES = {
+    "collection_run_stats",
     "collection_runs",
     "entity_aliases",
     "institutions",
@@ -86,9 +87,9 @@ def _seed_variant(session) -> m.ProductVariant:
 
 # ── 스키마 ──────────────────────────────────────────────────────────────
 
-def test_all_thirteen_tables_created(engine) -> None:
+def test_all_fourteen_tables_created(engine) -> None:
     assert set(m.Base.metadata.tables) == EXPECTED_TABLES
-    assert len(EXPECTED_TABLES) == 13
+    assert len(EXPECTED_TABLES) == 14
 
 
 def test_rate_observation_has_v31_tracking_columns() -> None:
@@ -277,8 +278,13 @@ def test_uq_product_variants_key(session) -> None:
         session.commit()
 
 
-def test_uq_rate_observations_variant_run(session) -> None:
-    """같은 실행 안에서 같은 비교단위가 두 번 저장되면 안 된다 (v3.1 §12.2)."""
+def test_only_one_live_observation_per_variant(session) -> None:
+    """살아 있는 관측은 비교 단위마다 하나뿐이다 (선행 수정안 §3.2).
+
+    예전에는 (variant_id, run_id) 유니크였다. 실행마다 행이 생길 때만 뜻이
+    있던 제약이라, 값이 바뀔 때만 행을 만드는 지금은 다른 것을 지켜야 한다 —
+    둘이 살아 있으면 화면에 같은 상품이 두 줄로 나온다.
+    """
     _seed_run(session)
     variant = _seed_variant(session)
     common = dict(
@@ -293,8 +299,11 @@ def test_uq_rate_observations_variant_run(session) -> None:
         session.commit()
 
 
-def test_rate_observations_allows_same_variant_across_runs(session) -> None:
-    """다른 실행에서는 같은 비교단위를 다시 관측해야 한다. 이력이 남아야 하므로."""
+def test_a_closed_observation_leaves_room_for_the_next(session) -> None:
+    """값이 바뀌면 옛 행에 valid_to를 찍고 새 행을 만든다. 이력이 남아야 하므로.
+
+    부분 유니크가 `valid_to IS NULL`에만 걸리므로 닫힌 행은 얼마든지 쌓인다.
+    """
     _seed_run(session)
     variant = _seed_variant(session)
     session.add(m.CollectionRun(id="run-2", source_id="finlife", mode="api",
@@ -303,12 +312,22 @@ def test_rate_observations_allows_same_variant_across_runs(session) -> None:
                               relative_path="p2.json", sha256="b" * 64,
                               content_length=1, captured_at=NOW))
     session.commit()
-    common = dict(variant_id=variant.id, observed_at=NOW, content_hash="h",
+
+    common = dict(variant_id=variant.id, observed_at=NOW,
                   base_source_locator="$.x", source_record_hash="sha256:a")
-    session.add(m.RateObservation(id="o1", run_id="run-1", raw_artifact_id="art-1", **common))
-    session.add(m.RateObservation(id="o2", run_id="run-2", raw_artifact_id="art-2", **common))
+    # 3.10 구간을 닫고 3.20 구간을 연다.
+    session.add(m.RateObservation(id="o1", run_id="run-1", raw_artifact_id="art-1",
+                                  content_hash="h1", valid_to=NOW, **common))
+    session.add(m.RateObservation(id="o2", run_id="run-2", raw_artifact_id="art-2",
+                                  content_hash="h2", **common))
     session.commit()
     assert session.query(m.RateObservation).count() == 2
+
+    # 기본값이 스스로 채워졌는지. 호출부가 네 칸을 반복하지 않아도 된다.
+    live = session.get(m.RateObservation, "o2")
+    assert live.last_run_id == "run-2"
+    assert live.first_seen_at == live.valid_from == NOW
+    assert live.seen_count == 1
 
 
 def test_source_entity_link_active_uniqueness(session) -> None:

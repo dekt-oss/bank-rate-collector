@@ -89,13 +89,16 @@ def create_snapshot(
     if publish_db.exists():
         publish_db.unlink()
 
-    # backup()은 열린 DB에서 일관된 사본을 만든다. 파일 복사와 달리 WAL을 반영한다.
+    # `VACUUM INTO`는 일관된 사본을 만들면서 **빈 자리를 함께 걷어낸다.**
+    #
+    # 예전에는 backup()을 썼다. 그때는 행이 지워질 일이 없어 차이가 없었지만,
+    # 관측이 변경 이벤트로 바뀌면서 마이그레이션이 4만 행을 지운다. backup()은
+    # 빈 페이지까지 그대로 복사하므로 실측에서 287 MB가 445 MB로 늘었다.
+    # WAL 반영은 둘 다 한다.
     source = sqlite3.connect(work_db)
-    target = sqlite3.connect(publish_db)
     try:
-        source.backup(target)
+        source.execute("VACUUM INTO ?", (str(publish_db),))
     finally:
-        target.close()
         source.close()
 
     conn = sqlite3.connect(publish_db)

@@ -199,7 +199,9 @@ def test_recollect_does_not_duplicate_canonical_entities(factory, tmp_path) -> N
     for key in ("institutions", "outlets", "products", "variants"):
         assert second[key] == first[key], key
     assert second["runs"] == first["runs"] + 1
-    assert second["observations"] == first["observations"] * 2
+    # 값이 그대로이므로 관측이 늘지 않는다 (선행 수정안 §3.2). 예전에는
+    # 실행마다 두 배가 됐고, 그대로 두면 1년에 약 19 GB가 된다.
+    assert second["observations"] == first["observations"]
 
 
 # ── 어댑터 계약 ─────────────────────────────────────────────────────────

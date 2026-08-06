@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-EXPECTED_TABLE_COUNT = 13
+EXPECTED_TABLE_COUNT = 14
 
 
 def _alembic(command: str, db_path: Path) -> subprocess.CompletedProcess:
@@ -58,7 +58,7 @@ def db_path(tmp_path: Path) -> Path:
     return tmp_path / "migration.sqlite3"
 
 
-def test_upgrade_creates_thirteen_tables(db_path: Path) -> None:
+def test_upgrade_creates_fourteen_tables(db_path: Path) -> None:
     result = _alembic("upgrade head", db_path)
     assert result.returncode == 0, result.stderr
     assert len(_tables(db_path)) == EXPECTED_TABLE_COUNT
