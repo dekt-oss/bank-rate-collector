@@ -395,6 +395,39 @@ def _percentile(values: list[float], q: float) -> float | None:
     return values[index]
 
 
+def _latest_indicator(conn: sqlite3.Connection, code: str) -> dict[str, Any] | None:
+    """참고지표의 최신 시점 (v4 §7.4).
+
+    적용일이 가장 늦은 것 하나다. **수집일이 아니라 적용일로 고른다** —
+    기준금리는 바뀐 날짜가 값만큼 중요하다.
+
+    표가 없으면 None이다. 마이그레이션 전 DB로 화면을 만들 수 있어야 한다.
+    """
+    exists = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='market_indicators'"
+    ).fetchone()
+    if not exists:
+        return None
+    rows = _rows(
+        conn,
+        "SELECT value, unit, source_effective_at, observed_at, indicator_name"
+        "  FROM market_indicators"
+        " WHERE indicator_code = ? AND validation_status = 'valid'"
+        " ORDER BY source_effective_at DESC LIMIT 1",
+        (code,),
+    )
+    if not rows:
+        return None
+    row = rows[0]
+    return {
+        "name": row["indicator_name"],
+        "value": float(row["value"]),
+        "unit": row["unit"],
+        "source_effective_at": row["source_effective_at"],
+        "checked_at": kst_iso(row["observed_at"]),
+    }
+
+
 def build_benchmarks(
     conn: sqlite3.Connection, run_ids: list[str]
 ) -> dict[str, Any]:
@@ -412,9 +445,8 @@ def build_benchmarks(
     아니라 투자 권유가 된다.
     """
     empty: dict[str, Any] = {
-        # 한국은행 기준금리. v4 PR 6에서 채운다. `None`이면 화면이 카드를
-        # 통째로 숨긴다 — 빈 카드를 띄우면 "0%"로 읽힌다.
-        "bok_base_rate": None,
+        # `None`이면 화면이 카드를 통째로 숨긴다 — 빈 카드는 "0%"로 읽힌다.
+        "bok_base_rate": _latest_indicator(conn, "bok_base_rate"),
         "commercial_bank_12m": None,
     }
     if not run_ids:

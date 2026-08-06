@@ -443,4 +443,43 @@ class CollectionRunStat(Base):
     run: Mapped["CollectionRun"] = relationship()
 
 
+class MarketIndicator(Base):
+    """참고지표 시계열 (v4 §7.1).
+
+    **기준금리를 금융상품으로 저장하지 않는다.** `rate_observations`에 넣으면
+    기관·상품·가입기간 같은 칸이 전부 비고, 화면의 비교표에도 섞여 든다.
+    기준금리는 비교 대상이 아니라 옆에 놓고 보는 값이다.
+
+    `UNIQUE(indicator_code, source_effective_at, source_id)`가 같은 날짜를
+    두 번 쌓지 않게 한다. 기준금리는 하루 1회 수집하는데 값이 며칠씩 같으므로,
+    이게 없으면 안 바뀐 값이 매일 한 줄씩 늘어난다 (§7.3).
+    """
+
+    __tablename__ = "market_indicators"
+    __table_args__ = (
+        UniqueConstraint(
+            "indicator_code", "source_effective_at", "source_id",
+            name="uq_market_indicators_point",
+        ),
+        Index("ix_market_indicators_code", "indicator_code", "source_effective_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    indicator_code: Mapped[str] = mapped_column(String(64))
+    indicator_name: Mapped[str] = mapped_column(String(128))
+    source_id: Mapped[str] = mapped_column(ForeignKey("sources.id"))
+    observed_at: Mapped[datetime] = mapped_column(DateTime)
+    # 원천이 밝힌 적용일. 없으면 채우지 않는다 — 수집일로 대체하면 정책금리가
+    # 바뀐 날이 우리가 받은 날로 바뀐다.
+    source_effective_at: Mapped[date | None] = mapped_column(Date, nullable=True)
+    # 금리와 같은 저장 형식을 쓴다. float은 3.5를 3.4999…로 만들고,
+    # 그냥 문자열이면 "10.0000" < "2.0000"이 참이 된다 (db/types.Rate).
+    value: Mapped[Decimal] = mapped_column(Rate)
+    unit: Mapped[str] = mapped_column(String(16))
+    raw_artifact_id: Mapped[str] = mapped_column(ForeignKey("raw_artifacts.id"))
+    source_locator: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    content_hash: Mapped[str] = mapped_column(String(80))
+    validation_status: Mapped[str] = mapped_column(String(16), default="valid")
+
+
 ALL_TABLES = tuple(sorted(Base.metadata.tables))

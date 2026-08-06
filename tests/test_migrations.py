@@ -12,7 +12,6 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-EXPECTED_TABLE_COUNT = 14
 
 
 def _alembic(command: str, db_path: Path) -> subprocess.CompletedProcess:
@@ -58,10 +57,17 @@ def db_path(tmp_path: Path) -> Path:
     return tmp_path / "migration.sqlite3"
 
 
-def test_upgrade_creates_fourteen_tables(db_path: Path) -> None:
+def test_upgrade_creates_exactly_the_tables_the_models_declare(db_path: Path) -> None:
+    """개수가 아니라 **이름**으로 묻는다.
+
+    `== 14` 같은 숫자를 네 번 고쳤다 (2026-08-06). 표를 하나 더할 때마다
+    관계없는 자리가 빨개지고, 정작 무엇이 다른지는 안 알려 준다.
+    """
+    from rate_monitor.db.models import ALL_TABLES
+
     result = _alembic("upgrade head", db_path)
     assert result.returncode == 0, result.stderr
-    assert len(_tables(db_path)) == EXPECTED_TABLE_COUNT
+    assert _tables(db_path) == set(ALL_TABLES)
     assert _version(db_path), "버전이 기록되지 않았다"
 
 
@@ -80,8 +86,10 @@ def test_migration_is_reproducible(db_path: Path) -> None:
     _alembic("downgrade base", db_path)
     result = _alembic("upgrade head", db_path)
     assert result.returncode == 0, result.stderr
+    from rate_monitor.db.models import ALL_TABLES
+
     assert _tables(db_path) == first
-    assert len(first) == EXPECTED_TABLE_COUNT
+    assert first == set(ALL_TABLES)
 
 
 def test_migration_matches_models(db_path: Path) -> None:

@@ -39,6 +39,11 @@ on:
         type: boolean
         required: false
         default: false
+      skip_bok:
+        description: "한국은행 기준금리(참고지표) 수집을 건너뛴다"
+        type: boolean
+        required: false
+        default: false
       skip_nh_local:
         description: "농·축협 수집을 건너뛴다"
         type: boolean
@@ -184,6 +189,22 @@ jobs:
             --db work/rate_monitor.sqlite3 \
             --raw-root data/raw \
             --groups 020000
+
+      # 한국은행 기준금리. 금융상품이 아니라 참고지표다 (v4 §7).
+      #
+      # 저장 표가 market_indicators로 따로다. 값이 몇 달씩 안 바뀌므로
+      # 같은 날짜를 두 번 쌓지 않고, 안 바뀌면 no_change로 끝난다.
+      # 요청 1회, 몇 초다.
+      - name: Collect BOK base rate
+        if: ${{ inputs.skip_bok != true }}
+        continue-on-error: true
+        env:
+          ECOS_API_KEY: ${{ secrets.ECOS_API_KEY }}
+        run: |
+          uv run rate-monitor collect \
+            --source bok_ecos \
+            --db work/rate_monitor.sqlite3 \
+            --raw-root data/raw
 
       # 저축은행중앙회. 저축은행 1차 원천이다 (명세서 v3 §7.2).
       #

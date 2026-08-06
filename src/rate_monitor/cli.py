@@ -10,6 +10,7 @@ import sys
 import tempfile
 from pathlib import Path
 
+from rate_monitor.collectors.bok_ecos.adapter import BokEcosAdapter
 from rate_monitor.collectors.cu.adapter import CuAdapter
 from rate_monitor.collectors.finlife.adapter import (
     FinlifeBankAdapter,
@@ -30,6 +31,7 @@ from rate_monitor.services.dashboard_service import (
     build_dashboard,
 )
 from rate_monitor.services.export_service import export_dataset
+from rate_monitor.services.indicator_service import collect_indicator
 from rate_monitor.services.site_service import DEFAULT_OUT as DEFAULT_SITE_OUT
 from rate_monitor.services.site_service import DEFAULT_TEMPLATE as DEFAULT_SITE_TEMPLATE
 from rate_monitor.services.site_service import build_site
@@ -58,6 +60,11 @@ ADAPTERS = {
     "cu": CuAdapter,
     "kfcc": KfccAdapter,
     "nh_local": NhLocalAdapter,
+}
+
+# 지표 수집원. 금리와 저장 표가 달라 오케스트레이터도 다르다 (v4 §7.1).
+INDICATOR_ADAPTERS = {
+    "bok_ecos": BokEcosAdapter,
 }
 
 
@@ -121,6 +128,9 @@ REQUEST_BUILDERS = {
 
 
 def _collect(args: argparse.Namespace) -> int:
+    if args.source in INDICATOR_ADAPTERS:
+        return _collect_indicator(args)
+
     adapter_cls = ADAPTERS.get(args.source)
     if adapter_cls is None:
         print(f"알 수 없는 수집원: {args.source}", file=sys.stderr)
@@ -144,6 +154,28 @@ def _collect(args: argparse.Namespace) -> int:
     print(f"valid/error : {result.valid_count} / {result.error_count}")
     print(f"warnings    : {result.warning_count}")
     print(f"message     : {result.message}")
+    return 0 if result.status in ("success", "partial", "no_change") else 1
+
+
+def _collect_indicator(args: argparse.Namespace) -> int:
+    """참고지표 수집 (v4 §7). 금리와 저장 표가 다르다."""
+    engine = create_db_engine(args.db)
+    factory = make_session_factory(engine)
+    result = asyncio.run(
+        collect_indicator(
+            INDICATOR_ADAPTERS[args.source](),
+            CollectionRequest(source_id=args.source),
+            factory,
+            raw_root=Path(args.raw_root),
+        )
+    )
+    print(f"run_id      : {result.run_id}")
+    print(f"status      : {result.status}")
+    print(f"raw/parsed  : {result.fetched} / {result.parsed}")
+    print(f"새/그대로   : {result.stored} / {result.unchanged}")
+    print(f"warnings    : {result.warnings}")
+    print(f"message     : {result.message}")
+    # no_change는 실패가 아니다. 기준금리는 몇 달씩 안 바뀐다.
     return 0 if result.status in ("success", "partial", "no_change") else 1
 
 
@@ -309,7 +341,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     collect = sub.add_parser("collect", help="수집원을 실행해 SQLite에 저장한다")
     collect.add_argument(
-        "--source", default="finlife_savings_bank", choices=sorted(ADAPTERS)
+        "--source", default="finlife_savings_bank",
+        choices=sorted({*ADAPTERS, *INDICATOR_ADAPTERS}),
     )
     collect.add_argument("--db", default=str(DEFAULT_DB_PATH))
     collect.add_argument("--raw-root", default=str(DEFAULT_RAW_ROOT))
