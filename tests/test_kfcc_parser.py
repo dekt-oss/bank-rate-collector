@@ -265,6 +265,56 @@ def test_missing_product_title_is_breaking(outlet: dict) -> None:
         parser.parse_rates("<html><body>없음</body></html>", gubuncode="13", outlet=outlet)
 
 
+# ── 취급 상품 없음은 오류가 아니다 ──────────────────────────────────────
+#
+# 새마을금고는 금고마다 취급 품목이 다르다. 거치식만 하고 적립식은 안 하는
+# 곳이 실제로 있다. 예전에는 이걸 구조 변경으로 보고 실행 전체를 partial로
+# 떨어뜨렸다 — 2026-08-06 전국 수집에서 9장이 그랬고, 실물을 받아 보니
+# 아홉 장 다 그냥 취급 상품이 없는 것이었다.
+
+# 실물 표본 두 종. 2026-08-06에 건너뛴 9장을 실제로 받아 본 결과다.
+#
+#   rate_0225_13_no_products — 정상 페이지에 상품만 없다 (10,559 바이트).
+#       조회기준일도 제목도 그대로 있고 .tbl-tit만 없다. 0225·2415·3568,
+#       그리고 서울대학교병원금고(0128)의 적립식 화면이 이 모양이었다.
+#   rate_1965_13_no_data — 사이트가 대놓고 없다고 답한다 (375 바이트).
+#       본문이 통째로 alert("조회할 자료가 없습니다 ...") 하나다.
+@pytest.mark.parametrize(
+    "name", ["rate_0225_13_no_products.html", "rate_1965_13_no_data.html"]
+)
+def test_no_products_is_not_a_schema_change(name: str, outlet: dict) -> None:
+    rows, warnings = parser.parse_rates(_read(name), gubuncode="13", outlet=outlet)
+    assert rows == [], name
+    assert warnings == [], name
+
+
+def test_the_two_empty_shapes_really_are_different(outlet: dict) -> None:
+    """표본 두 종이 실제로 서로 다른 모양인지. 같으면 검사가 하나만 도는 셈이다."""
+    normal = _read("rate_0225_13_no_products.html")
+    alert = _read("rate_1965_13_no_data.html")
+    assert "조회기준일" in normal and "조회기준일" not in alert
+    assert "조회할 자료가 없습니다" in alert and "조회할 자료가 없습니다" not in normal
+    assert len(alert) < 1000 < len(normal)
+
+
+def test_an_unknown_page_is_still_breaking(outlet: dict) -> None:
+    """기준일도 없고 없다는 안내도 없으면 우리가 아는 화면이 아니다.
+
+    여기까지 느슨하게 풀면 진짜 구조 변경이 조용히 0행으로 지나간다.
+    """
+    assert not parser.has_no_products("<html><body>전혀 다른 화면</body></html>")
+    with pytest.raises(SchemaChangedError):
+        parser.parse_rates(
+            "<html><body>전혀 다른 화면</body></html>", gubuncode="13", outlet=outlet
+        )
+
+
+def test_a_page_with_products_is_never_treated_as_empty() -> None:
+    """상품이 있는 화면을 빈 화면으로 오해하면 데이터가 통째로 사라진다."""
+    assert not parser.has_no_products(_read("rate_1203_13.html"))
+    assert not parser.has_no_products(_read("rate_1203_14.html"))
+
+
 def test_only_early_termination_tables_is_breaking(outlet: dict) -> None:
     """기본이율 표가 사라지면 중도해지이율로 대체하지 않고 실패한다."""
     html = """
