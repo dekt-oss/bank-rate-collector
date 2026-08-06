@@ -292,9 +292,63 @@
 
   @media (max-width: 640px) {
     .wrap { padding: 16px 12px 48px; }
+  .tabs { overflow-x: auto; }
+  .marks { grid-template-columns: 1fr; }
     header.top h1 { font-size: 19px; }
     .group { border-right: 0; }
   }
+
+  /* ── 참고카드 ─────────────────────────────────────────────────── */
+  .marks {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 10px; margin: 14px 0 4px;
+  }
+  .mark {
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: 10px; padding: 12px 14px;
+  }
+  .mark .t { font-size: 12px; color: var(--muted); letter-spacing: .02em; }
+  .mark .v { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .mark .d { font-size: 12px; color: var(--muted); margin-top: 2px; }
+
+  /* ── 업권 탭 ──────────────────────────────────────────────────── */
+  .tabs { display: flex; gap: 6px; margin: 16px 0 8px; flex-wrap: wrap; }
+  .tabs button {
+    border: 1px solid var(--line); background: var(--surface); color: inherit;
+    border-radius: 999px; padding: 7px 14px; font: inherit; cursor: pointer;
+    white-space: nowrap;
+  }
+  .tabs button[aria-pressed="true"] {
+    background: var(--accent); color: #fff; border-color: var(--accent);
+  }
+  .tabs button .n { font-size: 12px; opacity: .7; margin-left: 4px; }
+
+  /* ── 부산 ─────────────────────────────────────────────────────── */
+  .busan { margin: 4px 0 14px; }
+  .busan > button {
+    border: 1px solid var(--accent); background: var(--surface); color: var(--accent);
+    border-radius: 8px; padding: 7px 14px; font: inherit; font-weight: 600;
+    cursor: pointer;
+  }
+  .busan > button[aria-pressed="true"] { background: var(--accent); color: #fff; }
+  .gu { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 10px; }
+  .gu button {
+    border: 1px solid var(--line); background: var(--surface); color: inherit;
+    border-radius: 6px; padding: 5px 10px; font: inherit; font-size: 13px;
+    cursor: pointer;
+  }
+  .gu button[aria-pressed="true"] {
+    background: var(--accent); color: #fff; border-color: var(--accent);
+  }
+  .gu button[data-empty="1"] { opacity: .45; }
+
+  /* ── 우대조건 ─────────────────────────────────────────────────── */
+  .pref { max-width: 22ch; }
+  .pref button {
+    border: 0; background: none; color: var(--accent); font: inherit;
+    font-size: 12px; cursor: pointer; padding: 0; text-decoration: underline;
+  }
+  tr.detail td { background: var(--paper); font-size: 13px; white-space: pre-wrap; }
 </style>
 </head>
 <body>
@@ -314,6 +368,20 @@
   </p>
 
   <div class="totals" id="totals"></div>
+
+  <!-- 참고카드. 메인 4개 업권 순위에 포함되지 않는다 (v4 §10.6).
+       값이 없으면 통째로 숨긴다 — 빈 카드는 "0%"로 읽힌다. -->
+  <div class="marks" id="marks" hidden></div>
+
+  <!-- 업권 탭. 시중은행은 여기 없다 — 참고카드에만 나온다 (v4 §6.4). -->
+  <nav class="tabs" id="tabs" aria-label="업권"></nav>
+
+  <!-- 부산 바로가기. 이 제품의 중심이 부산이라 한 번에 가는 길을 둔다.
+       누르면 지역이 부산으로 좁혀지고 구·군 목록이 열린다. -->
+  <div class="busan" id="busan-bar">
+    <button type="button" id="busan-go">부산으로 보기</button>
+    <div class="gu" id="busan-gu" hidden></div>
+  </div>
 
   <!-- 화면을 열지 않고도 받을 수 있어야 한다. 이 링크는 서버에 이미 있는
        파일을 그냥 가리킨다. 브라우저가 16만 행을 조립하지 않는다. -->
@@ -415,6 +483,30 @@
                      nationwide: "제한없음", unknown: "미상" };
   const METHOD_KO = { simple: "단리", compound: "복리", unknown: "미표기" };
 
+  // 지역근거 배지 (v4 §10.5). 같은 "부산"이라도 어디서 온 값인지가 다르다.
+  const GEO_KO = {
+    outlet_address: "점포 기준",
+    source_query_region: "공식 조회지역",
+    head_office: "본점 기준",
+    nationwide: "전국 공시",
+  };
+  // 이 근거로 얻은 구·군을 정확 필터로 써도 되는가 (v4 §10.3).
+  const GU_EXACT = new Set(["outlet_address"]);
+
+  // 메인 비교표에 서는 업권. 순서가 화면의 탭 순서다.
+  // **시중은행은 없다** — 참고카드에만 나온다 (v4 §6.4).
+  const MAIN_SECTORS = ["savings_bank", "kfcc", "nh_local", "cu"];
+
+  // 부산 16개 구·군 (v4 §4.3).
+  //
+  // 데이터에서 뽑지 않고 여기 적는다. 수집이 덜 됐거나 그 구에 점포가 없으면
+  // 그 구가 화면에서 통째로 사라진다 — 없는 것과 0건은 다르다. 실제로
+  // 농·축협은 영도구·중구에 점포가 없다.
+  const BUSAN = ["강서구", "금정구", "기장군", "남구", "동구", "동래구",
+                 "부산진구", "북구", "사상구", "사하구", "서구", "수영구",
+                 "연제구", "영도구", "중구", "해운대구"];
+  const BUSAN_SIDO = "부산";
+
   // ── 조회 조건 ────────────────────────────────────────────────────
   //
   // 기본값은 **아무 조건도 걸지 않은 전체 목록**이다. 체크를 하나도 안 한
@@ -433,6 +525,12 @@
     picked: Object.fromEntries(GROUPS.map((g) => [g.key, new Set()])),
     q: "", rmin: null, tmin: null, tmax: null, dfrom: null,
     sort: "base", dir: -1, shown: 100,
+    // 업권 탭과 부산 구·군은 아래 `picked`와 별도로 둔다. 같은 축을 두
+    // 곳에서 켜면 어느 쪽이 이겼는지 화면으로 알 수 없다.
+    tab: null,        // null이면 전체
+    busan: false,
+    gu: new Set(),
+    open: new Set(),  // 우대조건을 펼친 행
   };
 
   let ALL = [];            // 표를 받기 전에는 비어 있다
@@ -445,10 +543,15 @@
       cell: (r) => esc(r.institution)
         + (r.scope === "workplace_members" ? '<span class="tag">직장</span>' : "") },
     { key: "district", label: "지역",
-      cell: (r) => (r.district
-        ? `${esc(r.district)} <span class="dim">${esc(r.region || "")}</span>`
-        : (r.region ? `<span class="dim">${esc(r.region)}</span>`
-                    : '<span class="dim">본점 기준</span>')) },
+      // 지역 옆에 **그 지역이 어디서 왔는지**를 붙인다 (v4 §10.5).
+      // 같은 "부산"이라도 점포 주소에서 온 것과 조회조건에서 온 것은 다르다.
+      cell: (r) => {
+        const where = r.district
+          ? `${esc(r.district)} <span class="dim">${esc(r.region || "")}</span>`
+          : (r.region ? `<span class="dim">${esc(r.region)}</span>` : "—");
+        const badge = GEO_KO[r.geo];
+        return where + (badge ? ` <span class="tag">${esc(badge)}</span>` : "");
+      } },
     { key: "product", label: "상품", cls: "name",
       cell: (r) => esc(r.product)
         + (r.pay ? ` <span class="dim">${esc(r.pay)}</span>` : "") },
@@ -465,6 +568,24 @@
       cell: (r) => esc(CHANNEL_KO[r.channel] || r.channel) },
     { key: "scope", label: "가입제한", cls: "dim",
       cell: (r) => esc(SCOPE_KO[r.scope] || r.scope) },
+    { key: "pref", label: "우대조건", cls: "pref",
+      // 한 줄 요약 후 펼치기 (v4 §10.4). 원문이 길어 행 높이가 들쭉날쭉해지면
+      // 표를 훑을 수 없다.
+      //
+      // **없음과 미제공을 가른다.** 원천이 우대금리 열 자체를 안 주는 곳이
+      // 있다(새마을금고 93,819행, 농·축협 4,920행). 그걸 "없음"으로 적으면
+      // 우대가 없는 상품처럼 보인다.
+      cell: (r) => {
+        if (!r.pref) {
+          return r.max == null
+            ? '<span class="dim">원천 미제공</span>'
+            : '<span class="dim">—</span>';
+        }
+        const one = r.pref.replace(/\s+/g, " ").trim();
+        const head = one.length > 24 ? one.slice(0, 24) + "…" : one;
+        return `${esc(head)} <button type="button" data-pref="${esc(r._i)}">`
+          + `${state.open.has(r._i) ? "접기" : "전문"}</button>`;
+      } },
     { key: "source", label: "수집원", cls: "dim", cell: (r) => esc(r.source) },
     { key: "asOf", label: "공시일", cls: "dim num",
       cell: (r) => (r.asOf ? esc(r.asOf) : "—")
@@ -551,6 +672,45 @@
       : "모든 행이 최근 1년 안에 갱신되었습니다.";
   };
 
+  // ── 업권 탭 ──────────────────────────────────────────────────────
+  const renderTabs = () => {
+    const counts = new Map();
+    ALL.forEach((r) => counts.set(r.sector, (counts.get(r.sector) || 0) + 1));
+    // 데이터에 있는 업권만 그린다. 목록에 없는 업권이 들어오면 뒤에 붙인다 —
+    // 새 수집원이 늘었는데 화면에서 통째로 사라지면 안 된다.
+    const seen = MAIN_SECTORS.filter((s) => counts.has(s))
+      .concat([...counts.keys()].filter((s) => !MAIN_SECTORS.includes(s)));
+    const button = (key, label, n) =>
+      `<button type="button" data-tab="${esc(key ?? "")}" `
+      + `aria-pressed="${state.tab === key}">${esc(label)}`
+      + `<span class="n">${num(n)}</span></button>`;
+    $("tabs").innerHTML =
+      button(null, "전체", ALL.length)
+      + seen.map((k) => button(k, SECTOR_KO[k] || k, counts.get(k) || 0)).join("");
+  };
+
+  // ── 부산 구·군 ───────────────────────────────────────────────────
+  const renderBusan = () => {
+    $("busan-go").setAttribute("aria-pressed", String(state.busan));
+    $("busan-go").textContent = state.busan ? "전국으로 돌아가기" : "부산으로 보기";
+    $("busan-gu").hidden = !state.busan;
+    if (!state.busan) return;
+    // 지금 켜진 조건에서 그 구에 몇 건이 있는지. 0건이어도 버튼을 지우지
+    // 않는다 — 지운 구와 없는 구를 구별할 수 없게 된다.
+    const counts = new Map();
+    ALL.forEach((r) => {
+      if (r.region === BUSAN_SIDO && GU_EXACT.has(r.geo) && r.district) {
+        counts.set(r.district, (counts.get(r.district) || 0) + 1);
+      }
+    });
+    $("busan-gu").innerHTML = BUSAN.map((gu) => {
+      const n = counts.get(gu) || 0;
+      return `<button type="button" data-gu="${esc(gu)}" data-empty="${n ? 0 : 1}" `
+        + `aria-pressed="${state.gu.has(gu)}">${esc(gu)}`
+        + `<span class="n"> ${num(n)}</span></button>`;
+    }).join("");
+  };
+
   const renderGroups = () => {
     $("groups").innerHTML = GROUPS.map((g) => {
       const counts = countsOf(g.key);
@@ -573,6 +733,18 @@
   };
 
   const matches = (r) => {
+    // 업권 탭이 먼저다. 탭이 켜져 있으면 그 업권만 남는다.
+    if (state.tab && r.sector !== state.tab) return false;
+    if (state.busan) {
+      if (r.region !== BUSAN_SIDO) return false;
+      // 구·군은 **정확 필터를 쓸 수 있는 근거일 때만** 거른다 (v4 §10.3).
+      // 신협의 지역은 조회조건이고 저축은행은 본점 소재지라, 그걸 구 단위
+      // 정확 필터로 쓰면 그 구에 없는 지점을 있다고 말하는 셈이 된다.
+      // 그런 행은 구를 골라도 남기고 화면이 배지로 성격을 밝힌다.
+      if (state.gu.size && GU_EXACT.has(r.geo) && !state.gu.has(r.district)) {
+        return false;
+      }
+    }
     for (const g of GROUPS) {
       const picked = state.picked[g.key];
       if (picked.size && !picked.has(String(r[g.key]))) return false;
@@ -610,8 +782,14 @@
       ? `중 ${num(slice.length)}건 표시` : (current.length ? "전부 표시" : "");
 
     $("rows").innerHTML = slice.length
-      ? slice.map((r) => "<tr>" + COLS.map((c) =>
-          `<td class="${c.cls || ""}">${c.cell(r)}</td>`).join("") + "</tr>").join("")
+      ? slice.map((r) => {
+          const row = "<tr>" + COLS.map((c) =>
+            `<td class="${c.cls || ""}">${c.cell(r)}</td>`).join("") + "</tr>";
+          // 펼친 행만 원문을 붙인다. 전부 붙이면 표를 훑을 수 없다.
+          if (!state.open.has(r._i) || !r.pref) return row;
+          return row + `<tr class="detail"><td colspan="${COLS.length}">`
+            + `${esc(r.pref)}</td></tr>`;
+        }).join("")
       : `<tr><td class="empty" colspan="${COLS.length}">조건에 맞는 상품이 없습니다</td></tr>`;
 
     $("more-wrap").hidden = current.length <= slice.length;
@@ -682,6 +860,37 @@
   $("stamp").innerHTML =
     `생성 ${esc((data.generated_at || "").slice(0, 19).replace("T", " "))} KST`;
 
+  // ── 참고카드 (v4 §10.6) ──────────────────────────────────────────
+  //
+  // 메인 4개 업권 순위에 포함되지 않는다. 값이 없으면 카드를 통째로
+  // 숨긴다 — 빈 카드를 띄우면 "0%"로 읽힌다.
+  //
+  // **기준금리와 예금금리의 차이를 계산해 보여주지 않는다** (v4 §7.4).
+  // 그 뺄셈을 "수익"이나 "마진"이라 부르는 순간 참고지표가 아니라 권유가 된다.
+  const marks = data.benchmarks || {};
+  const cards = [];
+  const bok = marks.bok_base_rate;
+  if (bok && bok.value != null) {
+    cards.push(["한국은행 기준금리", `${Number(bok.value).toFixed(2)}%`,
+                `적용일 ${esc(bok.source_effective_at || "—")}`]);
+  }
+  const cb = marks.commercial_bank_12m;
+  if (cb) {
+    cards.push(["시중은행 12개월 정기예금",
+                cb.median == null ? "—" : `${Number(cb.median).toFixed(2)}%`,
+                `기본금리 중앙값 · ${num(cb.institution_count)}개 은행`]);
+    if (cb.max != null) {
+      cards.push(["시중은행 최고금리 상단", `${Number(cb.max).toFixed(2)}%`,
+                  `우대 포함 · ${num(cb.record_count)}건 중`]);
+    }
+  }
+  if (cards.length) {
+    $("marks").hidden = false;
+    $("marks").innerHTML = cards.map(([t, v, d]) =>
+      `<div class="mark"><div class="t">${esc(t)}</div>`
+      + `<div class="v">${esc(v)}</div><div class="d">${esc(d)}</div></div>`).join("");
+  }
+
   // ── 전체 자료 링크 ───────────────────────────────────────────────
   //
   // 주소도 크기도 빌드가 정한다. 큰 파일은 압축해서 싣기 때문에 화면이
@@ -734,6 +943,34 @@
     }
     redraw();
   });
+  $("tabs").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-tab]");
+    if (!b) return;
+    state.tab = b.dataset.tab || null;
+    renderTabs();
+    redraw();
+  });
+  $("busan-go").addEventListener("click", () => {
+    state.busan = !state.busan;
+    if (!state.busan) state.gu.clear();
+    renderBusan();
+    redraw();
+  });
+  $("busan-gu").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-gu]");
+    if (!b) return;
+    const gu = b.dataset.gu;
+    if (state.gu.has(gu)) state.gu.delete(gu); else state.gu.add(gu);
+    renderBusan();
+    redraw();
+  });
+  $("rows").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-pref]");
+    if (!b) return;
+    const key = Number(b.dataset.pref);
+    if (state.open.has(key)) state.open.delete(key); else state.open.add(key);
+    render();
+  });
   $("head").addEventListener("click", (e) => {
     const b = e.target.closest("[data-sort]");
     if (!b) return;
@@ -772,8 +1009,13 @@
   $("reset").addEventListener("click", () => {
     GROUPS.forEach((g) => state.picked[g.key].clear());
     Object.assign(state, { q: "", rmin: null, tmin: null, tmax: null,
-                           dfrom: null, sort: "base", dir: -1, shown: 100 });
+                           dfrom: null, sort: "base", dir: -1, shown: 100,
+                           tab: null, busan: false });
+    state.gu.clear();
+    state.open.clear();
     ["q", "rmin", "tmin", "tmax", "dfrom"].forEach((id) => { $(id).value = ""; });
+    renderTabs();
+    renderBusan();
     renderGroups();
     renderAsOf();
     render();
@@ -792,7 +1034,12 @@
       return table ? table[idx] : idx;
     };
     // 열 배열 + 조회표를 객체로 한 번만 편다. 조작마다 풀면 느려진다.
-    return (T.rows || []).map((r) => ({
+    //
+    // `_i`는 행의 고유 번호다. 우대조건을 펼칠 때 "어느 행"인지 가리키는데,
+    // 필터·정렬이 바뀌어도 같은 행을 가리켜야 하므로 화면 순서가 아니라
+    // 원본 순서를 쓴다.
+    return (T.rows || []).map((r, _i) => ({
+      _i,
       sector: look("sector", r[col.sector]),
       institution: look("institution", r[col.institution]),
       region: look("region", r[col.region]),
@@ -808,6 +1055,12 @@
       scope: look("availability_scope", r[col.availability_scope]),
       source: look("source_id", r[col.source_id]),
       asOf: look("source_effective_at", r[col.source_effective_at]),
+      // v4 §10.4로 늘어난 칸. 없는 표(옛 산출물)에서도 죽지 않게 기본값을 둔다.
+      outlet: col.outlet == null ? null : look("outlet", r[col.outlet]),
+      geo: col.geo_basis == null ? null : look("geo_basis", r[col.geo_basis]),
+      rscope: col.rate_scope == null ? null : look("rate_scope", r[col.rate_scope]),
+      amountMax: col.amount_max == null ? null : r[col.amount_max],
+      pref: col.preference == null ? null : look("preference", r[col.preference]),
     }));
   };
 
@@ -840,6 +1093,8 @@
       $("dl-view").disabled = false;
       $("dl-json").disabled = false;
 
+      renderTabs();
+      renderBusan();
       renderGroups();
       renderAsOf();
       render();
