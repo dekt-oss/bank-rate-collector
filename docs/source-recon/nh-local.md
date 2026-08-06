@@ -61,6 +61,188 @@ v4 §5.2의 정찰(PR 3)에서 확정한다.
 
 ---
 
+## 0.1 2차 정찰 (2026-08-06) — 호스트는 찾았고 화면은 못 찾았다
+
+재현 방법: `uv run python scripts/p2_nh_local_recon.py`
+기계 판독 결과: `docs/source-recon/nh-local-recon-v2.json` (30회 탐침)
+
+### 확인된 것
+
+**`mmall.nonghyup.com`이 농·축협 몰이다.** 문서 제목이
+`NH모바일웹(농·축협)`이고, 본문에 `모바일 농·축협`·`농·축협 특판 기획전`이
+들어 있다.
+
+```
+mmall.nonghyup.com/servlet/SFDPM0130R.view  200   48,940 B   농·축협 특판 기획전
+mmall.nonghyup.com/servlet/SFDPM0100R.view  200   50,587 B
+```
+
+**`smartmarket.nonghyup.com`은 농협은행 쪽이다.** 진입 화면이
+`/servlet/BFBCW0001R.view`이고(200, 127,209 B), 여기서 `SF*` 화면은 전부
+404다. 화면군이 호스트로 갈린다.
+
+```
+BF*   농협은행    smartmarket.nonghyup.com
+SF*   상호금융    mmall.nonghyup.com (모바일 SFDPM*)
+```
+
+**채널 전환 방식.** 농협은행 화면의 `농ㆍ축협` 탭이 이렇게 돈다.
+
+```javascript
+function lfn_nhbankClk(val){
+    if(val == "1"){ param['SF_NAAC_DS_DTLC'] = "1"; navigate("BFBCW0001R", param); }
+    else if(val == "2"){ param['SF_NAAC_DS_DTLC'] = "2"; common_toSangho('SFBCW0000R', param); }
+}
+```
+
+`sfcn_cfSubscriptionGuide`가 같은 구분값을 콘텐츠 폴더로 옮긴다 —
+`naacDscDtlc == '2'` 이면 폴더가 `nhbank`에서 `nhsangho`로 바뀐다. 즉
+**농·축협은 별도 채널이고 `SF_NAAC_DS_DTLC=2`가 그 스위치다.**
+
+### 아직 못 찾은 것 — 이게 이번 정찰의 결론이다
+
+명세서 v4 §5.1이 적은 세 화면이 **어느 호스트에서도 200을 주지 않는다.**
+
+```
+SFDPW0160R  농·축협별 예금금리 검색
+SFDPW0161R  검색 결과
+SFDPW0162R  점포별 금리 상세
+```
+
+| 호스트 | 응답 |
+|---|---|
+| smartmarket.nonghyup.com | 404 (105 KB 오류 화면) |
+| mmall.nonghyup.com | 404 (0 B) |
+| banking.nonghyup.com | 404 (134 KB) |
+| www.nonghyup.com | 404 (2 KB) |
+
+같은 화면군의 모바일 변형(`SFDPM0160R`/`0161R`/`0162R`)도 404다.
+
+`common_toSangho`의 정의를 정적 JS 8개에서 찾지 못했다 — 화면 단위
+스크립트에 있는 것으로 보인다. 브라우저로 실행해 잡으려 했으나 이 실행
+환경의 프록시가 Chromium 연결을 막는다(`ERR_CONNECTION_RESET`). curl은
+같은 호스트에 정상으로 붙으므로 호스트 차단은 아니다.
+
+### 확인해 본 다른 길
+
+`www.nonghyup.com/introduce/interest/`에는 농·축협 **대출**금리만 있다
+(`loan1~6.do`, 각 90~107 KB). 예금 쪽 대응 페이지는 없다 —
+`deposit1.do`·`save1.do` 등 8가지를 두드려 전부 404였다.
+
+### 다음에 필요한 것 → **받았다**
+
+사용자가 주소를 알려줬다: `wmall.nonghyup.com`. 내가 두드린 네 호스트에
+없던 이름이다. 계약은 아래 §0.2에 있다.
+
+---
+
+## 0.2 계약 확정 (2026-08-06) — `wmall.nonghyup.com`
+
+**로그인·세션·쿠키 없이 GET 두 번이면 끝난다.**
+
+### 1단계 — 전국 점포 명부
+
+```
+GET https://wmall.nonghyup.com/servlet/SFDPW0161R.view
+    200, 3,127,496 bytes
+    sha256 de7a355a35fd41ac4aef135898bdf5a26f8b9e0de7425d011d4302d8ac923f3b
+```
+
+**페이지네이션이 없다.** 한 번에 전국 4,871행이 온다. 표는 이 모양이다.
+
+```html
+<table><caption>검색 결과</caption>
+ <thead><tr><th>번호</th><th>농·축협 명</th><th>주소</th><th>전화번호</th><th>조회</th></tr></thead>
+ <tbody>
+  <tr><td>1</td>
+      <td class="data1"><span>강릉농협 강동지점</span></td>
+      <td class="txt">강원도 강릉시 강동면 와천로 463</td>
+      <td>033-645-7451</td>
+      <td><button onclick="lfViewInquiry('333072', '강릉농협 강동지점');...">금리조회</button></td>
+  </tr>
+```
+
+`lfViewInquiry`의 첫 인자가 **점포 식별자(`brc`)**다.
+
+시도별 분포 (주소 첫 토막 기준):
+
+| 시도 | 점포 | | 시도 | 점포 |
+|---|---:|---|---|---:|
+| 경기도 | 855 | | 부산광역시 | **119** |
+| 경상남도 | 546 | | 제주특별자치도 | 117 |
+| 경상북도 | 513 | | 전라남도 | 110 |
+| **전남광주통합특별시** | **460** | | 울산광역시 | 92 |
+| 충청남도 | 440 | | 전북특별자치도 | 72 |
+| 전라북도 | 261 | | 강원도 | 65 |
+| 서울특별시 | 245 | | 세종특별자치시 | 46 |
+| 충청북도 | 237 | | 서울 | 2 |
+| 강원특별자치도 | 215 | | 광주광역시 | 1 |
+| 대구광역시 | 157 | | | |
+| 대전광역시 | 123 | | | |
+| 인천광역시 | 122 | | | |
+
+`전남광주통합특별시` 460건은 우연이 아니다. `region_service.looks_like_sido`가
+별칭표에 없는 이름도 시도로 받아 주기 때문에 이 460개 점포의 지역이 살아
+있다 — 모르는 이름을 버리는 규칙이었다면 전국 점포의 9.6%가 지역 없이
+들어왔을 것이다.
+
+### 2단계 — 점포별 금리 상세
+
+상품 분류가 화면을 가른다 (`lfViewInquiry` 안의 `inq_dsc`).
+
+```
+inq_dsc=1  입출금식      SFDPW0162R
+inq_dsc=2  거치식(예금)   SFDPW0163R
+inq_dsc=3  적립식(적금)   SFDPW0164R
+```
+
+```
+GET https://wmall.nonghyup.com/servlet/SFDPW0163R.view
+    ?brc=333072&brnm=<점포명>&inq_dsc=&inq_str=&searchContent=
+    200, 121,430 bytes
+```
+
+GET과 POST가 **같은 바이트를 준다**(둘 다 121,430 B). 우리는 GET을 쓴다.
+
+상세표 (강릉농협 강동지점, 거치식, 2026-08-06 실측):
+
+| 상품명 | 기간 | 금리 | 비고 |
+|---|---|---:|---|
+| 정기예탁금 | 12개월 이상~24개월 미만 | 3% | 만기이자지급식 기준, 고정금리 |
+| 복리식정기예탁금 | 12개월 이상~24개월 미만 | 3% | 월복리, 만기시 지급 |
+| e-joy 인터넷예금 우대금리 | 12개월 이상~24개월 미만 | 0.1% | 상품별 금리 + 우대금리 적용 |
+| 만기자유정기예탁금 | 12개월 이상~24개월 미만 | 3% | 100만원 이상 |
+
+**기준일은 조회일이다.** 화면에 `2026.08.06`이 찍혀 있고, 그것이 요청한
+날짜다. 원천이 별도 공시일을 주지 않는다.
+
+### 실물 fixture
+
+```
+tests/fixtures/nh_local/outlet_list_busan.html        전국 4,871행 중 부산 120행 (표 구조 원본 그대로)
+tests/fixtures/nh_local/deposit_detail_333072.html    거치식 상세 원본 121,430 B
+tests/fixtures/nh_local/saving_detail_333072.html     적립식 상세 원본 121,353 B
+```
+
+명부 원본 3.1 MB는 저장소에 싣지 않는다. 위 sha256으로 재확인할 수 있다.
+
+### 저장하지 않을 것
+
+명부의 **전화번호 열은 저장하지 않는다.** 저축은행중앙회 `TEL`/`CTEL`,
+신협 `ownTelNo`와 같은 이유다 — 연락처는 우리가 다루는 데이터가 아니다.
+
+### 아직 모르는 것
+
+- `SFDPW0160R`(검색 화면)의 지역·이름 필터 파라미터. 명부가 통째로 오므로
+  수집에는 필요 없지만, 원천이 나중에 페이지네이션을 켜면 필요해진다.
+- `inq_str`/`searchContent`가 무엇을 거르는지. 빈 값으로 전부 왔다.
+- 이용약관과 자동접근 정책. **수집기를 붙이기 전에 확인한다.**
+- `geo_basis`. 명부 주소가 점포 주소로 보이지만(지점명이 붙어 있다),
+  단위가 점포인지 조합인지 확정하지 않았다 — `region_service.SOURCE_GEO_BASIS`에
+  `nh_local`을 넣는 것은 그 다음이다.
+
+---
+
 ## 1. (2026-08-05 기록 · §0에서 정정됨) 결론 — 중앙 수집이 새마을금고·신협처럼은 안 된다
 
 **지역농축협은 조합마다 독립 법인이고 각자 홈페이지에 금리를 공시한다.**
