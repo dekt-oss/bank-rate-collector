@@ -16,6 +16,7 @@ from typing import Any
 import yaml
 
 from rate_monitor.domain.timeutil import kst_iso, now_kst
+from rate_monitor.services.institution_matching import normalize_institution
 
 PRESENTATION_PATH = Path("config/presentation.yaml")
 
@@ -26,19 +27,39 @@ def reference_sectors(path: Path | None = None) -> tuple[str, ...]:
     시중은행은 참고카드에만 나온다. 전국 공시라 부산 구·군에 연결할 수 없고,
     2금융권 넷과 같은 표에 섞이면 무엇을 비교하는 화면인지가 흐려진다.
 
-    **`db_only_sources`는 여기서 걸지 않는다.** 설정에 `finlife_savings_bank`가
-    적혀 있지만, 실측해 보면 finlife가 보는 저축은행 79곳 중 6곳(OK저축은행
-    등)이 FSB 수집분에 없다. 지금 빼면 그 여섯이 화면에서 통째로 사라진다 —
-    "없는 것과 0건은 다르다". 두 원천의 기관 매핑이 생기는 v4 PR 7에서 건다.
+    `db_only_sources`는 여기가 아니라 `dedupe_sources`가 맡는다. 그쪽은
+    통째로 빼는 것이 아니라 **겹치는 상품만** 뺀다 (v4 §9.1).
 
     설정 파일이 없으면 아무것도 빼지 않는다. 화면이 조용히 비는 것보다
     참고지표가 섞여 보이는 편이 알아채기 쉽다.
     """
+    return tuple(_presentation(path).get("reference_sectors") or ())
+
+
+def _presentation(path: Path | None = None) -> dict[str, Any]:
     config_path = path or PRESENTATION_PATH
     if not config_path.exists():
-        return ()
-    config = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
-    return tuple(config.get("reference_sectors") or ())
+        return {}
+    return yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+
+
+def dedupe_sources(path: Path | None = None) -> tuple[str, ...]:
+    """중복이면 화면에서 물러나는 원천 (v4 §9.1).
+
+    저축은행을 finlife와 저축은행중앙회 양쪽에서 받는다. 같은 상품이 두
+    줄로 보이면 안 되므로 한쪽이 물러나야 하고, 명세서는 FSB를 1차로 둔다
+    (§11.1 "메인 표시값은 FSB를 우선한다").
+
+    **통째로 빼는 것이 아니다.** §9.1이 말하는 것은 "동일 상품을 메인에
+    중복 노출하지 않는다"이고, 실측하면 그 차이가 크다.
+
+        FSB 조합      362개 — 전부 finlife에도 있다
+        finlife 조합  756개 — 394개는 FSB에 없다
+
+    통째로 빼면 그 394개(관측 2,688건)가 화면에서 사라진다. 그래서 겹치는
+    것만 뺀다.
+    """
+    return tuple(_presentation(path).get("db_only_sources") or ())
 
 DEFAULT_TEMPLATE = Path("web/templates/dashboard.html")
 DEFAULT_SITE = Path("site/index.html")
@@ -174,6 +195,52 @@ def latest_run_ids(conn: sqlite3.Connection) -> list[str]:
     ]
 
 
+def _comparison_key(record: dict[str, Any]) -> tuple[str, Any, Any]:
+    """"같은 상품"의 기준 (v4 §11.1의 매핑 축).
+
+    기관명·상품유형·가입기간 셋이다. **상품명은 넣지 않는다.** 두 원천이
+    같은 상품을 다른 이름으로 부르고("정기예금" vs "정기예금(인터넷)"),
+    이름까지 맞추라고 하면 아무것도 안 붙는다.
+    """
+    return (
+        normalize_institution(record.get("institution")),
+        record.get("product_type"),
+        record.get("term_months"),
+    )
+
+
+def _drop_duplicate_source_rows(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """두 원천이 같은 상품을 주면 한쪽만 남긴다 (v4 §9.1).
+
+    `config/presentation.yaml`의 `db_only_sources`에 적힌 원천이 물러난다.
+    지금은 `finlife_savings_bank`이고, 남는 쪽은 저축은행중앙회다 —
+    가입방법·우대조건·만기후이율이 더 오기 때문이다 (§11.1).
+
+    **겹치는 것만 뺀다.** 실측(2026-08-06 발행 DB):
+
+        FSB 조합      362개 — 전부 finlife에도 있다
+        finlife 조합  756개 — 394개는 FSB에 없다
+
+    통째로 빼면 그 394개가 화면에서 사라진다. 그래서 "다른 원천이 같은
+    상품을 이미 보여주는가"를 행마다 묻는다.
+    """
+    retreating = set(dedupe_sources())
+    if not retreating:
+        return records
+
+    # 물러나지 않는 원천이 이미 보여주는 상품.
+    covered = {
+        _comparison_key(r) for r in records if r.get("source_id") not in retreating
+    }
+    if not covered:
+        return records
+    return [
+        r
+        for r in records
+        if r.get("source_id") not in retreating or _comparison_key(r) not in covered
+    ]
+
+
 def build_rate_table(
     conn: sqlite3.Connection, run_ids: list[str]
 ) -> dict[str, Any]:
@@ -241,7 +308,11 @@ def build_rate_table(
         (*run_ids, *excluded),
     )
 
+    raw = _drop_duplicate_source_rows(raw)
+
     # 같은 값이 수천 번 되풀이되는 열만 조회표로 뺀다.
+    raw = _drop_duplicate_source_rows(raw)
+
     # 같은 값이 수천 번 되풀이되는 열만 조회표로 뺀다.
     #
     # `preference`가 여기 있는 것이 이번 확장의 핵심이다. 우대조건 원문을
