@@ -221,6 +221,82 @@ def test_export_json_does_not_overwrite_the_table(db: Path, tmp_path: Path) -> N
     assert json.loads((out / "data" / "rates.json").read_text(encoding="utf-8"))["records"]
 
 
+def test_huge_export_is_compressed(
+    db: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """전국 내보내기 JSON이 53 MB다. 그대로 실으면 두 군데가 아프다 —
+    rate-data 브랜치가 수집마다 그만큼 불고, 받는 사람도 53 MB를 기다린다.
+
+    작은 CSV는 그대로 둔다. 엑셀이 바로 열 수 있어야 한다.
+    """
+    # 실제 문턱은 20 MB다. 테스트에서 그만한 파일을 쓰면 느리기만 하므로
+    # 문턱을 낮춰 갈림길만 확인한다.
+    from rate_monitor.services import site_service
+
+    monkeypatch.setattr(site_service, "EXPORT_GZIP_BYTES", 2_000)
+
+    exports = tmp_path / "export"
+    exports.mkdir()
+    (exports / "rates_20260806.csv").write_text("권역,기관\n새마을금고,대청", encoding="utf-8")
+    # 압축이 잘 되는 내용이라야 .gz가 원본보다 작아진다.
+    (exports / "rates_20260806.json").write_text(
+        '{"records":[' + '{"기관":"대청"},' * 2_000 + '{"기관":"중부산"}]}',
+        encoding="utf-8",
+    )
+    assert (exports / "rates_20260806.json").stat().st_size > 2_000
+
+    out = tmp_path / "site-public"
+    build_site(db, TEMPLATE, out, export_dir=exports)
+
+    assert (out / "data" / "rates.csv").exists()
+    assert not (out / "data" / "rates.json").exists()
+    packed = out / "data" / "rates.json.gz"
+    assert packed.exists()
+    assert packed.stat().st_size < (exports / "rates_20260806.json").stat().st_size
+    # 압축을 풀면 원본 그대로여야 한다. 줄이려다 내용을 잃으면 안 된다.
+    assert gzip.decompress(packed.read_bytes()) == (
+        exports / "rates_20260806.json"
+    ).read_bytes()
+
+    inline = _inline((out / "index.html").read_text(encoding="utf-8"))
+    assert inline["downloads"]["json"]["url"] == "data/rates.json.gz"
+    assert inline["downloads"]["json"]["compressed"] is True
+    assert inline["downloads"]["csv"]["compressed"] is False
+
+
+def test_previous_download_files_do_not_linger(
+    db: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """압축 여부는 크기에 따라 바뀐다.
+
+    부산(작음)을 빌드한 자리에 전국(큼)을 빌드하면 rates.json과
+    rates.json.gz가 같이 남는다. 화면은 .gz를 가리키는데 옆에 오래된
+    rates.json이 그대로 있어, 예전 주소를 아는 사람은 지난달 자료를 받는다.
+    """
+    from rate_monitor.services import site_service
+
+    monkeypatch.setattr(site_service, "EXPORT_GZIP_BYTES", 2_000)
+
+    exports = tmp_path / "export"
+    exports.mkdir()
+    small = exports / "rates_20260805.json"
+    small.write_text('{"records":[]}', encoding="utf-8")
+
+    out = tmp_path / "site-public"
+    build_site(db, TEMPLATE, out, export_dir=exports)
+    assert (out / "data" / "rates.json").exists()
+
+    small.unlink()
+    (exports / "rates_20260806.json").write_text(
+        '{"records":[' + '{"기관":"대청"},' * 2_000 + '{"기관":"중부산"}]}',
+        encoding="utf-8",
+    )
+    build_site(db, TEMPLATE, out, export_dir=exports)
+
+    assert (out / "data" / "rates.json.gz").exists()
+    assert not (out / "data" / "rates.json").exists(), "지난 빌드의 파일이 남았다"
+
+
 def test_missing_export_dir_is_not_an_error(db: Path, tmp_path: Path) -> None:
     """내보내기를 안 돌렸다고 사이트 빌드가 죽으면 안 된다."""
     manifest = build_site(
@@ -244,11 +320,12 @@ def test_template_points_at_the_files_the_build_writes(db: Path, tmp_path: Path)
     (exports / "rates_20260805.json").write_text('{"records":[]}', encoding="utf-8")
     build_site(db, TEMPLATE, out, export_dir=exports)
 
-    html = (out / "index.html").read_text(encoding="utf-8")
-    for href in ('href="data/rates.csv"', 'href="data/rates.json"'):
-        assert href in html
-        target = out / href.split('"')[1]
-        assert target.exists(), f"{href}가 가리키는 파일이 없다"
+    inline = _inline((out / "index.html").read_text(encoding="utf-8"))
+    assert set(inline["downloads"]) == {"csv", "json"}
+    for kind, entry in inline["downloads"].items():
+        target = out / entry["url"]
+        assert target.exists(), f"{kind} 링크가 가리키는 파일이 없다: {entry['url']}"
+        assert entry["bytes"] == target.stat().st_size
 
 
 def test_data_files_are_not_cached_long(db: Path, tmp_path: Path) -> None:

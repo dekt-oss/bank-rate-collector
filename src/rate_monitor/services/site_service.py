@@ -46,6 +46,18 @@ DEFAULT_OUT = Path("site-public")
 # 화면이 받아 가는 금리표. 내보내기 파일과 이름이 겹치면 안 된다.
 TABLE_FILE = "data/table.json"
 
+# 이 크기를 넘는 내려받기 파일은 압축해서 싣는다.
+#
+# 2026-08-06 전국 실측: 내보내기 JSON이 53 MB다. 한 행이 한 객체이고 열
+# 이름이 한글이라 132,502번 되풀이된다. 압축하면 985 KB — 54분의 1이다.
+#
+# 큰 파일을 그대로 두면 두 군데가 아프다. rate-data 브랜치가 수집마다
+# 그만큼 불어나고, 받는 사람도 53 MB를 기다린다. 그 크기의 JSON은 편집기로
+# 열리지도 않아서 어차피 프로그램으로 읽는다 — 압축을 풀 수 있는 쪽이다.
+#
+# CSV는 이 선(17 MB) 아래라 그대로 둔다. 엑셀이 바로 열 수 있어야 한다.
+EXPORT_GZIP_BYTES = 20 * 1024 * 1024
+
 # 호스팅 설정.
 #
 # 캐시가 핵심이다. `data/` 아래 파일은 수집이 돌 때마다 내용이 바뀌는데
@@ -173,6 +185,11 @@ def build_site(
     page_data, table = split_summary(summary)
 
     out_dir.mkdir(parents=True, exist_ok=True)
+    # 이전 실행이 남긴 내려받기 파일을 지운다. 압축 여부가 크기에 따라
+    # 바뀌므로, 안 지우면 부산 때의 rates.json과 전국 때의 rates.json.gz가
+    # 같이 남아 어느 쪽이 최신인지 알 수 없게 된다.
+    for stale in out_dir.glob("data/rates.*"):
+        stale.unlink()
     data_dir = out_dir / "data"
     data_dir.mkdir(parents=True, exist_ok=True)
 
@@ -191,6 +208,7 @@ def build_site(
     files = [str(table_path.relative_to(out_dir)), str(gz_path.relative_to(out_dir))]
 
     # 사람이 받아가는 파일. 이름을 고정해 화면이 가리킬 수 있게 한다.
+    downloads: dict[str, dict[str, Any]] = {}
     if export_dir is not None and export_dir.exists():
         for source in sorted(export_dir.iterdir()):
             if source.suffix not in (".csv", ".json"):
@@ -202,8 +220,23 @@ def build_site(
                 raise DashboardBuildError(
                     f"내보내기 파일이 금리표를 덮어쓴다: {target}"
                 )
-            shutil.copyfile(source, target)
-            files.append(str(target.relative_to(out_dir)))
+            size = source.stat().st_size
+            if size > EXPORT_GZIP_BYTES:
+                target = target.with_name(target.name + ".gz")
+                with source.open("rb") as src, gzip.open(target, "wb", compresslevel=9) as dst:
+                    shutil.copyfileobj(src, dst)
+            else:
+                shutil.copyfile(source, target)
+            relative = str(target.relative_to(out_dir))
+            files.append(relative)
+            # 화면이 가리킬 주소와 크기. 눌러 보기 전에 얼마짜리인지 알아야
+            # 한다 — 53 MB를 모르고 누르면 받는 줄도 모르고 기다린다.
+            downloads[source.suffix.lstrip(".")] = {
+                "url": relative,
+                "bytes": target.stat().st_size,
+                "compressed": target.suffix == ".gz",
+            }
+    page_data["downloads"] = downloads
 
     html = render(template_path.read_text(encoding="utf-8"), page_data)
     _verify(html, page_data)
