@@ -22,6 +22,7 @@ v4는 v3.1을 **폐기하지 않는다.** 아키텍처를 상속하고 제품 �
 |---|---|---|
 | [`20260806-rate-monitor-v4.md`](20260806-rate-monitor-v4.md) | **current** | 제품·화면·우선순위. 메인 4업권 + 참고지표 |
 | [`20260806-storage-prerequisite-v1.md`](20260806-storage-prerequisite-v1.md) | partially_implemented | 저장소·이력 보관. PR 1·2 완료, 3~5 미착수 |
+| [`20260806-preference-conditions-v1.md`](20260806-preference-conditions-v1.md) | accepted_not_started | 우대조건 표준화·분류. 착수 전 결정 셋이 문서 머리에 있다 |
 | [`20260805-rate-monitor-v3.1.md`](20260805-rate-monitor-v3.1.md) | **architecture-base** | 데이터 계약·식별체계·게이트의 기준 |
 | [`20260805-rate-monitor-v3.md`](20260805-rate-monitor-v3.md) | superseded | 새마을금고 독립 수집모델. 실행 모델이 로컬 FastAPI 전제 |
 | [`20260805-rate-monitor-v2.md`](20260805-rate-monitor-v2.md) | superseded | SQLite 기반 재설계 |

@@ -14,6 +14,7 @@ from rate_monitor.collectors.cu.adapter import CuAdapter
 from rate_monitor.collectors.finlife.adapter import FinlifeAdapter
 from rate_monitor.collectors.fsb.adapter import FsbAdapter
 from rate_monitor.collectors.kfcc.adapter import KfccAdapter
+from rate_monitor.collectors.nh_local.adapter import NhLocalAdapter
 from rate_monitor.db.session import DEFAULT_DB_PATH, create_db_engine, make_session_factory
 from rate_monitor.domain.schemas import CollectionRequest
 from rate_monitor.services.collection_service import DEFAULT_RAW_ROOT, collect_source
@@ -50,6 +51,7 @@ ADAPTERS = {
     "fsb": FsbAdapter,
     "cu": CuAdapter,
     "kfcc": KfccAdapter,
+    "nh_local": NhLocalAdapter,
 }
 
 
@@ -79,9 +81,26 @@ def _default_request(args: argparse.Namespace) -> CollectionRequest:
     )
 
 
+def _nh_local_request(args: argparse.Namespace) -> CollectionRequest:
+    """농·축협은 `--regions`를 받지 않는다.
+
+    원천에 지역 요청 인자가 없다. 명부가 통째로 오고 범위는 주소로 거른다.
+    `--regions 부산`을 실행 이력에 남기면 그 값이 요청에 갔던 것처럼 보인다.
+    """
+    if args.regions:
+        raise ValueError(
+            "nh_local은 --regions를 쓰지 않는다. 원천에 지역 인자가 없으므로 "
+            "--scope로 고른다 (전국·부산·수도권)"
+        )
+    options: dict[str, str] = {}
+    if args.scope:
+        options["scope"] = args.scope
+    return CollectionRequest(source_id=args.source, options=options)
+
+
 # 수집원마다 필요한 인자가 다르다. finlife의 services/groups를 모든 원천에
 # 무조건 밀어 넣으면 지역 기반 수집원에서 뜻 없는 값이 실행 이력에 남는다.
-REQUEST_BUILDERS = {"finlife": _finlife_request}
+REQUEST_BUILDERS = {"finlife": _finlife_request, "nh_local": _nh_local_request}
 
 
 def _collect(args: argparse.Namespace) -> int:
@@ -93,7 +112,11 @@ def _collect(args: argparse.Namespace) -> int:
     engine = create_db_engine(args.db)
     factory = make_session_factory(engine)
     build_request = REQUEST_BUILDERS.get(args.source, _default_request)
-    request = build_request(args)
+    try:
+        request = build_request(args)
+    except ValueError as error:
+        print(str(error), file=sys.stderr)
+        return 2
     result = asyncio.run(
         collect_source(adapter_cls(), request, factory, raw_root=Path(args.raw_root))
     )

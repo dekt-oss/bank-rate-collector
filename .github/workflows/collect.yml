@@ -28,6 +28,17 @@ on:
         type: boolean
         required: false
         default: false
+      nh_local_scope:
+        description: "농·축협 수집 범위. 전국은 약 2시간 43분이라 기본이 아니다"
+        type: choice
+        required: false
+        default: "부산"
+        options: ["부산", "수도권", "전국"]
+      skip_nh_local:
+        description: "농·축협 수집을 건너뛴다"
+        type: boolean
+        required: false
+        default: false
       accept_volume_drop:
         description: "물량 급감을 알고도 발행한다 (원천이 정말 줄었을 때만)"
         type: boolean
@@ -209,6 +220,30 @@ jobs:
             --db work/rate_monitor.sqlite3 \
             --raw-root data/raw \
             --scope "${{ inputs.kfcc_scope || '부산' }}"
+
+      # 농·축협. 원천에 지역 요청 인자가 없어 명부가 통째로 오고, 범위는
+      # 받아 온 주소로 거른다 (docs/source-recon/nh-local.md §0.2).
+      #
+      # 그래서 요청 수가 점포 수에 정비례한다. 1초 간격 기준:
+      #
+      #   부산   명부 1 + 점포   119 × 화면 2 =   239회 ≈  4분
+      #   수도권 명부 1 + 점포 1,224 × 2      = 2,449회 ≈ 41분
+      #   전국   명부 1 + 점포 4,871 × 2      = 9,743회 ≈ 2시간 43분
+      #
+      # **기본이 전국이 아닌 유일한 원천이다.** 전국은 작업 하나에 담기 어렵고
+      # 원천에 주는 부담도 아직 재 본 적이 없다. v4 §5.3의 부산 세로절단부터
+      # 돌리고, 넓히는 것은 사람이 명시할 때만이다.
+      #
+      # 입출금식 화면(SFDPW0162R)은 아직 안 받는다. 실물을 본 적이 없다.
+      - name: Collect NH local
+        if: ${{ inputs.skip_nh_local != true }}
+        continue-on-error: true
+        run: |
+          uv run rate-monitor collect \
+            --source nh_local \
+            --db work/rate_monitor.sqlite3 \
+            --raw-root data/raw \
+            --scope "${{ inputs.nh_local_scope || '부산' }}"
 
       # CLI 명령으로 부른다. 예전에는 워크플로우 안에 파이썬을 heredoc으로
       # 박아 썼는데, 그 코드는 테스트도 lint도 닿지 않는 자리였다.
