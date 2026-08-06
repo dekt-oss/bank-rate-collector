@@ -1,0 +1,23 @@
+# 운영 상태 DB를 어디에 두는가 (선행 수정안 v1 §2.3)
+#
+# 이 값을 바꾸는 것이 곧 전환이다. 파일로 두는 이유는 전환이 커밋으로
+# 남아야 하기 때문이다 — 언제·누가·왜 바꿨는지가 이력에 박힌다.
+#
+# 급할 때는 환경변수 STORAGE_BACKEND가 이 값을 이긴다. 그 경우 실행 로그에
+# 어느 쪽이 먹혔는지 적힌다.
+#
+#   github_legacy   R2를 쓰지 않는다. 지금 그대로.
+#                   rate-data/latest/rate_monitor.sqlite3.gz가 공식 원본.
+#
+#   r2_migration    R2에 올리고 다시 받아 검증까지 한다. 그러나 복원은
+#                   여전히 GitHub에서 하고, rate-data의 DB도 그대로 둔다.
+#                   R2는 시험 저장소이므로 여기서 R2가 실패해도 수집은
+#                   계속된다 — 실패를 크게 적을 뿐이다.
+#
+#   r2              R2가 공식 원본. 복원도 R2에서 한다. 실패하면 멈춘다.
+#                   GitHub에는 SQLite를 두지 않는다.
+#
+# 전환 절차는 docs/roadmap.md §4.2에 있다. 요약하면:
+#   시크릿 등록 → storage migrate → storage verify → 여기를 r2_migration으로
+#   → 한 바퀴 관찰 → 여기를 r2로
+backend: github_legacy

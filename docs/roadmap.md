@@ -143,13 +143,58 @@ FSB 수집기가 선행이다. 기관코드 체계가 서로 다르다는 것까
 새 방식  커밋 1개  저장소 3.2 MB   ← 반복해도 안 는다
 ```
 
-**남은 것 — 상태 DB 50.75 MiB.** 이건 PR 1에서 못 뺀다. 워크플로우의
+**남은 것 — 상태 DB 50.75 MiB.** 이건 PR 1에서 못 뺐다. 워크플로우의
 `Restore previous database`가 이 파일에서 DB를 복원하므로, 지우면 다음
 실행이 빈 DB로 시작해 이력이 통째로 사라진다. 선행 수정안 §6.4가 금지한
-바로 그 상황이다. **PR 2(R2 상태 저장)가 대체 경로를 만든 뒤에 뺀다.**
+바로 그 상황이다.
 
-그때까지는 `scripts/size_gate.py`가 이 파일만 한시 예외(실패선 80 MiB)로
-두고, 통과할 때마다 예외라는 사실과 PR 2를 화면에 적는다.
+PR 2가 대체 경로(R2)를 만들었다. **전환은 아직 안 했다** — 계정과 버킷이
+없다. `config/storage.yaml`의 `backend`가 `github_legacy`인 동안은 지금
+동작 그대로다.
+
+### 4.2.1 R2로 넘어가는 절차
+
+세 상태를 거친다. 각 칸이 무엇을 뜻하는지는 `config/storage.yaml`에 적혀
+있다.
+
+| 단계 | backend | 복원 | 발행 | R2 실패하면 |
+|---|---|---|---|---|
+| 지금 | `github_legacy` | GitHub | DB 포함 | 해당 없음 |
+| 시험 | `r2_migration` | GitHub | DB 포함 | 수집 계속 (빨간 X만) |
+| 전환 후 | `r2` | R2 | **DB 없음** | 멈춘다 |
+
+```bash
+# 1. 시크릿 5개를 저장소에 등록한다
+#    R2_ACCOUNT_ID R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY R2_BUCKET R2_ENDPOINT
+
+# 2. 지금 GitHub에 있는 DB를 R2로 올린다. 재다운로드 검증까지 한다
+uv run rate-monitor storage migrate --db publish/rate_monitor.sqlite3
+
+# 3. 한 번 더 확인한다. 받아서 검사만 하고 파일을 남기지 않는다
+uv run rate-monitor storage verify
+
+# 4. config/storage.yaml의 backend를 r2_migration으로 바꿔 커밋한다
+#    이 상태로 수집을 몇 바퀴 돌린다. R2는 아직 시험 저장소다
+
+# 5. 문제가 없으면 backend를 r2로 바꾼다
+#    그 순간부터 복원이 R2에서 오고, rate-data에 SQLite가 안 실린다
+```
+
+**되돌리기.** `STORAGE_BACKEND` 환경변수(저장소 Variables)가 config 파일을
+이긴다. 잘못 전환했으면 커밋 없이 `github_legacy`로 되돌릴 수 있다. 단
+`r2`로 한 바퀴 돈 뒤에는 rate-data에 DB가 없으므로, 되돌리기 전에
+`storage restore`로 받아 두어야 한다.
+
+**게이트가 전환을 강제한다.** `scripts/size_gate.py`는 `--backend r2`일 때
+상태 DB 예외를 없앤다. 그 모드에서 파일이 남아 있으면 발행이 실패한다 —
+예외가 스스로 사라지는 구조라야 "나중에 지우자"가 영원히 안 온다.
+
+실측 (전국 262 MB DB, 로컬 왕복):
+
+```
+업로드  30.6초   262,844,416 → 52,578,941 bytes (20.0%)
+복원     3.9초   원본과 바이트 단위로 동일
+```
 
 ### 4.3 이용약관 확인
 

@@ -60,9 +60,46 @@ jobs:
         run: uv sync --locked
 
       # 이전 실행의 DB를 이어받는다. 없으면 새로 만든다.
-      - name: Restore previous database
+      # 어느 저장소에서 상태를 이어받는가 (선행 수정안 v1 §2.3).
+      #
+      #   github_legacy · r2_migration   rate-data에서 받는다
+      #   r2                             R2에서 받는다. 실패하면 여기서 죽는다
+      #
+      # r2_migration에서 복원을 GitHub에 두는 것이 이 단계의 핵심이다.
+      # R2가 아직 시험 저장소이므로, 거기서 받기 시작하면 시험이 아니라
+      # 이미 전환한 것이다.
+      - name: Decide storage backend
+        id: storage
+        env:
+          STORAGE_BACKEND: ${{ vars.STORAGE_BACKEND }}
         run: |
+          BACKEND=$(uv run python -c "
+          from pathlib import Path
+          from rate_monitor.services.storage_service import load_backend
+          c = load_backend(Path('config/storage.yaml'))
+          print(c.backend.value)
+          import sys; print(f'backend={c.backend.value} ({c.source})', file=sys.stderr)
+          ")
+          echo "backend=$BACKEND" >> "$GITHUB_OUTPUT"
+          echo "상태 저장소: $BACKEND"
+
+      - name: Restore previous database
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+        run: |
+          set -euo pipefail
           mkdir -p work
+
+          if [ "${{ steps.storage.outputs.backend }}" = "r2" ]; then
+            # 실패하면 그대로 죽는다. 빈 DB로 시작하는 것보다 낫다 (§6.4).
+            uv run rate-monitor storage restore --dest work/rate_monitor.sqlite3
+            exit 0
+          fi
+
           if git ls-remote --exit-code --heads origin rate-data >/dev/null 2>&1; then
             git fetch origin rate-data --depth=1
             git checkout origin/rate-data -- latest/rate_monitor.sqlite3.gz 2>/dev/null || true
@@ -251,13 +288,37 @@ jobs:
       #
       # 합계 94 MiB를 덜어낸다. 셋 다 Actions 아티팩트(90일)에는 그대로
       # 올라가므로 필요하면 거기서 받는다.
+      # R2에 상태를 올린다.
+      #
+      #   github_legacy   건너뛴다
+      #   r2_migration    올린다. 실패해도 수집은 계속된다 — 이 단계에서
+      #                   R2는 시험 저장소이고 GitHub DB가 공식 원본이다
+      #   r2              올린다. 실패하면 발행하지 않는다 (§6.4)
+      - name: Upload state to R2
+        if: steps.storage.outputs.backend != 'github_legacy'
+        continue-on-error: ${{ steps.storage.outputs.backend == 'r2_migration' }}
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+        run: uv run rate-monitor storage upload --db publish/rate_monitor.sqlite3
+
       - name: Stage rate-data payload
+        env:
+          BACKEND: ${{ steps.storage.outputs.backend }}
         run: |
           set -euo pipefail
-          gzip -kf publish/rate_monitor.sqlite3
 
           rm -rf stage && mkdir -p stage/latest
-          cp publish/rate_monitor.sqlite3.gz stage/latest/
+          # r2 모드에서는 SQLite를 Git에 두지 않는다. 그게 전환의 정의다.
+          if [ "$BACKEND" = "r2" ]; then
+            echo "backend=r2 — 상태 DB를 rate-data에 싣지 않는다"
+          else
+            gzip -kf publish/rate_monitor.sqlite3
+            cp publish/rate_monitor.sqlite3.gz stage/latest/
+          fi
           cp publish/manifest.json publish/summary.json stage/latest/
           # 호스팅에 그대로 올릴 수 있는 한 벌.
           cp -r site-public stage/site-public
@@ -269,7 +330,7 @@ jobs:
       # 한도를 넘으면 여기서 멈춘다. push가 거부되는 것보다 낫다 —
       # 발행이 멈추면 어제 사이트가 그대로 살아 있다.
       - name: Size gate
-        run: uv run python scripts/size_gate.py stage
+        run: uv run python scripts/size_gate.py stage --backend ${{ steps.storage.outputs.backend }}
 
       - name: Publish to rate-data branch
         run: |
