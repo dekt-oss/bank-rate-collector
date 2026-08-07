@@ -22,6 +22,7 @@ from rate_monitor.domain.normalization import (
     normalize_product_name,
 )
 from rate_monitor.domain.schemas import ParsedRateRow
+from rate_monitor.services.institution_matching import normalize_institution
 from rate_monitor.services.region_service import region_fields
 
 
@@ -65,6 +66,91 @@ def _link(
     )
 
 
+def _find_shared_institution(
+    session: Session, row: ParsedRateRow, key: str
+) -> Institution | None:
+    """다른 원천이 이미 만들어 둔 **같은 기관**을 찾는다.
+
+    ── 왜 필요한가 ────────────────────────────────────────────────────
+
+    `_find_link`는 `source_id`까지 맞춰 찾는다. 그래서 같은 은행을 두 원천이
+    받으면 org_key가 완전히 같아도 기관 행이 둘 생긴다. 화면에서는 이렇게
+    보인다 (2026-08-06 발행 DB 실측).
+
+        savings_bank:0010390  finlife_savings_bank  '고려저축은행'  주소 없음
+        savings_bank:0010390  fsb                   '고려'         부산 동구
+
+    저축은행 79곳이 **전부** 이렇게 갈라져 있었다. 다른 업권은 원천이
+    하나뿐이라 해당 없다 (전체 2,296개 키 중 갈라진 것이 정확히 이 79개다).
+
+    ── 붙이는 조건 두 가지 ────────────────────────────────────────────
+
+    잘못 붙이는 것이 안 붙는 것보다 훨씬 나쁘다. 서로 다른 은행의 금리가
+    한 기관으로 합쳐지면 화면이 조용히 거짓말을 한다. 그래서 둘 다 만족할
+    때만 붙인다.
+
+    1. **공식 코드로 만든 키일 것.** 이름 해시(`sector:name:...`)는 붙이지
+       않는다. 코드가 없어서 이름으로 대신한 것이므로 근거가 약하다.
+    2. **정규화한 이름도 같을 것.** 두 원천이 우연히 같은 번호를 다른 체계로
+       쓸 수 있다. 이름까지 맞아야 같은 은행이라고 본다.
+
+    조건이 안 맞으면 붙이지 않고 그대로 둘로 남긴다 — 갈라진 것은 화면에서
+    보이지만, 잘못 합쳐진 것은 안 보인다.
+    """
+    if ":name:" in key:
+        return None
+    link = session.scalars(
+        select(SourceEntityLink).where(
+            SourceEntityLink.entity_type == "institution",
+            SourceEntityLink.source_entity_key == key,
+            SourceEntityLink.valid_to.is_(None),
+        )
+    ).first()
+    if link is None:
+        return None
+    institution = session.get(Institution, link.entity_id)
+    if institution is None or institution.sector != _sector_of(row):
+        return None
+    if normalize_institution(institution.canonical_name) != normalize_institution(
+        row.institution_name
+    ):
+        return None
+    return institution
+
+
+def _absorb(institution: Institution, row: ParsedRateRow) -> None:
+    """원천마다 다른 것을 준다. 빈 칸만 채운다.
+
+    저축은행이 그렇다. finlife는 이름을 온전히(`고려저축은행`) 주지만 주소를
+    안 주고, FSB는 본점 주소를 주지만 이름을 약칭(`고려`)으로 준다. 어느
+    쪽이 먼저 수집되는지에 따라 화면이 달라지면 안 된다.
+
+    **이미 있는 값은 절대 덮지 않는다.** 한 번 잘못 수집된 실행이 멀쩡한
+    값을 조용히 지워버리는 것을 막는다. 채우는 것만 한다.
+
+    이름만 예외다. 정규화하면 같은 이름 중 **긴 쪽**을 쓴다 — `고려`보다
+    `고려저축은행`이 화면에서 덜 헷갈리고, 검색창에 사람이 치는 말과도
+    가깝다. 수집 순서와 무관하게 같은 답이 나온다.
+    """
+    name = row.institution_name
+    if (
+        name
+        and len(name) > len(institution.canonical_name or "")
+        and normalize_institution(name) == normalize_institution(institution.canonical_name)
+    ):
+        institution.canonical_name = name
+        institution.normalized_name = normalize_institution_name(name)
+
+    if institution.address or not row.address:
+        return
+    region = region_fields(row.source_id, row.address)
+    institution.address = row.address
+    institution.region_sido = region.sido
+    institution.region_sigungu = region.sigungu
+    institution.geo_basis = region.basis.value
+    institution.geo_confidence = region.confidence
+
+
 def resolve_institution(session: Session, row: ParsedRateRow, now: datetime) -> Institution:
     """기관을 찾거나 만든다.
 
@@ -81,7 +167,23 @@ def resolve_institution(session: Session, row: ParsedRateRow, now: datetime) -> 
         institution = session.get(Institution, link.entity_id)
         if institution is not None:
             institution.last_seen_at = now
+            _absorb(institution, row)
             return institution
+
+    shared = _find_shared_institution(session, row, key)
+    if shared is not None:
+        shared.last_seen_at = now
+        _absorb(shared, row)
+        _link(
+            session,
+            source_id=row.source_id,
+            entity_type="institution",
+            key=key,
+            entity_id=shared.id,
+            source_name=row.institution_name,
+            now=now,
+        )
+        return shared
 
     region = region_fields(row.source_id, row.address)
     institution = Institution(

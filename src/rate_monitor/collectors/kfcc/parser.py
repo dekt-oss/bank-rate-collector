@@ -65,6 +65,11 @@ _BASIS = re.compile(r"조회기준일\s*\(([0-9]{4})[./-]([0-9]{2})[./-]([0-9]{2
 _NO_DATA_ALERT = re.compile(r"alert\(\s*[\"']조회할 자료가 없습니다")
 
 # "1개월 이상", "12개월", "3년" 등 서술형 계약기간
+#
+# `_TERM_YEAR_MONTH`가 먼저다. "1년 6개월"에 `_TERM_MONTH`를 먼저 대면 6이
+# 나온다 — 18개월짜리 상품이 6개월 칸에 앉는다. 실물을 본 적은 없지만,
+# 틀렸을 때 숫자가 조용히 바뀌는 종류라 순서로 막아 둔다.
+_TERM_YEAR_MONTH = re.compile(r"(\d+)\s*년\s*(\d+)\s*개월")
 _TERM_MONTH = re.compile(r"(\d+)\s*개월")
 _TERM_YEAR = re.compile(r"(\d+)\s*년")
 _TERM_DAY = re.compile(r"(\d+)\s*일")
@@ -137,12 +142,42 @@ def parse_term(raw: str) -> tuple[int | None, int | None, str | None]:
     >>> parse_term("30일")
     (None, 30, None)
 
+    `0개월 이상`은 **원천에 실제로 그렇게 적혀 있다.** 오파싱이 아니다
+    (일일자유적금 등). 값 그대로 둔다.
+
+    >>> parse_term("0개월 이상")
+    (0, None, None)
+
+    년과 개월이 함께 오면 합친다. 개월을 먼저 찾으면 `1년 6개월`이 6이 된다.
+
+    >>> parse_term("1년 6개월")
+    (18, None, None)
+
+    **상한만 있는 형태는 하한이 아니다.** `1개월 미만`을 1로 저장하면
+    `1개월 이상`과 같은 칸에 앉아 정반대 뜻이 한 값으로 뭉개진다. 지금은
+    이 형태가 기본이율 표에 없고 중도해지·만기후이율 표에만 나오지만
+    (`_is_base_rate_table`이 그 표를 거른다), 원천이 표를 바꾸면 조용히
+    들어온다. 숫자를 지어내는 대신 사유를 돌려준다.
+
+    >>> parse_term("1개월 미만")
+    (None, None, "상한만 있는 계약기간이다: '1개월 미만'")
+
+    하한과 상한이 함께 오면 하한을 쓴다. 상한은 담을 칸이 없어 잃는다.
+
+    >>> parse_term("1개월 이상 ~ 3개월 미만")
+    (1, None, None)
+
     읽지 못하면 값을 지어내지 않고 사유를 돌려준다.
 
     >>> parse_term("별도 문의")
     (None, None, "계약기간을 읽지 못했다: '별도 문의'")
     """
     text = _text(raw)
+    if "미만" in text and "이상" not in text:
+        return None, None, f"상한만 있는 계약기간이다: {text!r}"
+    both = _TERM_YEAR_MONTH.search(text)
+    if both:
+        return int(both.group(1)) * 12 + int(both.group(2)), None, None
     month = _TERM_MONTH.search(text)
     if month:
         return int(month.group(1)), None, None

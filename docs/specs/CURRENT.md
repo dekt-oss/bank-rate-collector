@@ -22,7 +22,7 @@ v4는 v3.1을 **폐기하지 않는다.** 아키텍처를 상속하고 제품 �
 |---|---|---|
 | [`20260806-rate-monitor-v4.md`](20260806-rate-monitor-v4.md) | **current** | 제품·화면·우선순위. 메인 4업권 + 참고지표 |
 | [`20260806-storage-prerequisite-v1.md`](20260806-storage-prerequisite-v1.md) | partially_implemented | 저장소·이력 보관. PR 1·2 완료, 3~5 미착수 |
-| [`20260806-preference-conditions-v1.md`](20260806-preference-conditions-v1.md) | accepted_not_started | 우대조건 표준화·분류. 착수 전 결정 셋이 문서 머리에 있다 |
+| [`20260806-preference-conditions-v1.md`](20260806-preference-conditions-v1.md) | partially_implemented | §5 분류·§7 판정은 구현. `preference_conditions` 테이블(조건별 쪼개기)과 §10 관리자 화면은 미착수 |
 | [`20260805-rate-monitor-v3.1.md`](20260805-rate-monitor-v3.1.md) | **architecture-base** | 데이터 계약·식별체계·게이트의 기준 |
 | [`20260805-rate-monitor-v3.md`](20260805-rate-monitor-v3.md) | superseded | 새마을금고 독립 수집모델. 실행 모델이 로컬 FastAPI 전제 |
 | [`20260805-rate-monitor-v2.md`](20260805-rate-monitor-v2.md) | superseded | SQLite 기반 재설계 |
@@ -38,6 +38,7 @@ v4는 v3.1을 **폐기하지 않는다.** 아키텍처를 상속하고 제품 �
 | `config/presentation.yaml` | 메인 4업권과 참고지표를 가른다 (v4 §9.1) |
 | `config/storage.yaml` | 상태 DB를 어디에 두는가 (github_legacy / r2_migration / r2) |
 | `config/regions.yaml` | 수집 범위 (전국·부산·수도권) |
+| `config/preference_rules.yaml` | 우대조건 원문을 표준 분류로 옮기는 규칙 |
 
 ## 정찰 기록
 
@@ -61,3 +62,11 @@ v4는 v3.1을 **폐기하지 않는다.** 아키텍처를 상속하고 제품 �
 - 정찰 기록도 지우지 않는다. 틀린 판정은 **정정 절을 앞에 붙이고 원문을
   남긴다** — 지운 자리에는 같은 실수를 다시 하게 된다.
 - 기준 문서가 바뀌면 이 표와 각 문서의 `status` 메타를 함께 갱신한다.
+
+## 뒤집힌 결정
+
+판정이 바뀌어도 원문은 남긴다. 어디를 봐야 경위를 아는지만 여기 적는다.
+
+| 날짜 | 무엇 | 어디에 |
+|---|---|---|
+| 2026-08-06 | 시중은행을 메인 비교표에 넣는다 (사용자 결정) | v4 §6.4 정정 절, §6.5, §17 |

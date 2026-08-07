@@ -106,10 +106,14 @@ def test_the_cli_no_longer_accepts_the_old_name() -> None:
 
 
 def test_reference_sectors_come_from_the_config() -> None:
-    """시중은행은 메인 비교표에 안 올린다 (v4 §6.4)."""
+    """지금은 빼는 업권이 없다 (v4 §6.4 정정, 2026-08-06).
+
+    시중은행이 메인으로 올라가면서 이 목록이 비었다. 함수는 남는다 — 지역
+    근거가 다른 업권이 또 생기면 갈 자리가 여기다.
+    """
     from rate_monitor.services.dashboard_service import reference_sectors
 
-    assert reference_sectors() == ("bank",)
+    assert reference_sectors() == ()
 
 
 def test_a_missing_config_hides_nothing(tmp_path) -> None:
@@ -136,8 +140,16 @@ def test_db_only_sources_are_not_hidden_yet() -> None:
     assert "finlife_savings_bank" not in reference_sectors()
 
 
-def test_the_main_table_leaves_bank_rows_out(tmp_path) -> None:
-    """참고지표가 2금융권 넷과 같은 표에 섞이면 안 된다."""
+def test_the_main_table_now_carries_bank_rows(tmp_path) -> None:
+    """시중은행도 같은 표에 선다 (v4 §6.4 정정, 2026-08-06).
+
+    이 테스트는 한때 정반대(`"bank" not in sectors`)를 못박고 있었다.
+    사용자가 넣기로 정했으므로 뒤집는다.
+
+    **섞는 것 자체가 안전해진 것은 아니다.** 시중은행 행은 전국 공시라
+    지역 근거가 다르다. 안전장치는 화면 쪽에 있다 — 전국 공시 배지와
+    시도 필터 예외이고, `test_site_ui_v4`가 그 둘을 지킨다.
+    """
     from rate_monitor.services.dashboard_service import build_rate_table, latest_run_ids
 
     db = tmp_path / "t.sqlite3"
@@ -149,7 +161,7 @@ def test_the_main_table_leaves_bank_rows_out(tmp_path) -> None:
 
     sectors = table["lookups"]["sector"]
     assert "savings_bank" in sectors
-    assert "bank" not in sectors
+    assert "bank" in sectors
 
 
 def _seed_two_sectors(db: Path) -> None:

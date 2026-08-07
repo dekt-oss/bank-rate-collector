@@ -8,6 +8,7 @@ site/index.html을 생성한다. 게시된 페이지는 외부 fetch가 차단�
 """
 
 import json
+import os
 import re
 import sqlite3
 from pathlib import Path
@@ -15,6 +16,7 @@ from typing import Any
 
 import yaml
 
+from rate_monitor.domain.preference_taxonomy import classify as classify_preference
 from rate_monitor.domain.timeutil import kst_iso, now_kst
 from rate_monitor.services.institution_matching import normalize_institution
 
@@ -24,8 +26,11 @@ PRESENTATION_PATH = Path("config/presentation.yaml")
 def reference_sectors(path: Path | None = None) -> tuple[str, ...]:
     """메인 비교표에서 빼는 업권 (v4 §6.4, §9.1).
 
-    시중은행은 참고카드에만 나온다. 전국 공시라 부산 구·군에 연결할 수 없고,
-    2금융권 넷과 같은 표에 섞이면 무엇을 비교하는 화면인지가 흐려진다.
+    **2026-08-06부터 비어 있다.** 시중은행이 사용자 결정으로 메인에 올라갔다
+    (v4 §6.4 정정). 지금 이 함수는 아무것도 빼지 않는다.
+
+    함수를 지우지 않는 이유는 지역 근거가 다른 업권이 또 생길 수 있기
+    때문이다. 그때 갈 자리가 여기다.
 
     `db_only_sources`는 여기가 아니라 `dedupe_sources`가 맡는다. 그쪽은
     통째로 빼는 것이 아니라 **겹치는 상품만** 뺀다 (v4 §9.1).
@@ -111,6 +116,9 @@ TABLE_COLUMNS = (
     "rate_scope",
     "amount_max",
     "preference",
+    # 우대조건 원문에서 뽑은 판정. 원문을 대체하지 않고 옆에 붙는다.
+    "preference_status",
+    "preference_tags",
 )
 
 
@@ -335,8 +343,17 @@ def build_rate_table(
 
     raw = _drop_duplicate_source_rows(raw)
 
-    # 같은 값이 수천 번 되풀이되는 열만 조회표로 뺀다.
-    raw = _drop_duplicate_source_rows(raw)
+    # 우대조건 원문을 표준 분류로 옮긴다 (우대조건 명세서 v1 §5).
+    #
+    # 원문은 `preference` 열에 그대로 남는다. 분류가 틀려도 사람이 원문을
+    # 보고 확인할 수 있다. 여기서 만드는 것은 화면에서 걸러 보기 위한
+    # 꼬리표뿐이다.
+    for record in raw:
+        tags = classify_preference(record.get("preference"))
+        record["preference_status"] = tags.status.value
+        # 조회표가 값을 통째로 비교하므로 순서를 고정한다. 정렬하지 않으면
+        # 같은 조합이 순서만 달라 여러 항목으로 늘어난다.
+        record["preference_tags"] = " ".join(sorted(tags.codes))
 
     # 같은 값이 수천 번 되풀이되는 열만 조회표로 뺀다.
     #
@@ -346,7 +363,8 @@ def build_rate_table(
     indexed = ("sector", "institution", "outlet", "region", "district",
                "product", "product_type", "payment_method", "interest_method",
                "join_channel", "availability_scope", "source_id",
-               "source_effective_at", "geo_basis", "rate_scope", "preference")
+               "source_effective_at", "geo_basis", "rate_scope", "preference",
+               "preference_status", "preference_tags")
     lookups: dict[str, list[Any]] = {name: [] for name in indexed}
     positions: dict[str, dict[Any, int]] = {name: {} for name in indexed}
 
@@ -548,7 +566,11 @@ def build_summary(db_path: Path) -> dict[str, Any]:
 
         totals = _rows(
             conn,
-            "SELECT (SELECT COUNT(*) FROM institutions)     AS institutions,"
+            # 합쳐져 내려간 기관은 세지 않는다 (마이그레이션 e18c4a7d9b30).
+            # 같은 은행이 두 기관으로 갈라져 있던 79곳을 합쳤는데, 여기서
+            # 안 거르면 화면의 «기관» 숫자가 그대로라 합친 티가 안 난다.
+            "SELECT (SELECT COUNT(*) FROM institutions WHERE active = 1)"
+            "                                               AS institutions,"
             "       (SELECT COUNT(*) FROM products)         AS products,"
             "       (SELECT COUNT(*) FROM product_variants) AS variants,"
             "       (SELECT COUNT(*) FROM rate_observations) AS observations,"
@@ -701,7 +723,11 @@ def build_summary(db_path: Path) -> dict[str, Any]:
 
         sources = _rows(
             conn,
-            "SELECT s.id, s.name, s.source_role, s.trust_level, s.coverage_status,"
+            # `mode`와 `base_reference`는 화면 맨 아래 수집원 주석이 쓴다.
+            # 어디서 어떻게 받아온 값인지를 코드에 적어 두는 대신 DB에서
+            # 실어 보낸다 — 원천이 늘었는데 주석이 안 느는 일을 막는다.
+            "SELECT s.id, s.name, s.mode, s.base_reference, s.source_role,"
+            "       s.trust_level, s.coverage_status,"
             "       COUNT(o.id) AS observation_count"
             "  FROM sources s"
             "  LEFT JOIN collection_runs r ON r.source_id = s.id"
@@ -739,8 +765,28 @@ def build_summary(db_path: Path) -> dict[str, Any]:
         "rate_scopes": rate_scopes,
         "benchmarks": benchmarks,
         "stale_sources": stale_sources,
+        "collect_workflow_url": _collect_workflow_url(),
         "table": table,
     }
+
+
+def _collect_workflow_url() -> str | None:
+    """화면의 «지금 수집하기»가 가리킬 주소.
+
+    이 사이트는 서버가 없다. Vercel이 파일만 내주므로 페이지 안에서 수집을
+    돌릴 방법이 없고, 돌리려면 GitHub Actions로 가야 한다.
+
+    **토큰을 페이지에 싣지 않는다.** 링크만 걸면 실행 권한이 있는 사람만
+    실제로 돌릴 수 있고, 없는 사람에게는 그냥 안 보이는 버튼이 된다.
+
+    저장소 이름을 코드에 박지 않고 빌드 때 환경에서 받는다. 값이 없으면
+    `None`을 돌려주고 화면은 버튼을 통째로 숨긴다 — 로컬 빌드나 포크에서
+    엉뚱한 저장소를 가리키는 것보다 안 보이는 편이 낫다.
+    """
+    slug = os.environ.get("GITHUB_REPOSITORY", "").strip()
+    if not slug or slug.count("/") != 1:
+        return None
+    return f"https://github.com/{slug}/actions/workflows/collect.yml"
 
 
 def render(template_text: str, summary: dict[str, Any]) -> str:

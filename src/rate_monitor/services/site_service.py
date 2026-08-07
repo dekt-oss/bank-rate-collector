@@ -70,6 +70,8 @@ INLINE_KEYS = (
     "benchmarks",
     # 마지막 수집이 실패한 원천. 화면이 그 사실을 알려야 한다.
     "stale_sources",
+    # «지금 수집하기» 링크. 없으면 화면이 버튼을 통째로 숨긴다.
+    "collect_workflow_url",
 )
 
 
