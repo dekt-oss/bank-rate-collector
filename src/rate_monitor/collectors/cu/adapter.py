@@ -36,6 +36,7 @@ import httpx
 
 from rate_monitor.collectors.base import SourceBlockedError
 from rate_monitor.collectors.cu import parser
+from rate_monitor.collectors.repeat_guard import RepeatGuard
 from rate_monitor.domain.enums import CollectionMode, Sector, SourceRole, TrustLevel
 from rate_monitor.domain.schemas import CollectionRequest, ParsedRateRow, RawArtifactData
 
@@ -155,7 +156,12 @@ class CuAdapter:
         sidos = self._resolve_sidos(request)
 
         artifacts: list[RawArtifactData] = []
-        seen_bodies: set[bytes] = set()
+        # **바이트가 같아도 버리지 않는다.**
+        #
+        # 유일성이 `(run_id, relative_path)`로 바뀌었다 (마이그레이션
+        # `f27b5e9c1a48`). 조회 인자가 다르면 내용이 같아도 별개 관측이다 —
+        # 새마을금고에서 이 구분을 안 해 경남 186장이 통째로 사라졌다.
+        guard = RepeatGuard()
         requests_made = 0
 
         timeout = httpx.Timeout(READ_TIMEOUT, connect=CONNECT_TIMEOUT)
@@ -190,29 +196,31 @@ class CuAdapter:
                             requests_made += 1
                             await asyncio.sleep(REQUEST_INTERVAL_SECONDS)
 
-                            if raw not in seen_bodies:
-                                seen_bodies.add(raw)
-                                artifacts.append(
-                                    self._artifact(
-                                        raw,
-                                        filename=(
-                                            f"{screen}_{sido}_{term}m_p{page}.json"
-                                        ),
-                                        meta={
-                                            "screen": screen,
-                                            "sido": sido,
-                                            "sido_name": SIDO_NAMES.get(sido),
-                                            "term_months": term,
-                                            "page_offset": (page - 1) * PAGE_SIZE,
-                                        },
-                                        fingerprint=parser.schema_fingerprint(rows),
-                                    )
+                            guard.observe(
+                                raw, where=f"{screen} sido={sido} term={term} p{page}"
+                            )
+                            artifacts.append(
+                                self._artifact(
+                                    raw,
+                                    filename=(
+                                        f"{screen}_{sido}_{term}m_p{page}.json"
+                                    ),
+                                    meta={
+                                        "screen": screen,
+                                        "sido": sido,
+                                        "sido_name": SIDO_NAMES.get(sido),
+                                        "term_months": term,
+                                        "page_offset": (page - 1) * PAGE_SIZE,
+                                    },
+                                    fingerprint=parser.schema_fingerprint(rows),
                                 )
+                            )
 
                             total = parser.total_count(rows)
                             if not rows or total is None or page * PAGE_SIZE >= total:
                                 break
                             page += 1
+        self.fetch_note = guard.summary()
         return artifacts
 
     def _resolve_sidos(self, request: CollectionRequest) -> list[str]:

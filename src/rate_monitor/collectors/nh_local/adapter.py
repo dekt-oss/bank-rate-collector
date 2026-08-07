@@ -31,6 +31,7 @@ import yaml
 from rate_monitor.collectors.base import SourceBlockedError
 from rate_monitor.collectors.nh_local import parser
 from rate_monitor.collectors.nh_local.parser import NhOutlet
+from rate_monitor.collectors.repeat_guard import RepeatGuard
 from rate_monitor.domain.enums import (
     CollectionMode,
     ProductType,
@@ -137,9 +138,16 @@ class NhLocalAdapter:
         as_of = now_kst().date().isoformat()
 
         artifacts: list[RawArtifactData] = []
-        # raw_artifacts에 UNIQUE(run_id, sha256)이 있다. 바이트가 같은 응답이
-        # 둘이면 저장에서 IntegrityError가 난다.
-        seen_bodies: set[bytes] = set()
+        # **바이트가 같아도 버리지 않는다.** 새마을금고와 같은 결함이 여기도
+        # 있었다 — 점포별 금리 화면에 점포 이름이 없어서, 같은 금리를 주는 두
+        # 점포는 응답이 똑같아지고 뒤엣것이 통째로 버려졌다.
+        #
+        # 지금은 부산 120점포뿐이라 안 드러났을 뿐이고, 전국(4,871점포)으로
+        # 넓히면 새마을금고에서 난 일이 그대로 난다.
+        #
+        # 유일성이 `(run_id, relative_path)`로 바뀌어(마이그레이션
+        # `f27b5e9c1a48`) 버릴 이유가 없어졌다. 대신 되풀이를 세어 남긴다.
+        guard = RepeatGuard()
         requests_made = 0
 
         timeout = httpx.Timeout(
@@ -154,7 +162,7 @@ class NhLocalAdapter:
             # 1단계: 전국 명부. 페이지네이션이 없다.
             body = await self._get(client, LIST_SCREEN, {})
             requests_made += 1
-            seen_bodies.add(body)
+            guard.observe(body, where="outlet list")
             artifacts.append(
                 self._artifact(
                     body,
@@ -194,10 +202,7 @@ class NhLocalAdapter:
                     )
                     requests_made += 1
                     await asyncio.sleep(REQUEST_INTERVAL_SECONDS)
-
-                    if body in seen_bodies:
-                        continue
-                    seen_bodies.add(body)
+                    guard.observe(body, where=f"brc={outlet.brc} screen={screen}")
 
                     artifacts.append(
                         self._artifact(
@@ -214,6 +219,7 @@ class NhLocalAdapter:
                             },
                         )
                     )
+        self.fetch_note = guard.summary()
         return artifacts
 
     def _artifact(self, body: bytes, *, filename: str, meta: dict) -> RawArtifactData:

@@ -15,6 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
 from rate_monitor.collectors.base import SchemaChangedError, SourceBlockedError
+from rate_monitor.collectors.repeat_guard import RepeatedResponseError
 from rate_monitor.db.models import (
     CollectionRun,
     CollectionRunStat,
@@ -68,21 +69,52 @@ def save_raw_artifacts(
     day_dir = raw_root / kst_path_stamp(now) / run.id
     day_dir.mkdir(parents=True, exist_ok=True)
 
+    # 돌려주는 목록은 `artifacts`와 **1:1로 맞춘다.** 호출하는 쪽이
+    # `zip(artifacts, saved, strict=True)`로 원본과 파싱 결과를 짝지으므로,
+    # 하나라도 빠지면 그 조회가 통째로 사라진다.
+    #
+    # ── 바이트가 같은 응답을 어떻게 다루나 ────────────────────────
+    #
+    # `raw_artifacts`에 `UNIQUE(run_id, sha256)`이 있다. 그런데 새마을금고·
+    # 농·축협 금리 화면에는 금고 이름도 주소도 없어서, 취급 상품과 금리가
+    # 같은 두 금고는 응답이 완전히 같아진다.
+    #
+    # 예전에는 **수집기가** 그 응답을 통째로 버려서 제약을 피했다. 그래서
+    # 뒤에 온 금고가 DB에 아예 안 생겼다 — 2026-08-06 실행에서 경남 186장,
+    # 관측 7,274건이 그렇게 사라졌는데 오류도 경고도 0이었다.
+    #
+    # 이제 버리지 않는다. **파일은 조회마다 쓰고**(원본 증거는 조회 단위로
+    # 남는다), DB 행만 같은 바이트끼리 공유한다. 파싱은 메모리의
+    # `RawArtifactData`로 하므로 금고별 맥락(`request_meta`)이 정확히
+    # 유지되고, 관측은 자기 내용을 담은 원본 행을 가리킨다.
+    #
+    # 공유된 행의 `request_meta_json`은 **첫 조회의 것**이다. 그 한계는
+    # 남는다 — 어느 조회들이 같은 답을 받았는지는 실행 기록의 되풀이 요약과
+    # 디스크의 파일이 말한다.
     saved: list[RawArtifact] = []
+    by_digest: dict[str, RawArtifact] = {}
     for artifact in artifacts:
         path = day_dir / artifact.filename
         path.write_bytes(artifact.content)
+        digest = hashlib.sha256(artifact.content).hexdigest()
+
+        shared = by_digest.get(digest)
+        if shared is not None:
+            saved.append(shared)
+            continue
+
         record = RawArtifact(
             run_id=run.id,
             artifact_type=artifact.artifact_type,
             relative_path=str(path),
-            sha256=hashlib.sha256(artifact.content).hexdigest(),
+            sha256=digest,
             content_length=len(artifact.content),
             encoding="utf-8",
             request_meta_json=artifact.request_meta,
             captured_at=now,
         )
         session.add(record)
+        by_digest[digest] = record
         saved.append(record)
     session.flush()
     return saved
@@ -296,6 +328,11 @@ async def collect_source(
 
     try:
         artifacts = await adapter.fetch(request)
+    except RepeatedResponseError as exc:
+        # 원천이 조회 인자를 무시하고 같은 답을 되풀이한다. 차단과 다르다 —
+        # 사람이 원본을 봐야 하는 상황이므로 실패로 남긴다.
+        _finalize_failure(factory, run_id, RunStatus.FAILED, str(exc))
+        return CollectionRunResult(run_id, RunStatus.FAILED, 0, 0, 0, 0, 0, str(exc))
     except SourceBlockedError as exc:
         _finalize_failure(factory, run_id, RunStatus.BLOCKED, str(exc))
         return CollectionRunResult(run_id, RunStatus.BLOCKED, 0, 0, 0, 0, 0, str(exc))
@@ -476,9 +513,14 @@ def _process(
             skipped = (
                 f", 구조 어긋나 건너뜀 {len(schema_failures)}장" if schema_failures else ""
             )
+            # 어댑터가 응답 되풀이를 봤으면 그 요약도 남긴다. **0건이어도
+            # 적는다** — 안 적으면 "검사를 안 했나"와 "검사했는데 0이었나"를
+            # 구별할 수 없다. 경남 186장이 사라졌을 때 흔적이 정확히 0이었다.
+            repeats = getattr(adapter, "fetch_note", "")
             run.message = (
                 f"{len(artifacts)}개 원본에서 {parsed}행 파싱,"
                 f" 정상 {valid}, 오류 {errors}{skipped}"
+                + (f" · {repeats}" if repeats else "")
             )
             result = CollectionRunResult(
                 run_id, run.status, len(artifacts), parsed, valid, len(warnings), errors,

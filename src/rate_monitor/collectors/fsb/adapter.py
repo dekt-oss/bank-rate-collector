@@ -40,6 +40,7 @@ import httpx
 
 from rate_monitor.collectors.base import SourceBlockedError
 from rate_monitor.collectors.fsb import parser
+from rate_monitor.collectors.repeat_guard import RepeatGuard
 from rate_monitor.domain.enums import CollectionMode, Sector, SourceRole, TrustLevel
 from rate_monitor.domain.schemas import CollectionRequest, ParsedRateRow, RawArtifactData
 from rate_monitor.domain.timeutil import now_kst
@@ -160,7 +161,12 @@ class FsbAdapter:
         only_terms = tuple(request.terms) if request.terms else None
 
         artifacts: list[RawArtifactData] = []
-        seen_bodies: set[bytes] = set()
+        # **바이트가 같아도 버리지 않는다.**
+        #
+        # 유일성이 `(run_id, relative_path)`로 바뀌었다 (마이그레이션
+        # `f27b5e9c1a48`). 조회 인자가 다르면 내용이 같아도 별개 관측이다 —
+        # 새마을금고에서 이 구분을 안 해 경남 186장이 통째로 사라졌다.
+        guard = RepeatGuard()
         requests_made = 0
 
         timeout = httpx.Timeout(READ_TIMEOUT, connect=CONNECT_TIMEOUT)
@@ -188,9 +194,7 @@ class FsbAdapter:
                 await asyncio.sleep(REQUEST_INTERVAL_SECONDS)
 
             for code, raw in branch_payloads:
-                if raw in seen_bodies:
-                    continue
-                seen_bodies.add(raw)
+                guard.observe(raw, where=f"branches area={code}")
                 artifacts.append(
                     self._artifact(
                         raw,
@@ -232,27 +236,27 @@ class FsbAdapter:
                     await asyncio.sleep(REQUEST_INTERVAL_SECONDS)
 
                     rows = payload.get("REC") or []
-                    if raw not in seen_bodies:
-                        seen_bodies.add(raw)
-                        artifacts.append(
-                            self._artifact(
-                                raw,
-                                filename=f"{screen}_p{page + 1}.json",
-                                meta={
-                                    "kind": "rate",
-                                    "screen": screen,
-                                    "area": area,
-                                    "page_offset": start - 1,
-                                    "only_terms": list(only_terms or ()),
-                                },
-                                fingerprint=parser.schema_fingerprint(payload),
-                            )
+                    guard.observe(raw, where=f"{screen} p{page + 1}")
+                    artifacts.append(
+                        self._artifact(
+                            raw,
+                            filename=f"{screen}_p{page + 1}.json",
+                            meta={
+                                "kind": "rate",
+                                "screen": screen,
+                                "area": area,
+                                "page_offset": start - 1,
+                                "only_terms": list(only_terms or ()),
+                            },
+                            fingerprint=parser.schema_fingerprint(payload),
                         )
+                    )
 
                     total = parser.total_count(payload)
                     if not rows or total is None or end >= total:
                         break
                     start = end + 1
+        self.fetch_note = guard.summary()
         return artifacts
 
     def _artifact(
