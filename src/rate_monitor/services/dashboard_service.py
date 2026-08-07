@@ -484,6 +484,20 @@ def _by_region(
     `district`가 `None`이면 권역 전체, 값이 있으면 그 구·군이다. 화면의
     부산 드릴다운이 뒤엣것을 쓴다. 한 키에 담는 이유는 구 단위를 별도
     키로 빼면 화면이 두 곳에서 같은 규칙을 다시 세워야 하기 때문이다.
+
+    ── 12개월 정기예금만 센다 (2026-08-07 추가) ────────────────────────
+
+    예전에는 기간·유형을 안 가리고 전체 관측을 셌다. 그러니 권역 중앙값이
+    2.4~2.5%로 나왔는데, 같은 화면의 참고카드는 3.40%였다. 두 숫자가 1%p
+    가까이 다른데 이유가 화면 어디에도 없었다.
+
+    섞으면 안 되는 것들이었다. 실측 중앙값이 이만큼 흩어져 있다.
+
+        정기예금  1개월 1.00%  12개월 3.40%  36개월 2.50%
+        적금      1개월 0.50%  12개월 3.00%  36개월 2.80%
+
+    참고카드와 **같은 상수**를 쓴다. 두 곳에 따로 적으면 한쪽만 바뀐다.
+    좁히고 나면 권역 간 편차도 0.11%p에서 0.30%p로 벌어져 비교가 된다.
     """
     if not run_ids:
         return []
@@ -491,10 +505,15 @@ def _by_region(
     insts: dict[tuple[str, str | None, str], set[str]] = {}
     unknown: set[str] = set()
     # 행은 튜플로 온다 (`row_factory`가 None이다). 자리로 읽는다.
+    #
+    # `district_sql`은 `by_district`도 함께 쓰는 문자열이라 **거기에 조건을
+    # 붙이면 안 된다.** 여기서만 덧붙인다. `product_variants`와 `products`는
+    # 그 안에 이미 조인돼 있다.
     rows = conn.execute(
         f"SELECT {SIDO_EXPR}, {DISTRICT_EXPR}, i.sector, i.id, o.base_rate"
-        + district_sql,
-        tuple(run_ids),
+        + district_sql
+        + "   AND v.term_months = ? AND p.product_type = ?",
+        (*run_ids, BENCHMARK_TERM_MONTHS, BENCHMARK_PRODUCT_TYPE),
     )
     for sido, sigungu, sector, institution_id, base_rate in rows:
         region = REGION_GROUPS.get(sido)
@@ -876,20 +895,13 @@ def build_summary(db_path: Path) -> dict[str, Any]:
             tuple(run_ids),
         ) if run_ids else []
 
-        # 구·군 중앙값. 드릴다운 화면이 쓴다.
-        _fill_medians(
-            by_district,
-            _grouped_rates(
-                conn,
-                # 구 이름은 전국에서 겹친다(중구가 여섯 도시에 있다).
-                # 시도·업권까지 이어 붙여야 한 묶음이 안 섞인다.
-                f"SELECT {SIDO_EXPR} || '/' || {district_expr}"
-                "         || '/' || i.sector,"
-                "       o.base_rate" + district_sql,
-                tuple(run_ids),
-            ) if run_ids else {},
-            key=lambda row: f"{row['sido']}/{row['sigungu']}/{row['sector']}",
-        )
+        # 구·군 중앙값은 여기서 안 낸다.
+        #
+        # 한때 `by_district`에 `base_p50`을 넣어 드릴다운이 그걸 읽었다.
+        # 지금은 드릴다운도 `by_region`의 구 단위 행을 보므로 아무도 안
+        # 읽는다 — 화면은 `by_district`의 **길이만** 쓴다(구·군 수). 안 쓰는
+        # 값을 계속 내면 발행 크기만 늘고, 두 곳에 있는 중앙값이 언젠가
+        # 서로 어긋난다.
 
         # 권역 9개 단위 중앙값.
         #
