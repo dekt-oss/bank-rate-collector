@@ -129,29 +129,45 @@ def test_the_schedule_is_monday_wednesday_friday_at_two_am_kst() -> None:
         assert (utc.weekday() + 1) % 7 in (0, 2, 4)
 
 
+def test_a_merge_to_main_republishes_the_screen_by_itself() -> None:
+    """머지만 하면 화면이 바뀌어야 한다.
+
+    이 사이트는 서버가 없다. Vercel은 `rate-data` 브랜치만 빌드하는데 화면
+    파일은 이 워크플로가 거기 밀어 넣으므로, **main에는 화면 파일이 아예
+    없다.** 그래서 머지가 아무 일도 일으키지 않았고, 화면을 보려면 수집을
+    손으로 돌려 2시간 30분을 기다려야 했다.
+
+    파일 목록(`paths:`)으로 거르지 않는 것도 일부러다. 그 목록은 반드시
+    낡고, 낡으면 "머지했는데 화면이 안 바뀐다"가 조용히 되돌아온다.
+    """
+    triggers = _workflow().get("on", _workflow().get(True))
+    assert triggers["push"]["branches"] == ["main"]
+    assert "paths" not in triggers["push"], "파일 목록으로 거르면 반드시 낡는다"
+
+
+def test_a_push_never_hits_a_source_but_a_schedule_does() -> None:
+    """머지가 금리를 새로 받을 이유는 없다.
+
+    머지마다 전국 한 바퀴를 돌면 원천에 폐가 된다. 반대로 정기 수집은
+    실제로 받아야 하므로, 두 경로가 같은 스위치를 다르게 봐야 한다.
+    """
+    gate = _workflow()["jobs"]["collect"]["env"]["PUBLISH_ONLY"]
+    assert "github.event_name == 'push'" in gate
+    assert "inputs.publish_only == true" in gate
+    # schedule은 어디에도 안 걸린다 → 수집을 한다.
+    assert "schedule" not in gate
+
+
 def test_publish_only_skips_every_collector_but_still_publishes() -> None:
     """화면만 다시 내는 길이 있어야 한다.
-
-    화면은 저장된 DB만 있으면 만들어지는데, 이 워크플로가 수집과 발행을 한
-    덩어리로 묶고 있어서 화면 코드만 고쳐도 전국 한 바퀴(2시간 30분)를
-    기다려야 했다.
 
     **저축은행 수집만 스위치가 없던 것이 핵심이었다.** 나머지를 다 꺼도
     그 하나가 돌아서 "아무것도 수집하지 않는다"를 말할 수 없었다.
     """
-    from pathlib import Path
-
-    import yaml
-
-    workflow = Path(__file__).resolve().parents[1] / ".github" / "workflows" / "collect.yml"
-    loaded = yaml.safe_load(workflow.read_text(encoding="utf-8"))
-    triggers = loaded.get("on", loaded.get(True))
-    assert "publish_only" in triggers["workflow_dispatch"]["inputs"]
-
-    steps = loaded["jobs"]["collect"]["steps"]
+    steps = _workflow()["jobs"]["collect"]["steps"]
     skipped = {
         s["name"] for s in steps
-        if "publish_only != true" in str(s.get("if") or "")
+        if "PUBLISH_ONLY != 'true'" in str(s.get("if") or "")
     }
     collectors = {s["name"] for s in steps if str(s.get("name", "")).startswith("Collect ")}
     assert collectors, "수집 단계를 찾지 못했다"
@@ -160,4 +176,17 @@ def test_publish_only_skips_every_collector_but_still_publishes() -> None:
     # 발행까지 가야 화면이 바뀐다. 이 셋이 꺼지면 스위치가 무의미하다.
     for name in ("Build public site", "Publish to rate-data branch", "Snapshot"):
         step = next(s for s in steps if s.get("name") == name)
-        assert "publish_only" not in str(step.get("if") or ""), name
+        assert "PUBLISH_ONLY" not in str(step.get("if") or ""), name
+
+    # 손으로 돌릴 때 쓰는 체크박스도 그대로 있어야 한다.
+    triggers = _workflow().get("on", _workflow().get(True))
+    assert "publish_only" in triggers["workflow_dispatch"]["inputs"]
+
+
+def _workflow() -> dict:
+    from pathlib import Path
+
+    import yaml
+
+    path = Path(__file__).resolve().parents[1] / ".github" / "workflows" / "collect.yml"
+    return yaml.safe_load(path.read_text(encoding="utf-8"))
