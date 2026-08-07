@@ -67,6 +67,16 @@ _BODY = re.compile(
     re.S,
 )
 
+# 라벨이 붙은 원문인지 알아보는 표시.
+#
+# **«우대조건:» 줄이 없다고 라벨 없는 원문인 것이 아니다.** FSB는 값이 비면
+# 그 줄을 통째로 뺀다 (`fsb/parser.preference_raw`). 그래서 우대조건이 없는
+# 행은 `가입대상: 실명의 개인\n기타: 비대면 전용`처럼 온다.
+#
+# 이걸 라벨 없는 원문으로 보고 전체를 조건으로 읽으면 «만 60세 이상»과
+# «비대면»이 우대조건으로 잡힌다 — 가입 자격을 우대조건이라고 말하는 셈이다.
+_ANY_LABEL = re.compile(r"^(?:우대조건|가입대상|가입제한|유의사항|기타)\s*:", re.M)
+
 
 @lru_cache(maxsize=4)
 def _rules(path: str | None = None) -> dict[str, Any]:
@@ -92,7 +102,7 @@ def labels(path: str | None = None) -> dict[str, str]:
     return out
 
 
-def condition_body(raw: str) -> str:
+def condition_body(raw: str) -> str | None:
     """라벨 붙은 원문에서 우대조건 부분만 떼어낸다.
 
     >>> condition_body("우대조건: 급여이체\\n가입대상: 실명의 개인")
@@ -102,9 +112,20 @@ def condition_body(raw: str) -> str:
 
     >>> condition_body("급여이체 실적 : 0.1%p")
     '급여이체 실적 : 0.1%p'
+
+    **라벨은 있는데 «우대조건:»만 없으면 `None`이다.** FSB는 값이 비면 그
+    줄을 통째로 뺀다. 원문 전체를 조건으로 읽으면 가입 자격이 우대조건으로
+    둔갑한다.
+
+    >>> condition_body("가입대상: 만 60세 이상\\n기타: 비대면 전용") is None
+    True
     """
     found = _BODY.search(raw)
-    return (found.group(1) if found else raw).strip()
+    if found:
+        return found.group(1).strip()
+    if _ANY_LABEL.search(raw):
+        return None
+    return raw.strip()
 
 
 def classify(raw: str | None, path: str | None = None) -> PreferenceTags:
@@ -125,6 +146,12 @@ def classify(raw: str | None, path: str | None = None) -> PreferenceTags:
     >>> classify("해당사항없음").codes
     ()
 
+    다른 칸은 왔는데 우대조건 칸만 안 온 것은 «미제공»이다. 가입 자격을
+    우대조건으로 세지 않는다.
+
+    >>> classify("가입대상: 만 60세 이상\\n기타: 비대면 전용").status
+    <PreferenceStatus.MISSING: 'missing'>
+
     조건이 있으면 걸리는 분류를 **모두** 붙인다.
 
     >>> classify("신협체크카드 결제실적 : 0.2%p").codes
@@ -141,6 +168,8 @@ def classify(raw: str | None, path: str | None = None) -> PreferenceTags:
         return PreferenceTags(PreferenceStatus.MISSING, ())
 
     body = condition_body(raw)
+    if body is None:
+        return PreferenceTags(PreferenceStatus.MISSING, ())
     rules = _rules(path)
     if not body or body in set(rules.get("explicit_none") or ()):
         return PreferenceTags(PreferenceStatus.NONE, ())

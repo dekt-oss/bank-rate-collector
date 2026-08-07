@@ -210,3 +210,114 @@ def test_the_same_source_twice_still_resolves_to_one(factory) -> None:
 
     assert first == second
     assert len(_institutions(factory)) == 1
+
+
+# ── 마이그레이션 (이미 갈라져 있던 행을 합친다) ─────────────────────────
+
+
+def _seed_split(db_path) -> tuple[str, str]:
+    """같은 org_key로 갈라진 기관 두 개와, 각각에 붙은 상품·링크를 심는다.
+
+    수집기를 고쳐도 **이미 DB에 있는 행**은 안 바뀐다
+    (`resolve_institution`이 링크가 있으면 조기 반환한다). 그래서
+    마이그레이션이 필요하고, 이 함수가 그 입력을 만든다.
+    """
+    import sqlite3
+
+    key = "savings_bank:0010390"
+    conn = sqlite3.connect(db_path)
+    now = "2026-08-06 00:00:00"
+    ids = {}
+    for source_id, name, address in (
+        ("finlife_savings_bank", "고려저축은행", None),
+        ("fsb", "고려", "부산광역시 동구 중앙대로 244"),
+    ):
+        conn.execute(
+            "INSERT INTO sources (id, name, sector, mode, source_role, trust_level,"
+            " priority, enabled, policy_status, coverage_status, parser_version,"
+            " created_at, updated_at) VALUES (?,?,'savings_bank','http','primary_official',"
+            "'official_direct',10,1,'review','partial','0.1.0',?,?)",
+            (source_id, source_id, now, now),
+        )
+        inst = f"inst-{source_id}"
+        ids[source_id] = inst
+        conn.execute(
+            "INSERT INTO institutions (id, sector, canonical_name, normalized_name,"
+            " address, region_sido, region_sigungu, geo_basis, availability_scope, active,"
+            " first_seen_at, last_seen_at)"
+            " VALUES (?, 'savings_bank', ?, ?, ?, ?, ?, ?, 'nationwide', 1, ?, ?)",
+            (inst, name, name, address,
+             "부산" if address else None, "동구" if address else None,
+             "head_office" if address else "nationwide", now, now),
+        )
+        conn.execute(
+            "INSERT INTO source_entity_links (id, source_id, entity_type,"
+            " source_entity_key, entity_id, confidence, match_method, valid_from,"
+            " created_at, updated_at)"
+            " VALUES (?,?,'institution',?,?,1.0,'exact_code',?,?,?)",
+            (f"link-i-{source_id}", source_id, key, inst, now[:10], now, now),
+        )
+        # 상품 매핑 키에는 기관 id가 박혀 있다 (`resolve_product`).
+        product = f"prod-{source_id}"
+        conn.execute(
+            "INSERT INTO products (id, institution_id, name, normalized_name,"
+            " product_type, is_special_sale, active, first_seen_at, last_seen_at)"
+            " VALUES (?, ?, '정기예금', '정기예금', 'term_deposit', 0, 1, ?, ?)",
+            (product, inst, now, now),
+        )
+        conn.execute(
+            "INSERT INTO source_entity_links (id, source_id, entity_type,"
+            " source_entity_key, entity_id, confidence, match_method, valid_from,"
+            " created_at, updated_at)"
+            " VALUES (?,?,'product',?,?,1.0,'exact_code',?,?,?)",
+            (f"link-p-{source_id}", source_id, f"{inst}:정기예금", product,
+             now[:10], now, now),
+        )
+    conn.commit()
+    conn.close()
+    return ids["fsb"], ids["finlife_savings_bank"]
+
+
+def test_the_migration_merges_and_moves_the_link_keys(tmp_path) -> None:
+    """행만 옮기고 **키를 그대로 두면 다음 수집이 상품을 새로 만든다.**
+
+    상품·점포 매핑 키가 `f"{institution.id}:{...}"` 꼴이라
+    (`entity_service.resolve_product`), 상품을 승자 밑으로 옮겨도 키가 진
+    기관 id로 남아 있으면 다음 수집이 승자 id로 조회하다 못 찾는다. 화면의
+    상품 수가 소리 없이 늘어난다.
+    """
+    import sqlite3
+
+    from tests.test_migrations import _alembic
+
+    db = tmp_path / "merge.sqlite3"
+    assert _alembic("upgrade 0a09e1fc2d26", db).returncode == 0
+    fsb_id, finlife_id = _seed_split(db)
+    result = _alembic("upgrade head", db)
+    assert result.returncode == 0, result.stderr
+
+    conn = sqlite3.connect(db)
+    conn.row_factory = sqlite3.Row
+    try:
+        alive = conn.execute(
+            "SELECT id, canonical_name, region_sigungu FROM institutions WHERE active = 1"
+        ).fetchall()
+        assert len(alive) == 1
+        # 주소를 가진 쪽이 남고, 이름은 긴 쪽을 쓴다.
+        assert alive[0]["id"] == fsb_id
+        assert alive[0]["canonical_name"] == "고려저축은행"
+        assert alive[0]["region_sigungu"] == "동구"
+
+        # 상품이 전부 살아남은 기관 밑으로 왔다.
+        owners = {r["institution_id"] for r in conn.execute(
+            "SELECT institution_id FROM products")}
+        assert owners == {fsb_id}
+
+        # **키에서도** 진 기관 id가 사라졌다.
+        keys = [r["source_entity_key"] for r in conn.execute(
+            "SELECT source_entity_key FROM source_entity_links"
+            " WHERE entity_type = 'product'")]
+        assert all(k.startswith(f"{fsb_id}:") for k in keys), keys
+        assert not any(finlife_id in k for k in keys)
+    finally:
+        conn.close()

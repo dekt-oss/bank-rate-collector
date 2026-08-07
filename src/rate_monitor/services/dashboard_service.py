@@ -566,7 +566,11 @@ def build_summary(db_path: Path) -> dict[str, Any]:
 
         totals = _rows(
             conn,
-            "SELECT (SELECT COUNT(*) FROM institutions)     AS institutions,"
+            # 합쳐져 내려간 기관은 세지 않는다 (마이그레이션 e18c4a7d9b30).
+            # 같은 은행이 두 기관으로 갈라져 있던 79곳을 합쳤는데, 여기서
+            # 안 거르면 화면의 «기관» 숫자가 그대로라 합친 티가 안 난다.
+            "SELECT (SELECT COUNT(*) FROM institutions WHERE active = 1)"
+            "                                               AS institutions,"
             "       (SELECT COUNT(*) FROM products)         AS products,"
             "       (SELECT COUNT(*) FROM product_variants) AS variants,"
             "       (SELECT COUNT(*) FROM rate_observations) AS observations,"

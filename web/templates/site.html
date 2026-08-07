@@ -455,7 +455,11 @@
       “조회 결과” 단추를 쓰세요.</span>
   </div>
 
-  <section class="panel">
+  <!-- 조회 조건은 이 패널 전체가 받는다.
+       `#groups`는 자바스크립트가 채우는 자리라 자기닫힘이고, 공시일·검색
+       그룹은 그 **형제**다. 듣는 자리를 `#groups`로 잡으면 공시일의
+       「전체」 링크가 영영 안 눌린다 (실제로 안 눌리고 있었다). -->
+  <section class="panel" id="conditions">
     <h2>조회 조건 <button type="button" id="reset">조건 초기화</button></h2>
     <div class="groups" id="groups"></div>
     <!-- 공시일은 다른 항목과 성격이 다르다. 값이 수백 가지라 체크박스로는
@@ -1248,7 +1252,7 @@
     // 있는 줄 알게 된다.
     .filter((s) => s.observation_count > 0 || s.id === "bok_ecos")
     .map((s) => {
-      const [what, caveat] = SOURCE_NOTE[s.id] || [s.name || s.id, ""];
+      const [what, caveat] = SOURCE_NOTE[s.id] || [esc(s.name || s.id), ""];
       const how = MODE_KO[s.mode] || s.mode || "";
       return `<li><code>${esc(s.id)}</code> — ${what}`
         + (how ? ` <span class="how">${esc(how)}</span>` : "")
@@ -1280,7 +1284,7 @@
   // ── 연결 ─────────────────────────────────────────────────────────
   const redraw = () => { state.shown = 100; render(); };
 
-  $("groups").addEventListener("change", (e) => {
+  $("conditions").addEventListener("change", (e) => {
     const box = e.target.closest("input[type=checkbox][data-group]");
     if (!box) return;
     const set = state.picked[box.dataset.group];
@@ -1300,7 +1304,7 @@
     }
     redraw();
   });
-  $("groups").addEventListener("change", (e) => {
+  $("conditions").addEventListener("change", (e) => {
     const box = e.target.closest("input[type=checkbox][data-preftag]");
     if (!box) return;
     const code = box.dataset.preftag;
@@ -1308,14 +1312,14 @@
     redraw();
   });
   // 구·군은 지역 그룹 안에 있어서 같은 컨테이너가 받는다.
-  $("groups").addEventListener("change", (e) => {
+  $("conditions").addEventListener("change", (e) => {
     const box = e.target.closest("input[type=checkbox][data-gu]");
     if (!box) return;
     const gu = box.dataset.gu;
     if (box.checked) state.gu.add(gu); else state.gu.delete(gu);
     redraw();
   });
-  $("groups").addEventListener("click", (e) => {
+  $("conditions").addEventListener("click", (e) => {
     const clear = e.target.closest("[data-clear]");
     if (!clear) return;
     if (clear.dataset.clear === "asOf") {

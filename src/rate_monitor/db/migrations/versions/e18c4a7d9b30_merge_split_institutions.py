@@ -86,41 +86,45 @@ def upgrade() -> None:
             {"n": name, "nn": normalize_institution_name(name), "id": winner.id},
         )
 
-        # 주소·지역은 빈 칸만 채운다. 이미 있는 값은 덮지 않는다.
-        if winner.address is None:
-            donor = next((m for m in losers if m.address is not None), None)
-            if donor is not None:
-                bind.execute(
-                    sa.text(
-                        "UPDATE institutions SET address = :a, region_sido = :sido,"
-                        " region_sigungu = :gu, geo_basis = :geo, geo_confidence = :conf"
-                        " WHERE id = :id"
-                    ),
-                    {
-                        "a": donor.address,
-                        "sido": donor.sido,
-                        "gu": donor.sigungu,
-                        "geo": donor.geo,
-                        "conf": donor.conf,
-                        "id": winner.id,
-                    },
-                )
+        # 주소·지역은 옮길 필요가 없다. 위 정렬이 **주소를 가진 쪽을 이기게**
+        # 하므로, 누구 하나라도 주소가 있으면 그것이 이미 승자다.
 
         for loser in losers:
-            for table in ("source_entity_links", "outlets", "products"):
-                column = "entity_id" if table == "source_entity_links" else "institution_id"
-                where = (
-                    " AND entity_type = 'institution'"
-                    if table == "source_entity_links"
-                    else ""
-                )
+            # 상품·점포를 승자 밑으로 옮긴다.
+            for table in ("outlets", "products"):
                 bind.execute(
                     sa.text(
-                        f"UPDATE {table} SET {column} = :win"
-                        f" WHERE {column} = :lose{where}"
+                        f"UPDATE {table} SET institution_id = :win"
+                        " WHERE institution_id = :lose"
                     ),
                     {"win": winner.id, "lose": loser.id},
                 )
+            bind.execute(
+                sa.text(
+                    "UPDATE source_entity_links SET entity_id = :win"
+                    " WHERE entity_id = :lose AND entity_type = 'institution'"
+                ),
+                {"win": winner.id, "lose": loser.id},
+            )
+
+            # ── 링크 키에 박힌 기관 id도 함께 옮긴다 ──────────────────
+            #
+            # 상품·점포 매핑 키가 `f"{institution.id}:{...}"` 꼴이다
+            # (`entity_service.resolve_product`·`resolve_outlet`). 행만
+            # 옮기고 키를 그대로 두면, 다음 수집이 **승자 id로** 키를
+            # 만들어 조회하다 못 찾고 상품을 통째로 새로 만든다. 화면의
+            # 상품 수가 소리 없이 두 배가 된다.
+            bind.execute(
+                sa.text(
+                    "UPDATE source_entity_links"
+                    "   SET source_entity_key ="
+                    "       :win || substr(source_entity_key, length(:lose) + 1)"
+                    " WHERE entity_type IN ('product', 'outlet')"
+                    "   AND source_entity_key LIKE :prefix"
+                ),
+                {"win": winner.id, "lose": loser.id, "prefix": f"{loser.id}:%"},
+            )
+
             bind.execute(
                 sa.text("UPDATE institutions SET active = 0 WHERE id = :id"),
                 {"id": loser.id},

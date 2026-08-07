@@ -14,6 +14,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
+from rate_monitor.domain.preference_taxonomy import labels as preference_labels
 from rate_monitor.domain.timeutil import kst_date_stamp, now_kst
 from rate_monitor.services.dashboard_service import (
     TABLE_COLUMNS,
@@ -68,6 +69,14 @@ RATE_SCOPE_KO = {
     "unknown": "미상",
 }
 
+# 우대조건 원문이 어떤 상태인가 (우대조건 명세서 v1 §3).
+# 셋을 뭉개면 안 되므로 «없음»과 «미제공»을 다른 말로 적는다.
+PREFERENCE_STATUS_KO = {
+    "missing": "원천 미제공",
+    "none": "없음(원천 명시)",
+    "present": "있음",
+}
+
 SECTOR_KO = {"savings_bank": "저축은행", "kfcc": "새마을금고", "bank": "은행"}
 TYPE_KO = {
     "term_deposit": "예금",
@@ -108,6 +117,14 @@ def expand(table: dict[str, Any]) -> list[dict[str, Any]]:
         )
         record["rate_scope"] = RATE_SCOPE_KO.get(
             record["rate_scope"], record["rate_scope"]
+        )
+        record["preference_status"] = PREFERENCE_STATUS_KO.get(
+            record["preference_status"], record["preference_status"]
+        )
+        # 분류 코드도 사람 말로 바꾼다. 한 행에 여럿이 붙으므로 쉼표로 잇는다.
+        record["preference_tags"] = ", ".join(
+            preference_labels().get(code, code)
+            for code in (record["preference_tags"] or "").split()
         )
         out.append(record)
     return out
