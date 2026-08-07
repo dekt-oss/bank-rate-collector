@@ -612,11 +612,23 @@ def test_fetch_asks_each_region_once_with_an_empty_r2(monkeypatch) -> None:
     assert len(rates) == 6
     assert {c["gubuncode"] for c in rates} == {"13"}
 
-    # 응답 바이트가 같으면 UNIQUE(run_id, sha256)에 걸리므로 저장 전에 거른다.
-    # fixture가 두 지역에 같은 바이트를 돌려주므로 목록도 한 장만 남는다.
+    # **바이트가 같아도 버리지 않는다.**
+    #
+    # 예전에는 여기서 걸렀다 — 유일성이 `(run_id, sha256)`이라 같은 내용을 두
+    # 번 못 넣었기 때문이다. 그래서 이 시험도 "한 장만 남는다"를 기대했다.
+    #
+    # 그 규칙 때문에 2026-08-06 실행에서 경남 186장이 통째로 사라졌다. 금리
+    # 화면에는 금고 이름이 없어서 취급 상품이 같은 두 금고는 응답이 똑같아
+    # 지고, 뒤에 온 금고가 DB에 아예 안 생겼다.
+    #
+    # 이제 조회한 만큼 돌려주고, 같은 바이트는 저장 계층이 원본 행 하나를
+    # 함께 가리키게 한다 (`save_raw_artifacts`).
     kinds = [a.request_meta["kind"] for a in artifacts]
-    assert kinds.count("list") == 1
-    assert kinds.count("rate") == 1
+    assert kinds.count("list") == 2, "지역 두 곳을 물었으면 목록도 두 장이다"
+    assert kinds.count("rate") == 6, "금고 여섯 곳을 물었으면 금리도 여섯 장이다"
+
+    # 되풀이를 세어 남긴다. 0건이어도 적어야 "검사를 안 했나"와 구별된다.
+    assert "되풀이" in adapter.fetch_note
 
 
 # ── 구조 어긋난 페이지 ──────────────────────────────────────────────────
@@ -682,3 +694,61 @@ def test_widespread_schema_failure_still_stops_the_run(factory, tmp_path) -> Non
     assert result.status == RunStatus.SCHEMA_CHANGED
     with session_scope(factory) as session:
         assert _counts(session)["observations"] == 0
+
+
+# ── 바이트가 같은 두 금고를 모두 살린다 ─────────────────────────────────
+
+
+def test_two_gumgos_with_identical_pages_both_reach_the_database(factory, tmp_path):
+    """**이것이 경남 186장을 잃은 결함이다.**
+
+    금리 화면에는 금고 이름도 주소도 없다 (`parse_rates`가 금고 정보를
+    `request_meta`의 `outlet`에서 받는 이유다). 그래서 취급 상품과 금리가
+    같은 두 금고는 응답 바이트가 완전히 같아진다.
+
+    예전에는 수집기가 뒤에 온 금고를 통째로 버렸고, 그 금고는 기관도 상품도
+    금리도 안 생겼다. 2026-08-06 실행에서 관측 7,274건이 그렇게 사라졌는데
+    오류도 경고도 0이었다.
+
+    이제 응답은 그대로 두고, 저장 계층이 원본 행 하나를 함께 가리키게 한다.
+    **두 금고 모두 DB에 생겨야 한다.**
+    """
+    import dataclasses
+
+    base = _rate_artifact("13")
+
+    class TwinAdapter(KfccAdapter):
+        async def fetch(self, request: CollectionRequest) -> list[RawArtifactData]:
+            twins = [
+                dataclasses.replace(
+                    base,
+                    filename=f"rate_{code}_13.html",
+                    # 내용은 **글자 하나 안 바꾼다.** 맥락만 금고마다 다르다.
+                    request_meta={**base.request_meta,
+                                  "gmgoCd": code,
+                                  "outlet": {**base.request_meta["outlet"],
+                                             "gmgoCd": code,
+                                             "gmgoNm": f"금고{code}"}},
+                )
+                for code in ("9001", "9002")
+            ]
+            return [_list_artifact(), *twins]
+
+    run_collect(factory, tmp_path / "raw", adapter=TwinAdapter())
+
+    with session_scope(factory) as session:
+        names = sorted(
+            i.canonical_name for i in session.scalars(select(m.Institution)).all()
+        )
+        assert "금고9001" in names and "금고9002" in names, (
+            f"바이트가 같은 금고가 사라졌다: {names}"
+        )
+
+        # 원본 행은 하나를 나눠 쓰되(UNIQUE(run_id, sha256)), 관측은 둘 다 있다.
+        artifacts = session.scalars(select(m.RawArtifact)).all()
+        assert len(artifacts) == 2, "목록 1장 + 같은 내용의 금리 1장"
+        by_institution = {
+            row.institution_id
+            for row in session.scalars(select(m.Product)).all()
+        }
+        assert len(by_institution) == 2

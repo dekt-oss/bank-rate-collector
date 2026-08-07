@@ -32,6 +32,7 @@ import yaml
 
 from rate_monitor.collectors.base import SourceBlockedError
 from rate_monitor.collectors.kfcc import parser
+from rate_monitor.collectors.repeat_guard import RepeatGuard
 from rate_monitor.domain.enums import (
     CollectionMode,
     JoinChannel,
@@ -154,10 +155,22 @@ class KfccAdapter:
         groups = tuple(request.options.get("groups") or DEFAULT_GROUPS)
 
         artifacts: list[RawArtifactData] = []
-        # raw_artifacts에 UNIQUE(run_id, sha256)이 있다. 두 응답이 바이트
-        # 단위로 같으면 저장에서 IntegrityError가 난다. 목록·금리 양쪽 모두
-        # 여기서 거른다.
-        seen_bodies: set[bytes] = set()
+        # **바이트가 같아도 버리지 않는다.**
+        #
+        # 예전에는 여기서 걸렀다. `raw_artifacts`의 유일성이
+        # `(run_id, sha256)`이라 같은 내용을 두 번 못 넣었기 때문이다.
+        # 그런데 금리 화면에는 금고 이름도 주소도 없어서, 취급 상품과 금리가
+        # 같은 두 금고는 응답이 완전히 같아진다. 뒤에 온 금고가 통째로
+        # 버려졌고 **DB에 아예 안 생겼다** — 2026-08-06 실행에서 경남 186장,
+        # 관측 7,274건이 그렇게 사라졌는데 오류도 경고도 0이었다.
+        #
+        # 이제 버리지 않는다. `save_raw_artifacts`가 같은 바이트끼리 원본
+        # 행 **하나를 함께 가리키게** 해서 제약을 지킨다 — 조회는 하나도
+        # 안 사라진다.
+        #
+        # 대신 얼마나 되풀이되는지 세어 남기고, 한 지역이 통째로 같은 응답을
+        # 주는 수준이면 그만 받는다. **받은 것은 버리지 않고 돌려준다.**
+        guard = RepeatGuard()
         requests_made = 0
 
         timeout = httpx.Timeout(connect=CONNECT_TIMEOUT, read=READ_TIMEOUT,
@@ -176,17 +189,14 @@ class KfccAdapter:
                 params = {"r1": region, "r2": ""}
                 body = await self._get(client, f"{BASE_URL}/map/list.do", params)
                 requests_made += 1
-                if body not in seen_bodies:
-                    seen_bodies.add(body)
-                    artifacts.append(
-                        self._artifact(
-                            body,
-                            filename=f"list_{region}.html",
-                            meta={"kind": "list", "r1": region, "r2": ""},
-                        )
+                guard.observe(body, where=f"list r1={region}")
+                artifacts.append(
+                    self._artifact(
+                        body,
+                        filename=f"list_{region}.html",
+                        meta={"kind": "list", "r1": region, "r2": ""},
                     )
-                # 저장을 걸렀더라도 명부는 읽는다. 중복은 저장 계층의 제약이지
-                # 데이터가 필요 없다는 뜻이 아니다.
+                )
                 for row in parser.parse_list(body.decode("utf-8", "replace")):
                     # 금고 대표 행은 먼저 본 것을 쓴다. 금리는 금고 단위라
                     # 어느 점포 행을 쓰든 같다.
@@ -198,6 +208,11 @@ class KfccAdapter:
 
             # 2단계: 금고별 금리
             for gmgo_cd, row in outlets.items():
+                # 원천이 조회를 무시하고 있다면 더 받아 봐야 같은 답이다.
+                # **그만 받되 지금까지 받은 것은 그대로 돌려준다** — 두 시간을
+                # 받고 나서 통째로 버리면 원래 고치려던 손실과 같은 일이 된다.
+                if guard.tripped:
+                    break
                 for group in groups:
                     if requests_made >= MAX_REQUESTS:
                         raise SourceBlockedError(
@@ -209,10 +224,13 @@ class KfccAdapter:
                     )
                     requests_made += 1
                     await asyncio.sleep(REQUEST_INTERVAL_SECONDS)
-
-                    if body in seen_bodies:
-                        continue
-                    seen_bodies.add(body)
+                    # 축은 상품구분이다. 금고는 바뀌고 구분은 고정인 흐름
+                    # 안에서 봐야 "이 지역이 통째로 같은 답을 준다"가 보인다.
+                    guard.observe(
+                        body,
+                        where=f"gmgoCd={gmgo_cd} gubuncode={group}",
+                        stream=group,
+                    )
 
                     artifacts.append(
                         self._artifact(
@@ -232,6 +250,8 @@ class KfccAdapter:
                             },
                         )
                     )
+        self.fetch_note = guard.summary()
+        self.fetch_alert = guard.tripped
         return artifacts
 
     def _artifact(self, body: bytes, *, filename: str, meta: dict) -> RawArtifactData:
