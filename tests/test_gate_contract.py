@@ -100,8 +100,8 @@ def test_only_fixed_scope_sources_get_a_scope_check() -> None:
 # ── 수집 주기 (2026-08-06) ──────────────────────────────────────────────
 
 
-def test_the_schedule_is_monday_wednesday_friday_at_two_am_kst() -> None:
-    """월·수·금 02:00 KST.
+def test_the_schedule_is_every_weekday_at_two_am_kst() -> None:
+    """평일(월~금) 02:00 KST.
 
     **요일이 하루 밀린다.** cron은 UTC로 도는데 02:00 KST는 전날 17:00
     UTC이므로, 월·수·금 새벽은 일·화·목(0,2,4) UTC다. 이걸 1,3,5로 적으면
@@ -117,16 +117,17 @@ def test_the_schedule_is_monday_wednesday_friday_at_two_am_kst() -> None:
     loaded = yaml.safe_load(workflow.read_text(encoding="utf-8"))
     triggers = loaded.get("on", loaded.get(True))
     crons = [s["cron"] for s in triggers["schedule"]]
-    assert crons == ["0 17 * * 0,2,4"]
+    assert crons == ["0 17 * * 0-4"]
 
-    # 적어 둔 환산이 실제로 맞는지 되짚는다.
+    # 적어 둔 환산이 실제로 맞는지 되짚는다. 평일은 걸리고 주말은 안 걸린다.
     kst = dt.timezone(dt.timedelta(hours=9))
-    for day, weekday in ((10, "Mon"), (12, "Wed"), (14, "Fri")):
+    for day in range(10, 17):                      # 2026-08-10(월)~16(일)
         local = dt.datetime(2026, 8, day, 2, 0, tzinfo=kst)
-        assert local.strftime("%a") == weekday
         utc = local.astimezone(dt.UTC)
         assert utc.hour == 17
-        assert (utc.weekday() + 1) % 7 in (0, 2, 4)
+        caught = 0 <= (utc.weekday() + 1) % 7 <= 4
+        weekday = local.weekday() < 5
+        assert caught is weekday, f"{local:%m-%d %a}가 어긋난다"
 
 
 def test_a_merge_to_main_republishes_the_screen_by_itself() -> None:
@@ -190,3 +191,36 @@ def _workflow() -> dict:
 
     path = Path(__file__).resolve().parents[1] / ".github" / "workflows" / "collect.yml"
     return yaml.safe_load(path.read_text(encoding="utf-8"))
+
+
+# ── 수집 암호 (2026-08-07) ──────────────────────────────────────────────
+
+
+def test_a_manual_run_asks_for_a_password() -> None:
+    """손으로 돌릴 때는 암호를 묻는다.
+
+    **이 검사가 막는 것은 실수와 장난이지 침입이 아니다.** 여기까지 오려면
+    이미 저장소에 쓰기 권한이 있어야 하고, 그건 GitHub이 먼저 막는다. 그
+    위에 한 겹 더 두어 "아무나 두 시간짜리 전국 수집을 눌러 버리는" 일을
+    막는다.
+    """
+    triggers = _workflow().get("on", _workflow().get(True))
+    field = triggers["workflow_dispatch"]["inputs"]["password"]
+    assert field["required"] is True
+
+    step = _workflow()["jobs"]["collect"]["steps"][0]
+    assert step["name"] == "Check collect password", "암호 검사가 맨 앞이 아니다"
+    assert "secrets.DASHBOARD_PASSWORD" in str(step["env"])
+
+
+def test_the_password_is_compared_in_the_shell_not_in_a_condition() -> None:
+    """시크릿을 `if:` 식에 쓰면 그 식이 실행 화면에 그대로 보인다."""
+    step = _workflow()["jobs"]["collect"]["steps"][0]
+    assert "secrets." not in str(step["if"])
+    assert "DASHBOARD_PASSWORD" not in str(step["if"])
+
+
+def test_the_scheduled_and_merge_runs_never_need_a_password() -> None:
+    """사람이 없는 경로에 암호를 걸면 그 암호를 또 어딘가 적어 둬야 한다."""
+    step = _workflow()["jobs"]["collect"]["steps"][0]
+    assert "github.event_name == 'workflow_dispatch'" in str(step["if"])

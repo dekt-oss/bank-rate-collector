@@ -395,6 +395,14 @@ def build_rate_table(
 BENCHMARK_TERM_MONTHS = 12
 BENCHMARK_PRODUCT_TYPE = "term_deposit"
 
+# 카드로 묶는 업권.
+#
+# 시중은행과 2금융권을 **나눠 둔다.** 하나로 합치면 전국 공시(은행)와 점포
+# 기준(금고·농·축협)이 한 숫자에 섞여, 그 값이 무엇의 평균인지 말할 수
+# 없게 된다 (v4 §4.1).
+BENCHMARK_BANK = ("bank",)
+BENCHMARK_SECOND_TIER = ("savings_bank", "kfcc", "cu", "nh_local")
+
 
 def _percentile(values: list[float], q: float) -> float | None:
     """정렬된 값에서 백분위. 보간하지 않고 가장 가까운 실측값을 고른다.
@@ -462,15 +470,26 @@ def build_benchmarks(
     기준금리를 뺀 값을 "수익"이나 "마진"이라 부르는 순간 그건 참고지표가
     아니라 투자 권유가 된다.
     """
-    empty: dict[str, Any] = {
+    out: dict[str, Any] = {
         # `None`이면 화면이 카드를 통째로 숨긴다 — 빈 카드는 "0%"로 읽힌다.
         "bok_base_rate": _latest_indicator(conn, "bok_base_rate"),
         "commercial_bank_12m": None,
+        "second_tier_12m": None,
     }
     if not run_ids:
-        return empty
+        return out
 
+    out["commercial_bank_12m"] = _sector_benchmark(conn, run_ids, BENCHMARK_BANK)
+    out["second_tier_12m"] = _sector_benchmark(conn, run_ids, BENCHMARK_SECOND_TIER)
+    return out
+
+
+def _sector_benchmark(
+    conn: sqlite3.Connection, run_ids: list[str], sectors: tuple[str, ...]
+) -> dict[str, Any] | None:
+    """업권 묶음 하나의 12개월 정기예금 분포."""
     placeholders = ",".join("?" for _ in run_ids)
+    sector_slots = ",".join("?" for _ in sectors)
     rows = _rows(
         conn,
         "SELECT o.base_rate AS base_rate, o.max_rate AS max_rate,"
@@ -482,30 +501,36 @@ def build_benchmarks(
         "  JOIN institutions i     ON i.id = p.institution_id"
         f" WHERE o.last_run_id IN ({placeholders})"
         "   AND o.validation_status != 'error'"
-        "   AND i.sector = 'bank'"
+        f"  AND i.sector IN ({sector_slots})"
         "   AND v.term_months = ?"
         "   AND p.product_type = ?",
-        (*run_ids, BENCHMARK_TERM_MONTHS, BENCHMARK_PRODUCT_TYPE),
+        (*run_ids, *sectors, BENCHMARK_TERM_MONTHS, BENCHMARK_PRODUCT_TYPE),
     )
     if not rows:
-        return empty
+        return None
 
     base = sorted(float(r["base_rate"]) for r in rows if r["base_rate"] is not None)
     tops = [float(r["max_rate"]) for r in rows if r["max_rate"] is not None]
     dates = [r["source_effective_at"] for r in rows if r["source_effective_at"]]
 
-    empty["commercial_bank_12m"] = {
+    return {
         "record_count": len(rows),
         "institution_count": len({r["institution_id"] for r in rows}),
         "p10": _percentile(base, 0.10),
         "median": _percentile(base, 0.50),
         "p90": _percentile(base, 0.90),
+        # 평균도 함께 낸다. 중앙값과 다른 질문에 답한다 — 중앙값은 "한가운데가
+        # 얼마인가"이고 평균은 "전체를 고르게 나누면 얼마인가"다. 2금융권은
+        # 기관이 2천 곳이 넘어 둘이 꽤 벌어질 수 있다.
+        "mean": round(sum(base) / len(base), 4) if base else None,
         # 최고금리는 우대 포함값이라 기본금리와 섞지 않는다.
         "max": max(tops) if tops else None,
         "max_is_from_max_rate": bool(tops),
+        # 최고금리를 준 기관이 몇 곳인지. 2금융권은 새마을금고·농·축협이
+        # 원천에 우대금리 열 자체가 없어서 분모가 크게 다르다.
+        "max_record_count": len(tops),
         "source_effective_at": max(dates) if dates else None,
     }
-    return empty
 
 
 def _stale_sources(conn: sqlite3.Connection) -> list[dict[str, Any]]:
