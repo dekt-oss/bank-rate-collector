@@ -406,6 +406,12 @@ BENCHMARK_PRODUCT_TYPE = "term_deposit"
 BENCHMARK_BANK = ("bank",)
 BENCHMARK_SECOND_TIER = ("savings_bank", "kfcc", "cu", "nh_local")
 
+# 2금융권 넷을 합친 집계의 이름. 업권 칸에 이 값이 오면 «넷을 합쳤다»는 뜻이다.
+#
+# 실제 업권 코드와 겹치지 않아야 한다 — 겹치면 화면이 그것을 업권 하나로
+# 세고 «저축은행»과 «2금융권»이 같은 목록에 나란히 선다.
+SECOND_TIER_SECTOR = "second_tier"
+
 
 def _percentile(values: list[float], q: float) -> float | None:
     """정렬된 값에서 백분위. 보간하지 않고 가장 가까운 실측값을 고른다.
@@ -458,7 +464,7 @@ def _by_region(
     district_sql: str,
     placeholders: str,
 ) -> list[dict[str, Any]]:
-    """권역 9개 × 업권의 기본금리 중앙값·기관수·관측수.
+    """권역·구 단위 기본금리 중앙값·기관수·관측수.
 
     시도를 그대로 세우지 않고 `REGION_GROUPS`로 묶는다. 묶음에 없는 시도가
     오면 «기타»로 모으고 경고를 남긴다 — 조용히 버리면 총합이 안 맞는데
@@ -467,25 +473,46 @@ def _by_region(
     `institutions`를 함께 내는 이유는 화면이 막대마다 표본 크기를 적어야
     하기 때문이다. 제주 96건의 중앙값과 서울 1,284건의 중앙값을 같은
     신뢰도로 읽으면 안 된다.
+
+    ── 두 가지를 함께 낸다 (2026-08-07) ─────────────────────────────────
+
+    `sector`가 업권 하나인 행과, 2금융권 넷을 합친 `second_tier` 행이 같이
+    나온다. 합친 행을 따로 내는 이유는 **중앙값을 다시 중앙값 낼 수 없기
+    때문이다.** 업권별 중앙값 넷을 평균 내면 저축은행 6,666건과 제주
+    농·축협 322건이 같은 무게로 들어간다.
+
+    `district`가 `None`이면 권역 전체, 값이 있으면 그 구·군이다. 화면의
+    부산 드릴다운이 뒤엣것을 쓴다. 한 키에 담는 이유는 구 단위를 별도
+    키로 빼면 화면이 두 곳에서 같은 규칙을 다시 세워야 하기 때문이다.
     """
     if not run_ids:
         return []
-    rates: dict[tuple[str, str], list[str | None]] = {}
-    insts: dict[tuple[str, str], set[str]] = {}
+    rates: dict[tuple[str, str | None, str], list[str | None]] = {}
+    insts: dict[tuple[str, str | None, str], set[str]] = {}
     unknown: set[str] = set()
     # 행은 튜플로 온다 (`row_factory`가 None이다). 자리로 읽는다.
     rows = conn.execute(
-        f"SELECT {SIDO_EXPR}, i.sector, i.id, o.base_rate" + district_sql,
+        f"SELECT {SIDO_EXPR}, {DISTRICT_EXPR}, i.sector, i.id, o.base_rate"
+        + district_sql,
         tuple(run_ids),
     )
-    for sido, sector, institution_id, base_rate in rows:
+    for sido, sigungu, sector, institution_id, base_rate in rows:
         region = REGION_GROUPS.get(sido)
         if region is None:
             unknown.add(sido)
             region = REGION_OTHER
-        bucket = (region, sector)
-        rates.setdefault(bucket, []).append(base_rate)
-        insts.setdefault(bucket, set()).add(institution_id)
+        # 업권 하나 / 2금융권 합산, 권역 전체 / 구·군. 네 갈래에 같은 관측을
+        # 넣는다. 합산을 나중에 다시 계산하지 않는 것이 핵심이다.
+        buckets = [(region, None, sector)]
+        if sector in BENCHMARK_SECOND_TIER:
+            buckets.append((region, None, SECOND_TIER_SECTOR))
+            if sigungu:
+                buckets.append((region, sigungu, SECOND_TIER_SECTOR))
+        if sigungu:
+            buckets.append((region, sigungu, sector))
+        for bucket in buckets:
+            rates.setdefault(bucket, []).append(base_rate)
+            insts.setdefault(bucket, set()).add(institution_id)
     if unknown:
         LOGGER.warning(
             "권역 묶음에 없는 시도 %s — «기타»로 모았다. REGION_GROUPS에 넣는다",
@@ -494,14 +521,15 @@ def _by_region(
     out = [
         {
             "region": region,
+            "district": district,
             "sector": sector,
             "base_p50": _median_of(values),
-            "institutions": len(insts[(region, sector)]),
+            "institutions": len(insts[(region, district, sector)]),
             "observations": len(values),
         }
-        for (region, sector), values in rates.items()
+        for (region, district, sector), values in rates.items()
     ]
-    out.sort(key=lambda r: (r["sector"], -r["observations"]))
+    out.sort(key=lambda r: (r["sector"], r["district"] or "", -r["observations"]))
     return out
 
 

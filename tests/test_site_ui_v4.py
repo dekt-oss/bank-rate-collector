@@ -558,7 +558,7 @@ def test_our_company_is_one_colour_everywhere() -> None:
 def test_the_pinned_row_never_appears_twice() -> None:
     """같은 행이 고정과 본문에 둘 다 나오면 어느 쪽이 진짜인지 알 수 없다."""
     assert "current.filter((r) => r !== pinned)" in SOURCE
-    assert 'rows.unshift(rowHtml(pinned, stats))' in SOURCE
+    assert "rows.unshift(withDetail(pinned, stats))" in SOURCE
 
 
 def test_missing_from_the_filter_is_not_last_place() -> None:
@@ -595,6 +595,82 @@ def test_history_that_does_not_exist_is_not_drawn() -> None:
     """이력이 없는데 선을 그리면 없는 과거를 지어내는 것이다."""
     assert "추이 — 스냅샷 축적 중" in SOURCE
     assert "spark-empty" in SOURCE
+
+
+def test_the_our_company_list_is_short_and_defaults_to_the_first() -> None:
+    """2,000개 기관을 전부 세우면 고를 수 없다 (2026-08-07 사용자 지정).
+
+    목록을 데이터에서 뽑지 않는 것도 일부러다 — 수집 결과에 따라 흔들리면
+    어제 고른 회사가 오늘 사라진다.
+    """
+    match = re.search(r"const MINE_CHOICES = \[(.*?)\];", SOURCE, re.S)
+    assert match, "MINE_CHOICES를 찾지 못했다"
+    names = [s.strip().strip('"') for s in match.group(1).split(",") if s.strip()]
+    assert names == ["고려저축은행", "예가람저축은행", "동원제일저축은행"]
+    # 첫 항목이 기본값이다.
+    assert "MINE_CHOICES[0]" in SOURCE
+    # 목록에 있어도 이번 데이터에 없으면 조용히 두지 않는다.
+    assert "우리 회사 후보 중 이번 데이터에 없는 곳" in SOURCE
+
+
+def test_turning_our_company_off_survives_a_revisit() -> None:
+    """지우면 다음 방문에 기본값으로 되살아난다. 껐는데 켜져 있는 꼴이다."""
+    assert "store.set(MINE_KEY, e.target.value)" in SOURCE
+    assert "saved === null ? MINE_CHOICES[0] : saved" in SOURCE
+
+
+def test_our_own_representative_rate_is_a_median_too() -> None:
+    """우리 쪽만 최고값이면 «시장 중앙값 대비»가 서로 다른 것의 뺄셈이 된다.
+
+    2026-08-07 변경. 그 전에는 `Math.max`가 대표값이었다. 최고값은 우대
+    조건이 붙은 상품 한 건이 그 기관 전체를 대표해 버린다 — 권역 차트에서
+    최고값을 안 쓰는 이유와 똑같다.
+    """
+    stats = SOURCE[SOURCE.index("const mineStats"):SOURCE.index("const deltaHtml")]
+    assert "const value = median(values);" in stats
+    # 최고값은 버리지 않는다. 분포 차트가 점선으로 함께 긋는다.
+    assert "const best = Math.max(...values);" in stats
+    hist = SOURCE[SOURCE.index("── 차트 1"):SOURCE.index("── 차트 2")]
+    assert 'stroke-dasharray="3 3"' in hist, "최고값 점선이 없다"
+    assert "중앙값 ${ours.toFixed(2)}%" in hist
+
+
+def test_the_region_chart_covers_all_of_the_second_tier() -> None:
+    """제목이 «2금융권»이면 데이터도 2금융권이어야 한다.
+
+    저축은행만 담아 놓고 이름만 바꾸면 화면이 거짓말을 한다.
+    """
+    from rate_monitor.services.dashboard_service import (
+        BENCHMARK_SECOND_TIER,
+        SECOND_TIER_SECTOR,
+    )
+
+    assert f'const REG_SECTOR = "{SECOND_TIER_SECTOR}"' in SOURCE
+    assert "2금융권 기본금리 중앙값" in SOURCE
+    assert "저축은행 기본금리 중앙값" not in SOURCE
+    # 합산 이름이 실제 업권 코드와 겹치면 목록에 나란히 선다.
+    assert SECOND_TIER_SECTOR not in BENCHMARK_SECOND_TIER
+
+
+def test_the_pinned_row_can_expand_its_preference_text() -> None:
+    """정작 제일 궁금한 행이 안 펼쳐지고 있었다 (2026-08-07).
+
+    고정 행만 따로 그려서 원문 줄이 아예 안 붙었다. 같은 함수를 거치게 한다.
+    """
+    assert "rows.unshift(withDetail(pinned, stats))" in SOURCE
+    assert "const rows = slice.map((r) => withDetail(r, null));" in SOURCE
+
+
+def test_the_whole_preference_cell_opens_the_text() -> None:
+    """단추 글자만 눌리게 두면 겨냥하기 어렵다.
+
+    원문이 있는 행에만 붙인다 — 없는 행에 손 모양 커서를 띄우면 눌러도
+    아무 일이 없어 고장으로 읽힌다.
+    """
+    assert 'data-pref-cell="${esc(r._i)}"' in SOURCE
+    assert 'c.key === "pref" && r.pref' in SOURCE
+    assert 'e.target.closest("[data-pref], [data-pref-cell]")' in SOURCE
+    assert "td[data-pref-cell] { cursor: pointer; }" in SOURCE
 
 
 def test_the_url_replaces_instead_of_pushing() -> None:

@@ -226,27 +226,39 @@
     outline: 2px solid var(--accent); outline-offset: 1px;
   }
 
+  /* 한 줄에 들어와야 한다. 줄이 갈리면 «어느 수치가 어느 단추에 딸린
+     것인가»가 흐려지고, 표를 보려고 스크롤할 거리도 늘어난다.
+     그래서 이 줄의 글자와 여백을 전체적으로 한 단계 줄였다. */
   .bar {
-    display: flex; flex-wrap: wrap; gap: 10px; align-items: center;
-    justify-content: space-between; padding: 11px 14px;
+    display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+    justify-content: space-between; padding: 8px 12px;
     background: var(--surface-2); border-top: 1px solid var(--line-soft);
   }
   .bar .count {
-    font-family: var(--mono); font-size: 19px; font-weight: 700;
+    font-family: var(--mono); font-size: 16px; font-weight: 700;
     font-variant-numeric: tabular-nums; color: var(--accent-ink);
   }
-  .bar .note { font-size: 12.5px; color: var(--ink-2); }
+  .bar .note { font-size: 11.5px; color: var(--ink-2); }
   .bar .avg {
-    font-size: 12.5px; color: var(--ink-2); margin-left: 10px;
+    font-size: 11.5px; color: var(--ink-2); margin-left: 6px;
     font-variant-numeric: tabular-nums;
   }
   .bar .avg b { color: var(--ink); font-weight: 650; }
   /* 분모가 다르다는 것을 값 옆에 붙여 둔다. 떼어 놓으면 안 읽힌다. */
-  .bar .avg .den { color: var(--ink-3); font-size: 11.5px; margin-left: 4px; }
-  .bar .avg .sep { color: var(--ink-3); margin: 0 7px; }
-  .acts { display: flex; gap: 7px; flex-wrap: wrap; }
+  .bar .avg .den { color: var(--ink-3); font-size: 10.5px; margin-left: 3px; }
+  .bar .avg .sep { color: var(--ink-3); margin: 0 5px; }
+  .acts { display: flex; gap: 5px; flex-wrap: wrap; align-items: center; }
+  span.act {
+    display: inline-flex; align-items: center; gap: 4px;
+    font-size: 12px; color: var(--ink-2); white-space: nowrap;
+  }
+  span.act select {
+    font-family: var(--sans); font-size: 12px; color: var(--ink);
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: 3px; padding: 4px 5px; cursor: pointer;
+  }
   button.act {
-    font: inherit; font-size: 13px; font-weight: 600; padding: 7px 13px;
+    font: inherit; font-size: 12px; font-weight: 600; padding: 5px 10px;
     background: var(--surface); color: var(--ink);
     border: 1px solid var(--line); border-radius: 3px; cursor: pointer;
   }
@@ -381,6 +393,10 @@
     font-size: 12px; cursor: pointer; padding: 0; text-decoration: underline;
   }
   tr.detail td { background: var(--paper); font-size: 13px; white-space: pre-wrap; }
+  /* 우대조건 원문이 있는 칸은 칸째로 눌린다. 눌리는 자리라는 것을
+     커서로 알린다 — 안 알리면 아무도 단추 밖을 누르지 않는다. */
+  td[data-pref-cell] { cursor: pointer; }
+  td[data-pref-cell]:hover { background: var(--accent-bg); }
 
   /* ══ 조회 화면 R1 (2026-08-07) ═══════════════════════════════════
      ── 색은 세 가지만 쓴다 ────────────────────────────────────────
@@ -399,7 +415,10 @@
     background: var(--accent-bg); border: 1px solid var(--accent);
     border-radius: 6px; padding: 4px 8px;
   }
-  .mine-pick label { font-size: 11.5px; color: var(--accent-ink); font-weight: 600; }
+  .mine-pick label {
+    font-size: 11.5px; color: var(--accent-ink); font-weight: 600;
+    white-space: nowrap;   /* 「우리 / 회사」로 갈리면 두 줄이 된다 */
+  }
   .mine-pick select {
     border: 0; background: transparent; color: var(--accent-ink);
     font-family: var(--sans); font-size: 13px; font-weight: 700;
@@ -484,22 +503,22 @@
   /* 테두리로 묶는다. 조건 패널과 표 사이에 맨 텍스트로 두면 어느 쪽에
      속한 문장인지 읽히지 않는다. */
   .stats {
-    display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap;
-    border: 1px solid var(--line); border-radius: 6px; padding: 3px 11px;
-    background: var(--surface-2);
+    display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap;
+    border: 1px solid var(--line); border-radius: 6px; padding: 2px 9px;
+    background: var(--surface);
   }
   .rankline {
-    display: inline-flex; align-items: center; gap: 7px;
+    display: inline-flex; align-items: center; gap: 6px;
     background: var(--accent-bg); border: 1px solid var(--accent);
     border-left: 4px solid var(--crit);
-    color: var(--accent-ink); border-radius: 6px; padding: 3px 10px;
-    font-size: 12.5px;
+    color: var(--accent-ink); border-radius: 6px; padding: 2px 9px;
+    font-size: 11.5px; white-space: nowrap;
   }
   .rankline.off {
     background: var(--surface-2); border-color: var(--line);
     border-left-color: var(--line); color: var(--ink-3);
   }
-  .rankline b { font-family: var(--mono); font-size: 13.5px; }
+  .rankline b { font-family: var(--mono); font-size: 12.5px; }
 
   /* ── 우리 회사 행 ─────────────────────────────────────────────── */
   tr.mine td { background: var(--accent-bg); font-weight: 600; }
@@ -613,8 +632,9 @@
 
     <div class="card wide global">
       <h3 id="reg-title"></h3>
-      <p class="cap">저축은행 기본금리 <b>중앙값</b>. 조회 조건과 무관한
-        전체 집계이며 아래 표와 모집단이 다릅니다.
+      <p class="cap">저축은행·새마을금고·신협·지역농축협을 합친 기본금리
+        <b>중앙값</b>입니다. 조회 조건과 무관한 전체 집계이며 아래 표와
+        모집단이 다릅니다.
         최고값이 아니라 중앙값을 쓰는 이유는, 우대 조건이 붙은 한 건이 그
         권역 전체를 대표해 버리는 것을 막기 위해서입니다.
         <b>부산 막대를 누르면 구·군으로 펼쳐집니다.</b></p>
@@ -710,8 +730,10 @@
             <option value="all">전체</option>
           </select>
         </span>
-        <button type="button" class="act" id="dl-view" disabled>조회 결과 CSV</button>
-        <button type="button" class="act" id="dl-json" disabled>조회 결과 JSON</button>
+        <!-- 「조회 결과」는 바로 왼쪽의 건수가 이미 말한다. 단추에 다시
+             적으면 줄이 갈린다. -->
+        <button type="button" class="act" id="dl-view" disabled>CSV</button>
+        <button type="button" class="act" id="dl-json" disabled>JSON</button>
       </span>
     </div>
   </section>
@@ -890,6 +912,14 @@
   };
   const busanOn = () => state.picked.region.has(BUSAN_SIDO);
 
+  // 우리 회사 후보. 2,000개 기관을 전부 세우면 고를 수 없어서, 실제로
+  // 쓰는 세 곳만 둔다 (2026-08-07 사용자 지정). 첫 항목이 기본값이다.
+  //
+  // 데이터에서 뽑지 않고 여기 적는다 — 목록이 수집 결과에 따라 흔들리면
+  // 어제 고른 회사가 오늘 사라진다. 대신 이번 데이터에 없는 이름은
+  // `fillMineOptions`가 콘솔에 알리고 목록에서 뺀다.
+  const MINE_CHOICES = ["고려저축은행", "예가람저축은행", "동원제일저축은행"];
+
   const MINE_KEY = "rate-monitor.mine";
   const THEME_KEY = "rate-monitor.theme";
   // localStorage는 없을 수 있다 (사생활 보호 모드, 파일 프로토콜). 없다고
@@ -952,6 +982,9 @@
         }
         const one = r.pref.replace(/\s+/g, " ").trim();
         const head = one.length > 24 ? one.slice(0, 24) + "…" : one;
+        // 칸 전체가 눌린다. 「전문」 단추만 눌리게 두면 글자 폭이 좁아
+        // 겨냥하기 어렵고, 원문을 보려는 사람은 이미 그 칸을 보고 있다.
+        // 단추는 남긴다 — 키보드로 넘길 자리와 열림/닫힘 표시가 필요하다.
         return `${esc(head)} <button type="button" data-pref="${esc(r._i)}">`
           + `${state.open.has(r._i) ? "접기" : "전문"}</button>`;
       } },
@@ -1232,20 +1265,34 @@
   // 동점은 **경쟁 순위**(1,2,2,4)다. 평균 순위(1,2.5,2.5,4)는 실무 보고서에
   // 옮겨 적기 어렵다.
   //
-  // 우리 회사가 여러 상품을 가지면 **최고값**을 쓴다. 그 기관이 낼 수 있는
-  // 가장 좋은 조건이 순위의 근거다.
+  // 우리 회사가 여러 상품을 가지면 **중앙값**이 대표값이다 (2026-08-07
+  // 변경. 그 전에는 최고값이었다).
+  //
+  // 최고값은 우대 조건이 붙은 상품 한 건이 그 기관 전체를 대표해 버린다 —
+  // 권역 차트에서 최고값을 안 쓰는 이유와 똑같다. 게다가 격차를 «시장
+  // 중앙값 대비»로 재는데 우리 쪽만 최고값이면 서로 다른 것을 빼는 셈이다.
+  //
+  // 최고값은 버리지 않고 `best`로 함께 낸다. 금리 분포 차트가 두 선을
+  // 나란히 긋는다 — 대표값이 어디고 가장 좋은 상품이 어디인지 둘 다 알아야
+  // 한다.
   const mineStats = (rows) => {
     if (!state.mine) return null;
     const ours = rows.filter((r) => r.institution === state.mine);
     if (!ours.length) return { missing: true };
     const values = ours.map(rateOf).filter((v) => v != null);
     if (!values.length) return { missing: true };
-    const value = Math.max(...values);
+    const value = median(values);
+    const best = Math.max(...values);
     const mid = median(rows.map(rateOf));
     return {
       missing: false,
-      row: ours.find((r) => rateOf(r) === value) || ours[0],
+      // 고정할 행은 **가장 좋은 상품**이다. 중앙값과 정확히 같은 상품이
+      // 없을 수 있고(짝수 개면 두 값의 평균이다), 표에 세울 한 줄로는
+      // 그 기관이 낼 수 있는 최선이 더 쓸모 있다.
+      row: ours.find((r) => rateOf(r) === best) || ours[0],
       value,
+      best,
+      count: values.length,
       rank: rows.filter((r) => rateOf(r) != null && rateOf(r) > value).length + 1,
       total: rows.filter((r) => rateOf(r) != null).length,
       gap: mid == null ? null : value - mid,
@@ -1320,13 +1367,17 @@
   const rowHtml = (r, extra) => {
     const cells = COLS.map((c) => {
       let html = c.cell(r);
+      // 우대조건 칸은 칸째로 누른다. 원문이 있는 행에만 붙인다 — 없는 행에
+      // 손 모양 커서를 띄우면 눌러도 아무 일이 없어 고장으로 읽힌다.
+      const open = c.key === "pref" && r.pref
+        ? ` data-pref-cell="${esc(r._i)}"` : "";
       // 고정한 행에만 표식과 순위를 붙인다. 본문에 붙이면 정렬 결과와
       // 순위가 서로 다른 말을 하게 된다.
       if (extra && c.key === "institution") {
         html = `<span class="pin">📌</span>${html}`
           + `<span class="rank-chip">${extra.rank}위</span>`;
       }
-      return `<td class="${c.cls || ""}">${html}</td>`;
+      return `<td class="${c.cls || ""}"${open}>${html}</td>`;
     }).join("");
     return `<tr class="${extra ? "mine pinned" : ""}">${cells}</tr>`;
   };
@@ -1350,16 +1401,20 @@
     renderAvg();
     renderRank(stats);
 
-    const rows = slice.map((r) => {
-      const row = rowHtml(r, null);
-      // 펼친 행만 원문을 붙인다. 전부 붙이면 표를 훑을 수 없다.
+    // 펼친 행만 원문을 붙인다. 전부 붙이면 표를 훑을 수 없다.
+    //
+    // **고정 행도 같은 함수를 거친다.** 예전에는 고정 행만 따로 그려서,
+    // 우리 회사 우대조건은 눌러도 안 펼쳐졌다 — 정작 제일 궁금한 행이었다.
+    const withDetail = (r, extra) => {
+      const row = rowHtml(r, extra);
       if (!state.open.has(r._i) || !r.pref) return row;
       return row + `<tr class="detail"><td colspan="${COLS.length}">`
         + `${esc(r.pref)}</td></tr>`;
-    });
+    };
+    const rows = slice.map((r) => withDetail(r, null));
     // 정렬과 무관하게 맨 위 한 줄이다. 87건 안에서 스크롤로 찾게 하면
     // 이 도구를 여는 이유가 사라진다.
-    if (pinned) rows.unshift(rowHtml(pinned, stats));
+    if (pinned) rows.unshift(withDetail(pinned, stats));
 
     $("rows").innerHTML = rows.length
       ? rows.join("")
@@ -1431,6 +1486,7 @@
     const sx = (v) => PL + ((v - lo) / (hi - lo)) * iw;
     const inBin = (b, v) => v != null && v >= b.lo && v < b.hi;
     const ours = stats && !stats.missing ? stats.value : null;
+    const best = stats && !stats.missing ? stats.best : null;
 
     let s = "";
     [0, Math.round(maxN / 2), maxN].forEach((v) => {
@@ -1463,10 +1519,20 @@
                    { anchor: "middle", size: 9.5, fill: "#fff", weight: 700 });
     }
     if (ours != null) {
-      // 이 선이 이 차트를 만드는 유일한 이유다.
+      // 우리 회사 선 둘. **대표값은 중앙값이고 최고값은 참고다.**
+      // 최고값만 그으면 우대 상품 한 건이 그 기관 전체를 대표해 버린다.
+      // 둘 다 같은 색(--crit)이라 같은 대상인 줄 안다 — 굵기와 점선으로
+      // 어느 쪽이 대표값인지 가른다.
+      if (best != null && Math.abs(best - ours) > 1e-9) {
+        s += `<line x1="${sx(best)}" y1="${PT + 20}" x2="${sx(best)}" y2="${PT + ih}"`
+          + ` stroke="${css("--crit")}" stroke-width="1.5"`
+          + ` stroke-dasharray="3 3" opacity=".75"/>`;
+        s += svgText(sx(best), PT + 16, `최고 ${best.toFixed(2)}%`,
+                     { anchor: "middle", size: 9, fill: css("--crit"), weight: 700 });
+      }
       s += `<line x1="${sx(ours)}" y1="${PT - 4}" x2="${sx(ours)}" y2="${PT + ih}"`
         + ` stroke="${css("--crit")}" stroke-width="2.5"/>`;
-      const text = `${state.mine} ${ours.toFixed(2)}%`;
+      const text = `${state.mine} 중앙값 ${ours.toFixed(2)}%`;
       const lw = text.length * 8 + 14;
       const lx = Math.max(PL + lw / 2, Math.min(W - PR - lw / 2, sx(ours)));
       s += `<rect x="${lx - lw / 2}" y="${PT + ih + 2}" width="${lw}" height="16"`
@@ -1479,7 +1545,7 @@
     $("hist").innerHTML = s;
     $("hist").setAttribute("aria-label",
       `${label} 분포. 조건 내 중앙값 ${mid == null ? "없음" : mid.toFixed(2) + "%"}`
-      + (ours == null ? "" : `, ${state.mine} ${ours.toFixed(2)}%`));
+      + (ours == null ? "" : `, ${state.mine} 중앙값 ${ours.toFixed(2)}%`));
 
     cap.textContent = `조건에 맞는 ${num(values.length)}건의 ${label}를 `
       + `${HIST_STEP}%p 구간으로 묶은 것입니다. 축은 상하위 2%를 뺀 범위입니다.`;
@@ -1490,7 +1556,10 @@
             + `조건 내 중앙값 ${mid.toFixed(2)}% — 이 구간</span>`)
       + (ours != null
           ? `<span><i style="background:${css("--crit")}"></i>`
-            + `<b>${esc(state.mine)} ${ours.toFixed(2)}%</b> — 이 구간</span>`
+            + `<b>${esc(state.mine)} 중앙값 ${ours.toFixed(2)}%</b>`
+            + ` (상품 ${num(stats.count)}건) — 이 구간</span>`
+            + (best != null && Math.abs(best - ours) > 1e-9
+                ? `<span>같은 곳의 최고 ${best.toFixed(2)}% — 점선</span>` : "")
           : (state.mine
               ? `<span>${esc(state.mine)}은(는) 이 조건 안에 없어 표시하지 않습니다</span>`
               : "<span>우리 회사를 지정하면 세로선이 표시됩니다</span>"));
@@ -1567,27 +1636,32 @@
   // 붙은 상품이 단 한 건만 있어도 통째로 끌어올린다 — 실측에서 새마을금고
   // 직장금고 하나 때문에 부산 강서구가 10.00%로 찍혔다. 그건 권역의 대표값이
   // 아니라 «가장 튄 한 건»이다.
-  const REG_SECTOR = "savings_bank";
+  // **2금융권 넷을 합친 값이다** (2026-08-07 변경. 그 전에는 저축은행만).
+  //
+  // 제목이 «저축은행»이면 저축은행만 들어간 것으로 읽히는데, 이 화면은
+  // 2금융권 조회 도구다. 합산은 발행에서 원래 관측으로 한 번에 낸다 —
+  // 업권별 중앙값 넷을 다시 평균 내면 저축은행 6,666건과 제주 농·축협
+  // 322건이 같은 무게로 들어간다.
+  const REG_SECTOR = "second_tier";
   const REG_MIN_N = 30;      // 이보다 적으면 «중앙값»이라 부를 표본이 아니다
   let regionView = "national";
 
   const regionBars = (stats) => {
-    const national = (data.by_region || [])
+    const rows = (data.by_region || [])
       .filter((r) => r.sector === REG_SECTOR && r.base_p50 != null);
-    const busan = (data.by_district || [])
-      .filter((r) => r.sector === REG_SECTOR && r.sido === BUSAN_SIDO
-        && r.base_p50 != null)
-      .map((r) => ({ name: r.sigungu, v: Number(r.base_p50),
-                     n: r.observations, inst: r.institutions }));
     const D = (regionView === "national"
-      ? national.map((r) => ({ name: r.region, v: Number(r.base_p50),
-                               n: r.observations, inst: r.institutions,
-                               mine: r.region === BUSAN_SIDO }))
-      : busan).slice().sort((a, b) => b.v - a.v);
+      ? rows.filter((r) => !r.district)
+          .map((r) => ({ name: r.region, v: Number(r.base_p50),
+                         n: r.observations, inst: r.institutions,
+                         mine: r.region === BUSAN_SIDO }))
+      : rows.filter((r) => r.region === BUSAN_SIDO && r.district)
+          .map((r) => ({ name: r.district, v: Number(r.base_p50),
+                         n: r.observations, inst: r.institutions })))
+      .slice().sort((a, b) => b.v - a.v);
 
     $("reg-title").innerHTML =
       (regionView === "national" ? "권역별" : "부산 구·군별")
-      + ' 저축은행 기본금리 중앙값 <span class="badge">전체 기준</span>';
+      + ' 2금융권 기본금리 중앙값 <span class="badge">전체 기준</span>';
     if (!D.length) {
       $("reg").innerHTML = "";
       $("reg-legend").innerHTML = "<span>권역별 집계가 아직 없습니다.</span>";
@@ -1645,7 +1719,7 @@
     });
     if (ours != null) {
       // 이 선 하나로 «전 권역 중앙값보다 낮다/높다»가 즉시 읽힌다.
-      const text = `${state.mine} ${ours.toFixed(2)}%`;
+      const text = `${state.mine} 중앙값 ${ours.toFixed(2)}%`;
       const lw = text.length * 9 + 16;
       const up = sy(ours) > PT + 26;   // 축 위쪽에 붙으면 배지가 잘린다
       s += `<line x1="${PL}" y1="${sy(ours)}" x2="${W - PR}" y2="${sy(ours)}"`
@@ -1660,8 +1734,8 @@
                  { size: 9.5 });
     $("reg").innerHTML = s;
     $("reg").setAttribute("aria-label",
-      `${regionView === "national" ? "권역" : "부산 구·군"}별 저축은행 `
-      + "12개월 기본금리 중앙값 막대 그래프");
+      `${regionView === "national" ? "권역" : "부산 구·군"}별 2금융권 `
+      + "기본금리 중앙값 막대 그래프");
 
     $("reg-legend").innerHTML =
       `<span><i style="background:${css("--accent")}"></i>기본금리 중앙값</span>`
@@ -1669,7 +1743,7 @@
           ? `<span><i style="background:${css("--accent-ink")}"></i>부산</span>` : "")
       + (ours != null
           ? `<span><i style="background:${css("--crit")}"></i>`
-            + `<b>${esc(state.mine)} ${ours.toFixed(2)}%</b> 기준선</span>`
+            + `<b>${esc(state.mine)} 중앙값 ${ours.toFixed(2)}%</b> 기준선</span>`
           : "")
       + (regionView === "national" ? ""
           : '<button type="button" class="back" id="reg-back">← 전국으로 돌아가기</button>');
@@ -1730,9 +1804,12 @@
     });
     if (p.get("basis") === "max") state.basis = "max";
     if (p.get("dir") === "1") state.dir = 1;
-    // 우리 회사는 주소가 저장소보다 우선이다. 링크를 받은 사람은 보낸
-    // 사람이 보던 화면을 봐야 한다.
-    state.mine = p.get("mine") || store.get(MINE_KEY) || null;
+    // 우리 회사는 주소 → 저장소 → 기본값 순이다. 링크를 받은 사람은 보낸
+    // 사람이 보던 화면을 봐야 하고, 처음 오는 사람은 고르지 않아도 우리
+    // 회사가 잡혀 있어야 한다. «지정 안 함»을 고른 것은 저장소에 빈
+    // 문자열로 남아 기본값으로 되돌아가지 않는다.
+    const saved = store.get(MINE_KEY);
+    state.mine = p.get("mine") || (saved === null ? MINE_CHOICES[0] : saved) || null;
   };
 
   // ── 조건에 맞는 것만 내려받기 ────────────────────────────────────
@@ -2021,34 +2098,29 @@
   // 같은 이름이 여러 업권에 걸리면 라벨에 업권을 붙여 어느 쪽인지 밝힌다 —
   // 안 붙이면 «대연»이 금고인지 신협인지 알 수 없다.
   const fillMineOptions = () => {
-    const sectors = new Map();
-    ALL.forEach((r) => {
-      if (!r.institution) return;
-      if (!sectors.has(r.institution)) sectors.set(r.institution, new Set());
-      sectors.get(r.institution).add(r.sector);
-    });
-    const names = [...sectors.keys()].sort((a, b) => a.localeCompare(b, "ko"));
-    // 업권은 **겹칠 때만** 붙인다. 늘 붙이면 2,000줄이 전부 괄호를 달아
-    // 이름을 읽기 어려워진다.
-    const label = (n) => {
-      const s = sectors.get(n);
-      if (s.size < 2) return n;
-      return `${n} (${[...s].map((x) => SECTOR_KO[x] || x).join("·")})`;
-    };
+    const have = new Set(ALL.map((r) => r.institution));
+    // 데이터에 없는 이름은 고르게 두지 않는다. 고르면 «조회 조건 안에
+    // 없습니다»만 뜨는데, 조건 때문인지 수집이 덜 된 것인지 알 수 없다.
+    const names = MINE_CHOICES.filter((n) => have.has(n));
+    const missing = MINE_CHOICES.filter((n) => !have.has(n));
     // «지정 안 함»을 반드시 둔다. 지정 상태를 못 빠져나오면 안 된다.
-    $("mine").innerHTML = '<option value="">지정 안 함</option>'
-      + names.map((n) =>
-          `<option value="${esc(n)}"${n === state.mine ? " selected" : ""}>`
-          + `${esc(label(n))}</option>`).join("");
+    $("mine").innerHTML = names.map((n) =>
+        `<option value="${esc(n)}"${n === state.mine ? " selected" : ""}>`
+        + `${esc(n)}</option>`).join("")
+      + '<option value="">지정 안 함</option>';
     $("mine").disabled = false;
-    // 저장된 이름이 이번 데이터에 없을 수 있다(기관이 사라지거나 이름이
-    // 바뀌면). 없는 값을 남겨두면 «조건 안에 없다»가 영영 뜬다.
-    if (state.mine && !sectors.has(state.mine)) state.mine = null;
+    if (state.mine && !have.has(state.mine)) state.mine = null;
+    // 목록에 적어 뒀는데 이번 수집에 안 들어온 곳은 조용히 빼지 않는다.
+    if (missing.length) {
+      console.warn("우리 회사 후보 중 이번 데이터에 없는 곳:", missing);
+    }
   };
 
   $("mine").addEventListener("change", (e) => {
     state.mine = e.target.value || null;
-    store.set(MINE_KEY, state.mine);
+    // 빈 문자열로 저장한다. 지우면 «지정 안 함»이 다음 방문에 기본값으로
+    // 되돌아가서, 껐는데 다시 켜져 있는 꼴이 된다.
+    store.set(MINE_KEY, e.target.value);
     // 카드·순위줄·표 고정행·차트 둘이 **한꺼번에** 바뀐다. 한 군데라도
     // 안 따라오면 어느 게 지금 값인지 알 수 없다. render()가 전부를 다시 그린다.
     render();
@@ -2173,9 +2245,12 @@
     redraw();
   });
   $("rows").addEventListener("click", (e) => {
-    const b = e.target.closest("[data-pref]");
-    if (!b) return;
-    const key = Number(b.dataset.pref);
+    // 단추를 눌렀든 칸을 눌렀든 같은 행을 편다. 단추가 칸 안에 있으므로
+    // 단추를 먼저 찾는다 — 순서가 바뀌면 칸이 두 번 토글돼 안 열린다.
+    const hit = e.target.closest("[data-pref], [data-pref-cell]");
+    if (!hit) return;
+    const key = Number(hit.dataset.pref ?? hit.dataset.prefCell);
+    if (!Number.isFinite(key)) return;
     if (state.open.has(key)) state.open.delete(key); else state.open.add(key);
     render();
   });
