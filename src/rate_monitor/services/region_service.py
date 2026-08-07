@@ -184,7 +184,9 @@ def supports_district(basis: GeoBasis | str) -> bool:
     return GeoBasis(basis) in DISTRICT_CAPABLE
 
 
-def region_fields(source_id: str, address: str | None) -> RegionFields:
+def region_fields(
+    source_id: str, address: str | None, *, query_region: str | None = None
+) -> RegionFields:
     """기관·점포 행에 넣을 지역 네 칸. 규칙은 여기 한 곳에만 있다.
 
     수집할 때(`entity_service`)와 옛 데이터를 채울 때(마이그레이션)가 같은
@@ -220,8 +222,32 @@ def region_fields(source_id: str, address: str | None) -> RegionFields:
     >>> f = region_fields("kfcc", "전남광주통합특별시 여수시 쌍봉로 23-2")
     >>> f.sido, f.sigungu, f.confidence
     ('전남광주통합특별시', '여수시', 'high')
+
+    ── 조회조건에서 오는 지역 (2026-08-07) ─────────────────────────────
+
+    신협은 주소를 아예 주지 않는다. 대신 **어느 지역으로 조회했는지**는 안다.
+    그것도 지역 정보다 — "그 지역에서 영업하는 조합"이라는 뜻이다. 주소가
+    아니므로 시군구는 끝까지 비우고, `geo_basis`가 근거를 밝힌다.
+
+    >>> f = region_fields("cu", None, query_region="부산")
+    >>> f.sido, f.sigungu, f.basis.value, f.confidence
+    ('부산', None, 'source_query_region', 'medium')
+
+    조회조건이 근거가 아닌 원천에는 주지 않는다. 주소를 주는 원천에 조회
+    지역을 섞으면 어느 쪽이 답인지 알 수 없게 된다.
+
+    >>> region_fields("kfcc", None, query_region="부산").sido is None
+    True
+
+    화면이 시도로 안 나누는 묶음은 그대로 살린다. 한쪽 이름을 붙이면
+    나머지 지역이 거짓으로 그 지역에 들어간다 (신협 코드 18 = 광주·전남).
+
+    >>> region_fields("cu", None, query_region="광주·전남").sido
+    '광주·전남'
     """
     basis = geo_basis_for(source_id)
+    if basis is GeoBasis.SOURCE_QUERY_REGION and address is None and query_region:
+        return RegionFields(query_region, None, basis, "medium")
     sido, sigungu = split_address(address)
     if not looks_like_sido(sido):
         # 지역이 아니면 지역 자리에 넣지 않는다. 주소 원문은 `address` 칸에

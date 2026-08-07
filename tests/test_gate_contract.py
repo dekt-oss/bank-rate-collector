@@ -117,7 +117,8 @@ def test_the_schedule_is_every_weekday_at_two_am_kst() -> None:
     loaded = yaml.safe_load(workflow.read_text(encoding="utf-8"))
     triggers = loaded.get("on", loaded.get(True))
     crons = [s["cron"] for s in triggers["schedule"]]
-    assert crons == ["0 17 * * 0-4"]
+    # 02:00 메인, 06:00 새마을금고. 나눈 이유는 아래 테스트가 적는다.
+    assert crons == ["0 17 * * 0-4", "0 21 * * 0-4"]
 
     # 적어 둔 환산이 실제로 맞는지 되짚는다. 평일은 걸리고 주말은 안 걸린다.
     kst = dt.timezone(dt.timedelta(hours=9))
@@ -128,6 +129,64 @@ def test_the_schedule_is_every_weekday_at_two_am_kst() -> None:
         caught = 0 <= (utc.weekday() + 1) % 7 <= 4
         weekday = local.weekday() < 5
         assert caught is weekday, f"{local:%m-%d %a}가 어긋난다"
+
+
+def test_the_two_crons_split_the_work_so_neither_run_hits_six_hours() -> None:
+    """정기 수집을 둘로 나눈다. 한 작업에 다 담으면 6시간 한도에서 죽는다.
+
+    실측(run 23)으로 계산하면 새마을금고 전국 2시간 6분 + 농·축협 전국
+    3시간 37분 + 나머지 18분 = 6시간 3분이다. GitHub은 작업당 6시간에서
+    **경고 없이 죽인다** — 세 시간 반을 받아 둔 것까지 통째로 잃는다.
+
+    나누는 장치는 크론 문자열 비교다. 크론은 입력을 못 실어 보내기 때문에
+    다른 손잡이가 없다. 그래서 `env`의 문자열과 `schedule`의 값이 **글자까지
+    같아야** 한다 — 한 글자만 어긋나도 둘 다 false가 되어 한 실행이 전부를
+    받으려 하고, 그때는 조용히 6시간에서 죽는다.
+    """
+    workflow = _workflow()
+    triggers = workflow.get("on", workflow.get(True))
+    crons = {s["cron"] for s in triggers["schedule"]}
+    env = workflow["jobs"]["collect"]["env"]
+
+    for key in ("KFCC_ONLY", "SKIP_KFCC_THIS_RUN"):
+        quoted = [c for c in crons if f"'{c}'" in env[key]]
+        assert len(quoted) == 1, f"{key}가 가리키는 크론이 schedule에 없다: {env[key]}"
+
+    # 서로 다른 크론을 봐야 한다. 같은 것을 보면 한쪽 실행이 통째로 빈다.
+    assert env["KFCC_ONLY"] != env["SKIP_KFCC_THIS_RUN"]
+
+
+def test_each_scheduled_run_collects_a_different_half() -> None:
+    """02:00은 새마을금고 말고 전부, 06:00은 새마을금고만."""
+    steps = _workflow()["jobs"]["collect"]["steps"]
+    collectors = {
+        s["name"]: str(s.get("if") or "")
+        for s in steps if str(s.get("name", "")).startswith("Collect ")
+    }
+    assert collectors, "수집 단계를 찾지 못했다"
+
+    kfcc = collectors.pop("Collect KFCC")
+    assert "env.SKIP_KFCC_THIS_RUN != 'true'" in kfcc
+    assert "env.KFCC_ONLY" not in kfcc, "새마을금고가 자기 실행에서 빠지면 안 된다"
+
+    for name, cond in collectors.items():
+        assert "env.KFCC_ONLY != 'true'" in cond, f"{name}이 새마을금고 실행에서도 돈다"
+        assert "SKIP_KFCC_THIS_RUN" not in cond, f"{name}이 메인 실행에서 빠진다"
+
+
+def test_the_scope_comes_from_config_not_from_a_second_default() -> None:
+    """수집 범위를 정하는 곳은 config/regions.yaml 하나다.
+
+    예전에는 `--scope "${{ inputs.kfcc_scope || '부산' }}"`이었다. 정기
+    수집에는 `inputs`가 통째로 비어서 **항상 뒤의 '부산'이 갔다** — 입력
+    기본값도 주석도 전국인데 크론으로 도는 실제 수집은 부산만 받았다.
+    기본값이 두 군데 있으면 반드시 어긋나고, 어긋난 쪽이 조용히 이긴다.
+    """
+    steps = _workflow()["jobs"]["collect"]["steps"]
+    for name in ("Collect KFCC", "Collect NH local"):
+        body = next(s for s in steps if s.get("name") == name)["run"]
+        assert "${SCOPE:+--scope" in body, f"{name}: 값이 있을 때만 붙여야 한다"
+        assert "||" not in body, f"{name}: 워크플로에 두 번째 기본값이 남아 있다"
 
 
 def test_a_merge_to_main_republishes_the_screen_by_itself() -> None:
