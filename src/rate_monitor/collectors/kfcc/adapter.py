@@ -164,11 +164,12 @@ class KfccAdapter:
         # 버려졌고 **DB에 아예 안 생겼다** — 2026-08-06 실행에서 경남 186장,
         # 관측 7,274건이 그렇게 사라졌는데 오류도 경고도 0이었다.
         #
-        # 이제 유일성이 `(run_id, relative_path)`다 (마이그레이션
-        # `f27b5e9c1a48`). 요청이 다르면 내용이 같아도 들어간다.
+        # 이제 버리지 않는다. `save_raw_artifacts`가 같은 바이트끼리 원본
+        # 행 **하나를 함께 가리키게** 해서 제약을 지킨다 — 조회는 하나도
+        # 안 사라진다.
         #
         # 대신 얼마나 되풀이되는지 세어 남기고, 한 지역이 통째로 같은 응답을
-        # 주는 수준이면 멈춘다.
+        # 주는 수준이면 그만 받는다. **받은 것은 버리지 않고 돌려준다.**
         guard = RepeatGuard()
         requests_made = 0
 
@@ -207,6 +208,11 @@ class KfccAdapter:
 
             # 2단계: 금고별 금리
             for gmgo_cd, row in outlets.items():
+                # 원천이 조회를 무시하고 있다면 더 받아 봐야 같은 답이다.
+                # **그만 받되 지금까지 받은 것은 그대로 돌려준다** — 두 시간을
+                # 받고 나서 통째로 버리면 원래 고치려던 손실과 같은 일이 된다.
+                if guard.tripped:
+                    break
                 for group in groups:
                     if requests_made >= MAX_REQUESTS:
                         raise SourceBlockedError(
@@ -218,7 +224,13 @@ class KfccAdapter:
                     )
                     requests_made += 1
                     await asyncio.sleep(REQUEST_INTERVAL_SECONDS)
-                    guard.observe(body, where=f"gmgoCd={gmgo_cd} gubuncode={group}")
+                    # 축은 상품구분이다. 금고는 바뀌고 구분은 고정인 흐름
+                    # 안에서 봐야 "이 지역이 통째로 같은 답을 준다"가 보인다.
+                    guard.observe(
+                        body,
+                        where=f"gmgoCd={gmgo_cd} gubuncode={group}",
+                        stream=group,
+                    )
 
                     artifacts.append(
                         self._artifact(
@@ -239,6 +251,7 @@ class KfccAdapter:
                         )
                     )
         self.fetch_note = guard.summary()
+        self.fetch_alert = guard.tripped
         return artifacts
 
     def _artifact(self, body: bytes, *, filename: str, meta: dict) -> RawArtifactData:

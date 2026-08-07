@@ -158,8 +158,8 @@ class CuAdapter:
         artifacts: list[RawArtifactData] = []
         # **바이트가 같아도 버리지 않는다.**
         #
-        # 유일성이 `(run_id, relative_path)`로 바뀌었다 (마이그레이션
-        # `f27b5e9c1a48`). 조회 인자가 다르면 내용이 같아도 별개 관측이다 —
+        # `save_raw_artifacts`가 같은 바이트끼리 원본 행 하나를 함께
+        # 가리키게 해서 제약을 지킨다 — 조회는 하나도 안 사라진다.
         # 새마을금고에서 이 구분을 안 해 경남 186장이 통째로 사라졌다.
         guard = RepeatGuard()
         requests_made = 0
@@ -197,7 +197,9 @@ class CuAdapter:
                             await asyncio.sleep(REQUEST_INTERVAL_SECONDS)
 
                             guard.observe(
-                                raw, where=f"{screen} sido={sido} term={term} p{page}"
+                                raw,
+                                where=f"{screen} sido={sido} term={term} p{page}",
+                                stream=f"{screen}/{sido}",
                             )
                             artifacts.append(
                                 self._artifact(
@@ -221,6 +223,7 @@ class CuAdapter:
                                 break
                             page += 1
         self.fetch_note = guard.summary()
+        self.fetch_alert = guard.tripped
         return artifacts
 
     def _resolve_sidos(self, request: CollectionRequest) -> list[str]:

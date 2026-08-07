@@ -15,7 +15,6 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
 from rate_monitor.collectors.base import SchemaChangedError, SourceBlockedError
-from rate_monitor.collectors.repeat_guard import RepeatedResponseError
 from rate_monitor.db.models import (
     CollectionRun,
     CollectionRunStat,
@@ -88,9 +87,9 @@ def save_raw_artifacts(
     # `RawArtifactData`로 하므로 금고별 맥락(`request_meta`)이 정확히
     # 유지되고, 관측은 자기 내용을 담은 원본 행을 가리킨다.
     #
-    # 공유된 행의 `request_meta_json`은 **첫 조회의 것**이다. 그 한계는
-    # 남는다 — 어느 조회들이 같은 답을 받았는지는 실행 기록의 되풀이 요약과
-    # 디스크의 파일이 말한다.
+    # 공유된 행에는 **함께 가리키는 조회를 전부 적는다** (`shared_with`).
+    # 안 적으면 그 행이 첫 조회만 가리켜서, 뒤엣 금고의 관측이 남의 이름을 단
+    # 원본을 가리키게 된다 — 추적이 바로 이 사고의 경우에만 끊긴다.
     saved: list[RawArtifact] = []
     by_digest: dict[str, RawArtifact] = {}
     for artifact in artifacts:
@@ -100,6 +99,10 @@ def save_raw_artifacts(
 
         shared = by_digest.get(digest)
         if shared is not None:
+            # JSON 칸은 제자리 수정이 SQLAlchemy에 안 잡힌다. 새 dict를 넣는다.
+            meta = dict(shared.request_meta_json)
+            meta["shared_with"] = [*meta.get("shared_with", []), artifact.filename]
+            shared.request_meta_json = meta
             saved.append(shared)
             continue
 
@@ -328,11 +331,6 @@ async def collect_source(
 
     try:
         artifacts = await adapter.fetch(request)
-    except RepeatedResponseError as exc:
-        # 원천이 조회 인자를 무시하고 같은 답을 되풀이한다. 차단과 다르다 —
-        # 사람이 원본을 봐야 하는 상황이므로 실패로 남긴다.
-        _finalize_failure(factory, run_id, RunStatus.FAILED, str(exc))
-        return CollectionRunResult(run_id, RunStatus.FAILED, 0, 0, 0, 0, 0, str(exc))
     except SourceBlockedError as exc:
         _finalize_failure(factory, run_id, RunStatus.BLOCKED, str(exc))
         return CollectionRunResult(run_id, RunStatus.BLOCKED, 0, 0, 0, 0, 0, str(exc))
@@ -448,6 +446,25 @@ def _process(
                 valid += page_valid
                 errors += page_errors
 
+            # 원천이 조회를 무시하고 같은 답을 되풀이했다.
+            #
+            # **받은 것은 그대로 저장한다.** 두 시간을 받고 나서 통째로 버리면
+            # 원래 고치려던 손실과 같은 일이 된다. 대신 실행을 성공으로
+            # 끝내지 않고 검수항목을 남긴다 — 경남이 사라졌을 때 없던 것이
+            # 바로 이것이다.
+            alert = getattr(adapter, "fetch_alert", "")
+            if alert:
+                session.add(
+                    ReviewItem(
+                        run_id=run.id,
+                        issue_type="repeated_response",
+                        severity="error",
+                        message=alert,
+                        payload_json={"source_id": adapter.source_id},
+                        created_at=now,
+                    )
+                )
+
             for filename, message in schema_failures:
                 session.add(
                     ReviewItem(
@@ -479,7 +496,10 @@ def _process(
 
             # 구조가 어긋나 건너뛴 페이지가 있으면 success가 아니다.
             # 조용히 success로 끝나면 그 금고가 통째로 빠진 것을 아무도 모른다.
-            complete = errors == 0 and not schema_failures
+            #
+            # 응답 되풀이도 마찬가지다. 경남 186장이 사라진 실행은 오류 0으로
+            # 끝났고, 상태도 검수항목도 그 사실을 말하지 않았다.
+            complete = errors == 0 and not schema_failures and not alert
             run.status = RunStatus.SUCCESS if complete else RunStatus.PARTIAL
             run.finished_at = _utcnow()
             run.raw_count = len(artifacts)
