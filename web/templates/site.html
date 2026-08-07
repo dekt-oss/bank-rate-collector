@@ -519,6 +519,11 @@
     border-left-color: var(--line); color: var(--ink-3);
   }
   .rankline b { font-family: var(--mono); font-size: 12.5px; }
+  /* 분모의 기준. 옆 건수와 다른 수가 나오는 이유를 여기가 말한다. */
+  .rankline .on {
+    font-size: 10.5px; opacity: .8;
+    border-right: 1px solid currentColor; padding-right: 6px;
+  }
 
   /* ── 우리 회사 행 ─────────────────────────────────────────────── */
   tr.mine td { background: var(--accent-bg); font-weight: 600; }
@@ -1303,6 +1308,10 @@
     };
   };
 
+  // 지금 우리 회사 수치가 어느 모집단에서 나왔는가. 화면 여러 곳이
+  // 같은 말을 써야 해서 여기서 한 번만 만든다.
+  const basisLabel = () => (noTermOrTypePicked() ? "12개월 정기예금" : "");
+
   const deltaHtml = (v) => {
     if (v == null) return "";
     const cls = v < 0 ? "dn" : (v > 0 ? "up" : "");
@@ -1364,7 +1373,10 @@
       return;
     }
     el.className = "rankline";
-    el.innerHTML = `${esc(state.mine)} <b>${stats.rank}위</b> / ${num(stats.total)}`
+    // **분모의 기준을 적는다.** 옆의 건수(133,849)와 다른 수(16,044)가
+    // 나오는데 이유가 없으면 둘 중 뭐가 맞는지 알 수 없다.
+    el.innerHTML = (basisLabel() ? `<span class="on">${esc(basisLabel())}</span> ` : "")
+      + `${esc(state.mine)} <b>${stats.rank}위</b> / ${num(stats.total)}`
       + (stats.gap == null ? "" : ` · 중앙값 대비 ${deltaHtml(stats.gap)}`);
   };
 
@@ -1389,7 +1401,12 @@
   const render = () => {
     current = ALL.filter(matches).sort(cmp);
     const limit = state.shown == null ? current.length : state.shown;
-    const stats = mineStats(current);
+    // 우리 회사 수치는 화면 전체가 한 잣대를 쓴다 (screenBasis 주석 참고).
+    //
+    // 조건을 안 걸었으면 12개월 정기예금이다. 정기예금 1개월부터 적금
+    // 36개월까지 한 줄로 세운 «34,802위 / 133,849건»은 사실 아무것도
+    // 말해주지 않았다 — 서로 다른 상품군의 순위였다.
+    const stats = mineStats(screenBasis().rows);
     // 고정할 행은 본문에서 뺀다. 같은 행이 두 번 보이면 어느 쪽이 진짜인지
     // 알 수 없다.
     const pinned = stats && !stats.missing ? stats.row : null;
@@ -1442,6 +1459,24 @@
   // **색은 CSS 변수에서 읽는다.** SVG에 색을 박으면 다크모드에서 안 따라온다.
   const css = (n) =>
     getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
+  // ── 차트 폭은 화면에서 읽는다 ────────────────────────────────────
+  //
+  // viewBox 폭을 1160으로 못박아 두면 좁은 화면에서 그만큼 축소된다.
+  // 모바일 실측(390px 뷰포트)에서 권역 차트가 배율 0.288로 눌려 글자가
+  // **2.7~3.3px**이 됐다 — 본문 14.5px의 5분의 1이라 읽을 수가 없다.
+  //
+  // 실제 폭을 viewBox 폭으로 쓰면 배율이 1이라 `font-size`가 곧 픽셀이다.
+  // 폭이 바뀌면 다시 그려야 하므로 아래에 resize를 건다.
+  const chartWidth = (id, fallback) => {
+    const box = $(id).parentElement;
+    const w = box ? box.clientWidth - 30 : 0;   // 카드 좌우 여백
+    return w > 200 ? Math.round(w) : fallback;
+  };
+  const setBox = (id, w, h) => $(id).setAttribute("viewBox", `0 0 ${w} ${h}`);
+  // 좁은 화면에서는 배치를 바꾼다. 세로 막대 아홉을 340px에 세우면 막대당
+  // 37px이라 «인천·경기»가 안 들어간다.
+  const NARROW = 560;
   const svgText = (x, y, s, opt = {}) =>
     `<text x="${x}" y="${y}" font-size="${opt.size || 10}"`
     + ` text-anchor="${opt.anchor || "start"}" fill="${opt.fill || css("--ink-3")}"`
@@ -1469,18 +1504,39 @@
   const noTermOrTypePicked = () =>
     !state.picked.term.size && !state.picked.type.size
     && state.tmin == null && state.tmax == null;
+  const twelveMonthDeposits = (rows) =>
+    rows.filter((r) => r.type === HIST_TYPE && r.term === HIST_TERM);
 
-  const histogram = (stats) => {
-    // 좁힌 집합을 쓰면 우리 회사 선도 여기서 다시 낸다. 전체에서 낸 값을
-    // 좁힌 그림에 얹으면 선이 분포 밖에 서거나 «이 구간»이 딴 칸을 가리킨다.
-    const narrowed = noTermOrTypePicked();
-    const rows = narrowed
-      ? current.filter((r) => r.type === HIST_TYPE && r.term === HIST_TERM)
-      : current;
+  // ── 우리 회사 수치는 한 곳에서 정한다 ────────────────────────────
+  //
+  // 화면 세 곳(참고카드·금리 분포·권역 기준선)이 모두 «고려저축은행
+  // 중앙값»이라고 적는데, 각자 다른 모집단에서 내면 세 숫자가 달라진다.
+  // 실제로 카드 3.00%, 분포 3.90%, 권역선 3.00%가 동시에 떴다.
+  //
+  // **권역 차트가 제일 나빴다.** 막대는 12개월 정기예금 중앙값(3.20~3.50%)
+  // 인데 기준선만 전체 기준 3.00%라, 서로 다른 것을 비교해 «우리가 전
+  // 권역보다 낮다»고 보였다. 12개월로 재면 3.90%라 정반대다.
+  //
+  // 그래서 기준 집합을 여기서 한 번만 정한다.
+  //
+  //   화면 기준 (카드·순위줄·분포) — 조건을 걸면 조건, 안 걸면 12개월 정기예금
+  //   전체 기준 (권역 차트)        — 조건과 무관하게 언제나 12개월 정기예금
+  //
+  // 권역 차트가 조건을 안 따르는 것은 그 차트가 «전체 기준»이기 때문이다.
+  // 막대와 기준선이 같은 잣대여야 비교가 성립한다.
+  const screenBasis = () => {
+    if (!noTermOrTypePicked()) return { rows: current, narrowed: false };
+    const rows = twelveMonthDeposits(current);
     // 좁혔는데 남는 게 없으면 좁히지 않는다. 빈 그림보다 섞인 그림이 낫다.
-    const source = narrowed && rows.length >= HIST_MIN_ROWS ? rows : current;
-    const narrowedOn = source !== current;
-    if (narrowedOn) stats = mineStats(source);
+    return rows.length >= HIST_MIN_ROWS
+      ? { rows, narrowed: true }
+      : { rows: current, narrowed: false };
+  };
+  const wholeBasis = () => twelveMonthDeposits(ALL);
+
+  const histogram = () => {
+    const { rows: source, narrowed: narrowedOn } = screenBasis();
+    const stats = mineStats(source);
 
     const values = source.map(rateOf).filter((v) => v != null).sort((a, b) => a - b);
     const cap = $("hist-cap");
@@ -1523,7 +1579,8 @@
       if (i >= 0 && i < bins.length) bins[i].n += 1;
     });
     const mid = median(values);
-    const W = 560, H = 210, PL = 34, PR = 8, PT = 10, PB = 46;
+    const W = chartWidth("hist", 560), H = 210, PL = 34, PR = 8, PT = 10, PB = 46;
+    setBox("hist", W, H);
     const iw = W - PL - PR, ih = H - PT - PB;
     const maxN = Math.max(1, ...bins.map((b) => b.n));
     const bw = iw / bins.length;
@@ -1649,7 +1706,9 @@
     }).filter(Boolean);
     if (!rows.length) { $("terms").innerHTML = ""; return; }
 
-    const W = 560, H = 200, PL = 78, PR = 54, PT = 8, PB = 24;
+    const W = chartWidth("terms", 560), H = 200;
+    const PL = W < NARROW ? 62 : 78, PR = W < NARROW ? 42 : 54, PT = 8, PB = 24;
+    setBox("terms", W, H);
     const iw = W - PL - PR, ih = H - PT - PB;
     const hi = Math.ceil(Math.max(...rows.map((r) => r.max)));
     const sx = (v) => PL + (v / hi) * iw;
@@ -1735,58 +1794,105 @@
     const hi = Math.ceil((Math.max(...vals) + Math.max(0.02, span * 0.06)) * 100) / 100;
     // 눈금 간격도 고정하면 안 된다. 0.05 고정이면 좁은 축에서 두 줄만 남는다.
     const step = [0.01, 0.02, 0.05, 0.1, 0.2, 0.5].find((v) => (hi - lo) / v <= 7) || 1;
-    const W = 1160, H = 190, PL = 46, PR = 12, PT = 18, PB = 46;
-    const iw = W - PL - PR, ih = H - PT - PB;
-    const bw = iw / D.length;
-    const sy = (v) => PT + ih - ((v - lo) / (hi - lo)) * ih;
-
+    const W = chartWidth("reg", 1160);
+    // 좁은 화면에서는 **가로 막대**로 눕힌다. 세로 막대 아홉을 340px에
+    // 세우면 막대당 37px이라 «인천·경기»도 «271개사 · 2,603건»도 안 들어간다.
+    const wide = W >= 900;
     let s = "";
-    for (let v = Math.ceil(lo / step) * step; v <= hi + 1e-9; v += step) {
-      s += `<line x1="${PL}" y1="${sy(v)}" x2="${W - PR}" y2="${sy(v)}"`
-        + ` stroke="${css("--line-soft")}"/>`;
-      s += svgText(PL - 7, sy(v) + 3.5, v.toFixed(2),
-                   { anchor: "end", size: 10, mono: 1 });
-    }
-    D.forEach((d, i) => {
-      const x = PL + i * bw + bw * 0.2, w = bw * 0.6;
-      const drill = regionView === "national" && d.name === BUSAN_SIDO;
-      if (d.n < REG_MIN_N) {
-        // 표본이 적으면 막대를 비우고 그 사실을 적는다. 그리면 96건과
-        // 1,284건의 중앙값이 같은 무게로 읽힌다.
-        s += svgText(x + w / 2, PT + ih - 6, `표본 부족(${num(d.n)}건)`,
-                     { anchor: "middle", size: 9.5 });
-      } else {
-        s += `<rect x="${x}" y="${sy(d.v)}" width="${w}" height="${PT + ih - sy(d.v)}"`
-          + ` fill="${d.mine ? css("--accent-ink") : css("--accent")}"`
-          + ` opacity="${d.mine ? 1 : 0.5}" rx="3"`
-          + (drill ? ' style="cursor:pointer" data-drill="1"' : "") + "/>";
-        s += svgText(x + w / 2, sy(d.v) - 6, d.v.toFixed(2),
-                     { anchor: "middle", size: 11.5, fill: css("--ink"),
-                       weight: 700, mono: 1 });
+
+    if (wide) {
+      const H = 190, PL = 46, PR = 12, PT = 18, PB = 46;
+      setBox("reg", W, H);
+      const iw = W - PL - PR, ih = H - PT - PB;
+      const bw = iw / D.length;
+      const sy = (v) => PT + ih - ((v - lo) / (hi - lo)) * ih;
+      for (let v = Math.ceil(lo / step) * step; v <= hi + 1e-9; v += step) {
+        s += `<line x1="${PL}" y1="${sy(v)}" x2="${W - PR}" y2="${sy(v)}"`
+          + ` stroke="${css("--line-soft")}"/>`;
+        s += svgText(PL - 7, sy(v) + 3.5, v.toFixed(2),
+                     { anchor: "end", size: 10, mono: 1 });
       }
-      s += svgText(x + w / 2, H - 28, d.name + (drill ? " ▾" : ""),
-                   { anchor: "middle", size: 11,
-                     fill: d.mine ? css("--accent-ink") : css("--ink-2"),
-                     weight: d.mine ? 700 : 400, click: drill });
-      // 표본 크기를 반드시 적는다.
-      s += svgText(x + w / 2, H - 16, `${num(d.inst)}개사 · ${num(d.n)}건`,
-                   { anchor: "middle", size: 9.5, mono: 1 });
-    });
-    if (ours != null) {
-      // 이 선 하나로 «전 권역 중앙값보다 낮다/높다»가 즉시 읽힌다.
-      const text = `${state.mine} 중앙값 ${ours.toFixed(2)}%`;
-      const lw = text.length * 9 + 16;
-      const up = sy(ours) > PT + 26;   // 축 위쪽에 붙으면 배지가 잘린다
-      s += `<line x1="${PL}" y1="${sy(ours)}" x2="${W - PR}" y2="${sy(ours)}"`
-        + ` stroke="${css("--crit")}" stroke-width="2" stroke-dasharray="6 4"/>`;
-      s += `<rect x="${W - PR - lw}" y="${sy(ours) + (up ? -19 : 3)}" width="${lw}"`
-        + ` height="16" rx="3" fill="${css("--crit")}"/>`;
-      s += svgText(W - PR - lw / 2, sy(ours) + (up ? -7.5 : 14.5), text,
-                   { anchor: "middle", size: 10, fill: "#fff", weight: 700 });
+      D.forEach((d, i) => {
+        const x = PL + i * bw + bw * 0.2, w = bw * 0.6;
+        const drill = regionView === "national" && d.name === BUSAN_SIDO;
+        if (d.n < REG_MIN_N) {
+          s += svgText(x + w / 2, PT + ih - 6, `표본 부족(${num(d.n)}건)`,
+                       { anchor: "middle", size: 9.5 });
+        } else {
+          s += `<rect x="${x}" y="${sy(d.v)}" width="${w}" height="${PT + ih - sy(d.v)}"`
+            + ` fill="${d.mine ? css("--accent-ink") : css("--accent")}"`
+            + ` opacity="${d.mine ? 1 : 0.5}" rx="3"`
+            + (drill ? ' style="cursor:pointer" data-drill="1"' : "") + "/>";
+          s += svgText(x + w / 2, sy(d.v) - 6, d.v.toFixed(2),
+                       { anchor: "middle", size: 11.5, fill: css("--ink"),
+                         weight: 700, mono: 1 });
+        }
+        s += svgText(x + w / 2, H - 28, d.name + (drill ? " ▾" : ""),
+                     { anchor: "middle", size: 11,
+                       fill: d.mine ? css("--accent-ink") : css("--ink-2"),
+                       weight: d.mine ? 700 : 400, click: drill });
+        s += svgText(x + w / 2, H - 16, `${num(d.inst)}개사 · ${num(d.n)}건`,
+                     { anchor: "middle", size: 9.5, mono: 1 });
+      });
+      if (ours != null) {
+        const text = `${state.mine} 중앙값 ${ours.toFixed(2)}%`;
+        const lw = text.length * 9 + 16;
+        const up = sy(ours) > PT + 26;   // 축 위쪽에 붙으면 배지가 잘린다
+        s += `<line x1="${PL}" y1="${sy(ours)}" x2="${W - PR}" y2="${sy(ours)}"`
+          + ` stroke="${css("--crit")}" stroke-width="2" stroke-dasharray="6 4"/>`;
+        s += `<rect x="${W - PR - lw}" y="${sy(ours) + (up ? -19 : 3)}" width="${lw}"`
+          + ` height="16" rx="3" fill="${css("--crit")}"/>`;
+        s += svgText(W - PR - lw / 2, sy(ours) + (up ? -7.5 : 14.5), text,
+                     { anchor: "middle", size: 10, fill: "#fff", weight: 700 });
+      }
+      s += svgText(PL, H - 3,
+                   `세로축은 ${lo.toFixed(2)}%부터 시작합니다 (0부터가 아닙니다)`,
+                   { size: 9.5 });
+    } else {
+      // 가로 막대. 한 줄에 이름·막대·값·표본이 다 들어간다.
+      const rowH = 30, PL = 66, PR = 8, PT = 6, PB = 26;
+      const H = PT + D.length * rowH + PB;
+      setBox("reg", W, H);
+      const iw = W - PL - PR;
+      const sx = (v) => PL + ((v - lo) / (hi - lo)) * iw;
+      D.forEach((d, i) => {
+        const y = PT + i * rowH;
+        const drill = regionView === "national" && d.name === BUSAN_SIDO;
+        s += svgText(PL - 6, y + 13, d.name + (drill ? " ▾" : ""),
+                     { anchor: "end", size: 11.5,
+                       fill: d.mine ? css("--accent-ink") : css("--ink-2"),
+                       weight: d.mine ? 700 : 400, click: drill });
+        if (d.n < REG_MIN_N) {
+          s += svgText(PL + 4, y + 13, `표본 부족(${num(d.n)}건)`, { size: 10.5 });
+        } else {
+          s += `<rect x="${PL}" y="${y + 3}" width="${Math.max(1, sx(d.v) - PL)}"`
+            + ` height="14" rx="3"`
+            + ` fill="${d.mine ? css("--accent-ink") : css("--accent")}"`
+            + ` opacity="${d.mine ? 1 : 0.5}"`
+            + (drill ? ' style="cursor:pointer" data-drill="1"' : "") + "/>";
+          s += svgText(Math.min(sx(d.v) + 5, W - PR - 26), y + 14, d.v.toFixed(2),
+                       { size: 11.5, fill: css("--ink"), weight: 700, mono: 1 });
+        }
+        s += svgText(PL, y + 26, `${num(d.inst)}개사 · ${num(d.n)}건`,
+                     { size: 10, mono: 1 });
+      });
+      if (ours != null) {
+        // 세로선 하나로 «전 권역보다 높다/낮다»가 즉시 읽힌다.
+        const x = Math.max(PL, Math.min(W - PR, sx(ours)));
+        s += `<line x1="${x}" y1="${PT}" x2="${x}" y2="${PT + D.length * rowH}"`
+          + ` stroke="${css("--crit")}" stroke-width="2" stroke-dasharray="5 3"/>`;
+        const text = `${state.mine} ${ours.toFixed(2)}%`;
+        const lw = text.length * 7.5 + 12;
+        const lx = Math.max(lw / 2 + 2, Math.min(W - lw / 2 - 2, x));
+        s += `<rect x="${lx - lw / 2}" y="${PT + D.length * rowH + 2}"`
+          + ` width="${lw}" height="15" rx="3" fill="${css("--crit")}"/>`;
+        s += svgText(lx, PT + D.length * rowH + 13, text,
+                     { anchor: "middle", size: 10, fill: "#fff", weight: 700 });
+      }
+      s += svgText(PL, H - 3,
+                   `가로축은 ${lo.toFixed(2)}%부터 시작합니다 (0부터가 아닙니다)`,
+                   { size: 9.5 });
     }
-    s += svgText(PL, H - 3,
-                 `세로축은 ${lo.toFixed(2)}%부터 시작합니다 (0부터가 아닙니다)`,
-                 { size: 9.5 });
     $("reg").innerHTML = s;
     $("reg").setAttribute("aria-label",
       `${regionView === "national" ? "권역" : "부산 구·군"}별 2금융권 `
@@ -1807,10 +1913,11 @@
   const drawCharts = () => {
     if (!ALL.length) return;
     $("charts").hidden = false;
-    const stats = mineStats(current);
-    histogram(stats);
+    histogram();
     termRange();
-    regionBars(stats);
+    // 권역 차트는 «전체 기준»이라 조건을 안 따른다. 기준선도 마찬가지다 —
+    // 막대와 같은 잣대여야 «전 권역보다 높다/낮다»가 참이 된다.
+    regionBars(mineStats(wholeBasis()));
   };
 
   // ── 조건을 주소에 담는다 ─────────────────────────────────────────
@@ -1958,12 +2065,16 @@
     const cards = [];
 
     // 1. 우리 회사. 첫 칸이다.
-    const stats = mineStats(current);
+    //
+    // **옆 카드들과 같은 잣대여야 한다.** 옆이 «2금융권 12개월 정기예금
+    // 3.40%»인데 이 칸만 전 상품군을 섞은 3.00%면, 나란히 놓고 비교하라고
+    // 만든 자리에서 비교가 안 된다.
+    const stats = mineStats(screenBasis().rows);
     if (state.mine && stats && !stats.missing) {
       cards.push(markCard(
-        `${state.mine} · 조회 조건 기준`,
+        `${state.mine} · ${basisLabel() || "조회 조건 기준"}`,
         `${stats.value.toFixed(2)}%`,
-        `조건 내 <b>${stats.rank}위 / ${num(stats.total)}건</b>`
+        `<b>${stats.rank}위 / ${num(stats.total)}건</b>`
         + (stats.gap == null ? "" : ` · 중앙값 대비 ${deltaHtml(stats.gap)}`),
         // 이력이 없으면 선을 긋지 않는다. 없는 과거를 지어내는 것이다.
         { mine: true, spark: "추이 — 스냅샷 축적 중" },
@@ -2233,17 +2344,31 @@
     }
   });
 
+  // 폭이 바뀌면 차트를 다시 그린다. viewBox를 실제 폭에 맞추기 때문에
+  // 안 그리면 창을 돌렸을 때 옛 폭 그대로 늘어나거나 눌린다.
+  //
+  // 폭만 본다. 모바일에서 주소창이 접히면 높이가 바뀌는데, 그때마다 13만
+  // 행을 다시 그리면 스크롤이 끊긴다.
+  let lastWidth = window.innerWidth;
+  let resizeTimer = null;
+  window.addEventListener("resize", () => {
+    if (window.innerWidth === lastWidth) return;
+    lastWidth = window.innerWidth;
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(drawCharts, 150);
+  });
+
   // 부산 드릴다운. 이 도구의 원래 목적이 부산 구 단위 비교이므로,
   // 전국으로 넓히면서 그 축을 잃지 않게 남긴다.
   $("reg").addEventListener("click", (e) => {
     if (!e.target.closest("[data-drill]")) return;
     regionView = "busan";
-    regionBars(mineStats(current));
+    regionBars(mineStats(wholeBasis()));
   });
   $("reg-legend").addEventListener("click", (e) => {
     if (!e.target.closest("#reg-back")) return;
     regionView = "national";
-    regionBars(mineStats(current));
+    regionBars(mineStats(wholeBasis()));
   });
 
   $("conditions").addEventListener("change", (e) => {
