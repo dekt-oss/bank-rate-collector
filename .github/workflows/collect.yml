@@ -49,6 +49,11 @@ on:
         type: boolean
         required: false
         default: false
+      publish_only:
+        description: "수집하지 않고 화면만 다시 낸다 (2분). 화면 코드만 바꿨을 때"
+        type: boolean
+        required: false
+        default: false
       accept_volume_drop:
         description: "물량 급감을 알고도 발행한다 (원천이 정말 줄었을 때만)"
         type: boolean
@@ -166,12 +171,28 @@ jobs:
           RATE_MONITOR_DB_URL: sqlite+pysqlite:///${{ github.workspace }}/work/rate_monitor.sqlite3
         run: uv run alembic upgrade head
 
+      # ── 여기부터 수집 ────────────────────────────────────────────
+      #
+      # `publish_only`를 켜면 **아래 수집 단계를 전부 건너뛴다.**
+      #
+      # 화면은 이미 저장된 DB만 있으면 만들어진다. 그런데 이 워크플로가
+      # 수집과 발행을 한 덩어리로 묶고 있어서, 화면 코드만 고쳐도 전국 한
+      # 바퀴(2시간 30분)를 기다려야 화면이 바뀌었다. 그럴 이유가 없다.
+      #
+      # 켜면 앞 단계가 복원해 둔 DB로 곧장 스냅샷·화면·발행만 한다. 2분이면
+      # 끝나고 원천에 요청을 하나도 보내지 않는다. 금리 값은 직전 수집
+      # 그대로다 — "금리를 새로 받는 것"과 "화면을 새로 내는 것"이 갈린다.
+      #
+      # 개별 `skip_*`으로도 같은 효과를 낼 수 있었지만, 저축은행 수집만
+      # 스위치가 없어서 "전부 끄기"를 말할 방법이 없었다.
+
       # 금감원 비교공시 — 저축은행 (030300).
       #
       # 같은 API가 시중은행(020000)도 주지만 **소스를 따로 세운다** (v4 §6.2).
       # 하나의 실행이 하나의 source_id에 대응해야 실행 이력과 저장된 행이
       # 어긋나지 않는다.
       - name: Collect finlife savings bank
+        if: ${{ inputs.publish_only != true }}
         env:
           FINLIFE_API_KEY: ${{ secrets.FINLIFE_API_KEY }}
         run: |
@@ -186,7 +207,7 @@ jobs:
       # DB에는 저장하되 메인 비교표에는 안 올린다. 전국 공시라 부산 구·군에
       # 연결할 수 없다. 20초쯤 걸린다.
       - name: Collect finlife bank
-        if: ${{ inputs.skip_finlife_bank != true }}
+        if: ${{ inputs.skip_finlife_bank != true && inputs.publish_only != true }}
         continue-on-error: true
         env:
           FINLIFE_API_KEY: ${{ secrets.FINLIFE_API_KEY }}
@@ -203,7 +224,7 @@ jobs:
       # 같은 날짜를 두 번 쌓지 않고, 안 바뀌면 no_change로 끝난다.
       # 요청 1회, 몇 초다.
       - name: Collect BOK base rate
-        if: ${{ inputs.skip_bok != true }}
+        if: ${{ inputs.skip_bok != true && inputs.publish_only != true }}
         continue-on-error: true
         env:
           ECOS_API_KEY: ${{ secrets.ECOS_API_KEY }}
@@ -225,7 +246,7 @@ jobs:
       # 이용약관을 확인하지 못해 policy_status가 unknown이다. 차단되면
       # SourceBlockedError로 끝나므로 continue-on-error로 둔다.
       - name: Collect FSB
-        if: ${{ inputs.skip_fsb != true }}
+        if: ${{ inputs.skip_fsb != true && inputs.publish_only != true }}
         continue-on-error: true
         run: |
           uv run rate-monitor collect \
@@ -241,7 +262,7 @@ jobs:
       #
       # 이용약관을 확인하지 못해 policy_status가 review다.
       - name: Collect CU
-        if: ${{ inputs.skip_cu != true }}
+        if: ${{ inputs.skip_cu != true && inputs.publish_only != true }}
         continue-on-error: true
         run: |
           uv run rate-monitor collect \
@@ -266,7 +287,7 @@ jobs:
       # 수집분까지 버리지 않도록 continue-on-error로 두고, 결과는 게이트와
       # 대시보드에서 실행 상태로 드러난다.
       - name: Collect KFCC
-        if: ${{ inputs.skip_kfcc != true }}
+        if: ${{ inputs.skip_kfcc != true && inputs.publish_only != true }}
         continue-on-error: true
         run: |
           uv run rate-monitor collect \
@@ -290,7 +311,7 @@ jobs:
       #
       # 입출금식 화면(SFDPW0162R)은 아직 안 받는다. 실물을 본 적이 없다.
       - name: Collect NH local
-        if: ${{ inputs.skip_nh_local != true }}
+        if: ${{ inputs.skip_nh_local != true && inputs.publish_only != true }}
         continue-on-error: true
         run: |
           uv run rate-monitor collect \

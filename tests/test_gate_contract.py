@@ -127,3 +127,37 @@ def test_the_schedule_is_monday_wednesday_friday_at_two_am_kst() -> None:
         utc = local.astimezone(dt.UTC)
         assert utc.hour == 17
         assert (utc.weekday() + 1) % 7 in (0, 2, 4)
+
+
+def test_publish_only_skips_every_collector_but_still_publishes() -> None:
+    """화면만 다시 내는 길이 있어야 한다.
+
+    화면은 저장된 DB만 있으면 만들어지는데, 이 워크플로가 수집과 발행을 한
+    덩어리로 묶고 있어서 화면 코드만 고쳐도 전국 한 바퀴(2시간 30분)를
+    기다려야 했다.
+
+    **저축은행 수집만 스위치가 없던 것이 핵심이었다.** 나머지를 다 꺼도
+    그 하나가 돌아서 "아무것도 수집하지 않는다"를 말할 수 없었다.
+    """
+    from pathlib import Path
+
+    import yaml
+
+    workflow = Path(__file__).resolve().parents[1] / ".github" / "workflows" / "collect.yml"
+    loaded = yaml.safe_load(workflow.read_text(encoding="utf-8"))
+    triggers = loaded.get("on", loaded.get(True))
+    assert "publish_only" in triggers["workflow_dispatch"]["inputs"]
+
+    steps = loaded["jobs"]["collect"]["steps"]
+    skipped = {
+        s["name"] for s in steps
+        if "publish_only != true" in str(s.get("if") or "")
+    }
+    collectors = {s["name"] for s in steps if str(s.get("name", "")).startswith("Collect ")}
+    assert collectors, "수집 단계를 찾지 못했다"
+    assert collectors == skipped, f"안 꺼지는 수집 단계: {sorted(collectors - skipped)}"
+
+    # 발행까지 가야 화면이 바뀐다. 이 셋이 꺼지면 스위치가 무의미하다.
+    for name in ("Build public site", "Publish to rate-data branch", "Snapshot"):
+        step = next(s for s in steps if s.get("name") == name)
+        assert "publish_only" not in str(step.get("if") or ""), name
