@@ -81,13 +81,16 @@ def test_an_unmapped_sido_is_kept_and_reported(caplog) -> None:
     왜 «기타»가 생겼는지 알 수 없고, 로그만 남기면 행이 사라진다.
     """
     rows = [
-        ("부산", "savings_bank", "i1", "003.0000"),
-        ("달나라특별시", "savings_bank", "i2", "004.0000"),
+        # (시도, 구·군, 업권, 기관, 기본금리)
+        ("부산", "동구", "savings_bank", "i1", "003.0000"),
+        ("달나라특별시", "고요의바다구", "savings_bank", "i2", "004.0000"),
     ]
     with caplog.at_level(logging.WARNING):
         out = _by_region(_FakeConn(rows), ["run-1"], " FROM x", "?")
 
-    by_region = {r["region"]: r for r in out}
+    # 권역 전체 행만 본다. 구 단위 행은 드릴다운용으로 따로 나온다.
+    by_region = {r["region"]: r for r in out
+                 if r["district"] is None and r["sector"] == "savings_bank"}
     assert set(by_region) == {"부산", REGION_OTHER}
     assert by_region[REGION_OTHER]["observations"] == 1
     assert "달나라특별시" in caplog.text
@@ -104,14 +107,16 @@ def test_the_sample_size_travels_with_the_median() -> None:
     화면이 막대마다 «N개사 · N건»을 적으려면 집계가 둘 다 내야 한다.
     """
     rows = [
-        ("서울", "savings_bank", "a", "003.0000"),
-        ("서울", "savings_bank", "a", "003.4000"),   # 같은 기관의 다른 상품
-        ("서울", "savings_bank", "b", "003.8000"),
+        ("서울", "강남구", "savings_bank", "a", "003.0000"),
+        ("서울", "강남구", "savings_bank", "a", "003.4000"),  # 같은 기관의 다른 상품
+        ("서울", "강남구", "savings_bank", "b", "003.8000"),
     ]
-    (out,) = _by_region(_FakeConn(rows), ["run-1"], " FROM x", "?")
-    assert out["observations"] == 3
-    assert out["institutions"] == 2, "기관은 중복을 빼고 센다"
-    assert out["base_p50"] == 3.4
+    out = _by_region(_FakeConn(rows), ["run-1"], " FROM x", "?")
+    (region,) = [r for r in out
+                 if r["district"] is None and r["sector"] == "savings_bank"]
+    assert region["observations"] == 3
+    assert region["institutions"] == 2, "기관은 중복을 빼고 센다"
+    assert region["base_p50"] == 3.4
 
 
 # ── 발행까지 실려 나가는가 ──────────────────────────────────────────────
@@ -133,3 +138,60 @@ def test_the_region_aggregate_reaches_the_published_page() -> None:
 @pytest.mark.parametrize("region", ["서울", "인천·경기", "부산", "제주"])
 def test_region_names_are_the_ones_the_screen_draws(region: str) -> None:
     assert region in set(REGION_GROUPS.values())
+
+
+# ── 2금융권 합산 ────────────────────────────────────────────────────────
+
+
+def test_the_second_tier_row_is_computed_from_observations_not_from_medians() -> None:
+    """업권별 중앙값 넷을 다시 평균 내면 표본 크기가 무시된다.
+
+    저축은행 6,666건과 제주 농·축협 322건이 같은 무게로 들어간다. 그래서
+    원래 관측에서 한 번에 낸다.
+    """
+    from rate_monitor.services.dashboard_service import SECOND_TIER_SECTOR
+
+    rows = [
+        ("부산", "동구", "savings_bank", "a", "004.0000"),
+        ("부산", "동구", "kfcc", "b", "002.0000"),
+        ("부산", "동구", "kfcc", "c", "002.0000"),
+        ("부산", "동구", "kfcc", "d", "002.0000"),
+    ]
+    out = _by_region(_FakeConn(rows), ["run-1"], " FROM x", "?")
+    (combined,) = [r for r in out
+                   if r["sector"] == SECOND_TIER_SECTOR and r["district"] is None]
+    # 관측 넷의 중앙값은 2.0이다. 업권별 중앙값(4.0, 2.0)의 평균 3.0이 아니다.
+    assert combined["base_p50"] == 2.0
+    assert combined["observations"] == 4
+    assert combined["institutions"] == 4
+
+
+def test_the_drilldown_gets_district_rows_for_the_same_sector() -> None:
+    """부산 드릴다운은 같은 «2금융권» 잣대로 구·군을 봐야 한다.
+
+    권역은 2금융권인데 구는 저축은행만이면 두 화면이 다른 것을 센다.
+    """
+    from rate_monitor.services.dashboard_service import SECOND_TIER_SECTOR
+
+    rows = [
+        ("부산", "동구", "savings_bank", "a", "003.0000"),
+        ("부산", "해운대구", "kfcc", "b", "002.0000"),
+    ]
+    out = _by_region(_FakeConn(rows), ["run-1"], " FROM x", "?")
+    districts = {r["district"] for r in out
+                 if r["sector"] == SECOND_TIER_SECTOR and r["district"]}
+    assert districts == {"동구", "해운대구"}
+
+
+def test_a_row_without_a_district_still_counts_in_its_region() -> None:
+    """구·군을 못 읽은 행도 권역 합계에는 들어가야 한다. 총합이 맞아야 한다."""
+    from rate_monitor.services.dashboard_service import SECOND_TIER_SECTOR
+
+    rows = [
+        ("부산", None, "savings_bank", "a", "003.0000"),
+        ("부산", "동구", "savings_bank", "b", "003.0000"),
+    ]
+    out = _by_region(_FakeConn(rows), ["run-1"], " FROM x", "?")
+    (combined,) = [r for r in out
+                   if r["sector"] == SECOND_TIER_SECTOR and r["district"] is None]
+    assert combined["observations"] == 2
