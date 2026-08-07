@@ -445,6 +445,14 @@ def test_the_screen_points_at_the_document_that_says_what_is_not_guaranteed() ->
     doc = Path(__file__).resolve().parents[1] / "docs" / "data-trust.md"
     assert doc.exists(), "화면이 없는 문서를 가리킨다"
 
+    # **여기가 진짜 검사다.** 공개 화면은 `build_summary`를 통째로 싣지
+    # 않는다. `INLINE_KEYS`에 적힌 것만 간다. 처음에 이 줄을 안 넣어서
+    # 링크가 코드에도 문서에도 있는데 발행본에서만 조용히 사라졌다 —
+    # 화면 소스만 보면 멀쩡해 보이는 종류의 결함이다.
+    from rate_monitor.services.site_service import INLINE_KEYS
+
+    assert "data_trust_url" in INLINE_KEYS, "발행본까지 안 실린다"
+
     before = os.environ.get("GITHUB_REPOSITORY")
     try:
         os.environ["GITHUB_REPOSITORY"] = "dekt-oss/bank-rate-collector"
