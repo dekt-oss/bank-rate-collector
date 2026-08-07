@@ -194,13 +194,34 @@ def test_no_phone_number_reaches_the_database(factory, tmp_path) -> None:
 # ── 범위 ────────────────────────────────────────────────────────────────
 
 
-def test_the_default_scope_is_busan_not_nationwide() -> None:
-    """전국은 9,743회 요청(약 2시간 43분)이다. 실수로 돌아가면 안 된다."""
+def test_the_default_scope_is_nationwide_now() -> None:
+    """기본이 전국이다 (2026-08-07 변경. 그 전에는 부산이었다).
+
+    부산만 받는 동안 화면이 거짓 인상을 줬다. 농·축협 4,920행 대 새마을금고
+    93,816행이라 "새마을금고가 압도적으로 많다"로 읽혔는데, **실제 점포는
+    농·축협 4,871곳이 새마을금고 3,135곳보다 많다.** 적게 보인 이유는 우리가
+    부산 120곳만 받았기 때문이다. 수집 범위가 만든 차이를 사람은 업권의
+    차이로 읽는다.
+
+    전국은 실측 3시간 37분이다(run 23의 부산 120점포 5분 20초 → 점포당
+    2.67초 × 4,871점포). 그래서 같은 실행에서 새마을금고를 뺐다 — 둘을 한
+    작업에 넣으면 6시간 3분이라 GitHub의 작업당 6시간 한도를 넘는다. 나눈
+    자리는 `tests/test_gate_contract.py`가 지킨다.
+
+    `None`은 "주소로 거르지 않는다" = 전국이다. 빈 목록과 다르다.
+    """
     adapter = NhLocalAdapter()
-    assert adapter._load_prefixes(CollectionRequest(source_id="nh_local")) == (
-        "부산광역시",
-        "부산 ",
-    )
+    assert adapter._load_prefixes(CollectionRequest(source_id="nh_local")) is None
+
+
+def test_busan_is_still_reachable_on_purpose() -> None:
+    """기본이 전국이 됐다고 부산을 못 고르면 안 된다.
+
+    화면 작업 중에 3시간 37분을 기다릴 이유가 없다.
+    """
+    adapter = NhLocalAdapter()
+    request = CollectionRequest(source_id="nh_local", options={"scope": "부산"})
+    assert adapter._load_prefixes(request) == ("부산광역시", "부산 ")
 
 
 def test_nationwide_scope_filters_nothing() -> None:

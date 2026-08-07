@@ -17,7 +17,7 @@ from sqlalchemy import func, select
 
 from rate_monitor.collectors.base import SchemaChangedError
 from rate_monitor.collectors.cu import parser
-from rate_monitor.collectors.cu.adapter import CuAdapter
+from rate_monitor.collectors.cu.adapter import SIDO_NAMES, CuAdapter
 from rate_monitor.db import models as m
 from rate_monitor.db.session import create_db_engine, make_session_factory, session_scope
 from rate_monitor.domain.enums import (
@@ -207,8 +207,22 @@ def test_region_names_resolve_to_screen_codes() -> None:
     assert adapter._resolve_sidos(
         CollectionRequest(source_id="cu", regions=("부산",))
     ) == ["04"]
-    # 지역을 안 주면 전체 한 번으로 끝낸다.
-    assert adapter._resolve_sidos(CollectionRequest(source_id="cu")) == ["AA"]
+
+
+def test_no_region_means_every_region_not_one_lump() -> None:
+    """지역을 안 줘도 지역별로 나눠 돈다 (2026-08-07 변경).
+
+    예전에는 `AA`(전체) 한 번이었다. 요청은 쌌지만 응답 행에 지역이 없어서
+    어느 행이 어느 지역 조합인지 알 수 없었고, 발행본에서 신협 30,994행의
+    지역이 전부 비어 시도를 고르면 신협이 통째로 사라졌다.
+    """
+    adapter = CuAdapter()
+    sidos = adapter._resolve_sidos(CollectionRequest(source_id="cu"))
+    assert "AA" not in sidos, "전체 한 번으로 돌면 지역이 안 남는다"
+    assert sidos == list(SIDO_NAMES)
+    # 화면에 없는 것을 지어내지 않는다. 08은 없고 세종도 없다.
+    assert "08" not in sidos
+    assert "세종" not in SIDO_NAMES.values()
 
 
 def test_unknown_region_is_rejected() -> None:

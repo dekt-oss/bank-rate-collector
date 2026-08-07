@@ -1242,7 +1242,15 @@
           + `<ul>${sourceNotes}</ul></div>`
         : "")
     + `<div class="basis-note">근거 — <code>site-manifest.json</code> · `
-    + `<code>data/table.json</code></div>`;
+    + `<code>data/table.json</code>`
+    // 「이 데이터를 얼마나 믿을 수 있나」로 가는 길. 무엇이 검사되고 무엇이
+    // 검사되지 않는지, 업무에서 이렇게 말하면 안 되는 것이 무엇인지 적혀
+    // 있다. 화면에 다 적으면 아무도 안 읽으므로 링크로 둔다.
+    + (data.data_trust_url
+        ? ` · <a href="${esc(data.data_trust_url)}" target="_blank"`
+          + ` rel="noopener">이 데이터를 얼마나 믿을 수 있나</a>`
+        : "")
+    + `</div>`;
 
   if (data.collect_workflow_url) {
     $("collect").href = data.collect_workflow_url;

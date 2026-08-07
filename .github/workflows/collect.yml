@@ -18,7 +18,7 @@ on:
         default: "전국"
         options: ["전국", "수도권", "부산"]
       skip_kfcc:
-        description: "새마을금고 수집을 건너뛴다"
+        description: "새마을금고를 건너뛴다. 정기 수집은 06:00에 따로 돕니다"
         type: boolean
         required: false
         default: false
@@ -33,11 +33,11 @@ on:
         required: false
         default: false
       nh_local_scope:
-        description: "농·축협 수집 범위. 전국은 약 2시간 43분이라 기본이 아니다"
+        description: "농·축협 수집 범위. 전국은 실측 3시간 37분입니다"
         type: choice
         required: false
-        default: "부산"
-        options: ["부산", "수도권", "전국"]
+        default: "전국"
+        options: ["전국", "수도권", "부산"]
       skip_finlife_bank:
         description: "시중은행(참고지표) 수집을 건너뛴다"
         type: boolean
@@ -85,8 +85,29 @@ on:
     # 08-14(금) → 08-13(목).
     #
     # 2026-08-07에 월·수·금(0,2,4)에서 평일 전체(0-4)로 넓혔다.
-    # 전국 한 바퀴가 약 2시간 30분이라 04:30 KST쯤 끝난다.
+    #
+    # 이 크론은 **새마을금고를 뺀 전부**를 받는다. 실측 3시간 57분이라
+    # 05:57 KST쯤 끝난다.
     - cron: "0 17 * * 0-4"
+
+    # 평일 06:00 KST = 21:00 UTC 전날 → 일~목(0-4). 새마을금고만.
+    #
+    # ── 왜 두 번으로 나눴나 (2026-08-07) ──────────────────────────────
+    #
+    # 농·축협을 부산에서 전국으로 넓히면서 한 작업에 다 담을 수 없게 됐다.
+    # 실측(run 23)으로 계산한 값이다.
+    #
+    #   새마을금고 전국   2시간  6분
+    #   농·축협   전국   3시간 37분   (부산 120점포 5분 20초 → 점포당 2.67초)
+    #   나머지 넷          약 18분
+    #                    ─────────────
+    #   다 합치면        6시간  3분   ← GitHub의 작업당 6시간 한도를 넘는다
+    #
+    # 한도를 넘으면 경고가 아니라 **작업이 통째로 죽는다.** 그래서 가장 긴
+    # 새마을금고를 떼어 네 시간 뒤에 따로 돌린다. 두 실행 다 같은 DB를
+    # 복원해 이어 쓰고, 위의 concurrency 그룹이 겹치지 않게 줄을 세운다.
+    # 앞 실행이 늦어지면 이 실행은 취소되지 않고 뒤에서 기다린다.
+    - cron: "0 21 * * 0-4"
 
 # rate-data 브랜치의 단일 writer.
 # 각 실행이 하나의 금리 관측 이력이므로 진행 중인 작업을 취소하지 않고
@@ -108,6 +129,16 @@ jobs:
       # 이유는 없고, 머지마다 전국 한 바퀴를 돌면 원천에 폐가 된다.
       # 손으로 돌릴 때는 `publish_only` 체크박스가 정한다.
       PUBLISH_ONLY: ${{ github.event_name == 'push' || inputs.publish_only == true }}
+
+      # 이 실행이 어느 크론에서 왔는가. 정기 수집을 둘로 나눴기 때문에
+      # 필요하다 (위 schedule 주석의 시간 계산 참고).
+      #
+      # 크론은 입력을 못 실어 보낸다. 그래서 크론 문자열 자체로 가른다 —
+      # 위의 `cron:` 값과 **글자까지 같아야** 한다. 어긋나면 둘 다 false가
+      # 되어 한 실행이 전부를 받으려 하고, 6시간 한도에서 죽는다.
+      # `tests/test_gate_contract.py`가 이 일치를 검사한다.
+      KFCC_ONLY: ${{ github.event.schedule == '0 21 * * 0-4' }}
+      SKIP_KFCC_THIS_RUN: ${{ github.event.schedule == '0 17 * * 0-4' }}
     steps:
       # 손으로 돌릴 때만 암호를 묻는다.
       #
@@ -246,7 +277,7 @@ jobs:
       # 하나의 실행이 하나의 source_id에 대응해야 실행 이력과 저장된 행이
       # 어긋나지 않는다.
       - name: Collect finlife savings bank
-        if: ${{ env.PUBLISH_ONLY != 'true' }}
+        if: ${{ env.PUBLISH_ONLY != 'true' && env.KFCC_ONLY != 'true' }}
         env:
           FINLIFE_API_KEY: ${{ secrets.FINLIFE_API_KEY }}
         run: |
@@ -261,7 +292,8 @@ jobs:
       # DB에는 저장하되 메인 비교표에는 안 올린다. 전국 공시라 부산 구·군에
       # 연결할 수 없다. 20초쯤 걸린다.
       - name: Collect finlife bank
-        if: ${{ inputs.skip_finlife_bank != true && env.PUBLISH_ONLY != 'true' }}
+        if: ${{ inputs.skip_finlife_bank != true && env.PUBLISH_ONLY != 'true'
+          && env.KFCC_ONLY != 'true' }}
         continue-on-error: true
         env:
           FINLIFE_API_KEY: ${{ secrets.FINLIFE_API_KEY }}
@@ -278,7 +310,8 @@ jobs:
       # 같은 날짜를 두 번 쌓지 않고, 안 바뀌면 no_change로 끝난다.
       # 요청 1회, 몇 초다.
       - name: Collect BOK base rate
-        if: ${{ inputs.skip_bok != true && env.PUBLISH_ONLY != 'true' }}
+        if: ${{ inputs.skip_bok != true && env.PUBLISH_ONLY != 'true'
+          && env.KFCC_ONLY != 'true' }}
         continue-on-error: true
         env:
           ECOS_API_KEY: ${{ secrets.ECOS_API_KEY }}
@@ -300,7 +333,8 @@ jobs:
       # 이용약관을 확인하지 못해 policy_status가 unknown이다. 차단되면
       # SourceBlockedError로 끝나므로 continue-on-error로 둔다.
       - name: Collect FSB
-        if: ${{ inputs.skip_fsb != true && env.PUBLISH_ONLY != 'true' }}
+        if: ${{ inputs.skip_fsb != true && env.PUBLISH_ONLY != 'true'
+          && env.KFCC_ONLY != 'true' }}
         continue-on-error: true
         run: |
           uv run rate-monitor collect \
@@ -311,12 +345,19 @@ jobs:
       # 신협. 지역과 최고 우대금리를 동시에 주는 유일한 원천이다
       # (docs/source-recon/cu.md §1).
       #
-      # 지역을 지정하지 않으면 전국을 한 번에 받는다. 요청량은 화면 2 ×
-      # 기간 4 × 페이지이고, 전국 기준 약 970페이지 ≈ 16분이다.
+      # 지역을 지정하지 않으면 화면이 주는 17개 지역을 하나씩 돈다
+      # (2026-08-07 변경). 예전에는 전체를 한 번에 받았는데, 그러면 응답
+      # 행에 지역이 안 남는다 — 이 화면은 지역을 조회 조건으로만 주기
+      # 때문이다. 그래서 발행본에서 신협 30,994행의 지역이 전부 비었고,
+      # 화면에서 시도를 고르면 신협이 통째로 사라졌다.
+      #
+      # 나뉘어도 총 행 수는 같다. 요청은 조각마다의 마지막 페이지만큼
+      # 늘어 실측 16분 46초가 20분 안쪽이 된다.
       #
       # 이용약관을 확인하지 못해 policy_status가 review다.
       - name: Collect CU
-        if: ${{ inputs.skip_cu != true && env.PUBLISH_ONLY != 'true' }}
+        if: ${{ inputs.skip_cu != true && env.PUBLISH_ONLY != 'true'
+          && env.KFCC_ONLY != 'true' }}
         continue-on-error: true
         run: |
           uv run rate-monitor collect \
@@ -334,45 +375,66 @@ jobs:
       #   전국   목록 17 + 금고 1,260 × 2       = 2,537회  ≈ 42분
       #
       # 기본은 전국이다. 부산은 수집 단위가 아니라 조회 화면의 필터일 뿐이고,
-      # 전국이 들어와야 지역 간 비교가 성립한다. 매일 2,537회가 부담이면
-      # workflow_dispatch에서 범위를 좁혀 돌린다.
+      # 전국이 들어와야 지역 간 비교가 성립한다.
+      #
+      # ── `--scope`를 조건부로 붙이는 이유 (2026-08-07) ─────────────────
+      #
+      # 예전에는 `--scope "${{ inputs.kfcc_scope || '부산' }}"`이었다.
+      # 정기 수집에는 `inputs`가 통째로 비어서 **항상 뒤의 '부산'이 갔다** —
+      # 입력 기본값도 위 주석도 전국인데, 크론으로 도는 실제 수집은 부산만
+      # 받고 있었다. 아무도 모르게 어긋난 자리다.
+      #
+      # 이제 값이 있을 때만 붙인다. 없으면 어댑터가 config/regions.yaml의
+      # `default_scope`를 쓴다. 범위를 정하는 곳이 한 군데가 된다.
       #
       # 차단되면 SourceBlockedError로 끝나고 종료코드가 1이 된다. 저축은행
       # 수집분까지 버리지 않도록 continue-on-error로 두고, 결과는 게이트와
       # 대시보드에서 실행 상태로 드러난다.
       - name: Collect KFCC
-        if: ${{ inputs.skip_kfcc != true && env.PUBLISH_ONLY != 'true' }}
+        if: ${{ inputs.skip_kfcc != true && env.PUBLISH_ONLY != 'true'
+          && env.SKIP_KFCC_THIS_RUN != 'true' }}
         continue-on-error: true
+        env:
+          SCOPE: ${{ inputs.kfcc_scope }}
         run: |
           uv run rate-monitor collect \
             --source kfcc \
             --db work/rate_monitor.sqlite3 \
             --raw-root data/raw \
-            --scope "${{ inputs.kfcc_scope || '부산' }}"
+            ${SCOPE:+--scope "$SCOPE"}
 
       # 농·축협. 원천에 지역 요청 인자가 없어 명부가 통째로 오고, 범위는
       # 받아 온 주소로 거른다 (docs/source-recon/nh-local.md §0.2).
       #
       # 그래서 요청 수가 점포 수에 정비례한다. 1초 간격 기준:
       #
-      #   부산   명부 1 + 점포   119 × 화면 2 =   239회 ≈  4분
-      #   수도권 명부 1 + 점포 1,224 × 2      = 2,449회 ≈ 41분
-      #   전국   명부 1 + 점포 4,871 × 2      = 9,743회 ≈ 2시간 43분
+      #   부산   명부 1 + 점포   119 × 화면 2 =   239회 ≈  5분 20초 (실측)
+      #   수도권 명부 1 + 점포 1,224 × 2      = 2,449회 ≈ 55분
+      #   전국   명부 1 + 점포 4,871 × 2      = 9,743회 ≈ 3시간 37분
       #
-      # **기본이 전국이 아닌 유일한 원천이다.** 전국은 작업 하나에 담기 어렵고
-      # 원천에 주는 부담도 아직 재 본 적이 없다. v4 §5.3의 부산 세로절단부터
-      # 돌리고, 넓히는 것은 사람이 명시할 때만이다.
+      # 2026-08-07에 부산에서 전국으로 넓혔다. 부산만 받는 동안 화면이 거짓
+      # 인상을 줬다 — 농·축협 4,920행 대 새마을금고 93,816행이라 새마을금고가
+      # 압도적으로 많아 보였는데, 실제 점포는 농·축협 4,871곳이 새마을금고
+      # 3,135곳보다 많다. 적게 보인 이유는 우리가 부산 120곳만 받았기 때문이다.
+      #
+      # 전국 3시간 37분은 실측에서 나온 값이다. run 23에서 부산 120점포가
+      # 5분 20초 걸렸으니 점포당 2.67초이고, 4,871점포면 13,005초다. 문서의
+      # 옛 추정(2시간 43분)은 요청 간격 1초만 셌고 응답 대기를 안 셌다.
       #
       # 입출금식 화면(SFDPW0162R)은 아직 안 받는다. 실물을 본 적이 없다.
+      #
       - name: Collect NH local
-        if: ${{ inputs.skip_nh_local != true && env.PUBLISH_ONLY != 'true' }}
+        if: ${{ inputs.skip_nh_local != true && env.PUBLISH_ONLY != 'true'
+          && env.KFCC_ONLY != 'true' }}
         continue-on-error: true
+        env:
+          SCOPE: ${{ inputs.nh_local_scope }}
         run: |
           uv run rate-monitor collect \
             --source nh_local \
             --db work/rate_monitor.sqlite3 \
             --raw-root data/raw \
-            --scope "${{ inputs.nh_local_scope || '부산' }}"
+            ${SCOPE:+--scope "$SCOPE"}
 
       # CLI 명령으로 부른다. 예전에는 워크플로우 안에 파이썬을 heredoc으로
       # 박아 썼는데, 그 코드는 테스트도 lint도 닿지 않는 자리였다.

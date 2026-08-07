@@ -428,6 +428,39 @@ def test_the_collect_link_carries_no_token_and_hides_without_a_repo() -> None:
     assert "github.com/dekt-oss" not in SOURCE
 
 
+def test_the_screen_points_at_the_document_that_says_what_is_not_guaranteed() -> None:
+    """「이 데이터를 믿어도 되나」에 답하려면 근거 문서까지 갈 수 있어야 한다.
+
+    화면 안에 다 적으면 아무도 안 읽고, 어디에도 없으면 물어볼 곳이 없다.
+    수집 링크와 같은 규칙으로 저장소 주소를 환경에서 받는다.
+    """
+    import os
+    from pathlib import Path
+
+    from rate_monitor.services.dashboard_service import _repo_file_url
+
+    assert "data.data_trust_url" in SOURCE
+    assert "이 데이터를 얼마나 믿을 수 있나" in SOURCE
+    # 링크가 가리키는 문서가 실제로 있어야 한다.
+    doc = Path(__file__).resolve().parents[1] / "docs" / "data-trust.md"
+    assert doc.exists(), "화면이 없는 문서를 가리킨다"
+
+    before = os.environ.get("GITHUB_REPOSITORY")
+    try:
+        os.environ["GITHUB_REPOSITORY"] = "dekt-oss/bank-rate-collector"
+        assert _repo_file_url("docs/data-trust.md") == (
+            "https://github.com/dekt-oss/bank-rate-collector"
+            "/blob/main/docs/data-trust.md"
+        )
+        os.environ["GITHUB_REPOSITORY"] = ""
+        assert _repo_file_url("docs/data-trust.md") is None
+    finally:
+        if before is None:
+            os.environ.pop("GITHUB_REPOSITORY", None)
+        else:
+            os.environ["GITHUB_REPOSITORY"] = before
+
+
 def test_the_collect_url_comes_from_the_build_environment() -> None:
     """저장소 이름을 코드에 박으면 포크가 원본을 가리킨다."""
     import os

@@ -141,6 +141,21 @@ def _absorb(institution: Institution, row: ParsedRateRow) -> None:
         institution.canonical_name = name
         institution.normalized_name = normalize_institution_name(name)
 
+    # 주소가 없는 원천은 조회지역이라도 채운다 (신협, v3.1 §11.1).
+    #
+    # 여기가 없으면 신협의 지역은 **영원히 빈칸으로 남는다.** 기관 행은 처음
+    # 만들 때 한 번만 채워지는데, 그때 지역을 안 넣고 수집했기 때문이다.
+    # 다시 수집해도 `resolve_institution`이 링크를 찾아 그냥 돌아온다.
+    # 실제로 2026-08-07 발행본에서 신협 30,994행이 전부 지역이 비어, 시도를
+    # 고르면 신협이 통째로 사라졌다.
+    if not institution.region_sido and row.sido:
+        region = region_fields(row.source_id, row.address, query_region=row.sido)
+        if region.sido:
+            institution.region_sido = region.sido
+            institution.region_sigungu = region.sigungu
+            institution.geo_basis = region.basis.value
+            institution.geo_confidence = region.confidence
+
     if institution.address or not row.address:
         return
     region = region_fields(row.source_id, row.address)
@@ -185,7 +200,7 @@ def resolve_institution(session: Session, row: ParsedRateRow, now: datetime) -> 
         )
         return shared
 
-    region = region_fields(row.source_id, row.address)
+    region = region_fields(row.source_id, row.address, query_region=row.sido)
     institution = Institution(
         sector=_sector_of(row),
         canonical_name=row.institution_name,
