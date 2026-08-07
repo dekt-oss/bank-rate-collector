@@ -417,14 +417,23 @@ jobs:
             --out site-public \
             --export-dir publish/export
 
+      # 발행만 하는 실행에는 이번 실행이 만든 원본이 없다 (v3.1 §12.4).
+      # 원본을 세는 항목 셋은 건너뛰고, 나머지는 그대로 검사한다.
       - name: Verify P1-A gate
         run: |
+          # `:+`를 쓰면 안 된다. 수집하는 실행에서 PUBLISH_ONLY는 빈 값이
+          # 아니라 문자열 "false"라, 그때도 깃발이 붙어 버린다.
+          SKIP_RAW=""
+          if [ "${PUBLISH_ONLY}" = "true" ]; then
+            SKIP_RAW="--no-collection"
+          fi
           uv run python scripts/verify_gate.py \
             --db publish/rate_monitor.sqlite3 \
             --manifest publish/manifest.json \
             --summary publish/summary.json \
             --site site/index.html \
-            --raw-root data/raw
+            --raw-root data/raw \
+            ${SKIP_RAW}
 
       - name: Upload raw and reports
         if: always()

@@ -30,6 +30,16 @@ def main() -> int:
     parser.add_argument("--summary", type=Path, required=True)
     parser.add_argument("--site", type=Path, required=True)
     parser.add_argument("--raw-root", type=Path, required=True)
+    # 수집을 건너뛴 실행인가 (v3.1 §12.4).
+    #
+    # 이 게이트는 "방금 수집했다"는 전제로 쓰였다. 발행만 하는 실행에는
+    # 러너 디스크에 원본이 없다 — 사라진 게 아니라 안 만든 것이다. 그걸
+    # 실패로 세면 머지해도 화면이 안 바뀐다 (run 25·26이 그랬다).
+    parser.add_argument(
+        "--no-collection",
+        action="store_true",
+        help="이번 실행은 수집을 하지 않았다. 원본 파일을 보는 항목을 건너뛴다",
+    )
     args = parser.parse_args()
 
     conn = sqlite3.connect(args.db)
@@ -62,11 +72,14 @@ def main() -> int:
     # 수집원마다 원본 형식이 다르다. finlife는 JSON, 새마을금고는 HTML이다.
     raw_files = list(args.raw_root.rglob("*.json")) if args.raw_root.exists() else []
     raw_html = list(args.raw_root.rglob("*.html")) if args.raw_root.exists() else []
-    check(
-        len(raw_files) + len(raw_html) > 0,
-        "원본 보존",
-        f"JSON {len(raw_files)}개 / HTML {len(raw_html)}개",
-    )
+    if args.no_collection:
+        check(True, "[건너뜀] 원본 보존", "이번 실행은 수집을 하지 않았다")
+    else:
+        check(
+            len(raw_files) + len(raw_html) > 0,
+            "원본 보존",
+            f"JSON {len(raw_files)}개 / HTML {len(raw_html)}개",
+        )
 
     missing_artifact = conn.execute(
         "SELECT COUNT(*) FROM rate_observations WHERE raw_artifact_id IS NULL"
@@ -117,16 +130,26 @@ def main() -> int:
     ).fetchone()
     # 원본을 하나도 못 찾았는데 관측은 있다면, 대조가 성립하지 않은 것이다.
     # 0 == 0으로 조용히 통과시키면 검사가 아니라 장식이 된다.
-    check(
-        finlife_rows == 0 or finlife_files > 0,
-        "max_rate 대조용 finlife 원본 확보",
-        f"원본 {finlife_files}개 / 관측 {finlife_rows}건",
-    )
-    check(
-        finlife_null == source_missing,
-        "max_rate NULL 규칙 — finlife (원본 대조)",
-        f"저장 NULL {finlife_null}건 == 원본 결측 {source_missing}건",
-    )
+    #
+    # 수집을 안 한 실행에는 대조할 원본이 애초에 없다 (v3.1 §12.4). 둘 다
+    # 건너뛴다 — 특히 아래 대조는 지금까지 0 == 0으로 조용히 통과하고
+    # 있었다. 실패보다 그쪽이 나쁘다.
+    if args.no_collection:
+        check(True, "[건너뜀] max_rate 대조용 finlife 원본 확보",
+              "이번 실행은 수집을 하지 않았다")
+        check(True, "[건너뜀] max_rate NULL 규칙 — finlife (원본 대조)",
+              "대조할 원본이 이번 실행에 없다")
+    else:
+        check(
+            finlife_rows == 0 or finlife_files > 0,
+            "max_rate 대조용 finlife 원본 확보",
+            f"원본 {finlife_files}개 / 관측 {finlife_rows}건",
+        )
+        check(
+            finlife_null == source_missing,
+            "max_rate NULL 규칙 — finlife (원본 대조)",
+            f"저장 NULL {finlife_null}건 == 원본 결측 {source_missing}건",
+        )
 
     # ── 원천별 계약 검사 (v4 §5.8·§6.5) ────────────────────────────
     #
