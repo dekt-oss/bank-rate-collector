@@ -3,6 +3,10 @@ name: Collect rates
 on:
   workflow_dispatch:
     inputs:
+      password:
+        description: "수집 암호 (관리자에게 확인). 손으로 돌릴 때만 필요합니다"
+        required: true
+        default: ""
       groups:
         description: "권역코드 (030300=저축은행, 020000=은행). 공백으로 구분"
         required: false
@@ -73,15 +77,16 @@ on:
     branches: [main]
 
   schedule:
-    # 월·수·금 02:00 KST = 17:00 UTC 전날 → 일·화·목(0,2,4)
+    # 평일(월~금) 02:00 KST = 17:00 UTC 전날 → 일~목(0-4)
     #
     # 요일이 하루 밀리는 것이 이 표기의 함정이다. 02:00 KST는 UTC로
     # 전날 17:00이므로 월요일 새벽은 **일요일** 17:00 UTC다. 실제로 계산해
     # 확인했다: 2026-08-10(월) 02:00 KST → 08-09(일) 17:00 UTC,
-    # 08-12(수) → 08-11(화), 08-14(금) → 08-13(목).
+    # 08-14(금) → 08-13(목).
     #
+    # 2026-08-07에 월·수·금(0,2,4)에서 평일 전체(0-4)로 넓혔다.
     # 전국 한 바퀴가 약 2시간 30분이라 04:30 KST쯤 끝난다.
-    - cron: "0 17 * * 0,2,4"
+    - cron: "0 17 * * 0-4"
 
 # rate-data 브랜치의 단일 writer.
 # 각 실행이 하나의 금리 관측 이력이므로 진행 중인 작업을 취소하지 않고
@@ -104,6 +109,35 @@ jobs:
       # 손으로 돌릴 때는 `publish_only` 체크박스가 정한다.
       PUBLISH_ONLY: ${{ github.event_name == 'push' || inputs.publish_only == true }}
     steps:
+      # 손으로 돌릴 때만 암호를 묻는다.
+      #
+      # **이 검사가 막는 것은 실수와 장난이지 침입이 아니다.** 여기까지
+      # 오려면 이미 저장소에 쓰기 권한이 있어야 한다 — GitHub이 먼저 막는다.
+      # 그 위에 한 겹 더 두는 것이고, 여럿이 권한을 나눠 가진 뒤에도
+      # "아무나 두 시간짜리 전국 수집을 눌러 버리는" 일을 막는다.
+      #
+      # 정기 수집(schedule)과 머지 발행(push)에는 안 건다. 사람이 없는
+      # 경로에 암호를 걸면 그 암호를 어딘가에 또 적어 둬야 한다.
+      #
+      # 비교는 셸에서 한다. 시크릿을 `if:` 조건에 쓰면 그 식이 실행 화면에
+      # 그대로 보인다. 값 자체는 GitHub이 로그에서 가려 준다.
+      - name: Check collect password
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        env:
+          EXPECTED: ${{ secrets.DASHBOARD_PASSWORD }}
+          GIVEN: ${{ inputs.password }}
+        run: |
+          if [ -z "${EXPECTED}" ]; then
+            echo "::error::DASHBOARD_PASSWORD 시크릿이 없다."
+            echo "::error::저장소 Settings → Secrets and variables → Actions에서 만든다."
+            exit 1
+          fi
+          if [ "${GIVEN}" != "${EXPECTED}" ]; then
+            echo "::error::수집 암호가 맞지 않는다. 관리자에게 확인한다."
+            exit 1
+          fi
+          echo "암호 확인됨"
+
       - uses: actions/checkout@v4
 
       - name: Install uv

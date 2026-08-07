@@ -117,9 +117,16 @@ def test_benchmarks_are_none_without_bank_data(db: Path) -> None:
 
 
 def test_summary_carries_the_benchmark_block(db: Path) -> None:
+    """카드 셋. 시중은행과 2금융권을 **나눠** 싣는다 (v4 §4.1).
+
+    합치면 전국 공시(은행)와 점포 기준(금고·농·축협)이 한 숫자에 섞여
+    그 값이 무엇의 평균인지 말할 수 없게 된다.
+    """
     summary = build_summary(db)
     assert "benchmarks" in summary
-    assert set(summary["benchmarks"]) == {"bok_base_rate", "commercial_bank_12m"}
+    assert set(summary["benchmarks"]) == {
+        "bok_base_rate", "commercial_bank_12m", "second_tier_12m"
+    }
 
 
 def test_percentiles_pick_a_real_value_not_an_average() -> None:

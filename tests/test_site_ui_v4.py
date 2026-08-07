@@ -9,14 +9,16 @@
                      참고카드 2장, 우대조건 펼치기, 콘솔 오류 0건
 
     2차 (133,764행, 조회 조건 개편 뒤)
-        업권 탭 6개 — 전체·저축은행·새마을금고·지역농축협·신협·은행
-        지역에서 부산을 켜니 구·군 16개가 그 자리에서 펼쳐졌다
-        동구를 고르니 15,822 → 1,537건
-        부산을 끄니 구·군이 접히고 133,764건으로 돌아왔다
-        7~12개월 구간 45,736건
-        우대금리 기준으로 바꾸니 금리칸 이름이 «최고금리 이상 (%)»로 바뀌었다
-        시중은행 탭 333건. **서울 시도를 걸어도 333건 그대로**였고
-        보이는 100행 전부에 «전국 공시» 배지가 붙었다
+        업권 탭 6개, 지역에서 부산을 켜니 구·군 16개가 펼쳐짐
+        동구 15,822 → 1,537건, 7~12개월 45,736건
+        시중은행 333건 — 서울 시도를 걸어도 그대로, 전 행에 «전국 공시» 배지
+
+    3차 (133,849행, 업권 탭을 뺀 뒤 · 2026-08-07)
+        권역 체크박스 5개 — kfcc·cu·nh_local·savings_bank·bank
+        부산 체크 → 구·군 16개 → 동구 1,537건 → 해제하니 133,849건 복귀
+        은행만 333건, 서울 시도를 걸어도 333건 그대로, 배지 100행
+        참고카드 5장 — 기준금리 2.75% · 시중은행 3.12%/3.85% ·
+                       2금융권 3.27%(평균)/5.00%
         콘솔 오류 0건
 """
 
@@ -113,10 +115,10 @@ def test_the_head_office_notice_is_still_there() -> None:
     assert "저축은행 공시금리 — 전국 본점 기준 참고값" in SOURCE
 
 
-# ── 업권 탭 ─────────────────────────────────────────────────────────────
+# ── 업권 ────────────────────────────────────────────────────────────────
 
 
-def test_the_commercial_bank_has_a_tab_by_explicit_decision() -> None:
+def test_the_commercial_bank_is_a_main_sector_by_explicit_decision() -> None:
     """시중은행도 메인 비교표에 선다 (v4 §6.4 정정, 2026-08-06).
 
     한때 이 테스트는 정반대를 못박고 있었다. 사용자가 넣기로 정했다.
@@ -124,6 +126,18 @@ def test_the_commercial_bank_has_a_tab_by_explicit_decision() -> None:
     match = re.search(r"const MAIN_SECTORS = \[([^\]]+)\]", SOURCE)
     assert match, "MAIN_SECTORS를 찾지 못했다"
     assert "bank" in [s.strip().strip('"') for s in match.group(1).split(",")]
+
+
+def test_the_sector_axis_lives_in_only_one_place() -> None:
+    """업권을 고르는 곳이 둘이면 어느 쪽이 이겼는지 화면으로 알 수 없다.
+
+    2026-08-07에 화면 위 «업권 탭»을 뺐다. 아래 조회 조건의 «권역»
+    체크박스와 같은 축이라 중복이었다. 구·군을 지역 안으로 넣은 것과
+    같은 이유다.
+    """
+    assert 'id="tabs"' not in SOURCE, "업권 탭이 되살아났다"
+    assert "state.tab" not in SOURCE
+    assert 'id="busan-go"' not in SOURCE, "부산 바로가기가 지역 축과 겹친다"
 
 
 def test_nationwide_rows_survive_a_sido_filter() -> None:
@@ -142,9 +156,15 @@ def test_the_nationwide_badge_still_exists() -> None:
     assert 'nationwide: "전국 공시"' in SOURCE
 
 
-def test_unknown_sectors_are_not_dropped_from_the_tabs() -> None:
-    """새 수집원이 늘었는데 화면에서 통째로 사라지면 안 된다."""
-    assert "!MAIN_SECTORS.includes(s)" in SOURCE
+def test_unknown_sectors_are_not_dropped_from_the_screen() -> None:
+    """새 수집원이 늘었는데 화면에서 통째로 사라지면 안 된다.
+
+    권역 체크박스는 **데이터에 있는 값을 그대로** 그린다 (`countsOf`).
+    목록에 없는 업권이 들어와도 칸이 생긴다 — 탭이 있던 시절에는
+    `MAIN_SECTORS`에 없으면 뒤에 붙이는 별도 처리가 필요했다.
+    """
+    assert "const countsOf = (key) =>" in SOURCE
+    assert 'const values = [...counts.keys()]' in SOURCE
 
 
 # ── 부산 구·군 ──────────────────────────────────────────────────────────
@@ -471,3 +491,38 @@ def test_the_top_conditions_lead_but_nothing_starts_checked() -> None:
 def test_the_detail_filter_is_an_or_not_an_and() -> None:
     """조건은 여러 개가 함께 붙는다. 전부 만족을 요구하면 거의 안 남는다."""
     assert "if (r.prefTags.has(code)) hit = true;" in SOURCE
+
+
+# ── 참고카드: 2금융권 (2026-08-07) ──────────────────────────────────────
+
+
+def test_the_second_tier_card_is_separate_from_the_bank_card() -> None:
+    """전국 공시와 점포 기준을 한 숫자에 섞지 않는다 (v4 §4.1).
+
+    합치면 그 값이 무엇의 평균인지 말할 수 없게 된다.
+    """
+    from rate_monitor.services.dashboard_service import (
+        BENCHMARK_BANK,
+        BENCHMARK_SECOND_TIER,
+    )
+
+    assert BENCHMARK_BANK == ("bank",)
+    assert set(BENCHMARK_SECOND_TIER) == {"savings_bank", "kfcc", "cu", "nh_local"}
+    assert not set(BENCHMARK_BANK) & set(BENCHMARK_SECOND_TIER)
+    assert "second_tier_12m" in SOURCE
+
+
+def test_the_second_tier_top_rate_shows_its_denominator() -> None:
+    """새마을금고·농·축협은 원천에 우대금리 열 자체가 없다.
+
+    그 상단은 최고금리를 준 기관에서만 나온 값이므로 분모를 함께 적어야
+    한다. 안 적으면 2천 곳 전체의 상단으로 읽힌다.
+    """
+    assert "max_record_count" in SOURCE
+    assert "원천 미제공" in SOURCE
+
+
+def test_the_second_tier_card_says_which_statistic_it_shows() -> None:
+    """평균과 중앙값은 다른 질문에 답한다. 어느 쪽인지 적는다."""
+    assert "기본금리 평균" in SOURCE
+    assert "중앙값" in SOURCE
