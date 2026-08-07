@@ -195,3 +195,67 @@ def test_a_row_without_a_district_still_counts_in_its_region() -> None:
     (combined,) = [r for r in out
                    if r["sector"] == SECOND_TIER_SECTOR and r["district"] is None]
     assert combined["observations"] == 2
+
+
+# ── 12개월 정기예금으로 못박기 ──────────────────────────────────────────
+
+
+def test_the_region_median_counts_only_twelve_month_deposits() -> None:
+    """참고카드와 같은 기준이어야 한다.
+
+    기간·유형을 안 가리면 정기예금 1개월 1.00%와 12개월 3.40%가 한 중앙값에
+    섞인다. 실제로 그래서 권역이 2.4~2.5%로 나왔고, 같은 화면의 참고카드
+    3.40%와 1%p 가까이 벌어졌다.
+
+    질의가 조건을 거는지를 본다 — `_by_region`이 SQL로 거르므로 가짜 행으로는
+    확인할 수 없다.
+    """
+    import inspect
+
+    from rate_monitor.services import dashboard_service as ds
+
+    src = inspect.getsource(ds._by_region)
+    assert "v.term_months = ?" in src
+    assert "p.product_type = ?" in src
+    # 참고카드와 **같은 상수**를 쓴다. 두 곳에 따로 적으면 한쪽만 바뀐다.
+    assert "BENCHMARK_TERM_MONTHS" in src
+    assert "BENCHMARK_PRODUCT_TYPE" in src
+    assert ds.BENCHMARK_TERM_MONTHS == 12
+    assert ds.BENCHMARK_PRODUCT_TYPE == "term_deposit"
+
+
+def test_the_shared_where_clause_is_not_narrowed_for_everyone() -> None:
+    """`district_sql`은 `by_district`도 쓴다.
+
+    거기에 12개월 조건을 붙이면 구·군 수(화면의 «구·군 327»)가 통째로 줄어든다.
+    조건은 `_by_region`의 질의에만 붙어야 한다.
+    """
+    import inspect
+
+    from rate_monitor.services import dashboard_service as ds
+
+    body = inspect.getsource(ds.build_summary)
+    head, _, _ = body.partition("by_region = _by_region")
+    district_sql = head[head.index("district_sql = ("):head.index("district_expr =")]
+    assert "term_months" not in district_sql
+    assert "product_type" not in district_sql
+
+
+def test_the_district_rows_no_longer_carry_a_dead_median() -> None:
+    """드릴다운이 `by_region`의 구 단위 행을 보게 되면서 아무도 안 읽는다.
+
+    화면은 `by_district`의 길이만 쓴다. 두 곳에 있는 중앙값은 언젠가 어긋난다.
+    """
+    import inspect
+    from pathlib import Path
+
+    from rate_monitor.services import dashboard_service as ds
+
+    body = inspect.getsource(ds.build_summary)
+    assert "_fill_medians(\n            by_district," not in body
+
+    screen = (Path(__file__).resolve().parents[1]
+              / "web" / "templates" / "site.html").read_text(encoding="utf-8")
+    assert "by_district" in screen, "구·군 수는 여전히 화면이 쓴다"
+    # 다만 중앙값으로는 안 읽는다.
+    assert "by_district || []).filter" not in screen

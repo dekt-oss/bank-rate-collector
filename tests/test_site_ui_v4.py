@@ -507,7 +507,9 @@ def test_a_chart_that_ignores_the_filters_says_so() -> None:
 
     표 바로 위에 나란히 있으므로 제일 위험한 오해다.
     """
-    assert '<span class="badge live">조회 조건 반영</span>' in SOURCE
+    # 배지는 이제 상태에 따라 바뀐다(좁혔으면 «12개월 정기예금 기준»).
+    # 초기 마크업이 «조회 조건 반영»이고 id로 갈아끼운다.
+    assert '<span class="badge live" id="hist-badge">조회 조건 반영</span>' in SOURCE
     assert SOURCE.count('<span class="badge">전체 기준</span>') >= 2
     assert "아래 표와 모집단이 다릅니다" in SOURCE
     assert 'class="card global"' in SOURCE
@@ -646,7 +648,8 @@ def test_the_region_chart_covers_all_of_the_second_tier() -> None:
     )
 
     assert f'const REG_SECTOR = "{SECOND_TIER_SECTOR}"' in SOURCE
-    assert "2금융권 기본금리 중앙값" in SOURCE
+    # 2026-08-07에 기간·유형을 12개월 정기예금으로 못박으면서 이름이 늘었다.
+    assert "2금융권 12개월 정기예금 중앙값" in SOURCE
     assert "저축은행 기본금리 중앙값" not in SOURCE
     # 합산 이름이 실제 업권 코드와 겹치면 목록에 나란히 선다.
     assert SECOND_TIER_SECTOR not in BENCHMARK_SECOND_TIER
@@ -671,6 +674,80 @@ def test_the_whole_preference_cell_opens_the_text() -> None:
     assert 'c.key === "pref" && r.pref' in SOURCE
     assert 'e.target.closest("[data-pref], [data-pref-cell]")' in SOURCE
     assert "td[data-pref-cell] { cursor: pointer; }" in SOURCE
+
+
+def test_the_histogram_counts_bins_with_integers() -> None:
+    """`Math.floor((v - lo) / 0.2)`는 0.2의 배수를 앞 구간으로 흘린다.
+
+    IEEE754에서 `2.4 / 0.2 === 11.999...`다. 실측(133,849행)에서 여섯 경계가
+    새면서 전체의 11.6%가 엉뚱한 칸에 들어갔고, 인접 구간이 −5,988 / +5,988로
+    널뛰어 톱니가 됐다.
+
+    아래는 그 실패를 파이썬으로 그대로 재현한 것이다. **화면 코드가 나눗셈으로
+    되돌아가면 이 테스트가 먼저 깨져야 한다.**
+    """
+    import math
+
+    step, lo = 0.2, 0.0
+    leaked = [round(k * step, 1) for k in range(20)
+              if math.floor((round(k * step, 1) - lo) / step) != k]
+    assert leaked, "부동소수점 전제가 깨졌다 — 이 테스트를 다시 봐야 한다"
+    assert 2.4 in leaked and 2.8 in leaked
+
+    # 정수로 세면 하나도 안 샌다. 화면이 쓰는 식과 같은 모양이다.
+    s100 = round(step * 100)
+    assert not [k for k in range(20)
+                if (round(round(k * step, 1) * 100) - round(lo * 100)) // s100 != k]
+
+    hist = SOURCE[SOURCE.index("── 차트 1"):SOURCE.index("── 차트 2")]
+    assert "Math.round(v * 100) - LO100" in hist, "구간을 정수로 세지 않는다"
+    assert "Math.floor((v - lo) / HIST_STEP)" not in hist, "나눗셈으로 되돌아갔다"
+
+
+def test_the_histogram_narrows_only_when_nothing_is_picked() -> None:
+    """조건을 걸면 조건을 따라야 한다. 배지가 «조회 조건 반영»인 이유다.
+
+    안 걸었을 때만 12개월 정기예금으로 좁힌다 — 13만 건을 통째로 그리면
+    정기예금 1개월 1.00%와 12개월 3.40%가 한 그림에 겹쳐 분포가 아니게 된다.
+    """
+    assert "const noTermOrTypePicked = () =>" in SOURCE
+    guard = SOURCE[SOURCE.index("const noTermOrTypePicked"):
+                   SOURCE.index("const histogram = (stats)")]
+    # 기간 체크박스·유형 체크박스·개월 직접 입력 넷을 모두 본다. 하나라도
+    # 빠지면 사용자가 건 조건을 무시하고 좁힌다.
+    for axis in ("state.picked.term.size", "state.picked.type.size",
+                 "state.tmin == null", "state.tmax == null"):
+        assert axis in guard, axis
+
+
+def test_a_narrowed_histogram_says_so_and_names_the_whole() -> None:
+    """그림 3.40%와 결과 바 2.50%가 동시에 보이는데 이유가 없으면,
+    고치려던 혼란을 자리만 옮긴 것이 된다.
+    """
+    assert 'id="hist-badge"' in SOURCE
+    assert '"12개월 정기예금 기준" : "조회 조건 반영"' in SOURCE
+    hist = SOURCE[SOURCE.index("── 차트 1"):SOURCE.index("── 차트 2")]
+    assert "좁혀 그렸습니다" in hist
+    assert "전체의 ${label} 중앙값은" in hist, "표 전체 중앙값을 함께 적어야 한다"
+    # 좁힌 집합에서 우리 회사 선을 다시 낸다. 전체에서 낸 값을 얹으면
+    # 선이 분포 밖에 서거나 «이 구간»이 딴 칸을 가리킨다.
+    assert "stats = mineStats(source)" in hist
+
+
+def test_a_narrow_filter_never_leaves_the_chart_empty() -> None:
+    """좁혔는데 20건도 안 남으면 좁히지 않는다. 빈 그림보다 섞인 그림이 낫다."""
+    hist = SOURCE[SOURCE.index("── 차트 1"):SOURCE.index("── 차트 2")]
+    assert "rows.length >= HIST_MIN_ROWS ? rows : current" in hist
+
+
+def test_the_region_chart_is_pinned_to_the_same_basis_as_the_card() -> None:
+    """참고카드는 12개월 정기예금인데 권역 차트가 전체면 1%p 가까이 벌어진다.
+
+    실제로 그랬다 — 카드 3.40%, 권역 2.4~2.5%. 같은 화면의 두 숫자가 다른데
+    이유가 어디에도 없었다.
+    """
+    assert "2금융권 12개월 정기예금 중앙값" in SOURCE
+    assert "위 참고카드와 같은 기준" in SOURCE
 
 
 def test_the_url_replaces_instead_of_pushing() -> None:

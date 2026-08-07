@@ -605,7 +605,7 @@
        예측으로 읽힌다. -->
   <div class="charts" id="charts" hidden>
     <div class="card">
-      <h3>금리 분포 <span class="badge live">조회 조건 반영</span></h3>
+      <h3>금리 분포 <span class="badge live" id="hist-badge">조회 조건 반영</span></h3>
       <p class="cap" id="hist-cap"></p>
       <svg id="hist" viewBox="0 0 560 210" role="img" aria-label=""></svg>
       <div class="legend" id="hist-legend"></div>
@@ -632,8 +632,12 @@
 
     <div class="card wide global">
       <h3 id="reg-title"></h3>
-      <p class="cap">저축은행·새마을금고·신협·지역농축협을 합친 기본금리
-        <b>중앙값</b>입니다. 조회 조건과 무관한 전체 집계이며 아래 표와
+      <!-- 기간·유형을 12개월 정기예금으로 못박는다. 안 박으면 1개월 예금
+           1.00%와 12개월 3.40%가 한 중앙값에 섞여, 위 참고카드와 1%p 가까이
+           벌어지면서 그 이유가 화면 어디에도 없게 된다. -->
+      <p class="cap">저축은행·새마을금고·신협·지역농축협을 합친
+        <b>12개월 정기예금</b>의 기본금리 <b>중앙값</b>입니다.
+        위 참고카드와 같은 기준이고, 조회 조건과 무관한 전체 집계라 아래 표와
         모집단이 다릅니다.
         최고값이 아니라 중앙값을 쓰는 이유는, 우대 조건이 붙은 한 건이 그
         권역 전체를 대표해 버리는 것을 막기 위해서입니다.
@@ -1452,11 +1456,38 @@
   // 왼쪽에 뭉쳐 분포로 안 보인다.
   const HIST_STEP = 0.2;
   const HIST_MIN_ROWS = 20;   // 이보다 적으면 구간이 비어 분포처럼 안 보인다
+  // 조건에 기간·유형이 하나도 안 걸렸는가.
+  //
+  // 그때 13만 건을 통째로 그리면 **분포가 아니다.** 상품군마다 중앙값이
+  // 정기예금 1개월 1.00%부터 12개월 3.40%까지 흩어져 있어 봉우리가 여럿
+  // 생기고, 전체 중앙값 2.50%가 참고카드의 12개월 3.40%와 안 맞는다.
+  //
+  // 그래서 **그림만** 12개월 정기예금으로 좁힌다. 표는 건드리지 않으므로
+  // «빈 체크 = 전체» 원칙은 그대로다. 좁혔다는 사실은 배지와 캡션이 밝힌다.
+  const HIST_TERM = 12;
+  const HIST_TYPE = "term_deposit";
+  const noTermOrTypePicked = () =>
+    !state.picked.term.size && !state.picked.type.size
+    && state.tmin == null && state.tmax == null;
+
   const histogram = (stats) => {
-    const values = current.map(rateOf).filter((v) => v != null).sort((a, b) => a - b);
+    // 좁힌 집합을 쓰면 우리 회사 선도 여기서 다시 낸다. 전체에서 낸 값을
+    // 좁힌 그림에 얹으면 선이 분포 밖에 서거나 «이 구간»이 딴 칸을 가리킨다.
+    const narrowed = noTermOrTypePicked();
+    const rows = narrowed
+      ? current.filter((r) => r.type === HIST_TYPE && r.term === HIST_TERM)
+      : current;
+    // 좁혔는데 남는 게 없으면 좁히지 않는다. 빈 그림보다 섞인 그림이 낫다.
+    const source = narrowed && rows.length >= HIST_MIN_ROWS ? rows : current;
+    const narrowedOn = source !== current;
+    if (narrowedOn) stats = mineStats(source);
+
+    const values = source.map(rateOf).filter((v) => v != null).sort((a, b) => a - b);
     const cap = $("hist-cap");
     const legend = $("hist-legend");
     const label = state.basis === "max" ? "최고금리" : "기본금리";
+    $("hist-badge").textContent = narrowedOn ? "12개월 정기예금 기준" : "조회 조건 반영";
+    $("hist-badge").className = narrowedOn ? "badge" : "badge live";
     if (values.length < HIST_MIN_ROWS) {
       // 지어내지 않는다. 그릴 수 없다고 적는다.
       $("hist").innerHTML = "";
@@ -1467,15 +1498,28 @@
       return;
     }
     const at = (q) => values[Math.min(values.length - 1, Math.floor(q * values.length))];
-    const round = (v, dir) => (dir < 0 ? Math.floor : Math.ceil)(v / HIST_STEP) * HIST_STEP;
-    const lo = round(at(0.02), -1);
-    const hi = Math.max(lo + HIST_STEP, round(at(0.98), 1));
+
+    // ── 구간은 정수로 센다 ────────────────────────────────────────
+    //
+    // `Math.floor((v - lo) / 0.2)`로 세면 **0.2의 배수가 앞 구간으로 샌다.**
+    // IEEE754에서 `2.4 / 0.2 === 11.999...`이기 때문이다. 실측(133,849행)에서
+    // 0.6·1.2·1.4·2.4·2.8·3.8 여섯 곳이 새면서 전체의 11.6%가 엉뚱한 칸에
+    // 들어갔고, 인접 구간이 −5,988 / +5,988로 널뛰어 톱니가 됐다.
+    //
+    // 금리는 소수 셋째 자리까지라 100배 하면 정수다. 정수로 세면 안 샌다.
+    const S100 = Math.round(HIST_STEP * 100);
+    const floorTo = (v) => Math.floor(Math.round(v * 100) / S100) * S100;
+    const ceilTo = (v) => Math.ceil(Math.round(v * 100) / S100) * S100;
+    const LO100 = floorTo(at(0.02));
+    const HI100 = Math.max(LO100 + S100, ceilTo(at(0.98)));
+    const lo = LO100 / 100;
+    const hi = HI100 / 100;
     const bins = [];
-    for (let x = lo; x < hi - 1e-9; x += HIST_STEP) {
-      bins.push({ lo: x, hi: x + HIST_STEP, n: 0 });
+    for (let x = LO100; x < HI100; x += S100) {
+      bins.push({ lo: x / 100, hi: (x + S100) / 100, n: 0 });
     }
     values.forEach((v) => {
-      const i = Math.floor((v - lo) / HIST_STEP);
+      const i = Math.floor((Math.round(v * 100) - LO100) / S100);
       if (i >= 0 && i < bins.length) bins[i].n += 1;
     });
     const mid = median(values);
@@ -1547,8 +1591,19 @@
       `${label} 분포. 조건 내 중앙값 ${mid == null ? "없음" : mid.toFixed(2) + "%"}`
       + (ours == null ? "" : `, ${state.mine} 중앙값 ${ours.toFixed(2)}%`));
 
-    cap.textContent = `조건에 맞는 ${num(values.length)}건의 ${label}를 `
-      + `${HIST_STEP}%p 구간으로 묶은 것입니다. 축은 상하위 2%를 뺀 범위입니다.`;
+    // 좁혔으면 **표와의 관계까지** 적는다. 그림 3.40%와 결과 바 2.50%가
+    // 동시에 보이는데 이유가 없으면, 고치려던 혼란을 자리만 옮긴 셈이 된다.
+    if (narrowedOn) {
+      const whole = median(current.map(rateOf));
+      cap.innerHTML =
+        `조건에 기간·유형을 걸지 않아 <b>12개월 정기예금 ${num(values.length)}건</b>으로 `
+        + `좁혀 그렸습니다. 아래 표 ${num(current.length)}건 전체의 ${label} 중앙값은 `
+        + (whole == null ? "—" : `${whole.toFixed(2)}%`)
+        + `입니다. 조건을 걸면 그 결과를 그립니다.`;
+    } else {
+      cap.textContent = `조건에 맞는 ${num(values.length)}건의 ${label}를 `
+        + `${HIST_STEP}%p 구간으로 묶은 것입니다. 축은 상하위 2%를 뺀 범위입니다.`;
+    }
     legend.innerHTML =
       `<span><i style="background:${css("--ink-3")};opacity:.3"></i>구간별 건수</span>`
       + (mid == null ? ""
@@ -1661,7 +1716,7 @@
 
     $("reg-title").innerHTML =
       (regionView === "national" ? "권역별" : "부산 구·군별")
-      + ' 2금융권 기본금리 중앙값 <span class="badge">전체 기준</span>';
+      + ' 2금융권 12개월 정기예금 중앙값 <span class="badge">전체 기준</span>';
     if (!D.length) {
       $("reg").innerHTML = "";
       $("reg-legend").innerHTML = "<span>권역별 집계가 아직 없습니다.</span>";
@@ -1735,7 +1790,7 @@
     $("reg").innerHTML = s;
     $("reg").setAttribute("aria-label",
       `${regionView === "national" ? "권역" : "부산 구·군"}별 2금융권 `
-      + "기본금리 중앙값 막대 그래프");
+      + "12개월 정기예금 기본금리 중앙값 막대 그래프");
 
     $("reg-legend").innerHTML =
       `<span><i style="background:${css("--accent")}"></i>기본금리 중앙값</span>`
