@@ -72,6 +72,8 @@ INLINE_KEYS = (
     "stale_sources",
     # «지금 수집하기» 링크. 없으면 화면이 버튼을 통째로 숨긴다.
     "collect_workflow_url",
+    # 「이 데이터를 얼마나 믿을 수 있나」로 가는 길 (docs/data-trust.md).
+    "data_trust_url",
 )
 
 
