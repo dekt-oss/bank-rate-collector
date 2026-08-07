@@ -712,7 +712,7 @@ def test_the_histogram_narrows_only_when_nothing_is_picked() -> None:
     """
     assert "const noTermOrTypePicked = () =>" in SOURCE
     guard = SOURCE[SOURCE.index("const noTermOrTypePicked"):
-                   SOURCE.index("const histogram = (stats)")]
+                   SOURCE.index("const histogram = ()")]
     # 기간 체크박스·유형 체크박스·개월 직접 입력 넷을 모두 본다. 하나라도
     # 빠지면 사용자가 건 조건을 무시하고 좁힌다.
     for axis in ("state.picked.term.size", "state.picked.type.size",
@@ -736,8 +736,11 @@ def test_a_narrowed_histogram_says_so_and_names_the_whole() -> None:
 
 def test_a_narrow_filter_never_leaves_the_chart_empty() -> None:
     """좁혔는데 20건도 안 남으면 좁히지 않는다. 빈 그림보다 섞인 그림이 낫다."""
-    hist = SOURCE[SOURCE.index("── 차트 1"):SOURCE.index("── 차트 2")]
-    assert "rows.length >= HIST_MIN_ROWS ? rows : current" in hist
+    # 판단은 `screenBasis()`가 한 곳에서 한다 (차트 1 앞에 있다).
+    basis = SOURCE[SOURCE.index("const screenBasis = () =>"):
+                   SOURCE.index("const wholeBasis = () =>")]
+    assert "rows.length >= HIST_MIN_ROWS" in basis
+    assert "{ rows: current, narrowed: false }" in basis
 
 
 def test_the_region_chart_is_pinned_to_the_same_basis_as_the_card() -> None:
@@ -748,6 +751,67 @@ def test_the_region_chart_is_pinned_to_the_same_basis_as_the_card() -> None:
     """
     assert "2금융권 12개월 정기예금 중앙값" in SOURCE
     assert "위 참고카드와 같은 기준" in SOURCE
+
+
+def test_our_company_number_is_decided_in_one_place() -> None:
+    """세 곳이 «고려저축은행 중앙값»이라 적는데 값이 달랐다 (2026-08-07).
+
+    카드 3.00%(전 상품군) · 분포 3.90%(12개월 정기예금) · 권역선 3.00%.
+    **권역 차트가 제일 나빴다** — 막대는 12개월 기준인데 기준선만 전체
+    기준이라, 서로 다른 것을 비교해 «우리가 전 권역보다 낮다»고 보였다.
+    12개월로 재면 3.90%라 정반대다.
+    """
+    assert "const screenBasis = () =>" in SOURCE
+    assert "const wholeBasis = () =>" in SOURCE
+
+    # 카드·순위줄·분포는 화면 기준 하나를 공유한다.
+    assert SOURCE.count("mineStats(screenBasis().rows)") == 2   # render + 카드
+    assert "const stats = mineStats(source);" in SOURCE          # 분포
+
+    # 권역 차트는 «전체 기준»이라 조건을 안 따른다. 막대와 같은 잣대여야
+    # «전 권역보다 높다/낮다»가 참이 된다.
+    assert "regionBars(mineStats(wholeBasis()))" in SOURCE
+    assert "mineStats(current)" not in SOURCE, "옛 잣대가 남아 있다"
+
+
+def test_a_different_denominator_says_what_it_is() -> None:
+    """결과 바의 건수(133,849)와 순위 분모(16,689)가 다른데 이유가 없으면
+    둘 중 뭐가 맞는지 알 수 없다.
+    """
+    assert "const basisLabel = () =>" in SOURCE
+    assert 'class="on"' in SOURCE
+    # 카드 제목도 같은 이름을 쓴다.
+    assert '${basisLabel() || "조회 조건 기준"}' in SOURCE
+
+
+def test_the_charts_use_the_real_pixel_width() -> None:
+    """viewBox를 1160으로 못박으면 좁은 화면에서 그만큼 눌린다.
+
+    모바일 실측(390px 뷰포트)에서 권역 차트가 배율 0.288로 눌려 글자가
+    2.7~3.3px이 됐다 — 본문 14.5px의 5분의 1이라 읽을 수가 없다.
+    실제 폭을 viewBox로 쓰면 배율이 1이라 font-size가 곧 픽셀이다.
+    """
+    assert "const chartWidth = (id, fallback) =>" in SOURCE
+    for chart in ('chartWidth("hist"', 'chartWidth("terms"', 'chartWidth("reg"'):
+        assert chart in SOURCE, chart
+    # 폭이 바뀌면 다시 그려야 한다. 안 그리면 창을 돌렸을 때 옛 폭이 남는다.
+    assert 'window.addEventListener("resize"' in SOURCE
+    # 높이만 바뀔 때는 안 그린다 — 모바일 주소창이 접힐 때마다 다시 그리면
+    # 13만 행이 딸려 스크롤이 끊긴다.
+    assert "if (window.innerWidth === lastWidth) return;" in SOURCE
+
+
+def test_the_region_chart_lies_down_when_the_screen_is_narrow() -> None:
+    """세로 막대 아홉을 340px에 세우면 막대당 37px이다.
+
+    «인천·경기»도 «271개사 · 2,603건»도 안 들어간다.
+    """
+    reg = SOURCE[SOURCE.index("── 차트 3"):SOURCE.index("const drawCharts")]
+    assert "const wide = W >= 900;" in reg
+    assert "가로축은 ${lo.toFixed(2)}%부터 시작합니다" in reg, "눕혀도 축을 밝힌다"
+    assert "세로축은 ${lo.toFixed(2)}%부터 시작합니다" in reg
+    # 어느 배치든 표본 크기는 적는다.
+    assert reg.count("개사 · ${num(d.n)}건") == 2
 
 
 def test_the_url_replaces_instead_of_pushing() -> None:
