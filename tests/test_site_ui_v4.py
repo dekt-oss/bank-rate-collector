@@ -75,7 +75,10 @@ def test_benchmarks_reach_the_page(db: Path, tmp_path: Path) -> None:
 def test_the_page_hides_an_empty_benchmark_card() -> None:
     """값이 없으면 카드를 통째로 숨긴다. 빈 카드는 "0%"로 읽힌다."""
     assert 'id="marks" hidden' in SOURCE
-    assert '$("marks").hidden = false;' in SOURCE
+    # 카드가 하나도 안 만들어지면 자리째 숨는다. 2026-08-07에 카드를 다시
+    # 그리게 되면서(우리 회사를 바꾸면 첫 칸이 따라와야 한다) 조건이
+    # «보이기»에서 «몇 장인가»로 바뀌었다.
+    assert '$("marks").hidden = !cards.length;' in SOURCE
 
 
 # ── 금지사항 ────────────────────────────────────────────────────────────
@@ -469,6 +472,140 @@ def test_the_screen_points_at_the_document_that_says_what_is_not_guaranteed() ->
             os.environ["GITHUB_REPOSITORY"] = before
 
 
+# ── 조회 화면 R1 (2026-08-07) ───────────────────────────────────────────
+
+
+def test_the_charts_draw_without_any_library() -> None:
+    """회사 PC 망분리 환경에서 CDN이 막히면 차트만 통째로 사라진다.
+
+    그래서 SVG를 직접 그린다. 외부 주소가 하나라도 들어오면 이 규칙이
+    깨진 것이다.
+    """
+    for bad in ("cdn.", "unpkg", "jsdelivr", "chart.js", "d3.v", "https://"):
+        assert bad not in SOURCE.lower().replace("https://github.com", ""), bad
+    for chart in ('id="hist"', 'id="terms"', 'id="reg"'):
+        assert chart in SOURCE, chart
+
+
+def test_chart_colours_come_from_css_variables_not_literals() -> None:
+    """SVG에 색을 박으면 다크모드에서 안 따라온다.
+
+    토글 뒤 차트만 밝은 색으로 남으면 «왜 여기만 안 바뀌나»가 된다.
+    """
+    assert 'getComputedStyle(document.documentElement)' in SOURCE
+    # 차트를 그리는 코드에 16진 색이 있으면 안 된다. 흰 글자(#fff)는
+    # 색 배지 위에 얹는 것이라 변수로 둘 수 없다 — 그것만 예외다.
+    chart_src = SOURCE[SOURCE.index("── 차트 1"):SOURCE.index("── 조건을 주소에 담는다")]
+    literals = [w for w in re.findall(r"#[0-9a-fA-F]{3,6}", chart_src) if w != "#fff"]
+    assert not literals, f"차트에 박힌 색: {literals}"
+    # 테마를 바꾸면 다시 그린다. 안 그리면 옛 색이 그대로 남는다.
+    assert SOURCE.index("applyTheme(next)") < SOURCE.index("drawCharts();\n  });")
+
+
+def test_a_chart_that_ignores_the_filters_says_so() -> None:
+    """빼면 보는 사람이 차트와 표를 같은 모집단으로 믿는다.
+
+    표 바로 위에 나란히 있으므로 제일 위험한 오해다.
+    """
+    assert '<span class="badge live">조회 조건 반영</span>' in SOURCE
+    assert SOURCE.count('<span class="badge">전체 기준</span>') >= 2
+    assert "아래 표와 모집단이 다릅니다" in SOURCE
+    assert 'class="card global"' in SOURCE
+
+
+def test_the_representative_value_is_never_the_maximum() -> None:
+    """우대 상품 한 건이 권역 전체를 대표하면 안 된다.
+
+    권역 차트는 `base_p50`만 읽는다. `base_max`를 읽는 순간 강서구가
+    직장금고 하나 때문에 10.00%로 선다.
+    """
+    chart = SOURCE[SOURCE.index("── 차트 3"):SOURCE.index("const drawCharts")]
+    assert "base_p50" in chart
+    assert "base_max" not in chart
+
+
+def test_a_thin_sample_is_named_not_drawn() -> None:
+    """96건과 1,284건의 중앙값은 같은 값이 아니다."""
+    assert "REG_MIN_N" in SOURCE
+    assert "표본 부족" in SOURCE
+    assert "개사 · " in SOURCE, "막대마다 표본 크기를 적어야 한다"
+
+
+def test_the_axis_says_it_does_not_start_at_zero() -> None:
+    """권역 중앙값은 서로 0.15%p 안쪽이라 축을 압축해야 차이가 보인다.
+
+    압축했으면 그 사실을 적어야 한다. 안 적으면 막대 높이 비율이 금리
+    비율로 읽힌다.
+    """
+    assert "0부터가 아닙니다" in SOURCE
+    # 여백을 위아래 같은 값으로 두면 위는 막대를 눕히고 아래는 우리 회사
+    # 선을 바닥에 붙인다. 붙으면 3.20%인데도 «0에 가깝다»로 읽힌다.
+    assert "- 0.10) * 100" in SOURCE
+
+
+def test_our_company_is_one_colour_everywhere() -> None:
+    """같은 대상을 화면 세 곳에서 다른 색으로 그리면 같은 것인지 알 수 없다.
+
+    카드 왼쪽 선 · 히스토그램 세로선 · 권역 기준선이 모두 `--crit`이다.
+    """
+    assert "border-left: 4px solid var(--crit)" in SOURCE
+    hist = SOURCE[SOURCE.index("── 차트 1"):SOURCE.index("── 차트 2")]
+    assert 'css("--crit")' in hist
+    reg = SOURCE[SOURCE.index("── 차트 3"):SOURCE.index("const drawCharts")]
+    assert 'css("--crit")' in reg
+
+
+def test_the_pinned_row_never_appears_twice() -> None:
+    """같은 행이 고정과 본문에 둘 다 나오면 어느 쪽이 진짜인지 알 수 없다."""
+    assert "current.filter((r) => r !== pinned)" in SOURCE
+    assert 'rows.unshift(rowHtml(pinned, stats))' in SOURCE
+
+
+def test_missing_from_the_filter_is_not_last_place() -> None:
+    """0위나 «—»로 적으면 «우리가 꼴찌»로 읽힌다."""
+    assert "조회 조건 안에 ${state.mine}이(가) 없습니다" in SOURCE
+    assert "우리 회사를 지정하면 순위와 격차가 표시됩니다" in SOURCE
+    # 지정 상태를 못 빠져나오면 안 된다.
+    assert '<option value="">지정 안 함</option>' in SOURCE
+
+
+def test_rank_and_gap_use_the_median_not_the_average() -> None:
+    """금리 분포는 우대 상품 때문에 오른쪽 꼬리가 길다.
+
+    평균은 «가운데»가 아니고, 시중은행 참고카드가 이미 중앙값을 쓴다.
+    """
+    stats = SOURCE[SOURCE.index("const mineStats"):SOURCE.index("const deltaHtml")]
+    assert "median(rows.map(rateOf))" in stats
+    assert "average(" not in stats
+    # 동점은 경쟁 순위(1,2,2,4)다. 평균 순위는 보고서에 옮겨 적기 어렵다.
+    assert "> value).length + 1" in stats
+
+
+def test_the_second_tier_card_leads_with_the_median() -> None:
+    """시중은행 카드가 중앙값인데 2금융권만 평균이면 나란히 못 놓는다."""
+    card = SOURCE[SOURCE.index("const st = marks.second_tier_12m"):
+                  SOURCE.index("// 4. 옆 시장")]
+    assert "Number(st.median).toFixed(2)" in card
+    assert "평균 ${Number(st.mean).toFixed(2)}" in card
+    # 분모 표기는 지우지 않는다.
+    assert "원천 미제공" in card
+
+
+def test_history_that_does_not_exist_is_not_drawn() -> None:
+    """이력이 없는데 선을 그리면 없는 과거를 지어내는 것이다."""
+    assert "추이 — 스냅샷 축적 중" in SOURCE
+    assert "spark-empty" in SOURCE
+
+
+def test_the_url_replaces_instead_of_pushing() -> None:
+    """`pushState`면 체크박스 하나에 뒤로가기가 한 칸씩 쌓인다.
+
+    그러면 화면을 빠져나갈 수 없다.
+    """
+    assert "history.replaceState" in SOURCE
+    assert "history.pushState" not in SOURCE
+
+
 def test_the_collect_url_comes_from_the_build_environment() -> None:
     """저장소 이름을 코드에 박으면 포크가 원본을 가리킨다."""
     import os
@@ -564,6 +701,12 @@ def test_the_second_tier_top_rate_shows_its_denominator() -> None:
 
 
 def test_the_second_tier_card_says_which_statistic_it_shows() -> None:
-    """평균과 중앙값은 다른 질문에 답한다. 어느 쪽인지 적는다."""
-    assert "기본금리 평균" in SOURCE
-    assert "중앙값" in SOURCE
+    """평균과 중앙값은 다른 질문에 답한다. 어느 쪽인지 적는다.
+
+    2026-08-07에 **큰 숫자가 평균에서 중앙값으로 바뀌었다.** 시중은행
+    카드가 이미 중앙값을 쓰는데 2금융권만 평균이라 두 카드를 나란히 놓고
+    비교할 수 없었다. 평균은 사라지지 않고 부연으로 내려갔다 — 어느 쪽도
+    지우지 않는다.
+    """
+    assert "기본금리 <b>중앙값</b>" in SOURCE
+    assert "평균 ${Number(st.mean).toFixed(2)}%" in SOURCE

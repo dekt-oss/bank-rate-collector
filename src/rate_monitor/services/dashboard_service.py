@@ -8,6 +8,7 @@ site/index.html을 생성한다. 게시된 페이지는 외부 fetch가 차단�
 """
 
 import json
+import logging
 import os
 import re
 import sqlite3
@@ -19,6 +20,8 @@ import yaml
 from rate_monitor.domain.preference_taxonomy import classify as classify_preference
 from rate_monitor.domain.timeutil import kst_iso, now_kst
 from rate_monitor.services.institution_matching import normalize_institution
+
+LOGGER = logging.getLogger(__name__)
 
 PRESENTATION_PATH = Path("config/presentation.yaml")
 
@@ -421,6 +424,141 @@ def _percentile(values: list[float], q: float) -> float | None:
     return values[index]
 
 
+# 시도 17개를 화면에 세울 권역 9개로 묶는다 (조회 화면 R1 §3-2).
+#
+# 그대로 세우면 막대가 얇아 비교가 안 되고, 저축은행이 한두 곳뿐인 시도는
+# «중앙값»이라 부를 표본이 안 된다.
+#
+# **묶음이 여기 있는 이유:** 구 단위 중앙값을 여러 개 다시 중앙값 내면
+# 권역 중앙값이 아니다 (수학적으로 틀리다). 원래 관측에서 한 번에 내야 하고,
+# 그러려면 묶는 규칙이 SQL 옆에 있어야 한다. 드릴다운용 구 단위 값은
+# `by_district`에 그대로 남으므로 화면이 구 단위로 파고드는 것은 막지 않는다.
+REGION_GROUPS: dict[str, str] = {
+    "서울": "서울",
+    "인천": "인천·경기", "경기": "인천·경기",
+    "강원": "강원",
+    "대전": "충청", "세종": "충청", "충북": "충청", "충남": "충청",
+    "광주": "전라", "전북": "전라", "전남": "전라",
+    # 발행 데이터에 실제로 들어 있는 값이다 (`by_district` 실측). 매핑에
+    # 없으면 이 행들이 «기타»로 새는데, 전라 지역 행이라는 사실은 안다.
+    "전남광주통합특별시": "전라",
+    "대구": "경북", "경북": "경북",
+    "울산": "경남", "경남": "경남",
+    "부산": "부산",
+    "제주": "제주",
+}
+# 매핑에 없는 시도가 오면 여기로 모은다. **조용히 버리지 않는다** —
+# 버리면 총합이 안 맞는데 아무도 모른다.
+REGION_OTHER = "기타"
+
+
+def _by_region(
+    conn: sqlite3.Connection,
+    run_ids: list[str],
+    district_sql: str,
+    placeholders: str,
+) -> list[dict[str, Any]]:
+    """권역 9개 × 업권의 기본금리 중앙값·기관수·관측수.
+
+    시도를 그대로 세우지 않고 `REGION_GROUPS`로 묶는다. 묶음에 없는 시도가
+    오면 «기타»로 모으고 경고를 남긴다 — 조용히 버리면 총합이 안 맞는데
+    아무도 모른다.
+
+    `institutions`를 함께 내는 이유는 화면이 막대마다 표본 크기를 적어야
+    하기 때문이다. 제주 96건의 중앙값과 서울 1,284건의 중앙값을 같은
+    신뢰도로 읽으면 안 된다.
+    """
+    if not run_ids:
+        return []
+    rates: dict[tuple[str, str], list[str | None]] = {}
+    insts: dict[tuple[str, str], set[str]] = {}
+    unknown: set[str] = set()
+    # 행은 튜플로 온다 (`row_factory`가 None이다). 자리로 읽는다.
+    rows = conn.execute(
+        f"SELECT {SIDO_EXPR}, i.sector, i.id, o.base_rate" + district_sql,
+        tuple(run_ids),
+    )
+    for sido, sector, institution_id, base_rate in rows:
+        region = REGION_GROUPS.get(sido)
+        if region is None:
+            unknown.add(sido)
+            region = REGION_OTHER
+        bucket = (region, sector)
+        rates.setdefault(bucket, []).append(base_rate)
+        insts.setdefault(bucket, set()).add(institution_id)
+    if unknown:
+        LOGGER.warning(
+            "권역 묶음에 없는 시도 %s — «기타»로 모았다. REGION_GROUPS에 넣는다",
+            sorted(unknown),
+        )
+    out = [
+        {
+            "region": region,
+            "sector": sector,
+            "base_p50": _median_of(values),
+            "institutions": len(insts[(region, sector)]),
+            "observations": len(values),
+        }
+        for (region, sector), values in rates.items()
+    ]
+    out.sort(key=lambda r: (r["sector"], -r["observations"]))
+    return out
+
+
+def _grouped_rates(
+    conn: sqlite3.Connection, sql: str, params: tuple[Any, ...]
+) -> dict[Any, list[str | None]]:
+    """`k`와 `base_rate` 두 칸을 내는 질의를 묶음별 값 목록으로 모은다.
+
+    중앙값은 집계 함수로 못 낸다(SQLite에 없다). 그렇다고 묶음마다 질의를
+    한 번씩 돌리면 구·군 327묶음에 327회가 된다. 한 번에 받아 파이썬에서
+    나눈다.
+    """
+    # 이 연결은 `row_factory`가 None이라 행이 튜플로 온다(708행). 이름으로
+    # 읽으면 조용히 죽으므로 자리로 읽는다 — 질의가 두 칸만 내는 이유다.
+    out: dict[Any, list[str | None]] = {}
+    for key, rate in conn.execute(sql, params):
+        out.setdefault(key, []).append(rate)
+    return out
+
+
+def _fill_medians(
+    rows: list[dict[str, Any]],
+    grouped: dict[Any, list[str | None]],
+    *,
+    key: Any,
+) -> None:
+    """집계 행에 `base_p50`을 채운다. 값이 없으면 `None`이다.
+
+    비는 것을 0이나 최저값으로 메우지 않는다 — 화면이 그걸 «이 권역은
+    금리가 0이다»로 그린다.
+    """
+    for row in rows:
+        row["base_p50"] = _median_of(grouped.get(key(row), []))
+
+
+def _median_of(values: list[str | None]) -> float | None:
+    """0 패딩 문자열 금리들의 중앙값.
+
+    저장 형식이 `003.4000` 꼴이라 사전순 정렬이 곧 수치순이다
+    (`db/types.Rate`). 그래서 문자열째 정렬해도 된다.
+
+    **최고값이 아니라 중앙값을 쓰는 이유**는 화면 쪽에 있다. 최고값은 그
+    권역에 우대 조건이 붙은 상품이 단 한 건만 있어도 통째로 끌어올린다 —
+    실측에서 새마을금고 직장금고 하나 때문에 부산 강서구가 10.00%로 찍혔다.
+    그건 권역의 대표값이 아니라 «가장 튄 한 건»이다.
+
+    >>> _median_of(["003.0000", "003.4000", "004.0000"])
+    3.4
+    >>> _median_of([None, "003.2000"])
+    3.2
+    >>> _median_of([]) is None
+    True
+    """
+    kept = sorted(v for v in values if v is not None)
+    return _percentile([float(v) for v in kept], 0.50)
+
+
 def _latest_indicator(conn: sqlite3.Connection, code: str) -> dict[str, Any] | None:
     """참고지표의 최신 시점 (v4 §7.4).
 
@@ -626,6 +764,24 @@ def build_summary(db_path: Path) -> dict[str, Any]:
             tuple(run_ids),
         ) if run_ids else []
 
+        # 기간별 중앙값. SQLite에 중앙값 집계가 없어 값을 받아 와서 낸다.
+        #
+        # min/max로는 만들 수 없다. 화면의 기간별 차트가 범위 막대 안에
+        # 중앙값을 찍는데, 그 값이 없으면 «최저와 최고 사이 어딘가»까지만
+        # 읽히고 대표값이 확정되지 않는다.
+        _fill_medians(
+            by_term,
+            _grouped_rates(
+                conn,
+                "SELECT v.term_months AS k, o.base_rate AS base_rate"
+                "  FROM rate_observations o"
+                "  JOIN product_variants v ON v.id = o.variant_id"
+                f" WHERE o.last_run_id IN ({placeholders})",
+                tuple(run_ids),
+            ) if run_ids else {},
+            key=lambda row: row["term_months"],
+        )
+
         top_rates = _rows(
             conn,
             "SELECT i.canonical_name AS institution,"
@@ -691,6 +847,28 @@ def build_summary(db_path: Path) -> dict[str, Any]:
             " ORDER BY base_max DESC",
             tuple(run_ids),
         ) if run_ids else []
+
+        # 구·군 중앙값. 드릴다운 화면이 쓴다.
+        _fill_medians(
+            by_district,
+            _grouped_rates(
+                conn,
+                # 구 이름은 전국에서 겹친다(중구가 여섯 도시에 있다).
+                # 시도·업권까지 이어 붙여야 한 묶음이 안 섞인다.
+                f"SELECT {SIDO_EXPR} || '/' || {district_expr}"
+                "         || '/' || i.sector,"
+                "       o.base_rate" + district_sql,
+                tuple(run_ids),
+            ) if run_ids else {},
+            key=lambda row: f"{row['sido']}/{row['sigungu']}/{row['sector']}",
+        )
+
+        # 권역 9개 단위 중앙값.
+        #
+        # **구 단위 중앙값을 다시 중앙값 내면 틀린다.** 구마다 관측 수가
+        # 달라서 96건짜리 구와 1,284건짜리 구가 같은 무게로 들어간다.
+        # 그래서 화면에서 묶지 않고 원래 관측에서 한 번에 낸다.
+        by_region = _by_region(conn, run_ids, district_sql, placeholders)
 
         # 구·군별 최고금리 상품. 12개월 기준으로 좁힌다.
         district_top = _rows(
@@ -781,6 +959,9 @@ def build_summary(db_path: Path) -> dict[str, Any]:
         "totals": totals,
         "by_term": by_term,
         "by_district": by_district,
+        # 권역 9개 단위. 구 단위(`by_district`)와 따로 내는 이유는
+        # `_by_region`의 설명에 있다 — 중앙값은 다시 중앙값 낼 수 없다.
+        "by_region": by_region,
         "district_top": district_top,
         "workplace_only": workplace,
         "top_rates": top_rates,

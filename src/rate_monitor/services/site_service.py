@@ -74,6 +74,9 @@ INLINE_KEYS = (
     "collect_workflow_url",
     # 「이 데이터를 얼마나 믿을 수 있나」로 가는 길 (docs/data-trust.md).
     "data_trust_url",
+    # 권역 9개 단위 중앙값. 화면의 권역 차트가 이것만 본다 — 구 단위
+    # (`by_district`)를 다시 중앙값 내면 틀리기 때문이다.
+    "by_region",
 )
 
 
