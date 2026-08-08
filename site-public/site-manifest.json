@@ -1,0 +1,14 @@
+{
+  "generated_at": "2026-08-08T19:39:07.851035+09:00",
+  "page_bytes": 412035,
+  "data_bytes": 21328246,
+  "rows": 327599,
+  "files": [
+    "index.html",
+    "data/table.json",
+    "data/table.json.gz",
+    "data/rates.csv.gz",
+    "data/rates.json.gz",
+    "robots.txt"
+  ]
+}
