@@ -116,21 +116,27 @@ def test_a_missing_config_is_not_an_error(tmp_path: Path) -> None:
     assert choice.source == "기본값"
 
 
-def test_the_repo_config_does_not_make_r2_authoritative_yet() -> None:
-    """저장소에 커밋된 값. r2로 바뀌는 순간이 곧 전환이다.
+def test_the_repo_config_makes_r2_authoritative() -> None:
+    """저장소에 커밋된 값. 이 값이 곧 전환 상태다.
 
-    2026-08-06에 github_legacy에서 r2_migration으로 옮겼다 (run 31071740056).
-    시험 단계라 R2에 올리기는 하지만 복원은 여전히 GitHub에서 하고,
-    rate-data의 DB도 그대로 둔다.
+    2026-08-06 github_legacy → r2_migration (run 31071740056).
+    2026-08-08 r2_migration → r2. **고른 것이 아니라 밀린 것이다.**
 
-    이 검사가 막는 것은 값이 아니라 **말없는 전환**이다. r2로 바꾸면
-    rate-data에 SQLite가 안 실리고 복원이 R2에서 오기 시작한다 — 그걸
-    커밋 하나로 조용히 넘기지 못하게, 이 테스트를 같이 고치게 만든다.
+    농·축협을 전국으로 넓힌 첫 수집(run 31232386844)에서 DB 압축본이
+    146,919,500 bytes(142.66 MiB)가 됐다. GitHub은 개별 파일 100 MB를
+    넘으면 push를 거부하므로, r2_migration으로는 발행 자체가 불가능하다.
+    같은 실행에서 R2 업로드는 다시 받아 해시·무결성·행 수까지 대조해
+    통과했다.
+
+    이 검사가 막는 것은 값이 아니라 **말없는 전환**이다. 되돌릴 때도
+    이 테스트를 같이 고치게 만든다.
     """
     choice = load_backend(Path("config/storage.yaml"), {**SECRETS})
-    assert choice.backend is StorageBackend.R2_MIGRATION
+    assert choice.backend is StorageBackend.R2
     assert choice.backend.uses_r2
-    assert not choice.backend.r2_is_authoritative
+    assert choice.backend.r2_is_authoritative, (
+        "복원이 R2에서 온다. 실패하면 빈 DB로 시작하는 대신 멈춘다 (§6.4)"
+    )
 
 
 # ── 올리기 ──────────────────────────────────────────────────────────────

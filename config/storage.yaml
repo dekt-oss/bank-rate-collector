@@ -28,6 +28,21 @@
 # (`cmp -s` → 완전히 동일). integrity_check ok, foreign_key_check 0건,
 # rate_observations 177,903행이 그대로였다.
 #
-# 여기서는 아직 R2가 시험 저장소다. 복원은 GitHub에서 하고 rate-data의
-# DB도 그대로 둔다. r2로 넘어가는 것은 이 상태로 몇 바퀴 돈 뒤다.
-backend: r2_migration
+# 2026-08-08: r2_migration → r2.
+#
+# **고른 것이 아니라 밀린 것이다.** 농·축협을 전국으로 넓힌 첫 수집
+# (run 31232386844)에서 DB가 787,353,600 bytes로 커졌고, 압축본이
+# 146,919,500 bytes(142.66 MiB)가 됐다. GitHub은 개별 파일 100 MB를
+# 넘으면 push를 거부하므로, r2_migration으로는 발행 자체가 불가능하다.
+# 그 실행은 수집·검증·화면 생성까지 다 하고 크기 게이트에서 멈췄다.
+#
+# 같은 실행에서 R2 쪽은 정상이었다. 올린 뒤 다시 받아 해시·무결성·행 수까지
+# 대조해 통과했다 (state/snapshots/20260808T140442-e3363860.sqlite3.gz).
+# r2_migration으로 돈 실제 수집은 run 23과 run 34 두 바퀴다.
+#
+# 이제 복원이 R2에서 온다. R2가 죽으면 빈 DB로 시작하는 대신 **멈춘다**
+# (선행 수정안 §6.4). 되돌리려면 저장소 Variables의 STORAGE_BACKEND가
+# 이 파일을 이기므로 커밋 없이 github_legacy로 돌아갈 수 있다 — 다만
+# rate-data의 DB는 마지막 r2_migration 실행이 남긴 것이라, 그 뒤 수집분은
+# `storage restore`로 받아야 한다.
+backend: r2

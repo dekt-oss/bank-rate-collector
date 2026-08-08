@@ -30,8 +30,19 @@ def test_download_files_are_not_held_to_the_shard_limit() -> None:
     누른 사람만 기다린다. 여기에 조각 한도를 들이대면 16.6 MiB CSV를 아무도
     못 받을 크기로 잘라야 한다.
     """
+    assert gate.is_shard("site-public/data/table.json")
+    assert not gate.is_shard("site-public/data/rates.csv")
+    assert not gate.is_shard("latest/summary.json")
+
+
+def test_the_plain_size_limit_is_the_same_for_shards() -> None:
+    """`limits_for`는 **압축 전** 크기에 쓰는 한도다.
+
+    GitHub의 100 MB 벽은 압축 전으로 걸리므로 조각도 예외가 없다. 조각의
+    대기 시간 한도는 압축한 값에 따로 적용한다.
+    """
     assert gate.limits_for("site-public/data/table.json") == (
-        gate.SHARD_WARN, gate.SHARD_FAIL
+        gate.GIT_FILE_WARN, gate.GIT_FILE_FAIL
     )
     assert gate.limits_for("site-public/data/rates.csv") == (
         gate.GIT_FILE_WARN, gate.GIT_FILE_FAIL
@@ -93,7 +104,9 @@ def test_the_state_db_passes_at_its_current_size(tmp_path: Path, capsys) -> None
     out = capsys.readouterr().out
     # 예외를 조용히 넘기지 않는다. 매번 적어야 잊히지 않는다.
     assert "한시 예외" in out
-    assert "PR 2" in out
+    # 어디를 보라는 말이 함께 있어야 한다. «예외다»만 적으면 다음 사람이
+    # 무엇을 하면 없어지는지 모른다.
+    assert "roadmap" in out
 
 
 def test_the_state_db_still_blocks_before_the_github_wall(tmp_path: Path) -> None:
@@ -121,3 +134,78 @@ def test_git_metadata_is_not_counted(tmp_path: Path) -> None:
 def test_a_missing_directory_is_an_error_not_a_pass(tmp_path: Path) -> None:
     """경로를 잘못 주면 조용히 통과하면 안 된다. 검사를 안 한 것이다."""
     assert gate.main([str(tmp_path / "없음")]) == 2
+
+
+# ── 조각은 «전송량»으로 잰다 ────────────────────────────────────────────
+
+
+def _bytes(root: Path, relative: str, payload: bytes) -> Path:
+    path = root / relative
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(payload)
+    return path
+
+
+def test_a_big_but_compressible_shard_is_not_blocked(tmp_path: Path) -> None:
+    """이게 이번 수정의 이유다.
+
+    발행 실패한 run 31232386844에서 `table.json`이 20.34 MiB였는데 실제
+    전송은 1.84 MiB였다. 파일 크기로 재던 게이트가 그걸 막았다 — 아무도
+    기다리지 않는 숫자로 발행을 세운 것이다.
+    """
+    # 금리표는 같은 열 이름이 수십만 번 되풀이되는 JSON이라 잘 눌린다.
+    payload = (b'{"sector":0,"institution":1,"base_rate":3.4},' * 700_000)[: 25 * MIB]
+    _bytes(tmp_path, "site-public/data/table.json", payload)
+
+    (finding,) = [f for f in gate.inspect(tmp_path) if f.path.endswith("table.json")]
+    assert finding.size > gate.SHARD_FAIL, "파일 크기로 재면 실패했을 크기다"
+    assert finding.transfer < gate.SHARD_WARN, "그런데 실제로 오가는 양은 작다"
+    assert finding.level != "fail"
+
+
+def test_a_shard_that_does_not_compress_still_blocks(tmp_path: Path) -> None:
+    """느슨하게 푼 것이 아니다. 진짜로 오래 걸리면 여전히 막는다."""
+    import os
+
+    _bytes(tmp_path, "site-public/data/table.json", os.urandom(int(6.5 * MIB)))
+
+    (finding,) = [f for f in gate.inspect(tmp_path) if f.path.endswith("table.json")]
+    assert finding.transfer >= gate.SHARD_FAIL
+    assert finding.failed
+    assert gate.main([str(tmp_path)]) == 1
+
+
+def test_the_failure_line_says_which_yardstick_it_broke(tmp_path: Path, capsys) -> None:
+    """단위가 어긋난 문구를 막는다.
+
+    «20.34 MiB 파일이 6 MiB를 넘었다»고 적으면 숫자가 안 맞아 읽는 사람이
+    게이트를 못 믿는다.
+    """
+    import os
+
+    _bytes(tmp_path, "site-public/data/table.json", os.urandom(int(6.5 * MIB)))
+    assert gate.main([str(tmp_path)]) == 1
+    out = capsys.readouterr().out
+    assert "전송" in out.split("발행하지 않는다")[-1]
+
+
+def test_an_already_compressed_shard_is_not_squeezed_twice(tmp_path: Path) -> None:
+    """`.gz`는 호스팅이 한 번 더 누르지 않는다.
+
+    여기서 다시 눌러 재면 실제로 오가지 않는 숫자가 판정에 들어간다.
+    """
+    import gzip as gziplib
+
+    body = gziplib.compress(b"rate" * 500_000, compresslevel=9)
+    path = _bytes(tmp_path, "site-public/data/table.json.gz", body)
+
+    (finding,) = [f for f in gate.inspect(tmp_path) if f.path.endswith(".gz")]
+    assert finding.transfer == path.stat().st_size
+
+
+def test_download_files_are_not_measured_for_transfer(tmp_path: Path) -> None:
+    """받겠다고 누른 사람만 기다린다. 조각 잣대를 들이대지 않는다."""
+    _file(tmp_path, "site-public/data/rates.csv", 16.57)
+    (finding,) = [f for f in gate.inspect(tmp_path) if f.path.endswith("rates.csv")]
+    assert finding.transfer is None
+    assert finding.basis == "파일"
