@@ -293,7 +293,7 @@ def _storage(args: argparse.Namespace) -> int:
         print("  검증   : 다시 받아 해시·무결성·행 수까지 대조했다")
         if args.action == "migrate":
             print("\n다음: `storage verify`로 한 번 더 확인한 뒤")
-            print("config/storage.yaml의 backend를 r2_migration으로 바꾼다")
+            print("config/storage.yaml의 backend를 옮긴다 (docs/roadmap.md §4.2.1)")
         return 0
 
     if args.action == "verify":
