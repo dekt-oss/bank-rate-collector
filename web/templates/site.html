@@ -1499,6 +1499,9 @@
   };
 
   const render = () => {
+    // 조건이 바뀌었으니 캐시부터 비운다. `current`를 새로 만들기 전에
+    // 비워야, 아래에서 누가 물어도 옛 집합이 안 나온다.
+    clearBasis();
     // `ALL.filter(matches)`로 쓰면 안 된다. `filter`가 두 번째 인자로
     // **인덱스**를 넘겨서 `skipRegion`이 되고, 0번 행을 뺀 모든 행이 지역
     // 조건을 건너뛴다. 실제로 그렇게 나갔다 — 부산을 켜도 건수가 그대로였다.
@@ -1626,13 +1629,26 @@
   //   권역 기준 (권역 차트)        — 지역 조건만 빼고 나머지는 화면 기준과 같다
   //
   // 어느 쪽이든 **막대와 기준선이 같은 집합에서** 나와야 비교가 성립한다.
+  // 한 번 그릴 때 여러 곳이 같은 잣대를 묻는다 — 카드·순위줄·분포·캡션.
+  // 물을 때마다 32만 행을 다시 훑으면 조건 하나에 몇 백 ms가 붙는다.
+  // 조건이 바뀌면 `render()`가 맨 앞에서 비운다.
+  let basisCache = {};
+  const clearBasis = () => { basisCache = {}; };
+
   const screenBasis = () => {
-    if (!noTermOrTypePicked()) return { rows: current, narrowed: false };
-    const rows = twelveMonthDeposits(current);
-    // 좁혔는데 남는 게 없으면 좁히지 않는다. 빈 그림보다 섞인 그림이 낫다.
-    return rows.length >= HIST_MIN_ROWS
-      ? { rows, narrowed: true }
-      : { rows: current, narrowed: false };
+    if (basisCache.screen) return basisCache.screen;
+    let out;
+    if (!noTermOrTypePicked()) {
+      out = { rows: current, narrowed: false };
+    } else {
+      const rows = twelveMonthDeposits(current);
+      // 좁혔는데 남는 게 없으면 좁히지 않는다. 빈 그림보다 섞인 그림이 낫다.
+      out = rows.length >= HIST_MIN_ROWS
+        ? { rows, narrowed: true }
+        : { rows: current, narrowed: false };
+    }
+    basisCache.screen = out;
+    return out;
   };
 
   const histogram = () => {
@@ -1791,14 +1807,20 @@
     // **여기서는 좁히지 않는다.** `screenBasis()`는 조건이 비면 12개월
     // 정기예금만 남기는데, 이 차트의 x축이 곧 가입기간이라 그러면 막대가
     // «7~12개월» 하나만 남는다. 실제로 그렇게 나갔다 (2026-08-09).
-    const rows = current;
-    return TERM_BUCKETS.map((b) => {
-      const vals = [];
-      rows.forEach((r) => {
-        if (r.term == null || r.term < b.lo || r.term > b.hi) return;
-        const v = rateOf(r);
-        if (v != null) vals.push(v);
-      });
+    //
+    // **한 번만 훑는다.** 구간마다 전체를 다시 훑으면 32만 행 × 6구간이
+    // 되어, 조건 하나 켤 때마다 200만 번을 돈다 (실측으로 검색어 한 글자에
+    // 972ms까지 갔다. 수정 전은 314ms였다).
+    const buckets = TERM_BUCKETS.map((b) => ({ b, vals: [] }));
+    current.forEach((r) => {
+      if (r.term == null) return;
+      const v = rateOf(r);
+      if (v == null) return;
+      for (const slot of buckets) {
+        if (r.term >= slot.b.lo && r.term <= slot.b.hi) { slot.vals.push(v); break; }
+      }
+    });
+    return buckets.map(({ b, vals }) => {
       if (!vals.length) return null;
       vals.sort((a, x) => a - x);
       return {
@@ -1906,10 +1928,15 @@
   // 기본값은 전체 12개월 정기예금이다. 조건이 비면 참고카드·금리 분포와
   // 같은 잣대로 좁힌다.
   const regionBasis = () => {
+    if (basisCache.region) return basisCache.region;
     const rows = ALL.filter((r) => matches(r, true));
-    if (!noTermOrTypePicked()) return rows;
-    const narrowed = twelveMonthDeposits(rows);
-    return narrowed.length >= HIST_MIN_ROWS ? narrowed : rows;
+    let out = rows;
+    if (noTermOrTypePicked()) {
+      const narrowed = twelveMonthDeposits(rows);
+      if (narrowed.length >= HIST_MIN_ROWS) out = narrowed;
+    }
+    basisCache.region = out;
+    return out;
   };
 
   // 시도 → 권역. 표는 발행이 준다 — 화면에 따로 적으면 언젠가 한쪽만
@@ -2723,13 +2750,23 @@
     else { state.sort = key; state.dir = ["base", "max", "term"].includes(key) ? -1 : 1; }
     redraw();
   });
+  // 타자마다 32만 행을 다시 훑으면 글자가 밀린다 (실측 한 글자 467ms).
+  // 손을 멈춘 뒤에 한 번만 돈다. 200ms는 다음 글자를 치기 전에 끝나되
+  // 멈추면 바로 반응하는 정도다 — 이보다 길면 «안 먹었나» 싶어진다.
+  const TYPING_PAUSE_MS = 200;
+  const afterTyping = (fn) => {
+    let timer = null;
+    return (...a) => { clearTimeout(timer); timer = setTimeout(() => fn(...a), TYPING_PAUSE_MS); };
+  };
+  const redrawSoon = afterTyping(redraw);
+
   $("q").addEventListener("input", (e) => {
-    state.q = e.target.value.trim().toLowerCase(); redraw();
+    state.q = e.target.value.trim().toLowerCase(); redrawSoon();
   });
   const numberField = (id, key) => $(id).addEventListener("input", (e) => {
     const v = parseFloat(e.target.value);
     state[key] = Number.isFinite(v) ? v : null;
-    redraw();
+    redrawSoon();
   });
   numberField("rmin", "rmin");
   numberField("tmin", "tmin");
