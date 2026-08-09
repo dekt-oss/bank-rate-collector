@@ -419,16 +419,36 @@ def test_a_source_with_no_observations_is_not_described() -> None:
     assert "s.observation_count > 0" in SOURCE
 
 
-def test_the_collect_link_carries_no_token_and_hides_without_a_repo() -> None:
-    """정적 사이트라 페이지 안에서 수집을 돌릴 수 없다.
+def test_the_collect_form_carries_no_token_and_hides_without_a_repo() -> None:
+    """화면에서 암호를 넣으면 그 자리에서 수집이 시작된다 (명세서 §12.5).
 
-    링크만 건다 — 실행 권한이 있는 사람만 실제로 돌릴 수 있다. 저장소
-    이름은 빌드 때 환경에서 받고, 없으면 버튼을 통째로 숨긴다.
+    **암호를 화면이 검사하지 않는다.** 페이지가 아는 순간 소스를 열면
+    보인다. 화면은 받은 값을 같은 도메인의 함수로 보낼 뿐이고, 대조는
+    함수와 워크플로가 각각 한 번씩 한다.
     """
-    assert 'id="collect" hidden' in SOURCE
+    assert 'id="collect-box" hidden' in SOURCE
     assert "if (data.collect_workflow_url) {" in SOURCE
+    assert 'COLLECT_ENDPOINT = "api/collect"' in SOURCE
     # 주소를 화면에 박지 않는다. 포크나 로컬 빌드가 엉뚱한 곳을 가리킨다.
     assert "github.com/dekt-oss" not in SOURCE
+
+
+def test_the_screen_never_holds_the_password_itself() -> None:
+    """화면이 «맞다/틀리다»를 판단하면 그 판단 근거가 화면 안에 있다는 뜻이다.
+
+    실제로 그렇게 짜기 쉬운 자리다 — 틀린 암호를 서버까지 보내지 말자는
+    생각이 자연스럽기 때문이다. 그러면 소스 보기 한 번으로 뚫린다.
+    """
+    for forbidden in ("COLLECT_PASSWORD", "DASHBOARD_PASSWORD", "GITHUB_DISPATCH_TOKEN"):
+        assert forbidden not in SOURCE, forbidden
+    # 화면이 하는 일은 보내고 받아 적는 것뿐이다.
+    assert "method: \"POST\"" in SOURCE
+
+
+def test_the_github_link_stays_as_a_fallback() -> None:
+    """함수가 아직 설정되지 않은 배포에서 아무 길도 없으면 안 된다."""
+    assert 'id="collect" hidden' in SOURCE
+    assert "body.configured === false" in SOURCE
 
 
 def test_the_screen_points_at_the_document_that_says_what_is_not_guaranteed() -> None:
