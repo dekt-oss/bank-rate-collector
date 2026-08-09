@@ -1325,7 +1325,12 @@
     // 있는 상품처럼 보인다 (v4 §3.3).
     // 0.00%로 공시된 행. **고른 기준으로 잰다** — 우대금리 기준일 때
     // 기본금리가 0인 것은 이 조건과 상관이 없다.
-    if (state.hideZero && rateOf(r) === 0) return false;
+    //
+    // **화면에 0.00%로 보이는 것을 지운다.** 정확히 0인 것만 지우면
+    // 0.001~0.004%인 204건이 남는데, 표에는 그것도 «0.00%»로 찍힌다
+    // (소수 둘째 자리까지 적기 때문이다). 켰는데 0%가 그대로 보이면
+    // 조건이 고장 난 것으로 읽힌다 — 실제로 그렇게 나갔다 (2026-08-09).
+    if (state.hideZero && isShownAsZero(rateOf(r))) return false;
     if (state.rmin != null && !(rateOf(r) >= state.rmin)) return false;
     if (state.tmin != null && !(r.term >= state.tmin)) return false;
     if (state.tmax != null && !(r.term <= state.tmax)) return false;
@@ -1338,6 +1343,9 @@
 
   // 지금 고른 기준의 금리. 없으면 null이고 절대 다른 값으로 메우지 않는다.
   const rateOf = (r) => (state.basis === "max" ? r.max : r.base);
+
+  // 표가 소수 둘째 자리까지 적는다. 0.001%도 «0.00%»로 보인다.
+  const isShownAsZero = (v) => v != null && Math.round(v * 100) === 0;
 
   // 평균. 값이 있는 행만 세고 그 건수를 함께 돌려준다.
   //
@@ -2496,6 +2504,13 @@
     $("collect-box").hidden = false;
   }
 
+  // 0.00%로 보이는 행이 기준별로 몇 건인가. 표를 받을 때 한 번만 센다.
+  const zeroCount = { base: 0, max: 0 };
+  const renderZeroCount = () => {
+    const n = state.basis === "max" ? zeroCount.max : zeroCount.base;
+    $("zero-count").textContent = n ? `· ${num(n)}건` : "";
+  };
+
   const collectMsg = (text, kind) => {
     const el = $("collect-msg");
     el.textContent = text;
@@ -2797,6 +2812,7 @@
     $("rmin-label").textContent =
       state.basis === "max" ? "최고금리 이상 (%)" : "기본금리 이상 (%)";
     if (state.sort === "base" || state.sort === "max") state.sort = state.basis;
+    renderZeroCount();
     redraw();
   });
 
@@ -2924,8 +2940,14 @@
         state.basis === "max" ? "최고금리 이상 (%)" : "기본금리 이상 (%)";
       // 몇 건이 걸리는 조건인지 먼저 알린다. 숫자가 없으면 켜 볼 이유도
       // 알 수 없고, 껐다 켜며 건수를 세어 보게 된다.
-      const zeros = ALL.reduce((n, r) => n + (r.base === 0 ? 1 : 0), 0);
-      $("zero-count").textContent = zeros ? `· ${num(zeros)}건` : "";
+      //
+      // 기준이 바뀌면 걸리는 행도 바뀐다. 그때마다 32만 행을 다시 세지
+      // 않도록 여기서 둘 다 세어 둔다.
+      ALL.forEach((r) => {
+        if (isShownAsZero(r.base)) zeroCount.base += 1;
+        if (isShownAsZero(r.max)) zeroCount.max += 1;
+      });
+      renderZeroCount();
 
       renderGroups();
       renderAsOf();
