@@ -61,6 +61,18 @@ def test_the_settings_come_from_the_environment_only() -> None:
     assert "dekt-oss" not in FUNCTION
 
 
+def test_only_the_token_has_to_be_entered_by_hand() -> None:
+    """넣어야 할 것이 적을수록 «설정이 반만 된» 상태도 덜 생긴다.
+
+    Vercel은 어느 저장소에서 배포했는지 이미 알고 그 값을 환경에 넣어 준다.
+    다만 그 노출은 프로젝트 설정에 달려 있어 꺼져 있을 수 있으므로,
+    명시적으로 넣은 값이 있으면 그쪽이 이긴다.
+    """
+    assert "process.env.VERCEL_GIT_REPO_OWNER" in FUNCTION
+    assert "process.env.VERCEL_GIT_REPO_SLUG" in FUNCTION
+    assert 'process.env.GITHUB_REPOSITORY\n    || (owner && repo' in FUNCTION
+
+
 def test_the_password_lives_only_in_the_github_secret() -> None:
     """비밀을 두 곳에 두면 언젠가 한쪽만 바뀐다.
 

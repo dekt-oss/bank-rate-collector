@@ -527,12 +527,18 @@ def test_a_chart_that_ignores_the_filters_says_so() -> None:
 
     표 바로 위에 나란히 있으므로 제일 위험한 오해다.
     """
-    # 배지는 이제 상태에 따라 바뀐다(좁혔으면 «12개월 정기예금 기준»).
+    # 배지는 상태에 따라 바뀐다(좁혔으면 «12개월 정기예금 기준»).
     # 초기 마크업이 «조회 조건 반영»이고 id로 갈아끼운다.
     assert '<span class="badge live" id="hist-badge">조회 조건 반영</span>' in SOURCE
-    assert SOURCE.count('<span class="badge">전체 기준</span>') >= 2
-    assert "아래 표와 모집단이 다릅니다" in SOURCE
-    assert 'class="card global"' in SOURCE
+    assert '<span class="badge live" id="terms-badge">조회 조건 반영</span>' in SOURCE
+
+    # 권역 차트만 조건을 안 따른다. 막대가 전체 집계라 그래야 하고,
+    # 그 사실을 배지·배경·캡션 셋으로 밝힌다.
+    assert '<span class="badge">전체 기준</span>' in SOURCE
+    assert "조회 조건과 무관한 전체 집계라 아래 표와\n        모집단이 다릅니다" in SOURCE
+    assert 'class="card wide global"' in SOURCE
+    # 조건을 따르게 된 차트에는 «다른 모집단» 표시가 남으면 안 된다.
+    assert 'class="card global"' not in SOURCE
 
 
 def test_the_representative_value_is_never_the_maximum() -> None:

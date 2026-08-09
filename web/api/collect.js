@@ -154,7 +154,18 @@ export default async function handler(req, res) {
   }
 
   const token = process.env.GITHUB_DISPATCH_TOKEN;
-  const slug = process.env.GITHUB_REPOSITORY;
+  // 저장소 이름은 **손으로 넣지 않아도 된다.** Vercel이 어느 저장소에서
+  // 배포했는지 알고 있고 그 값을 환경에 넣어 준다. 넣어야 할 것을 하나로
+  // 줄이면 «설정이 반만 된» 상태도 그만큼 덜 생긴다.
+  //
+  // 다만 그 노출은 프로젝트 설정(System Environment Variables)에 달려 있어
+  // 꺼져 있을 수 있다. 그래서 명시적으로 넣은 값을 먼저 보고, 없으면
+  // Vercel이 준 값으로 맞춘다.
+  const owner = process.env.VERCEL_GIT_REPO_OWNER;
+  const repo = process.env.VERCEL_GIT_REPO_SLUG;
+  const slug = process.env.GITHUB_REPOSITORY
+    || (owner && repo ? `${owner}/${repo}` : null);
+
   // 반쯤 켜진 상태를 만들지 않는다. 하나라도 없으면 «설정이 덜 됐다»고
   // 분명히 말한다 — 조용히 실패하면 암호가 틀린 줄 알고 계속 눌러 보게 된다.
   //
@@ -162,7 +173,7 @@ export default async function handler(req, res) {
   // 워크플로가 대조한다 (맨 위 주석 참고).
   const missing = [
     !token && "GITHUB_DISPATCH_TOKEN",
-    !slug && "GITHUB_REPOSITORY",
+    !slug && "GITHUB_REPOSITORY (또는 Vercel 시스템 환경변수 노출)",
   ].filter(Boolean);
   if (missing.length) {
     return json(res, 503, {

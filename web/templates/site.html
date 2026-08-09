@@ -163,6 +163,19 @@
     text-decoration: underline;
   }
 
+  /* 0% 조건 막대. 차트 바로 위라 눈에 띄되 그림을 밀어내지 않게 얇게 둔다. */
+  .zero-bar {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px;
+    margin: 14px 0 -4px; padding: 8px 12px; border-radius: 7px;
+    background: var(--surface); border: 1px solid var(--line);
+  }
+  .zero-bar label {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 12.5px; font-weight: 600; cursor: pointer;
+  }
+  .zero-bar b { font-family: var(--mono); font-weight: 700; }
+  .zero-bar .why { font-size: 11.5px; color: var(--ink-3); }
+
   .notice {
     margin: 14px 0 0; padding: 9px 13px;
     background: var(--warn-bg); color: var(--warn);
@@ -662,6 +675,27 @@
        이력이 없어도 그릴 수 있는 것만 넣었다. 추세선은 없다 — 그릴 데이터가
        없기 때문이지 자리가 없어서가 아니다. 공시금리에 추세선을 그으면
        예측으로 읽힌다. -->
+  <!-- 0.00%로 공시된 행. 발행 데이터 실측 10,544건(3.22%)이고 거의 전부
+       농·축협과 새마을금고다.
+
+       **읽기 실패가 아니다.** 못 읽은 값은 빈칸으로 남고 0이 되지 않는다
+       (`domain/normalization.py`의 `parse_rate`). 원천이 실제로 0.00으로
+       공시한 것이고 대개 그 지점에서 취급하지 않는 상품이다.
+
+       **조회 조건 패널이 아니라 차트 바로 위에 둔다.** 이 조건을 켜는
+       이유가 «분포와 기간별 범위가 어떻게 달라지나»를 보려는 것이라,
+       그림에서 멀면 켜고 스크롤해 내려와 확인하고 다시 올라가야 한다.
+       조건 자체는 표에도 그대로 걸린다 (아래 문구가 그렇게 밝힌다). -->
+  <div class="zero-bar" id="zero-bar" hidden>
+    <label>
+      <input type="checkbox" id="hide-zero">
+      <span>0.00%로 공시된 행 숨기기 <b id="zero-count"></b></span>
+    </label>
+    <span class="why">원천이 0.00%로 공시한 행입니다. 대개 그 지점에서
+      취급하지 않는 상품이라 «0% 금리 상품»으로 읽힙니다.
+      켜면 아래 그림과 표가 함께 바뀝니다.</span>
+  </div>
+
   <div class="charts" id="charts" hidden>
     <div class="card">
       <h3>금리 분포 <span class="badge live" id="hist-badge">조회 조건 반영</span></h3>
@@ -670,17 +704,15 @@
       <div class="legend" id="hist-legend"></div>
     </div>
 
-    <!-- 조회 조건에 반응하지 않는다. 배경과 배지로 그 사실을 밝힌다 —
-         빼면 보는 사람이 차트와 표를 같은 모집단으로 믿는다. -->
-    <div class="card global">
-      <h3>가입기간별 금리 범위 <span class="badge">전체 기준</span></h3>
-      <!-- 중앙값이 근사값이라는 사실을 적는다. 발행은 개월 단위로 중앙값을
-           내고 화면이 구간으로 묶는데, 중앙값은 다시 중앙값 낼 수 없어
-           건수로 가중해 근사한다. 근사를 근사라 안 적으면 정확한 값으로
-           읽힌다. -->
-      <p class="cap">조회 조건과 무관하게 전체를 집계한 값입니다.
-        아래 표와 모집단이 다릅니다.
-        구간 중앙값은 개월별 중앙값을 건수로 가중한 <b>근사값</b>입니다.</p>
+    <!-- 조회 조건을 따른다 (2026-08-09). 예전에는 발행된 `by_term`을 묶어
+         그려서 조건을 안 따랐는데, 0% 조건을 켜도 이 그림만 안 바뀌면
+         «켰는데 왜 안 바뀌지»가 된다.
+
+         배지와 캡션이 매번 무엇을 세었는지 다시 적는다. 표를 받기 전에는
+         전체 집계로 그리므로, 한 번 적어 두면 둘 중 하나는 거짓말이 된다. -->
+    <div class="card">
+      <h3>가입기간별 금리 범위 <span class="badge live" id="terms-badge">조회 조건 반영</span></h3>
+      <p class="cap" id="terms-cap"></p>
       <svg id="terms" viewBox="0 0 560 200" role="img" aria-label=""></svg>
       <div class="legend">
         <span><i style="background:var(--ink-3);opacity:.25"></i>기본금리 최저~최고</span>
@@ -753,22 +785,6 @@
       <div class="basis" id="basis">
         <label><input type="radio" name="basis" value="base" checked> 기본금리 기준</label>
         <label><input type="radio" name="basis" value="max"> 우대금리(최고) 기준</label>
-      </div>
-      <!-- 0.00%로 공시된 행. 발행 데이터 실측 10,544건(3.22%)이고 거의
-           전부 농·축협과 새마을금고다.
-
-           **읽기 실패가 아니다.** 못 읽은 값은 빈칸으로 남고 0이 되지
-           않는다 (`domain/normalization.py`의 `parse_rate`). 원천이 실제로
-           0.00으로 공시한 것이고, 대개 그 지점에서 취급하지 않는 상품이다.
-
-           그래서 기본은 «보임»이다 — 원천이 그렇게 공시했다는 것도 사실이고,
-           빈 체크는 전체를 뜻한다는 이 화면의 약속을 깨지 않는다. 다만
-           «0%짜리 상품»으로 읽히는 것이 방해될 때가 있어 끌 수 있게 둔다. -->
-      <div class="basis" id="zero-rate">
-        <label>
-          <input type="checkbox" id="hide-zero">
-          0.00%로 공시된 행 숨기기 <span id="zero-count"></span>
-        </label>
       </div>
       <div class="fields">
         <div class="field">
@@ -1752,33 +1768,67 @@
               : "<span>우리 회사를 지정하면 세로선이 표시됩니다</span>"));
   };
 
-  // ── 차트 2. 가입기간별 금리 범위 (전체 기준) ─────────────────────
+  // ── 차트 2. 가입기간별 금리 범위 ─────────────────────────────────
   //
-  // 발행된 `by_term`은 개월 단위 46종이다. 화면의 6구간으로 묶어 그린다 —
-  // 발행 포맷을 바꾸지 않아도 되고, 구간 경계가 바뀌어도 재발행이 필요 없다.
+  // **화면에 있는 행에서 직접 낸다.** 예전에는 발행된 `by_term`(개월 단위
+  // 46종)을 묶어 그렸는데, 그건 조회 조건을 안 따르고 중앙값도 «개월별
+  // 중앙값을 건수로 가중한 근사»였다. 0% 조건을 켜도 이 그림만 그대로라
+  // «켰는데 왜 안 바뀌지»가 된다.
   //
-  // **중앙값만은 묶어서 만들 수 없다.** min/max로는 못 만들고, 개월별
-  // 중앙값을 다시 중앙값 내면 틀린다. 그래서 발행이 `base_p50`을 주고
-  // 화면은 건수로 가중해 근사한다 — 근사임을 캡션에 적는다.
-  const termRange = () => {
+  // 표를 아직 못 받았을 때만 `by_term`으로 그린다. 첫 화면이 비어 있는
+  // 것보다는 전체 기준이라도 보이는 편이 낫고, 받는 즉시 다시 그린다.
+  const termRowsFromScreen = () => {
+    const rows = screenBasis().rows;
+    return TERM_BUCKETS.map((b) => {
+      const vals = [];
+      rows.forEach((r) => {
+        if (r.term == null || r.term < b.lo || r.term > b.hi) return;
+        const v = rateOf(r);
+        if (v != null) vals.push(v);
+      });
+      if (!vals.length) return null;
+      vals.sort((a, x) => a - x);
+      return {
+        label: b.label, n: vals.length,
+        min: vals[0], max: vals[vals.length - 1], mid: median(vals),
+      };
+    }).filter(Boolean);
+  };
+
+  const termRowsFromSummary = () => {
     const src = data.by_term || [];
-    if (!src.length) { $("terms").innerHTML = ""; return; }
-    const rows = TERM_BUCKETS.map((b) => {
-      const hit = src.filter((t) => t.term_months != null
-        && t.term_months >= b.lo && t.term_months <= b.hi);
+    return TERM_BUCKETS.map((b) => {
+      const hit = src.filter((x) => x.term_months != null
+        && x.term_months >= b.lo && x.term_months <= b.hi);
       if (!hit.length) return null;
-      const n = hit.reduce((a, t) => a + (t.count || 0), 0);
-      const mids = hit.filter((t) => t.base_p50 != null);
-      // 건수로 가중한 중앙값의 근사. 정확한 값은 구간을 발행에서 나눠야 나온다.
+      const n = hit.reduce((a, x) => a + (x.count || 0), 0);
+      const mids = hit.filter((x) => x.base_p50 != null);
+      // 건수로 가중한 근사. 표를 받기 전에만 쓴다.
       const mid = mids.length
-        ? mids.reduce((a, t) => a + Number(t.base_p50) * (t.count || 0), 0)
-          / mids.reduce((a, t) => a + (t.count || 0), 0)
+        ? mids.reduce((a, x) => a + Number(x.base_p50) * (x.count || 0), 0)
+          / mids.reduce((a, x) => a + (x.count || 0), 0)
         : null;
-      const nums = (key) => hit.map((t) => t[key]).filter((v) => v != null).map(Number);
+      const nums = (key) => hit.map((x) => x[key]).filter((v) => v != null).map(Number);
       const lows = nums("base_min"), highs = nums("base_max");
       if (!lows.length || !highs.length) return null;
       return { label: b.label, min: Math.min(...lows), max: Math.max(...highs), mid, n };
     }).filter(Boolean);
+  };
+
+  const termRange = () => {
+    const live = ALL.length > 0;
+    const rows = live ? termRowsFromScreen() : termRowsFromSummary();
+    // 무엇을 세어 그린 그림인지 매번 다시 적는다. 표를 받기 전과 받은 뒤가
+    // 서로 다른 모집단이라, 한 번 적어 두면 둘 중 하나는 거짓말이 된다.
+    $("terms-badge").textContent = live
+      ? (basisLabel() ? `${basisLabel()} 기준` : "조회 조건 반영")
+      : "전체 기준";
+    $("terms-badge").className = live && !basisLabel() ? "badge live" : "badge";
+    $("terms-cap").textContent = live
+      ? `조회 결과 ${num(screenBasis().rows.length)}건을 가입기간으로 묶은 것입니다.`
+        + " 막대는 최저~최고, 안의 숫자는 중앙값입니다."
+      : "표를 받기 전이라 전체 집계로 그렸습니다."
+        + " 구간 중앙값은 개월별 중앙값을 건수로 가중한 근사값입니다.";
     if (!rows.length) { $("terms").innerHTML = ""; return; }
 
     const W = chartWidth("terms", 560), H = 200;
@@ -2628,6 +2678,8 @@
     redraw();
   });
 
+  // 차트는 따로 부르지 않는다. `render()`가 끝에서 `drawCharts()`를 부르므로
+  // 여기서 또 부르면 SVG 셋을 두 번씩 그린다.
   $("hide-zero").addEventListener("change", (e) => {
     state.hideZero = e.target.checked;
     redraw();
@@ -2744,6 +2796,8 @@
       });
       $("basis").querySelector(`input[value="${state.basis}"]`).checked = true;
       $("hide-zero").checked = state.hideZero;
+      // 표를 받은 뒤에야 보인다. 건수를 못 적는 동안 띄우면 «0건»으로 읽힌다.
+      $("zero-bar").hidden = false;
       $("rmin-label").textContent =
         state.basis === "max" ? "최고금리 이상 (%)" : "기본금리 이상 (%)";
       // 몇 건이 걸리는 조건인지 먼저 알린다. 숫자가 없으면 켜 볼 이유도
