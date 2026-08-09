@@ -1001,3 +1001,38 @@ def test_resetting_the_conditions_clears_the_zero_filter() -> None:
     reset = reset[:reset.index("renderGroups();")]
     assert "hideZero: false" in reset
     assert '$("hide-zero").checked = false' in reset
+
+
+# ── 화면 순서 (2026-08-09) ──────────────────────────────────────────────
+
+
+def test_the_conditions_come_before_the_charts_and_the_table() -> None:
+    """조건 → 그림 → 표. 쓰는 순서 그대로다.
+
+    예전에는 그림이 위, 조건이 아래였다. 그러면 처음 들어온 사람이 «전체
+    기준» 그림부터 보고, 조건을 걸려고 내려갔다가, 바뀐 그림을 보려고 다시
+    올라와야 한다. 스크롤을 두 번 왕복하는 배치다.
+    """
+    conditions = SOURCE.index('<section class="panel" id="conditions">')
+    charts = SOURCE.index('<div class="charts" id="charts" hidden>')
+    table = SOURCE.index('<div class="scroll">')
+    assert conditions < charts < table
+
+
+def test_the_zero_toggle_sits_next_to_the_charts_it_changes() -> None:
+    """조건 목록 안에 섞으면 체크박스 스무 개 중 하나가 된다.
+
+    이 조건만 자주 껐다 켜는 것이 쓰임이라, 켠 손과 바뀌는 그림이 한 화면에
+    있어야 한다.
+    """
+    zero = SOURCE.index('<div class="zero-bar" id="zero-bar" hidden>')
+    conditions_end = SOURCE.index("  </section>", SOURCE.index('id="conditions"'))
+    charts = SOURCE.index('<div class="charts" id="charts" hidden>')
+    assert conditions_end < zero < charts
+
+
+def test_the_benchmark_cards_stay_at_the_very_top() -> None:
+    """오늘 확인할 값이 첫 화면이다 (v4 §10.6). 조건보다 앞이다."""
+    marks = SOURCE.index('<div class="marks" id="marks" hidden></div>')
+    conditions = SOURCE.index('<section class="panel" id="conditions">')
+    assert marks < conditions

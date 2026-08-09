@@ -675,82 +675,15 @@
        이력이 없어도 그릴 수 있는 것만 넣었다. 추세선은 없다 — 그릴 데이터가
        없기 때문이지 자리가 없어서가 아니다. 공시금리에 추세선을 그으면
        예측으로 읽힌다. -->
-  <!-- 0.00%로 공시된 행. 발행 데이터 실측 10,544건(3.22%)이고 거의 전부
-       농·축협과 새마을금고다.
+  <!-- 순서 = 쓰는 순서다 (2026-08-09 교체).
 
-       **읽기 실패가 아니다.** 못 읽은 값은 빈칸으로 남고 0이 되지 않는다
-       (`domain/normalization.py`의 `parse_rate`). 원천이 실제로 0.00으로
-       공시한 것이고 대개 그 지점에서 취급하지 않는 상품이다.
+       예전에는 차트가 위, 조회 조건이 아래였다. 그러면 처음 들어온 사람이
+       «전체 기준» 그림부터 보고, 조건을 걸려고 내려갔다가, 바뀐 그림을
+       보려고 다시 올라와야 한다.
 
-       **조회 조건 패널이 아니라 차트 바로 위에 둔다.** 이 조건을 켜는
-       이유가 «분포와 기간별 범위가 어떻게 달라지나»를 보려는 것이라,
-       그림에서 멀면 켜고 스크롤해 내려와 확인하고 다시 올라가야 한다.
-       조건 자체는 표에도 그대로 걸린다 (아래 문구가 그렇게 밝힌다). -->
-  <div class="zero-bar" id="zero-bar" hidden>
-    <label>
-      <input type="checkbox" id="hide-zero">
-      <span>0.00%로 공시된 행 숨기기 <b id="zero-count"></b></span>
-    </label>
-    <span class="why">원천이 0.00%로 공시한 행입니다. 대개 그 지점에서
-      취급하지 않는 상품이라 «0% 금리 상품»으로 읽힙니다.
-      켜면 아래 그림과 표가 함께 바뀝니다.</span>
-  </div>
-
-  <div class="charts" id="charts" hidden>
-    <div class="card">
-      <h3>금리 분포 <span class="badge live" id="hist-badge">조회 조건 반영</span></h3>
-      <p class="cap" id="hist-cap"></p>
-      <svg id="hist" viewBox="0 0 560 210" role="img" aria-label=""></svg>
-      <div class="legend" id="hist-legend"></div>
-    </div>
-
-    <!-- 조회 조건을 따른다 (2026-08-09). 예전에는 발행된 `by_term`을 묶어
-         그려서 조건을 안 따랐는데, 0% 조건을 켜도 이 그림만 안 바뀌면
-         «켰는데 왜 안 바뀌지»가 된다.
-
-         배지와 캡션이 매번 무엇을 세었는지 다시 적는다. 표를 받기 전에는
-         전체 집계로 그리므로, 한 번 적어 두면 둘 중 하나는 거짓말이 된다. -->
-    <div class="card">
-      <h3>가입기간별 금리 범위 <span class="badge live" id="terms-badge">조회 조건 반영</span></h3>
-      <p class="cap" id="terms-cap"></p>
-      <svg id="terms" viewBox="0 0 560 200" role="img" aria-label=""></svg>
-      <div class="legend">
-        <span><i style="background:var(--ink-3);opacity:.25"></i>기본금리 최저~최고</span>
-        <span><i style="background:var(--accent)"></i>중앙값 (막대 안 숫자)</span>
-        <span>막대 오른쪽 숫자 = 관측 건수</span>
-      </div>
-    </div>
-
-    <div class="card wide global">
-      <h3 id="reg-title"></h3>
-      <!-- 기간·유형을 12개월 정기예금으로 못박는다. 안 박으면 1개월 예금
-           1.00%와 12개월 3.40%가 한 중앙값에 섞여, 위 참고카드와 1%p 가까이
-           벌어지면서 그 이유가 화면 어디에도 없게 된다. -->
-      <p class="cap">저축은행·새마을금고·신협·지역농축협을 합친
-        <b>12개월 정기예금</b>의 기본금리 <b>중앙값</b>입니다.
-        위 참고카드와 같은 기준이고, 조회 조건과 무관한 전체 집계라 아래 표와
-        모집단이 다릅니다.
-        최고값이 아니라 중앙값을 쓰는 이유는, 우대 조건이 붙은 한 건이 그
-        권역 전체를 대표해 버리는 것을 막기 위해서입니다.
-        <b>부산 막대를 누르면 구·군으로 펼쳐집니다.</b></p>
-      <svg id="reg" viewBox="0 0 1160 190" role="img" aria-label=""></svg>
-      <div class="legend" id="reg-legend"></div>
-    </div>
-  </div>
-
-  <!-- 화면을 열지 않고도 받을 수 있어야 한다. 이 링크는 서버에 이미 있는
-       파일을 그냥 가리킨다. 브라우저가 16만 행을 조립하지 않는다. -->
-  <div class="files">
-    <span class="lead">전체 자료 내려받기</span>
-    <span id="file-links"></span>
-    <span class="hint">조건을 걸어 고른 결과만 받으려면 아래 조회 조건을 정하고
-      “조회 결과” 단추를 쓰세요.</span>
-  </div>
-
-  <!-- 조회 조건은 이 패널 전체가 받는다.
-       `#groups`는 자바스크립트가 채우는 자리라 자기닫힘이고, 공시일·검색
-       그룹은 그 **형제**다. 듣는 자리를 `#groups`로 잡으면 공시일의
-       「전체」 링크가 영영 안 눌린다 (실제로 안 눌리고 있었다). -->
+       조건 → 그림 → 표로 세운다. 조건을 정하고, 그 결과를 그림으로 읽고,
+       세부는 아래 표에서 본다. 그림과 표가 같은 조건에서 나온 것이라는
+       사실도 이 배치가 말해 준다. -->
   <section class="panel" id="conditions">
     <h2>조회 조건 <button type="button" id="reset">조건 초기화</button></h2>
     <div class="groups" id="groups"></div>
@@ -832,6 +765,84 @@
       </span>
     </div>
   </section>
+
+  <!-- 0.00%로 공시된 행. 발행 데이터 실측 10,544건(3.22%)이고 거의 전부
+       농·축협과 새마을금고다.
+
+       **읽기 실패가 아니다.** 못 읽은 값은 빈칸으로 남고 0이 되지 않는다
+       (`domain/normalization.py`의 `parse_rate`). 원천이 실제로 0.00으로
+       공시한 것이고 대개 그 지점에서 취급하지 않는 상품이다.
+
+       **조회 조건 패널 안이 아니라 그림 바로 위에 둔다.** 이 조건을 켜는
+       이유가 «분포와 기간별 범위가 어떻게 달라지나»를 보려는 것이라, 켠
+       손과 바뀌는 그림이 한 화면에 있어야 한다. 조건 목록 안에 섞어 두면
+       체크박스 스무 개 중 하나가 되어 이 조건만 자주 껐다 켜기가 어렵다.
+       조건 자체는 표에도 그대로 걸린다 (아래 문구가 그렇게 밝힌다). -->
+  <div class="zero-bar" id="zero-bar" hidden>
+    <label>
+      <input type="checkbox" id="hide-zero">
+      <span>0.00%로 공시된 행 숨기기 <b id="zero-count"></b></span>
+    </label>
+    <span class="why">원천이 0.00%로 공시한 행입니다. 대개 그 지점에서
+      취급하지 않는 상품이라 «0% 금리 상품»으로 읽힙니다.
+      켜면 아래 그림과 표가 함께 바뀝니다.</span>
+  </div>
+
+  <div class="charts" id="charts" hidden>
+    <div class="card">
+      <h3>금리 분포 <span class="badge live" id="hist-badge">조회 조건 반영</span></h3>
+      <p class="cap" id="hist-cap"></p>
+      <svg id="hist" viewBox="0 0 560 210" role="img" aria-label=""></svg>
+      <div class="legend" id="hist-legend"></div>
+    </div>
+
+    <!-- 조회 조건을 따른다 (2026-08-09). 예전에는 발행된 `by_term`을 묶어
+         그려서 조건을 안 따랐는데, 0% 조건을 켜도 이 그림만 안 바뀌면
+         «켰는데 왜 안 바뀌지»가 된다.
+
+         배지와 캡션이 매번 무엇을 세었는지 다시 적는다. 표를 받기 전에는
+         전체 집계로 그리므로, 한 번 적어 두면 둘 중 하나는 거짓말이 된다. -->
+    <div class="card">
+      <h3>가입기간별 금리 범위 <span class="badge live" id="terms-badge">조회 조건 반영</span></h3>
+      <p class="cap" id="terms-cap"></p>
+      <svg id="terms" viewBox="0 0 560 200" role="img" aria-label=""></svg>
+      <div class="legend">
+        <span><i style="background:var(--ink-3);opacity:.25"></i>기본금리 최저~최고</span>
+        <span><i style="background:var(--accent)"></i>중앙값 (막대 안 숫자)</span>
+        <span>막대 오른쪽 숫자 = 관측 건수</span>
+      </div>
+    </div>
+
+    <div class="card wide global">
+      <h3 id="reg-title"></h3>
+      <!-- 기간·유형을 12개월 정기예금으로 못박는다. 안 박으면 1개월 예금
+           1.00%와 12개월 3.40%가 한 중앙값에 섞여, 위 참고카드와 1%p 가까이
+           벌어지면서 그 이유가 화면 어디에도 없게 된다. -->
+      <p class="cap">저축은행·새마을금고·신협·지역농축협을 합친
+        <b>12개월 정기예금</b>의 기본금리 <b>중앙값</b>입니다.
+        위 참고카드와 같은 기준이고, 조회 조건과 무관한 전체 집계라 아래 표와
+        모집단이 다릅니다.
+        최고값이 아니라 중앙값을 쓰는 이유는, 우대 조건이 붙은 한 건이 그
+        권역 전체를 대표해 버리는 것을 막기 위해서입니다.
+        <b>부산 막대를 누르면 구·군으로 펼쳐집니다.</b></p>
+      <svg id="reg" viewBox="0 0 1160 190" role="img" aria-label=""></svg>
+      <div class="legend" id="reg-legend"></div>
+    </div>
+  </div>
+
+  <!-- 화면을 열지 않고도 받을 수 있어야 한다. 이 링크는 서버에 이미 있는
+       파일을 그냥 가리킨다. 브라우저가 16만 행을 조립하지 않는다. -->
+  <div class="files">
+    <span class="lead">전체 자료 내려받기</span>
+    <span id="file-links"></span>
+    <span class="hint">조건을 걸어 고른 결과만 받으려면 아래 조회 조건을 정하고
+      “조회 결과” 단추를 쓰세요.</span>
+  </div>
+
+  <!-- 조회 조건은 이 패널 전체가 받는다.
+       `#groups`는 자바스크립트가 채우는 자리라 자기닫힘이고, 공시일·검색
+       그룹은 그 **형제**다. 듣는 자리를 `#groups`로 잡으면 공시일의
+       「전체」 링크가 영영 안 눌린다 (실제로 안 눌리고 있었다). -->
 
   <div class="scroll">
     <table>
