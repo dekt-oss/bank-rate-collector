@@ -108,21 +108,60 @@
     justify-content: flex-end; gap: 7px 8px;
   }
   .head-right .stamp { margin-left: 4px; }
-  a.collect {
+  .collect-box { position: relative; }
+  .collect {
     display: inline-flex; align-items: center; gap: 6px;
     font-size: 12.5px; font-weight: 600; text-decoration: none;
-    padding: 6px 12px; border-radius: 6px;
+    padding: 6px 12px; border-radius: 6px; cursor: pointer;
     background: var(--surface); color: var(--accent-ink);
     border: 1px solid var(--accent);
   }
-  a.collect:hover { background: var(--accent); color: #fff; }
+  .collect:hover { background: var(--accent); color: #fff; }
   /* 누구나 눌러도 아무 일이 안 일어난다는 것을 미리 알린다. */
-  a.collect .who {
+  .collect .who {
     font-size: 10.5px; font-weight: 700; letter-spacing: .04em;
     color: var(--ink-3); border: 1px solid var(--line);
     border-radius: 3px; padding: 0 4px;
   }
-  a.collect:hover .who { color: #fff; border-color: rgba(255,255,255,.5); }
+  .collect:hover .who { color: #fff; border-color: rgba(255,255,255,.5); }
+
+  /* 암호를 넣는 자리. 버튼 아래에 겹쳐 띄운다 — 헤더 줄을 밀어내면 누를
+     때마다 화면 전체가 흔들린다. 좁은 화면에서는 화면 밖으로 나가지 않게
+     오른쪽에 붙인다. */
+  .collect-panel {
+    position: absolute; right: 0; top: calc(100% + 6px); z-index: 30;
+    display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+    width: max-content; max-width: min(320px, calc(100vw - 32px));
+    padding: 10px 12px; border-radius: 8px;
+    background: var(--surface); border: 1px solid var(--line);
+    box-shadow: 0 6px 20px rgba(0,0,0,.14);
+  }
+  /* `hidden` 속성은 브라우저 기본 스타일의 `display:none`으로 동작한다.
+     위에서 `display:flex`를 주는 순간 그것이 이겨서, 암호칸이 처음부터
+     펼쳐진 채로 뜬다. 실제로 그렇게 나갔다 (브라우저 확인에서 잡음). */
+  .collect-panel[hidden] { display: none; }
+  .collect-panel label { font-size: 11.5px; color: var(--ink-2); width: 100%; }
+  .collect-panel input {
+    flex: 1 1 150px; min-width: 0; font-size: 13px; padding: 5px 8px;
+    border-radius: 5px; border: 1px solid var(--line);
+    background: var(--bg); color: var(--ink);
+  }
+  .collect-panel button {
+    font-size: 12.5px; font-weight: 700; padding: 6px 12px; cursor: pointer;
+    border-radius: 5px; border: 1px solid var(--accent);
+    background: var(--accent); color: #fff;
+  }
+  .collect-panel button[disabled] { opacity: .55; cursor: default; }
+  .collect-msg {
+    width: 100%; margin: 2px 0 0; font-size: 11.5px; line-height: 1.5;
+    color: var(--ink-2);
+  }
+  .collect-msg.bad { color: var(--crit); }
+  .collect-msg.good { color: var(--accent-ink); }
+  .collect-alt {
+    width: 100%; font-size: 11px; color: var(--ink-3);
+    text-decoration: underline;
+  }
 
   .notice {
     margin: 14px 0 0; padding: 9px 13px;
@@ -565,13 +604,28 @@
       <button type="button" class="icon-btn" id="theme" title="밝게 / 어둡게">🌙</button>
       <button type="button" class="icon-btn" id="copylink">링크 복사</button>
       <div class="stamp" id="stamp"></div>
-      <!-- 이 사이트는 서버가 없다. 페이지 안에서 수집을 돌릴 수 없으므로
-           GitHub Actions 실행 화면으로 보낸다. 토큰을 페이지에 싣지 않으니
-           실행 권한이 있는 사람만 실제로 돌릴 수 있다. 주소를 못 만들면
-           (저장소 이름을 모르는 빌드) 버튼을 통째로 숨긴다. -->
-      <a class="collect" id="collect" hidden target="_blank" rel="noopener">
-        지금 수집하기 <span class="who">관리자</span>
-      </a>
+      <!-- 여기서 암호를 넣으면 그 자리에서 수집이 시작된다 (명세서 §12.5).
+           토큰은 같은 도메인의 서버리스 함수(`/api/collect`)에 있고 이
+           페이지로 내려오지 않는다.
+
+           함수가 아직 설정되지 않은 배포에서는 예전처럼 GitHub 실행 화면
+           링크를 보여준다. 전환 중에 아무 길도 없는 상태를 만들지 않는다. -->
+      <div class="collect-box" id="collect-box" hidden>
+        <button type="button" class="collect" id="collect-open"
+                aria-expanded="false" aria-controls="collect-panel">
+          지금 수집하기 <span class="who">관리자</span>
+        </button>
+        <form class="collect-panel" id="collect-panel" hidden>
+          <label for="collect-pw">수집 암호</label>
+          <input type="password" id="collect-pw" autocomplete="current-password"
+                 placeholder="관리자에게 확인" />
+          <button type="submit" id="collect-go">시작</button>
+          <p class="collect-msg" id="collect-msg" hidden></p>
+          <a class="collect-alt" id="collect" hidden target="_blank" rel="noopener">
+            GitHub에서 직접 열기
+          </a>
+        </form>
+      </div>
     </div>
   </header>
 
@@ -699,6 +753,22 @@
       <div class="basis" id="basis">
         <label><input type="radio" name="basis" value="base" checked> 기본금리 기준</label>
         <label><input type="radio" name="basis" value="max"> 우대금리(최고) 기준</label>
+      </div>
+      <!-- 0.00%로 공시된 행. 발행 데이터 실측 10,544건(3.22%)이고 거의
+           전부 농·축협과 새마을금고다.
+
+           **읽기 실패가 아니다.** 못 읽은 값은 빈칸으로 남고 0이 되지
+           않는다 (`domain/normalization.py`의 `parse_rate`). 원천이 실제로
+           0.00으로 공시한 것이고, 대개 그 지점에서 취급하지 않는 상품이다.
+
+           그래서 기본은 «보임»이다 — 원천이 그렇게 공시했다는 것도 사실이고,
+           빈 체크는 전체를 뜻한다는 이 화면의 약속을 깨지 않는다. 다만
+           «0%짜리 상품»으로 읽히는 것이 방해될 때가 있어 끌 수 있게 둔다. -->
+      <div class="basis" id="zero-rate">
+        <label>
+          <input type="checkbox" id="hide-zero">
+          0.00%로 공시된 행 숨기기 <span id="zero-count"></span>
+        </label>
       </div>
       <div class="fields">
         <div class="field">
@@ -913,6 +983,8 @@
     // 따로 있었는데, 같은 것을 두 곳에서 켜면 어느 쪽이 이겼는지 화면으로
     // 알 수 없다. 탭을 뺐다 (2026-08-07).
     gu: new Set(),
+    // 0.00%로 공시된 행을 뺄 것인가. 기본은 «넣는다» — 빈 조건은 전체다.
+    hideZero: false,
     prefTags: new Set(),   // 세부 우대조건. 우대조건 그룹 안에서만 열린다
     open: new Set(),  // 우대조건을 펼친 행
     // 우리 회사. null이면 «지정 안 함»이고 관련 표시가 전부 사라진다.
@@ -1226,6 +1298,9 @@
     // 금리 하한은 고른 기준으로 잰다. 우대금리 기준일 때 최고금리가 없는
     // 행은 여기서 빠진다 — 원천이 안 준 것을 기본금리로 메우면 우대금리가
     // 있는 상품처럼 보인다 (v4 §3.3).
+    // 0.00%로 공시된 행. **고른 기준으로 잰다** — 우대금리 기준일 때
+    // 기본금리가 0인 것은 이 조건과 상관이 없다.
+    if (state.hideZero && rateOf(r) === 0) return false;
     if (state.rmin != null && !(rateOf(r) >= state.rmin)) return false;
     if (state.tmin != null && !(r.term >= state.tmin)) return false;
     if (state.tmax != null && !(r.term <= state.tmax)) return false;
@@ -1939,6 +2014,9 @@
     });
     if (state.gu.size) p.set("gu", [...state.gu].join(","));
     if (state.prefTags.size) p.set("pref", [...state.prefTags].join(","));
+    // 조건이므로 링크에도 실린다. 안 실으면 링크를 받은 사람이 다른 건수를
+    // 보면서 같은 화면이라고 믿는다.
+    if (state.hideZero) p.set("nozero", "1");
     URL_VALUES.forEach((k) => {
       if (state[k] != null && state[k] !== "" && state[k] !== "base" && k !== "dir") {
         p.set(k, String(state[k]));
@@ -1964,6 +2042,7 @@
       const v = parseFloat(p.get(k));
       if (Number.isFinite(v)) state[k] = v;
     });
+    if (p.get("nozero") === "1") state.hideZero = true;
     if (p.get("basis") === "max") state.basis = "max";
     if (p.get("dir") === "1") state.dir = 1;
     // 우리 회사는 주소 → 저장소 → 기본값 순이다. 링크를 받은 사람은 보낸
@@ -2240,10 +2319,75 @@
         : "")
     + `</div>`;
 
+  // ── 화면에서 바로 수집을 시작한다 (명세서 §12.5) ──────────────────
+  //
+  // 예전에는 GitHub 실행 화면으로 보내는 링크였다. 거기서 입력칸을 다시
+  // 채워야 했고, 저장소 권한이 없는 사람은 눌러도 아무 데도 못 갔다.
+  //
+  // 암호는 **여기서 검사하지 않는다.** 페이지가 아는 순간 아무나 볼 수
+  // 있다. 같은 도메인의 `/api/collect`가 대조하고, 워크플로가 한 번 더
+  // 대조한다. 이 코드는 받은 값을 그대로 보내고 답을 옮겨 적을 뿐이다.
+  const COLLECT_ENDPOINT = "api/collect";
+
   if (data.collect_workflow_url) {
     $("collect").href = data.collect_workflow_url;
-    $("collect").hidden = false;
+    $("collect-box").hidden = false;
   }
+
+  const collectMsg = (text, kind) => {
+    const el = $("collect-msg");
+    el.textContent = text;
+    el.className = "collect-msg" + (kind ? " " + kind : "");
+    el.hidden = !text;
+  };
+
+  $("collect-open").addEventListener("click", () => {
+    const panel = $("collect-panel");
+    panel.hidden = !panel.hidden;
+    $("collect-open").setAttribute("aria-expanded", String(!panel.hidden));
+    if (!panel.hidden) $("collect-pw").focus();
+  });
+
+  $("collect-panel").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const password = $("collect-pw").value;
+    if (!password) { collectMsg("암호를 넣어 주세요.", "bad"); return; }
+
+    // 두 번 눌러 두 벌이 도는 것을 막는다. 함수도 막지만, 누른 사람이
+    // 그 사이에 아무 반응을 못 보면 또 누른다.
+    $("collect-go").disabled = true;
+    collectMsg("시작하는 중…", "");
+    try {
+      const res = await fetch(COLLECT_ENDPOINT, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ password }),
+      });
+      // 함수가 없는 배포에서는 정적 404가 온다. 그때는 예전 길을 보여준다.
+      const body = await res.json().catch(() => null);
+      if (!body) {
+        collectMsg("수집 시작이 이 배포에 설정되지 않았습니다.", "bad");
+        $("collect").hidden = false;
+        return;
+      }
+      if (body.ok) {
+        collectMsg(body.message || "수집을 시작했습니다.", "good");
+        $("collect-pw").value = "";
+        if (body.url) { $("collect").href = body.url; $("collect").hidden = false; }
+        return;
+      }
+      collectMsg(body.error || "시작하지 못했습니다.", "bad");
+      // 설정이 덜 됐거나 이미 도는 실행이 있으면, 가서 볼 곳을 알려준다.
+      if (body.configured === false || body.url) {
+        if (body.url) $("collect").href = body.url;
+        $("collect").hidden = false;
+      }
+    } catch (err) {
+      collectMsg("연결하지 못했습니다. 잠시 뒤 다시 눌러 주세요.", "bad");
+    } finally {
+      $("collect-go").disabled = false;
+    }
+  });
 
   // 주소의 조건을 상태로 되돌린다. 표를 받기 전에 해야 첫 그리기부터 맞는다.
   readUrl();
@@ -2484,6 +2628,11 @@
     redraw();
   });
 
+  $("hide-zero").addEventListener("change", (e) => {
+    state.hideZero = e.target.checked;
+    redraw();
+  });
+
   $("more").addEventListener("click", () => {
     if (state.shown != null) state.shown += 200;
     render();
@@ -2494,13 +2643,14 @@
     GROUPS.forEach((g) => state.picked[g.key].clear());
     Object.assign(state, { q: "", rmin: null, tmin: null, tmax: null,
                            dfrom: null, dto: null, basis: "base",
-                           sort: "base", dir: -1, shown: 100 });
+                           hideZero: false, sort: "base", dir: -1, shown: 100 });
     $("shown").value = "100";
     state.gu.clear();
     state.prefTags.clear();
     state.open.clear();
     ["q", "rmin", "tmin", "tmax", "dfrom", "dto"].forEach((id) => { $(id).value = ""; });
     $("basis").querySelector('input[value="base"]').checked = true;
+    $("hide-zero").checked = false;
     $("rmin-label").textContent = "기본금리 이상 (%)";
     renderGroups();
     renderAsOf();
@@ -2593,8 +2743,13 @@
         if (state[id] != null) $(id).value = state[id];
       });
       $("basis").querySelector(`input[value="${state.basis}"]`).checked = true;
+      $("hide-zero").checked = state.hideZero;
       $("rmin-label").textContent =
         state.basis === "max" ? "최고금리 이상 (%)" : "기본금리 이상 (%)";
+      // 몇 건이 걸리는 조건인지 먼저 알린다. 숫자가 없으면 켜 볼 이유도
+      // 알 수 없고, 껐다 켜며 건수를 세어 보게 된다.
+      const zeros = ALL.reduce((n, r) => n + (r.base === 0 ? 1 : 0), 0);
+      $("zero-count").textContent = zeros ? `· ${num(zeros)}건` : "";
 
       renderGroups();
       renderAsOf();

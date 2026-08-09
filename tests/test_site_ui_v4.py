@@ -419,16 +419,36 @@ def test_a_source_with_no_observations_is_not_described() -> None:
     assert "s.observation_count > 0" in SOURCE
 
 
-def test_the_collect_link_carries_no_token_and_hides_without_a_repo() -> None:
-    """정적 사이트라 페이지 안에서 수집을 돌릴 수 없다.
+def test_the_collect_form_carries_no_token_and_hides_without_a_repo() -> None:
+    """화면에서 암호를 넣으면 그 자리에서 수집이 시작된다 (명세서 §12.5).
 
-    링크만 건다 — 실행 권한이 있는 사람만 실제로 돌릴 수 있다. 저장소
-    이름은 빌드 때 환경에서 받고, 없으면 버튼을 통째로 숨긴다.
+    **암호를 화면이 검사하지 않는다.** 페이지가 아는 순간 소스를 열면
+    보인다. 화면은 받은 값을 같은 도메인의 함수로 보낼 뿐이고, 대조는
+    함수와 워크플로가 각각 한 번씩 한다.
     """
-    assert 'id="collect" hidden' in SOURCE
+    assert 'id="collect-box" hidden' in SOURCE
     assert "if (data.collect_workflow_url) {" in SOURCE
+    assert 'COLLECT_ENDPOINT = "api/collect"' in SOURCE
     # 주소를 화면에 박지 않는다. 포크나 로컬 빌드가 엉뚱한 곳을 가리킨다.
     assert "github.com/dekt-oss" not in SOURCE
+
+
+def test_the_screen_never_holds_the_password_itself() -> None:
+    """화면이 «맞다/틀리다»를 판단하면 그 판단 근거가 화면 안에 있다는 뜻이다.
+
+    실제로 그렇게 짜기 쉬운 자리다 — 틀린 암호를 서버까지 보내지 말자는
+    생각이 자연스럽기 때문이다. 그러면 소스 보기 한 번으로 뚫린다.
+    """
+    for forbidden in ("COLLECT_PASSWORD", "DASHBOARD_PASSWORD", "GITHUB_DISPATCH_TOKEN"):
+        assert forbidden not in SOURCE, forbidden
+    # 화면이 하는 일은 보내고 받아 적는 것뿐이다.
+    assert "method: \"POST\"" in SOURCE
+
+
+def test_the_github_link_stays_as_a_fallback() -> None:
+    """함수가 아직 설정되지 않은 배포에서 아무 길도 없으면 안 된다."""
+    assert 'id="collect" hidden' in SOURCE
+    assert "body.configured === false" in SOURCE
 
 
 def test_the_screen_points_at_the_document_that_says_what_is_not_guaranteed() -> None:
@@ -927,3 +947,51 @@ def test_the_second_tier_card_says_which_statistic_it_shows() -> None:
     """
     assert "기본금리 <b>중앙값</b>" in SOURCE
     assert "평균 ${Number(st.mean).toFixed(2)}%" in SOURCE
+
+
+# ── 0.00%로 공시된 행 (2026-08-09) ──────────────────────────────────────
+
+
+def test_zero_rate_rows_can_be_filtered_out() -> None:
+    """발행 데이터 실측 10,544건(3.22%)이고 거의 전부 농·축협과 새마을금고다.
+
+    **읽기 실패가 아니다.** 못 읽은 값은 빈칸으로 남고 0이 되지 않는다
+    (`domain/normalization.py`의 `parse_rate`). 원천이 실제로 0.00으로 공시한
+    것이고 대개 그 지점에서 취급하지 않는 상품인데, 화면에서는 «0% 금리
+    상품»으로 읽힌다. 그래서 끌 수 있게 둔다.
+    """
+    assert 'id="hide-zero"' in SOURCE
+    assert "state.hideZero && rateOf(r) === 0" in SOURCE
+
+
+def test_the_zero_filter_starts_off() -> None:
+    """빈 체크는 전체를 뜻한다. 기본으로 빼면 그 약속이 깨진다."""
+    assert "hideZero: false," in SOURCE
+    # 켜져 있는 상태로 시작하는 표시가 없어야 한다.
+    assert 'id="hide-zero" checked' not in SOURCE
+
+
+def test_the_zero_filter_is_measured_against_the_chosen_basis() -> None:
+    """우대금리 기준일 때 기본금리가 0인 것은 이 조건과 상관이 없다."""
+    assert "state.hideZero && rateOf(r) === 0" in SOURCE
+    assert "state.hideZero && r.base === 0" not in SOURCE
+
+
+def test_the_zero_filter_travels_in_the_link() -> None:
+    """안 실으면 링크를 받은 사람이 다른 건수를 보면서 같은 화면이라 믿는다."""
+    assert 'p.set("nozero", "1")' in SOURCE
+    assert 'p.get("nozero") === "1"' in SOURCE
+
+
+def test_the_zero_filter_says_how_many_rows_it_would_remove() -> None:
+    """숫자가 없으면 켜 볼 이유도 알 수 없고, 껐다 켜며 세어 보게 된다."""
+    assert 'id="zero-count"' in SOURCE
+    assert "r.base === 0 ? 1 : 0" in SOURCE
+
+
+def test_resetting_the_conditions_clears_the_zero_filter() -> None:
+    """«조건 초기화»가 안 지우는 조건이 하나 있으면 그것부터 의심하게 된다."""
+    reset = SOURCE[SOURCE.index('$("reset").addEventListener'):]
+    reset = reset[:reset.index("renderGroups();")]
+    assert "hideZero: false" in reset
+    assert '$("hide-zero").checked = false' in reset

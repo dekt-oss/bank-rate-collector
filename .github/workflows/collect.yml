@@ -586,6 +586,11 @@ jobs:
           # 원본을 rate-data 루트로 옮겨 놓지 않으면, 저장소를 파이썬 앱으로
           # 잡고 진입점을 찾다 실패한다 (2026-08-06 실측).
           cp vercel.json stage/vercel.json
+          # 화면에서 바로 수집을 시작하는 함수 (명세서 v3.1 §12.5).
+          #
+          # vercel.json과 같은 이유로 옮긴다 — Vercel은 **배포 루트의 api/**만
+          # 함수로 잡는다. site-public 안에 두면 그냥 파일로 내려간다.
+          cp -r web/api stage/api
 
       # 한도를 넘으면 여기서 멈춘다. push가 거부되는 것보다 낫다 —
       # 발행이 멈추면 어제 사이트가 그대로 살아 있다.
@@ -637,11 +642,11 @@ jobs:
               -not -name .git -not -name work -not -name publish \
               -not -name stage -not -name data -not -name site \
               -not -name site-public -exec rm -rf {} +
-            rm -rf latest site site-public vercel.json
-            cp -r stage/latest stage/site-public .
+            rm -rf latest site site-public vercel.json api
+            cp -r stage/latest stage/site-public stage/api .
             cp stage/vercel.json .
 
-            git add -f latest site-public vercel.json
+            git add -f latest site-public vercel.json api
             git commit -q -m "data: 수집 결과 갱신 (run ${{ github.run_id }})"
 
             if [ -n "$BEFORE" ]; then
