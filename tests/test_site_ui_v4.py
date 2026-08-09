@@ -947,3 +947,51 @@ def test_the_second_tier_card_says_which_statistic_it_shows() -> None:
     """
     assert "기본금리 <b>중앙값</b>" in SOURCE
     assert "평균 ${Number(st.mean).toFixed(2)}%" in SOURCE
+
+
+# ── 0.00%로 공시된 행 (2026-08-09) ──────────────────────────────────────
+
+
+def test_zero_rate_rows_can_be_filtered_out() -> None:
+    """발행 데이터 실측 10,544건(3.22%)이고 거의 전부 농·축협과 새마을금고다.
+
+    **읽기 실패가 아니다.** 못 읽은 값은 빈칸으로 남고 0이 되지 않는다
+    (`domain/normalization.py`의 `parse_rate`). 원천이 실제로 0.00으로 공시한
+    것이고 대개 그 지점에서 취급하지 않는 상품인데, 화면에서는 «0% 금리
+    상품»으로 읽힌다. 그래서 끌 수 있게 둔다.
+    """
+    assert 'id="hide-zero"' in SOURCE
+    assert "state.hideZero && rateOf(r) === 0" in SOURCE
+
+
+def test_the_zero_filter_starts_off() -> None:
+    """빈 체크는 전체를 뜻한다. 기본으로 빼면 그 약속이 깨진다."""
+    assert "hideZero: false," in SOURCE
+    # 켜져 있는 상태로 시작하는 표시가 없어야 한다.
+    assert 'id="hide-zero" checked' not in SOURCE
+
+
+def test_the_zero_filter_is_measured_against_the_chosen_basis() -> None:
+    """우대금리 기준일 때 기본금리가 0인 것은 이 조건과 상관이 없다."""
+    assert "state.hideZero && rateOf(r) === 0" in SOURCE
+    assert "state.hideZero && r.base === 0" not in SOURCE
+
+
+def test_the_zero_filter_travels_in_the_link() -> None:
+    """안 실으면 링크를 받은 사람이 다른 건수를 보면서 같은 화면이라 믿는다."""
+    assert 'p.set("nozero", "1")' in SOURCE
+    assert 'p.get("nozero") === "1"' in SOURCE
+
+
+def test_the_zero_filter_says_how_many_rows_it_would_remove() -> None:
+    """숫자가 없으면 켜 볼 이유도 알 수 없고, 껐다 켜며 세어 보게 된다."""
+    assert 'id="zero-count"' in SOURCE
+    assert "r.base === 0 ? 1 : 0" in SOURCE
+
+
+def test_resetting_the_conditions_clears_the_zero_filter() -> None:
+    """«조건 초기화»가 안 지우는 조건이 하나 있으면 그것부터 의심하게 된다."""
+    reset = SOURCE[SOURCE.index('$("reset").addEventListener'):]
+    reset = reset[:reset.index("renderGroups();")]
+    assert "hideZero: false" in reset
+    assert '$("hide-zero").checked = false' in reset

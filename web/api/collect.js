@@ -11,9 +11,16 @@
 // `api/`로 복사한다 (`vercel.json`을 옮기는 것과 같은 방식). Vercel은 배포
 // 루트의 `api/`만 함수로 잡기 때문이다.
 
-// 이 파일은 ES 모듈이다(`export default`). `require`를 섞으면 Node가 형식을
-// 정하지 못하고 통째로 죽는다 — 실제로 그렇게 짰다가 잡았다.
-import { timingSafeEqual } from "node:crypto";
+// **암호는 여기에 두지 않는다.** GitHub Actions 시크릿
+// `DASHBOARD_PASSWORD` 하나가 유일한 정답이고, 이 함수는 받은 값을 그대로
+// 실어 보낸다. 워크플로의 `Check collect password`가 대조한다.
+//
+// 같은 값을 Vercel에도 넣어 두 곳에서 대조하는 쪽이 방어는 한 겹 두껍다.
+// 그러나 암호를 두 곳에 두면 한쪽만 바뀌는 날이 오고, 그때 «맞는데 안 되는»
+// 상태가 된다. 어느 쪽이 진짜인지 화면으로는 알 수 없다.
+//
+// 대신 틀린 값이 GitHub까지 가므로 **시도 자체를 세어 막는다** (아래
+// MAX_ATTEMPTS_PER_WINDOW). 그게 없으면 이 주소가 곧 무제한 추측기가 된다.
 
 const WORKFLOW = "collect.yml";
 const REF = "main";
@@ -25,35 +32,20 @@ const REF = "main";
 // 줄을 세우므로 데이터가 깨지지는 않지만, 원천에 두 배로 가는 것은 막아야 한다.
 const DEFAULT_MIN_INTERVAL_MINUTES = 30;
 
-// 틀린 암호에 붙이는 지연. 추측을 초당 수천 번에서 초당 한 번으로 낮춘다.
-// 맞은 요청에는 안 붙인다 — 사람이 기다릴 이유가 없다.
-const WRONG_PASSWORD_DELAY_MS = 1000;
-
-// 틀렸을 때 **왜** 틀렸는지 알려주지 않는다. "암호가 짧다"까지만 알려줘도
-// 추측하는 쪽에는 큰 단서가 된다.
-const REJECT = "수집 암호가 맞지 않습니다.";
+// 이 시간 안에 시작된 수동 실행이 이만큼 있으면 더 받지 않는다.
+//
+// 암호를 워크플로가 대조하므로 틀린 값도 실행을 하나 만든다. 그 실행은
+// 암호 단계에서 10초쯤 만에 죽지만, 막지 않으면 이 주소가 그대로 무제한
+// 추측기가 된다. 다섯 번이면 사람이 오타를 몇 번 내도 넉넉하고, 추측하는
+// 쪽에는 시간당 다섯 번이라 쓸모가 없다.
+const ATTEMPT_WINDOW_MINUTES = 60;
+const MAX_ATTEMPTS_PER_WINDOW = 5;
 
 const json = (res, status, body) => {
   res.setHeader("content-type", "application/json; charset=utf-8");
   // 이 함수는 같은 도메인에서만 부른다. 다른 곳에서 부를 이유가 없으므로
   // CORS를 열지 않는다.
   res.status(status).send(JSON.stringify(body));
-};
-
-const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
-
-/** 길이가 달라도 시간이 새지 않는 비교. */
-const constantTimeEqual = (a, b) => {
-  const left = Buffer.from(String(a ?? ""), "utf8");
-  const right = Buffer.from(String(b ?? ""), "utf8");
-  // timingSafeEqual은 길이가 다르면 던진다. 길이 자체는 어차피 응답 시간으로
-  // 새지 않게 아래에서 한 번에 판정한다.
-  const size = Math.max(left.length, right.length, 1);
-  const padLeft = Buffer.alloc(size);
-  const padRight = Buffer.alloc(size);
-  left.copy(padLeft);
-  right.copy(padRight);
-  return timingSafeEqual(padLeft, padRight) && left.length === right.length;
 };
 
 const gh = async (token, path, init = {}) =>
@@ -75,11 +67,15 @@ const gh = async (token, path, init = {}) =>
  * 카운터는 서로 다른 값을 본다. GitHub에 물으면 어느 벌이 답해도 같다.
  */
 const whyNot = async (token, slug, minIntervalMinutes) => {
-  const res = await gh(token, `/repos/${slug}/actions/workflows/${WORKFLOW}/runs?per_page=20`);
+  const res = await gh(token, `/repos/${slug}/actions/workflows/${WORKFLOW}/runs?per_page=30`);
   if (!res.ok) {
     return { code: 502, reason: `GitHub이 실행 목록을 주지 않았습니다 (${res.status}).` };
   }
   const runs = (await res.json()).workflow_runs || [];
+  const minutesSince = (r) => {
+    const t = Date.parse(r.run_started_at || r.created_at);
+    return Number.isFinite(t) ? (Date.now() - t) / 60000 : Infinity;
+  };
 
   const active = runs.find(
     (r) => r.status === "in_progress" || r.status === "queued" || r.status === "waiting",
@@ -92,13 +88,30 @@ const whyNot = async (token, slug, minIntervalMinutes) => {
     };
   }
 
-  // main 푸시로 도는 실행은 수집이 아니라 발행이다(2분). 그것 때문에 수집을
-  // 막으면, 머지한 직후에는 아무도 수집을 못 돌리게 된다.
-  const lastCollect = runs.find((r) => r.event !== "push");
+  // 암호를 워크플로가 대조하므로 틀린 값도 실행을 하나 남긴다. 시도를 세지
+  // 않으면 이 주소가 무제한 추측기가 된다. 성공·실패를 가리지 않고 센다 —
+  // 실패만 세면 맞는 암호를 섞어 세탁할 수 있다.
+  const attempts = runs.filter(
+    (r) => r.event === "workflow_dispatch" && minutesSince(r) < ATTEMPT_WINDOW_MINUTES,
+  );
+  if (attempts.length >= MAX_ATTEMPTS_PER_WINDOW) {
+    return {
+      code: 429,
+      reason: "시도가 너무 잦습니다. 잠시 뒤에 다시 눌러 주세요.",
+    };
+  }
+
+  // 간격 제한은 **실제로 돈 수집**만 센다.
+  //
+  // 암호가 틀려 10초 만에 죽은 실행까지 세면, 오타 한 번에 30분을 기다리게
+  // 된다. main 푸시로 도는 실행도 수집이 아니라 발행(2분)이라 빼야 한다 —
+  // 그것 때문에 막으면 머지 직후에는 아무도 수집을 못 돌린다.
+  const lastCollect = runs.find(
+    (r) => r.event !== "push" && r.conclusion === "success",
+  );
   if (lastCollect) {
-    const startedAt = Date.parse(lastCollect.run_started_at || lastCollect.created_at);
-    const minutes = (Date.now() - startedAt) / 60000;
-    if (Number.isFinite(minutes) && minutes < minIntervalMinutes) {
+    const minutes = minutesSince(lastCollect);
+    if (minutes < minIntervalMinutes) {
       const wait = Math.ceil(minIntervalMinutes - minutes);
       return {
         code: 429,
@@ -123,8 +136,9 @@ const FLAGS = [
   "skip_finlife_bank", "skip_bok", "publish_only",
 ];
 
-const buildInputs = (body, password) => {
-  const inputs = { password };
+const buildInputs = (body) => {
+  // 암호는 화면이 보낸 값을 그대로 실어 보낸다. 여기서 판단하지 않는다.
+  const inputs = { password: String(body.password) };
   for (const name of FLAGS) {
     if (body[name] === true) inputs[name] = "true";
   }
@@ -139,13 +153,14 @@ export default async function handler(req, res) {
     return json(res, 405, { ok: false, error: "POST로 불러 주세요." });
   }
 
-  const password = process.env.COLLECT_PASSWORD;
   const token = process.env.GITHUB_DISPATCH_TOKEN;
   const slug = process.env.GITHUB_REPOSITORY;
-  // 반쯤 켜진 상태를 만들지 않는다. 셋 중 하나라도 없으면 «설정이 덜 됐다»고
+  // 반쯤 켜진 상태를 만들지 않는다. 하나라도 없으면 «설정이 덜 됐다»고
   // 분명히 말한다 — 조용히 실패하면 암호가 틀린 줄 알고 계속 눌러 보게 된다.
+  //
+  // 암호는 여기 없다. GitHub 시크릿 `DASHBOARD_PASSWORD` 하나가 정답이고
+  // 워크플로가 대조한다 (맨 위 주석 참고).
   const missing = [
-    !password && "COLLECT_PASSWORD",
     !token && "GITHUB_DISPATCH_TOKEN",
     !slug && "GITHUB_REPOSITORY",
   ].filter(Boolean);
@@ -169,9 +184,10 @@ export default async function handler(req, res) {
     return json(res, 400, { ok: false, error: "요청을 읽지 못했습니다." });
   }
 
-  if (!constantTimeEqual(body.password, password)) {
-    await sleep(WRONG_PASSWORD_DELAY_MS);
-    return json(res, 401, { ok: false, error: REJECT });
+  // 빈 암호는 여기서 끊는다. GitHub까지 보내 봐야 실행 하나만 버리고,
+  // 그 실행이 아래 시도 계산에 들어가 진짜 시도를 막는다.
+  if (!body.password) {
+    return json(res, 401, { ok: false, error: "수집 암호를 넣어 주세요." });
   }
 
   const minInterval =
@@ -184,7 +200,7 @@ export default async function handler(req, res) {
   const dispatch = await gh(
     token,
     `/repos/${slug}/actions/workflows/${WORKFLOW}/dispatches`,
-    { method: "POST", body: JSON.stringify({ ref: REF, inputs: buildInputs(body, password) }) },
+    { method: "POST", body: JSON.stringify({ ref: REF, inputs: buildInputs(body) }) },
   );
   if (!dispatch.ok) {
     // GitHub이 준 본문을 그대로 흘리지 않는다. 토큰 범위 같은 것이 섞여 있다.
@@ -196,9 +212,15 @@ export default async function handler(req, res) {
 
   // dispatch는 실행 번호를 주지 않는다. 방금 만들어진 실행을 굳이 찾아
   // 헤매지 않고 목록 주소를 준다 — 몇 초 뒤에 거기 뜬다.
+  //
+  // **«시작했다»가 «암호가 맞았다»는 뜻은 아니다.** 대조는 그 실행 안에서
+  // 일어나므로, 암호가 틀리면 몇 초 뒤 그 실행이 빨간 X로 끝난다. 그렇게
+  // 적어야 보는 사람이 목록을 확인하러 간다.
   return json(res, 202, {
     ok: true,
-    message: "수집을 시작했습니다. 전국 한 바퀴는 약 3시간 40분 걸립니다.",
+    message: "수집을 시작했습니다. 암호가 맞으면 그대로 돌고,"
+      + " 틀리면 실행 목록에서 바로 빨간 X로 끝납니다."
+      + " 전국 한 바퀴는 약 3시간 40분 걸립니다.",
     url: `https://github.com/${slug}/actions/workflows/${WORKFLOW}`,
   });
 }
