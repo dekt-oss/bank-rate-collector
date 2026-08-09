@@ -522,23 +522,21 @@ def test_chart_colours_come_from_css_variables_not_literals() -> None:
     assert SOURCE.index("applyTheme(next)") < SOURCE.index("drawCharts();\n  });")
 
 
-def test_a_chart_that_ignores_the_filters_says_so() -> None:
+def test_every_chart_says_what_it_counted() -> None:
     """빼면 보는 사람이 차트와 표를 같은 모집단으로 믿는다.
 
-    표 바로 위에 나란히 있으므로 제일 위험한 오해다.
+    표 바로 위에 나란히 있으므로 제일 위험한 오해다. 이제 셋 다 조건을
+    따르지만 **따르는 범위가 다르다** — 그래서 배지가 더 필요해졌다.
+
+        금리 분포     조건 전부. 기간·유형이 비면 12개월 정기예금으로 좁힌다
+        가입기간별   조건 전부. 좁히지 않는다 (가로축이 기간이다)
+        권역별       지역만 빼고 전부
     """
-    # 배지는 상태에 따라 바뀐다(좁혔으면 «12개월 정기예금 기준»).
-    # 초기 마크업이 «조회 조건 반영»이고 id로 갈아끼운다.
     assert '<span class="badge live" id="hist-badge">조회 조건 반영</span>' in SOURCE
     assert '<span class="badge live" id="terms-badge">조회 조건 반영</span>' in SOURCE
-
-    # 권역 차트만 조건을 안 따른다. 막대가 전체 집계라 그래야 하고,
-    # 그 사실을 배지·배경·캡션 셋으로 밝힌다.
+    assert "조회 조건 반영 (지역 제외)" in SOURCE
+    # 표를 받기 전에는 발행 집계로 그린다. 그때는 «전체 기준»이라 적는다.
     assert '<span class="badge">전체 기준</span>' in SOURCE
-    assert "조회 조건과 무관한 전체 집계라 아래 표와\n        모집단이 다릅니다" in SOURCE
-    assert 'class="card wide global"' in SOURCE
-    # 조건을 따르게 된 차트에는 «다른 모집단» 표시가 남으면 안 된다.
-    assert 'class="card global"' not in SOURCE
 
 
 def test_the_representative_value_is_never_the_maximum() -> None:
@@ -663,19 +661,21 @@ def test_our_own_representative_rate_is_a_median_too() -> None:
     assert "중앙값 ${ours.toFixed(2)}%" in hist
 
 
-def test_the_region_chart_covers_all_of_the_second_tier() -> None:
-    """제목이 «2금융권»이면 데이터도 2금융권이어야 한다.
+def test_the_region_chart_names_what_it_actually_counted() -> None:
+    """제목에 업권을 박아 두면 조건을 걸었을 때 거짓말이 된다.
 
-    저축은행만 담아 놓고 이름만 바꾸면 화면이 거짓말을 한다.
+    저축은행만 켰는데 제목이 «2금융권»이면 화면이 거짓을 말한다. 그래서
+    고른 업권을 제목이 그대로 적는다.
     """
     from rate_monitor.services.dashboard_service import (
         BENCHMARK_SECOND_TIER,
         SECOND_TIER_SECTOR,
     )
 
+    # 표를 받기 전 경로는 여전히 발행된 2금융권 합산을 쓴다.
     assert f'const REG_SECTOR = "{SECOND_TIER_SECTOR}"' in SOURCE
-    # 2026-08-07에 기간·유형을 12개월 정기예금으로 못박으면서 이름이 늘었다.
-    assert "2금융권 12개월 정기예금 중앙값" in SOURCE
+    assert "const picked = [...state.picked.sector].map((s) => SECTOR_KO[s] || s);" in SOURCE
+    assert 'const who = !live ? "2금융권"' in SOURCE
     assert "저축은행 기본금리 중앙값" not in SOURCE
     # 합산 이름이 실제 업권 코드와 겹치면 목록에 나란히 선다.
     assert SECOND_TIER_SECTOR not in BENCHMARK_SECOND_TIER
@@ -762,21 +762,39 @@ def test_a_narrowed_histogram_says_so_and_names_the_whole() -> None:
 
 def test_a_narrow_filter_never_leaves_the_chart_empty() -> None:
     """좁혔는데 20건도 안 남으면 좁히지 않는다. 빈 그림보다 섞인 그림이 낫다."""
-    # 판단은 `screenBasis()`가 한 곳에서 한다 (차트 1 앞에 있다).
     basis = SOURCE[SOURCE.index("const screenBasis = () =>"):
-                   SOURCE.index("const wholeBasis = () =>")]
+                   SOURCE.index("const histogram = () =>")]
     assert "rows.length >= HIST_MIN_ROWS" in basis
     assert "{ rows: current, narrowed: false }" in basis
+    # 권역 차트도 같은 규칙을 쓴다.
+    region = SOURCE[SOURCE.index("const regionBasis = () =>"):
+                    SOURCE.index("const groupOf =")]
+    assert "narrowed.length >= HIST_MIN_ROWS" in region
 
 
-def test_the_region_chart_is_pinned_to_the_same_basis_as_the_card() -> None:
-    """참고카드는 12개월 정기예금인데 권역 차트가 전체면 1%p 가까이 벌어진다.
+def test_the_region_chart_ignores_only_the_region_condition() -> None:
+    """이 그림의 가로축이 지역이다.
 
-    실제로 그랬다 — 카드 3.40%, 권역 2.4~2.5%. 같은 화면의 두 숫자가 다른데
-    이유가 어디에도 없었다.
+    지역까지 걸면 «부산만» 골랐을 때 막대가 하나만 남아 비교가 사라진다.
+    나머지 조건은 그대로 따라야 한다 — 저축은행만 켜면 저축은행의 권역
+    중앙값이 나와야 한다 (2026-08-09 사용자 지정).
     """
-    assert "2금융권 12개월 정기예금 중앙값" in SOURCE
-    assert "위 참고카드와 같은 기준" in SOURCE
+    assert "const matches = (r, skipRegion) => {" in SOURCE
+    assert 'if (skipRegion && g.key === "region") continue;' in SOURCE
+    assert "ALL.filter((r) => matches(r, true))" in SOURCE
+    assert "<b>지역 조건만 빼고</b>" in SOURCE
+
+
+def test_the_region_grouping_table_is_published_not_copied() -> None:
+    """시도 → 권역 표를 화면에 따로 적으면 언젠가 한쪽만 바뀐다.
+
+    그날 발행된 막대와 화면이 다시 낸 막대가 다른 권역에 서는데, 둘 다
+    «권역별»이라 적혀 있어 어느 쪽이 틀렸는지 알 수 없다.
+    """
+    assert "region_groups" in INLINE_KEYS
+    assert "(data.region_groups || {})[sido]" in SOURCE
+    # 화면에 표를 복사해 두지 않았는지 본다.
+    assert "인천·경기" not in SOURCE.split("<script")[0]
 
 
 def test_our_company_number_is_decided_in_one_place() -> None:
@@ -785,19 +803,19 @@ def test_our_company_number_is_decided_in_one_place() -> None:
     카드 3.00%(전 상품군) · 분포 3.90%(12개월 정기예금) · 권역선 3.00%.
     **권역 차트가 제일 나빴다** — 막대는 12개월 기준인데 기준선만 전체
     기준이라, 서로 다른 것을 비교해 «우리가 전 권역보다 낮다»고 보였다.
-    12개월로 재면 3.90%라 정반대다.
     """
     assert "const screenBasis = () =>" in SOURCE
-    assert "const wholeBasis = () =>" in SOURCE
+    assert "const regionBasis = () =>" in SOURCE
 
     # 카드·순위줄·분포는 화면 기준 하나를 공유한다.
     assert SOURCE.count("mineStats(screenBasis().rows)") == 2   # render + 카드
     assert "const stats = mineStats(source);" in SOURCE          # 분포
 
-    # 권역 차트는 «전체 기준»이라 조건을 안 따른다. 막대와 같은 잣대여야
-    # «전 권역보다 높다/낮다»가 참이 된다.
-    assert "regionBars(mineStats(wholeBasis()))" in SOURCE
+    # 권역 차트의 기준선은 **막대와 같은 집합**에서 낸다. 다른 데서 내면
+    # «전 권역보다 높다/낮다»가 거짓이 된다.
+    assert SOURCE.count("regionBars(mineStats(regionBasis()))") == 3
     assert "mineStats(current)" not in SOURCE, "옛 잣대가 남아 있다"
+    assert "wholeBasis" not in SOURCE, "아무도 안 쓰는 잣대가 남아 있다"
 
 
 def test_a_different_denominator_says_what_it_is() -> None:
@@ -1036,3 +1054,16 @@ def test_the_benchmark_cards_stay_at_the_very_top() -> None:
     marks = SOURCE.index('<div class="marks" id="marks" hidden></div>')
     conditions = SOURCE.index('<section class="panel" id="conditions">')
     assert marks < conditions
+
+
+def test_the_filter_callback_is_wrapped_so_the_index_is_not_a_flag() -> None:
+    """`ALL.filter(matches)`는 인덱스를 두 번째 인자로 넘긴다.
+
+    `matches(r, skipRegion)`에서 그 인덱스가 곧 «지역 조건을 건너뛰라»가
+    되어, 0번 행을 뺀 모든 행이 지역 조건을 무시했다. 화면으로는 «부산을
+    켰는데 건수가 그대로»로 보였다 (2026-08-09 브라우저 확인에서 발견).
+    """
+    assert "ALL.filter((r) => matches(r))" in SOURCE
+    # 주석에는 «이렇게 쓰면 안 된다»고 적혀 있다. 그걸 위반으로 세면
+    # 규칙을 설명하지 못하게 된다 (`_visible`이 있는 이유와 같다).
+    assert "ALL.filter(matches)" not in _visible(SOURCE)

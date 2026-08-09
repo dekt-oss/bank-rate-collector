@@ -818,13 +818,7 @@
       <!-- 기간·유형을 12개월 정기예금으로 못박는다. 안 박으면 1개월 예금
            1.00%와 12개월 3.40%가 한 중앙값에 섞여, 위 참고카드와 1%p 가까이
            벌어지면서 그 이유가 화면 어디에도 없게 된다. -->
-      <p class="cap">저축은행·새마을금고·신협·지역농축협을 합친
-        <b>12개월 정기예금</b>의 기본금리 <b>중앙값</b>입니다.
-        위 참고카드와 같은 기준이고, 조회 조건과 무관한 전체 집계라 아래 표와
-        모집단이 다릅니다.
-        최고값이 아니라 중앙값을 쓰는 이유는, 우대 조건이 붙은 한 건이 그
-        권역 전체를 대표해 버리는 것을 막기 위해서입니다.
-        <b>부산 막대를 누르면 구·군으로 펼쳐집니다.</b></p>
+      <p class="cap" id="reg-cap"></p>
       <svg id="reg" viewBox="0 0 1160 190" role="img" aria-label=""></svg>
       <div class="legend" id="reg-legend"></div>
     </div>
@@ -1288,16 +1282,20 @@
     }).join("");
   };
 
-  const matches = (r) => {
+  // `skipRegion`은 권역 차트만 쓴다. 그 차트의 x축이 지역이라, 지역을
+  // 걸러 버리면 «부산만» 골랐을 때 막대가 하나만 남아 비교가 사라진다.
+  // 나머지 조건(업권·기간·유형·금리…)은 그대로 따른다.
+  const matches = (r, skipRegion) => {
     // 구·군은 **정확 필터를 쓸 수 있는 근거일 때만** 거른다 (v4 §10.3).
     // 신협의 지역은 조회조건이고 저축은행은 본점 소재지라, 그걸 구 단위
     // 정확 필터로 쓰면 그 구에 없는 지점을 있다고 말하는 셈이 된다.
     // 그런 행은 구를 골라도 남기고 화면이 배지로 성격을 밝힌다.
-    if (busanOn() && state.gu.size && GU_EXACT.has(r.geo)
+    if (!skipRegion && busanOn() && state.gu.size && GU_EXACT.has(r.geo)
         && !state.gu.has(r.district)) {
       return false;
     }
     for (const g of GROUPS) {
+      if (skipRegion && g.key === "region") continue;
       const picked = state.picked[g.key];
       if (!picked.size) continue;
       // 시도만 예외다. 전국 공시 행은 시도가 비어 있지만 고른 시도에서도
@@ -1501,7 +1499,10 @@
   };
 
   const render = () => {
-    current = ALL.filter(matches).sort(cmp);
+    // `ALL.filter(matches)`로 쓰면 안 된다. `filter`가 두 번째 인자로
+    // **인덱스**를 넘겨서 `skipRegion`이 되고, 0번 행을 뺀 모든 행이 지역
+    // 조건을 건너뛴다. 실제로 그렇게 나갔다 — 부산을 켜도 건수가 그대로였다.
+    current = ALL.filter((r) => matches(r)).sort(cmp);
     const limit = state.shown == null ? current.length : state.shown;
     // 우리 회사 수치는 화면 전체가 한 잣대를 쓴다 (screenBasis 주석 참고).
     //
@@ -1622,10 +1623,9 @@
   // 그래서 기준 집합을 여기서 한 번만 정한다.
   //
   //   화면 기준 (카드·순위줄·분포) — 조건을 걸면 조건, 안 걸면 12개월 정기예금
-  //   전체 기준 (권역 차트)        — 조건과 무관하게 언제나 12개월 정기예금
+  //   권역 기준 (권역 차트)        — 지역 조건만 빼고 나머지는 화면 기준과 같다
   //
-  // 권역 차트가 조건을 안 따르는 것은 그 차트가 «전체 기준»이기 때문이다.
-  // 막대와 기준선이 같은 잣대여야 비교가 성립한다.
+  // 어느 쪽이든 **막대와 기준선이 같은 집합에서** 나와야 비교가 성립한다.
   const screenBasis = () => {
     if (!noTermOrTypePicked()) return { rows: current, narrowed: false };
     const rows = twelveMonthDeposits(current);
@@ -1634,7 +1634,6 @@
       ? { rows, narrowed: true }
       : { rows: current, narrowed: false };
   };
-  const wholeBasis = () => twelveMonthDeposits(ALL);
 
   const histogram = () => {
     const { rows: source, narrowed: narrowedOn } = screenBasis();
@@ -1789,7 +1788,10 @@
   // 표를 아직 못 받았을 때만 `by_term`으로 그린다. 첫 화면이 비어 있는
   // 것보다는 전체 기준이라도 보이는 편이 낫고, 받는 즉시 다시 그린다.
   const termRowsFromScreen = () => {
-    const rows = screenBasis().rows;
+    // **여기서는 좁히지 않는다.** `screenBasis()`는 조건이 비면 12개월
+    // 정기예금만 남기는데, 이 차트의 x축이 곧 가입기간이라 그러면 막대가
+    // «7~12개월» 하나만 남는다. 실제로 그렇게 나갔다 (2026-08-09).
+    const rows = current;
     return TERM_BUCKETS.map((b) => {
       const vals = [];
       rows.forEach((r) => {
@@ -1831,13 +1833,12 @@
     const rows = live ? termRowsFromScreen() : termRowsFromSummary();
     // 무엇을 세어 그린 그림인지 매번 다시 적는다. 표를 받기 전과 받은 뒤가
     // 서로 다른 모집단이라, 한 번 적어 두면 둘 중 하나는 거짓말이 된다.
-    $("terms-badge").textContent = live
-      ? (basisLabel() ? `${basisLabel()} 기준` : "조회 조건 반영")
-      : "전체 기준";
-    $("terms-badge").className = live && !basisLabel() ? "badge live" : "badge";
+    $("terms-badge").textContent = live ? "조회 조건 반영" : "전체 기준";
+    $("terms-badge").className = live ? "badge live" : "badge";
     $("terms-cap").textContent = live
-      ? `조회 결과 ${num(screenBasis().rows.length)}건을 가입기간으로 묶은 것입니다.`
+      ? `조회 결과 ${num(current.length)}건을 가입기간으로 묶은 것입니다.`
         + " 막대는 최저~최고, 안의 숫자는 중앙값입니다."
+        + " 기간을 비교하는 그림이라 기간으로는 좁히지 않습니다."
       : "표를 받기 전이라 전체 집계로 그렸습니다."
         + " 구간 중앙값은 개월별 중앙값을 건수로 가중한 근사값입니다.";
     if (!rows.length) { $("terms").innerHTML = ""; return; }
@@ -1896,25 +1897,98 @@
   const REG_MIN_N = 30;      // 이보다 적으면 «중앙값»이라 부를 표본이 아니다
   let regionView = "national";
 
-  const regionBars = (stats) => {
+  // 권역 차트가 보는 집합.
+  //
+  // **지역 조건만 뺀 나머지 조회 조건을 따른다** (2026-08-09). 저축은행만
+  // 켜면 저축은행의 권역 중앙값이 나와야 하고, 부산만 켜도 막대는 아홉
+  // 그대로여야 한다 — 이 차트의 x축이 지역이기 때문이다.
+  //
+  // 기본값은 전체 12개월 정기예금이다. 조건이 비면 참고카드·금리 분포와
+  // 같은 잣대로 좁힌다.
+  const regionBasis = () => {
+    const rows = ALL.filter((r) => matches(r, true));
+    if (!noTermOrTypePicked()) return rows;
+    const narrowed = twelveMonthDeposits(rows);
+    return narrowed.length >= HIST_MIN_ROWS ? narrowed : rows;
+  };
+
+  // 시도 → 권역. 표는 발행이 준다 — 화면에 따로 적으면 언젠가 한쪽만
+  // 바뀌고, 그때 두 그림이 다른 권역에 서면서 둘 다 «권역별»이라고 적힌다.
+  const groupOf = (sido) =>
+    (data.region_groups || {})[sido] || (data.region_other || "기타");
+
+  // 조건에 맞는 행에서 권역(또는 부산 구·군) 중앙값을 다시 낸다.
+  //
+  // 관측에서 한 번에 낸다. 구 단위 중앙값을 다시 중앙값 내면 96건짜리 구와
+  // 1,284건짜리 구가 같은 무게로 들어간다 (`_by_region` 주석과 같은 이유).
+  const regionRows = () => {
+    const bucket = new Map();
+    regionBasis().forEach((r) => {
+      const v = rateOf(r);
+      if (v == null) return;
+      let key;
+      if (regionView === "national") {
+        if (!r.region) return;           // 전국 공시 행은 권역이 없다
+        key = groupOf(r.region);
+      } else {
+        if (r.region !== BUSAN_SIDO || !r.district) return;
+        key = r.district;
+      }
+      let b = bucket.get(key);
+      if (!b) { b = { vals: [], inst: new Set() }; bucket.set(key, b); }
+      b.vals.push(v);
+      b.inst.add(r.institution);
+    });
+    return [...bucket.entries()].map(([name, b]) => {
+      b.vals.sort((a, x) => a - x);
+      return { name, v: median(b.vals), n: b.vals.length, inst: b.inst.size,
+               mine: regionView === "national" && name === BUSAN_SIDO };
+    });
+  };
+
+  // 표를 받기 전에는 발행된 집계로 그린다. 첫 화면이 비는 것보다 낫다.
+  const regionRowsFromSummary = () => {
     const rows = (data.by_region || [])
       .filter((r) => r.sector === REG_SECTOR && r.base_p50 != null);
-    const D = (regionView === "national"
+    return regionView === "national"
       ? rows.filter((r) => !r.district)
           .map((r) => ({ name: r.region, v: Number(r.base_p50),
                          n: r.observations, inst: r.institutions,
                          mine: r.region === BUSAN_SIDO }))
       : rows.filter((r) => r.region === BUSAN_SIDO && r.district)
           .map((r) => ({ name: r.district, v: Number(r.base_p50),
-                         n: r.observations, inst: r.institutions })))
+                         n: r.observations, inst: r.institutions }));
+  };
+
+  const regionBars = (stats) => {
+    const live = ALL.length > 0;
+    const D = (live ? regionRows() : regionRowsFromSummary())
+      .filter((r) => r.v != null)
       .slice().sort((a, b) => b.v - a.v);
 
+    // 제목이 지금 무엇을 세었는지 말한다. 조건에 따라 모집단이 바뀌므로
+    // «2금융권»이라 박아 두면 저축은행만 켰을 때 거짓말이 된다.
+    const picked = [...state.picked.sector].map((s) => SECTOR_KO[s] || s);
+    const who = !live ? "2금융권"
+      : picked.length ? picked.join("·")
+      : "전체";
     $("reg-title").innerHTML =
       (regionView === "national" ? "권역별" : "부산 구·군별")
-      + ' 2금융권 12개월 정기예금 중앙값 <span class="badge">전체 기준</span>';
+      + ` ${esc(who)}${basisLabel() ? " " + basisLabel() : ""} 중앙값 `
+      + (live
+          ? '<span class="badge live">조회 조건 반영 (지역 제외)</span>'
+          : '<span class="badge">전체 기준</span>');
+    // 캡션도 지금 세고 있는 것을 그대로 적는다.
+    $("reg-cap").innerHTML = live
+      ? `조회 조건에 맞는 ${num(regionBasis().length)}건의 기본금리 <b>중앙값</b>입니다.`
+        + " <b>지역 조건만 빼고</b> 나머지는 그대로 따릅니다 — 이 그림의 가로축이"
+        + " 지역이라, 지역까지 걸면 막대가 하나만 남아 비교가 사라집니다."
+        + " 최고값이 아니라 중앙값을 쓰는 이유는, 우대 조건이 붙은 한 건이 그"
+        + " 권역 전체를 대표해 버리는 것을 막기 위해서입니다."
+      : "표를 받기 전이라 발행된 전체 집계로 그렸습니다.";
     if (!D.length) {
       $("reg").innerHTML = "";
-      $("reg-legend").innerHTML = "<span>권역별 집계가 아직 없습니다.</span>";
+      $("reg-legend").innerHTML = "<span>조건에 맞는 행이 없어 그릴 것이 없습니다.</span>";
       return;
     }
 
@@ -2051,9 +2125,9 @@
     $("charts").hidden = false;
     histogram();
     termRange();
-    // 권역 차트는 «전체 기준»이라 조건을 안 따른다. 기준선도 마찬가지다 —
-    // 막대와 같은 잣대여야 «전 권역보다 높다/낮다»가 참이 된다.
-    regionBars(mineStats(wholeBasis()));
+    // 권역 차트도 조건을 따른다 (지역만 뺀다). 기준선은 막대와 **같은
+    // 집합**에서 낸다 — 다른 데서 내면 «전 권역보다 높다/낮다»가 거짓이 된다.
+    regionBars(mineStats(regionBasis()));
   };
 
   // ── 조건을 주소에 담는다 ─────────────────────────────────────────
@@ -2568,12 +2642,12 @@
   $("reg").addEventListener("click", (e) => {
     if (!e.target.closest("[data-drill]")) return;
     regionView = "busan";
-    regionBars(mineStats(wholeBasis()));
+    regionBars(mineStats(regionBasis()));
   });
   $("reg-legend").addEventListener("click", (e) => {
     if (!e.target.closest("#reg-back")) return;
     regionView = "national";
-    regionBars(mineStats(wholeBasis()));
+    regionBars(mineStats(regionBasis()));
   });
 
   $("conditions").addEventListener("change", (e) => {

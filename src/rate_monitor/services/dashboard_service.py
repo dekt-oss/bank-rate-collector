@@ -1002,6 +1002,14 @@ def build_summary(db_path: Path) -> dict[str, Any]:
         # 권역 9개 단위. 구 단위(`by_district`)와 따로 내는 이유는
         # `_by_region`의 설명에 있다 — 중앙값은 다시 중앙값 낼 수 없다.
         "by_region": by_region,
+        # 시도 → 권역 묶음. 화면이 조회 조건에 맞춰 권역 중앙값을 **다시**
+        # 낼 때 쓴다.
+        #
+        # 같은 표를 화면에도 적어 두면 언젠가 한쪽만 바뀐다. 그날 발행된
+        # 막대와 화면이 다시 낸 막대가 다른 권역에 서는데, 둘 다 «권역별»
+        # 이라 적혀 있어 어느 쪽이 틀렸는지 알 수 없다.
+        "region_groups": dict(REGION_GROUPS),
+        "region_other": REGION_OTHER,
         "district_top": district_top,
         "workplace_only": workplace,
         "top_rates": top_rates,
