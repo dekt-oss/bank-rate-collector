@@ -1067,3 +1067,41 @@ def test_the_filter_callback_is_wrapped_so_the_index_is_not_a_flag() -> None:
     # 주석에는 «이렇게 쓰면 안 된다»고 적혀 있다. 그걸 위반으로 세면
     # 규칙을 설명하지 못하게 된다 (`_visible`이 있는 이유와 같다).
     assert "ALL.filter(matches)" not in _visible(SOURCE)
+
+
+# ── 32만 행에서도 손이 안 밀리게 (2026-08-09) ────────────────────────────
+
+
+def test_typing_does_not_refilter_on_every_keystroke() -> None:
+    """타자마다 32만 행을 다시 훑으면 글자가 밀린다.
+
+    실측: 한 글자에 467ms. 네 글자를 치면 2초 가까이 멈춘다. 손을 멈춘
+    뒤에 한 번만 돌게 하니 연타 중 멈춘 시간이 1ms가 됐다.
+    """
+    assert "const TYPING_PAUSE_MS = 200;" in SOURCE
+    assert "const redrawSoon = afterTyping(redraw);" in SOURCE
+    # 체크박스는 지연을 걸지 않는다. 한 번 누르는 것이라 바로 반응해야 한다.
+    handler = SOURCE[SOURCE.index('$("conditions").addEventListener("change"'):]
+    assert "redrawSoon()" not in handler[:2000]
+
+
+def test_the_screen_bases_are_computed_once_per_draw() -> None:
+    """한 번 그릴 때 카드·순위줄·분포·캡션이 같은 잣대를 묻는다.
+
+    물을 때마다 32만 행을 다시 훑으면 조건 하나에 몇 백 ms가 붙는다.
+    """
+    assert "let basisCache = {}" in SOURCE
+    assert "if (basisCache.screen) return basisCache.screen;" in SOURCE
+    assert "if (basisCache.region) return basisCache.region;" in SOURCE
+    # 조건이 바뀌면 반드시 비운다. 안 비우면 옛 집합으로 그린다.
+    render = SOURCE[SOURCE.index("  const render = () => {"):]
+    assert render.index("clearBasis();") < render.index("current = ALL.filter")
+
+
+def test_the_term_buckets_are_filled_in_one_pass() -> None:
+    """구간마다 전체를 다시 훑으면 32만 행 × 6구간 = 200만 번을 돈다."""
+    fn = SOURCE[SOURCE.index("const termRowsFromScreen = () =>"):
+                SOURCE.index("const termRowsFromSummary = () =>")]
+    assert "current.forEach((r) => {" in fn
+    # 구간 루프 안에서 전체를 다시 훑지 않는다.
+    assert "rows.forEach" not in fn
