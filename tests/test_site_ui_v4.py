@@ -985,7 +985,7 @@ def test_zero_rate_rows_can_be_filtered_out() -> None:
     상품»으로 읽힌다. 그래서 끌 수 있게 둔다.
     """
     assert 'id="hide-zero"' in SOURCE
-    assert "state.hideZero && rateOf(r) === 0" in SOURCE
+    assert "state.hideZero && isShownAsZero(rateOf(r))" in SOURCE
 
 
 def test_the_zero_filter_starts_off() -> None:
@@ -997,8 +997,22 @@ def test_the_zero_filter_starts_off() -> None:
 
 def test_the_zero_filter_is_measured_against_the_chosen_basis() -> None:
     """우대금리 기준일 때 기본금리가 0인 것은 이 조건과 상관이 없다."""
-    assert "state.hideZero && rateOf(r) === 0" in SOURCE
+    assert "state.hideZero && isShownAsZero(rateOf(r))" in SOURCE
     assert "state.hideZero && r.base === 0" not in SOURCE
+
+
+def test_the_zero_filter_removes_what_the_screen_shows_as_zero() -> None:
+    """정확히 0인 것만 지우면 0.001~0.004%인 204건이 남는다.
+
+    표는 소수 둘째 자리까지 적으므로 그것도 «0.00%»로 찍힌다. 켰는데 0%가
+    그대로 보이면 조건이 고장 난 것으로 읽힌다 — 실제로 그렇게 나갔다.
+    실측: 걸리는 행이 10,544건에서 10,748건이 됐고, 켠 뒤 표 첫 화면의
+    «0.00%» 칸이 100개에서 0개가 됐다.
+    """
+    assert "const isShownAsZero = (v) => v != null && Math.round(v * 100) === 0;" in SOURCE
+    # 건수 라벨도 같은 규칙이어야 한다. 다르면 «10,544건이라더니 왜 더 빠지지»가 된다.
+    assert "if (isShownAsZero(r.base)) zeroCount.base += 1;" in SOURCE
+    assert "if (isShownAsZero(r.max)) zeroCount.max += 1;" in SOURCE
 
 
 def test_the_zero_filter_travels_in_the_link() -> None:
@@ -1010,7 +1024,7 @@ def test_the_zero_filter_travels_in_the_link() -> None:
 def test_the_zero_filter_says_how_many_rows_it_would_remove() -> None:
     """숫자가 없으면 켜 볼 이유도 알 수 없고, 껐다 켜며 세어 보게 된다."""
     assert 'id="zero-count"' in SOURCE
-    assert "r.base === 0 ? 1 : 0" in SOURCE
+    assert "const renderZeroCount = () => {" in SOURCE
 
 
 def test_resetting_the_conditions_clears_the_zero_filter() -> None:
