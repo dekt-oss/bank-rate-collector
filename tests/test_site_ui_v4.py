@@ -811,18 +811,39 @@ def test_a_preset_only_ticks_the_boxes_that_are_already_there() -> None:
     """단추가 숨은 조건을 만들면 «조건 3개»라고 적힌 화면에 네 개가 걸린다.
 
     어느 쪽이 맞는지 알 수 없게 되므로, 단추는 아래 체크박스를 켜기만 한다.
+    단추가 켜는 값은 파이썬 쪽 열거형과 같은 코드여야 한다 — 한쪽만 바뀌면
+    누르는 순간 0건이 되고, 화면은 «조건에 맞는 행이 없습니다»라고만 말한다.
     """
-    from rate_monitor.domain.enums import ProductType
+    from rate_monitor.domain.enums import ProductType, Sector
 
     match = re.search(r"const COND_PRESETS = \[(.*?)\n  \];", SOURCE, re.S)
     assert match, "COND_PRESETS를 찾지 못했다"
     body = match.group(1)
     for key in re.findall(r"(\w+): \[", body):
-        assert key in {"type", "term", "prefStatus", "channel"}, f"없는 축: {key}"
+        assert key in {"region", "sector", "type", "term"}, f"없는 축: {key}"
     for code in ("term_deposit", "installment_savings"):
-        assert code in body
-        assert code in {t.value for t in ProductType}
+        assert code in body and code in {t.value for t in ProductType}
+    for code in ("savings_bank", "nh_local", "cu", "kfcc"):
+        assert code in body and code in {x.value for x in Sector}
     assert "if (on) state.picked[k].delete(v); else state.picked[k].add(v);" in SOURCE
+
+
+def test_the_preset_count_matches_what_clicking_it_gives() -> None:
+    """단추에 «62건»이라 적어 놓고 누르니 다른 수가 나오면 둘 다 못 믿는다.
+
+    지역 조건에는 예외가 하나 있다 — 전국 공시 행은 시도에 매이지 않는다.
+    세는 쪽에도 **같은 예외**가 있어야 한다.
+    """
+    assert "const rowMatchesPick = (r, pick) =>" in SOURCE
+    assert 'if (k === "region" && NATIONWIDE_GEO.has(r.geo)) return true;' in SOURCE
+    # 표를 거를 때의 예외와 짝이다. 한쪽이 사라지면 둘이 어긋난다.
+    assert 'if (g.key === "region" && NATIONWIDE_GEO.has(r.geo)) continue;' in SOURCE
+    assert "ALL.filter((r) => rowMatchesPick(r, p.pick)).length" in SOURCE
+
+
+def test_turning_a_preset_off_also_drops_what_hung_under_it() -> None:
+    """부산을 껐는데 구·군만 남으면 아무것도 안 걸린 것처럼 보인다."""
+    assert "if (!busanOn()) state.gu.clear();" in SOURCE
 
 
 def test_the_histogram_says_how_many_rows_a_bar_holds() -> None:

@@ -2773,16 +2773,37 @@
   // 같은 단추를 다시 누르면 그 단추가 켠 것만 끈다. 다른 조건은 건드리지
   // 않는다 — 지역을 골라 둔 사람이 «1년 정기예금»을 껐다고 지역까지
   // 잃으면 안 된다.
+  // 이 도구가 무엇을 위해 만들어졌는지가 여기 그대로 드러난다 — 부산의
+  // 저축은행이 «우리 금리가 어디쯤인가»를 보려고 만든 것이다. 그래서 기본
+  // 단추는 전국 전체가 아니라 **부산·1년**을 기준으로 업권을 가른다.
+  //
+  // 상호금융 셋(농·축협·신협·새마을금고)은 한 단추로 묶는다. 저축은행이
+  // 실제로 손님을 두고 겨루는 상대가 그 셋이고, 따로 켜면 세 번을 눌러야 한다.
   const COND_PRESETS = [
-    { id: "dep12", label: "1년 정기예금",
-      pick: { type: ["term_deposit"], term: ["7-12"] } },
-    { id: "sav12", label: "1년 적금",
-      pick: { type: ["installment_savings"], term: ["7-12"] } },
-    { id: "pref", label: "우대조건 있는 상품",
-      pick: { prefStatus: ["present"] } },
-    { id: "online", label: "비대면 가입",
-      pick: { channel: ["internet", "mobile"] } },
+    { id: "sb-dep", label: "부산 저축은행 · 1년 정기예금",
+      pick: { region: ["부산"], sector: ["savings_bank"],
+              type: ["term_deposit"], term: ["7-12"] } },
+    { id: "sb-sav", label: "부산 저축은행 · 1년 적금",
+      pick: { region: ["부산"], sector: ["savings_bank"],
+              type: ["installment_savings"], term: ["7-12"] } },
+    { id: "mg-dep", label: "부산 상호금융 · 1년 정기예금",
+      pick: { region: ["부산"], sector: ["nh_local", "cu", "kfcc"],
+              type: ["term_deposit"], term: ["7-12"] } },
+    { id: "mg-sav", label: "부산 상호금융 · 1년 적금",
+      pick: { region: ["부산"], sector: ["nh_local", "cu", "kfcc"],
+              type: ["installment_savings"], term: ["7-12"] } },
   ];
+
+  // 단추에 적는 건수는 **눌렀을 때 나오는 수와 같아야 한다.** 그래서 지역
+  // 조건의 예외를 여기서도 똑같이 둔다 — 전국 공시 행은 시도에 매이지 않는다
+  // (`matches`의 같은 예외와 짝이다). 한쪽만 고치면 «46,541건»이라 적힌
+  // 단추를 눌렀는데 다른 수가 나온다.
+  const rowMatchesPick = (r, pick) => Object.entries(pick).every(([k, vs]) => {
+    if (k === "term") return vs.includes((termBucket(r.term) || {}).id);
+    if (k === "region" && NATIONWIDE_GEO.has(r.geo)) return true;
+    return vs.includes(String(r[k]));
+  });
+
   const presetOn = (p) =>
     Object.entries(p.pick).every(([k, vs]) => vs.every((v) => state.picked[k].has(v)));
 
@@ -2790,11 +2811,7 @@
     $("presets").innerHTML = COND_PRESETS.map((p) => {
       // 이 단추를 누르면 몇 건이 되는지 미리 센다. 눌러 보고서야 0건인 것을
       // 아는 것보다, 누르기 전에 보이는 편이 낫다.
-      const n = ALL.length
-        ? ALL.filter((r) => Object.entries(p.pick).every(([k, vs]) =>
-            k === "term" ? vs.includes((termBucket(r.term) || {}).id)
-                         : vs.includes(String(r[k])))).length
-        : null;
+      const n = ALL.length ? ALL.filter((r) => rowMatchesPick(r, p.pick)).length : null;
       return `<button type="button" data-preset="${esc(p.id)}"`
         + ` aria-pressed="${presetOn(p)}">${esc(p.label)}`
         + (n == null ? "" : `<span class="n">${num(n)}</span>`) + `</button>`;
@@ -2810,8 +2827,10 @@
     Object.entries(p.pick).forEach(([k, vs]) => vs.forEach((v) => {
       if (on) state.picked[k].delete(v); else state.picked[k].add(v);
     }));
-    // 우대조건 그룹을 끄면 세부 조건도 함께 비운다. 체크박스 쪽과 같은 규칙이다.
+    // 우대조건·부산을 끄면 그 아래 조건도 함께 비운다. 체크박스 쪽과 같은
+    // 규칙이다 — 부산을 껐는데 구·군만 남으면 아무것도 안 걸린 것처럼 보인다.
     if (!state.picked.prefStatus.has("present")) state.prefTags.clear();
+    if (!busanOn()) state.gu.clear();
     renderGroups();
     renderPresets();
     redraw();
