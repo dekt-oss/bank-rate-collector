@@ -551,16 +551,19 @@ def test_a_thin_sample_is_named_not_drawn() -> None:
     assert "개사 · " in SOURCE, "막대마다 표본 크기를 적어야 한다"
 
 
-def test_the_axis_says_it_does_not_start_at_zero() -> None:
-    """권역 중앙값은 서로 0.15%p 안쪽이라 축을 압축해야 차이가 보인다.
+def test_the_region_chart_does_not_encode_the_rate_as_a_length() -> None:
+    """권역 중앙값은 3.00~3.80% 안에 몰려 있다.
 
-    압축했으면 그 사실을 적어야 한다. 안 적으면 막대 높이 비율이 금리
-    비율로 읽힌다.
+    막대로 그리면 축을 2.90%부터 끊어야 차이가 보이고, 끊으면 «3.80이 3.00의
+    두 배»처럼 보인다. 그래서 길이로 말하지 않는 네모로 바꿨다 (2026-08-10).
     """
-    assert "0부터가 아닙니다" in SOURCE
-    # 여백을 위아래 같은 값으로 두면 위는 막대를 눕히고 아래는 우리 회사
-    # 선을 바닥에 붙인다. 붙으면 3.20%인데도 «0에 가깝다»로 읽힌다.
-    assert "- 0.10) * 100" in SOURCE
+    reg = SOURCE[SOURCE.index("── 차트 3"):SOURCE.index("const drawCharts")]
+    assert 'class="regtiles"' in SOURCE
+    assert "const wide = W >= 900;" not in reg, "막대 배치가 되돌아왔다"
+    assert "sy(d.v)" not in reg and "sx(d.v)" not in reg, "값을 길이로 그린다"
+    # 막대 시절에는 «0부터가 아닙니다»를 적어 압축을 밝혀야 했다. 길이로
+    # 말하지 않으면 밝힐 것도 없다 — 경고를 지웠으면 원인도 없어야 한다.
+    assert "0부터가 아닙니다" not in reg
 
 
 def test_our_company_is_one_colour_everywhere() -> None:
@@ -761,8 +764,12 @@ def test_the_region_chart_shows_how_much_the_median_wobbles() -> None:
     """
     assert "const medianBand = (sorted) => {" in SOURCE
     assert "band: medianBand(b.vals)," in SOURCE
-    # 넓은 화면(세로 막대)과 좁은 화면(가로 막대) 둘 다 그어야 한다.
-    assert SOURCE.count("if (d.band) {") == 2, "한쪽 화면에만 그렸다"
+    # 칸마다 «±0.15%p»로 적는다. 처음에는 막대 위에 붉은 선으로 그었는데
+    # 여덟 중 일곱이 붉어져 색이 경고 구실을 못 했고, 좁은 화면에서는 선이
+    # 칸 밖으로 나가 숫자와 겹쳤다 (2026-08-10).
+    assert "±${w.toFixed(2)}%p" in SOURCE
+    assert 'w > BAND_LOUD ? " loud" : ""' in SOURCE
+    assert ".regtile .bd.loud" in SOURCE, "넘는 칸을 구분할 방법이 없다"
     # 몇 곳이 넓은지는 범례가 직접 센다. 눈으로 찾게 두면 안 찾는다.
     assert "bandWidth(d.band) > BAND_LOUD" in SOURCE
 
@@ -1046,7 +1053,8 @@ def test_the_charts_use_the_real_pixel_width() -> None:
     실제 폭을 viewBox로 쓰면 배율이 1이라 font-size가 곧 픽셀이다.
     """
     assert "const chartWidth = (id, fallback) =>" in SOURCE
-    for chart in ('chartWidth("hist"', 'chartWidth("terms"', 'chartWidth("reg"'):
+    # 권역 그림은 2026-08-10에 네모로 바뀌어 SVG가 아니다 — CSS 격자가 접는다.
+    for chart in ('chartWidth("hist"', 'chartWidth("terms"'):
         assert chart in SOURCE, chart
     # 폭이 바뀌면 다시 그려야 한다. 안 그리면 창을 돌렸을 때 옛 폭이 남는다.
     assert 'window.addEventListener("resize"' in SOURCE
@@ -1055,17 +1063,16 @@ def test_the_charts_use_the_real_pixel_width() -> None:
     assert "if (window.innerWidth === lastWidth) return;" in SOURCE
 
 
-def test_the_region_chart_lies_down_when_the_screen_is_narrow() -> None:
-    """세로 막대 아홉을 340px에 세우면 막대당 37px이다.
+def test_the_region_tiles_reflow_on_a_narrow_screen() -> None:
+    """세로 막대 아홉을 340px에 세우면 막대당 37px이라 이름도 안 들어갔다.
 
-    «인천·경기»도 «271개사 · 2,603건»도 안 들어간다.
+    배치를 손으로 갈라 두 벌 그리는 대신 격자가 스스로 접게 한다 — 한 벌만
+    있으면 «넓은 쪽만 고쳤다»가 생길 수 없다.
     """
+    assert "grid-template-columns: repeat(auto-fit, minmax(136px, 1fr));" in SOURCE
+    # 어느 폭에서든 표본 크기는 적는다. 적는 자리가 한 곳뿐이어야 한다.
     reg = SOURCE[SOURCE.index("── 차트 3"):SOURCE.index("const drawCharts")]
-    assert "const wide = W >= 900;" in reg
-    assert "가로축은 ${lo.toFixed(2)}%부터 시작합니다" in reg, "눕혀도 축을 밝힌다"
-    assert "세로축은 ${lo.toFixed(2)}%부터 시작합니다" in reg
-    # 어느 배치든 표본 크기는 적는다.
-    assert reg.count("개사 · ${num(d.n)}건") == 2
+    assert reg.count("개사 · ${num(d.n)}건") == 1
 
 
 def test_the_url_replaces_instead_of_pushing() -> None:

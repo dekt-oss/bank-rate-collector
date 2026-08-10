@@ -636,6 +636,38 @@
     border-right: 1px solid currentColor; padding-right: 6px;
   }
 
+  /* ── 권역 네모 ────────────────────────────────────────────────── */
+  /* 막대가 아니라 네모다. 값이 3.00~3.80%에 몰려 있어 막대로 그리면 축을
+     끊어야 하고, 끊으면 «3.80이 3.00의 두 배»처럼 보인다. */
+  .regtiles {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(136px, 1fr));
+    gap: 8px; margin-top: 4px;
+  }
+  .regtile {
+    font: inherit; text-align: left; border: 1px solid transparent;
+    border-radius: 9px; padding: 11px 12px 10px; cursor: default;
+    display: flex; flex-direction: column; gap: 1px;
+  }
+  .regtile[data-drill] { cursor: pointer; }
+  .regtile[data-drill]:hover { border-color: var(--accent-ink); }
+  .regtile:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .regtile.mine { box-shadow: inset 3px 0 0 var(--crit); }
+  .regtile .rg { font-size: 12px; font-weight: 650; opacity: .92; }
+  .regtile .vl {
+    font-family: var(--mono); font-variant-numeric: tabular-nums;
+    font-size: 21px; font-weight: 700; letter-spacing: -.02em; line-height: 1.25;
+  }
+  .regtile .vl i { font-style: normal; font-size: 13px; opacity: .75; margin-left: 1px; }
+  .regtile .vl.thin { font-size: 13px; font-weight: 600; opacity: .8; }
+  .regtile .gap {
+    font-family: var(--mono); font-size: 11px; font-weight: 700; opacity: .85;
+  }
+  .regtile .ct { font-family: var(--mono); font-size: 10px; opacity: .68; }
+  /* 흔들리는 폭. **조용히** 적는다 — 붉게 칠했더니 여덟 중 일곱이 붉어져
+     색이 경고 구실을 못 했다. 넘는 칸만 밑줄로 살짝 든다. */
+  .regtile .bd { font-family: var(--mono); font-size: 10px; opacity: .6; }
+  .regtile .bd.loud { opacity: .95; text-decoration: underline dotted; }
+
   /* ── 우리 회사 행 ─────────────────────────────────────────────── */
   tr.mine td { background: var(--accent-bg); font-weight: 600; }
   tr.mine td:first-child { box-shadow: inset 3px 0 0 var(--crit); }
@@ -884,7 +916,7 @@
            1.00%와 12개월 3.40%가 한 중앙값에 섞여, 위 참고카드와 1%p 가까이
            벌어지면서 그 이유가 화면 어디에도 없게 된다. -->
       <p class="cap" id="reg-cap"></p>
-      <svg id="reg" viewBox="0 0 1160 190" role="img" aria-label=""></svg>
+      <div id="reg" class="regtiles"></div>
       <div class="legend" id="reg-legend"></div>
     </div>
   </div>
@@ -2163,8 +2195,8 @@
     // 캡션도 지금 세고 있는 것을 그대로 적는다.
     $("reg-cap").innerHTML = live
       ? `조회 조건에 맞는 ${num(regionBasis().length)}건의 기본금리 <b>중앙값</b>입니다.`
-        + " <b>지역 조건만 빼고</b> 나머지는 그대로 따릅니다 — 이 그림의 가로축이"
-        + " 지역이라, 지역까지 걸면 막대가 하나만 남아 비교가 사라집니다."
+        + " <b>지역 조건만 빼고</b> 나머지는 그대로 따릅니다 — 이 그림이 가르는"
+        + " 것이 지역이라, 지역까지 걸면 칸이 하나만 남아 비교가 사라집니다."
         + " 최고값이 아니라 중앙값을 쓰는 이유는, 우대 조건이 붙은 한 건이 그"
         + " 권역 전체를 대표해 버리는 것을 막기 위해서입니다."
       : "표를 받기 전이라 발행된 전체 집계로 그렸습니다.";
@@ -2175,144 +2207,48 @@
     }
 
     const ours = stats && !stats.missing ? stats.value : null;
+    // 구간조차 못 내는 칸은 색·순위에서 뺀다. 판정은 건수가 아니라 흔들림이다.
     const shown = D.filter((d) => d.n >= MEDIAN_BAND_MIN);
-    const vals = shown.map((d) => d.v).concat(ours == null ? [] : [ours]);
-    // 축 여백을 **위아래 다르게** 준다.
-    //   아래 0.10%p 고정 — 최저값(보통 우리 회사 선)이 바닥에 붙으면
-    //     «0에 가깝다»로 읽힌다. 실제로는 3.20%인데도 그렇다.
-    //   위는 폭에 비례해 얇게 — 넉넉히 주면 막대가 전부 같은 높이가 된다.
-    const span = Math.max(...vals) - Math.min(...vals);
-    const lo = Math.floor((Math.min(...vals) - 0.10) * 100) / 100;
-    const hi = Math.ceil((Math.max(...vals) + Math.max(0.02, span * 0.06)) * 100) / 100;
-    // 눈금 간격도 고정하면 안 된다. 0.05 고정이면 좁은 축에서 두 줄만 남는다.
-    const step = [0.01, 0.02, 0.05, 0.1, 0.2, 0.5].find((v) => (hi - lo) / v <= 7) || 1;
-    const W = chartWidth("reg", 1160);
-    // 좁은 화면에서는 **가로 막대**로 눕힌다. 세로 막대 아홉을 340px에
-    // 세우면 막대당 37px이라 «인천·경기»도 «271개사 · 2,603건»도 안 들어간다.
-    const wide = W >= 900;
-    let s = "";
 
-    if (wide) {
-      const H = 190, PL = 46, PR = 12, PT = 18, PB = 46;
-      setBox("reg", W, H);
-      const iw = W - PL - PR, ih = H - PT - PB;
-      const bw = iw / D.length;
-      const sy = (v) => PT + ih - ((v - lo) / (hi - lo)) * ih;
-      for (let v = Math.ceil(lo / step) * step; v <= hi + 1e-9; v += step) {
-        s += `<line x1="${PL}" y1="${sy(v)}" x2="${W - PR}" y2="${sy(v)}"`
-          + ` stroke="${css("--line-soft")}"/>`;
-        s += svgText(PL - 7, sy(v) + 3.5, v.toFixed(2),
-                     { anchor: "end", size: 10, mono: 1 });
-      }
-      D.forEach((d, i) => {
-        const x = PL + i * bw + bw * 0.2, w = bw * 0.6;
-        const drill = regionView === "national" && d.name === BUSAN_SIDO;
-        const bw2 = bandWidth(d.band);
-        if (d.n < MEDIAN_BAND_MIN) {
-          s += svgText(x + w / 2, PT + ih - 6, `표본 부족(${num(d.n)}건)`,
-                       { anchor: "middle", size: 9.5 });
-        } else {
-          s += `<rect x="${x}" y="${sy(d.v)}" width="${w}" height="${PT + ih - sy(d.v)}"`
-            + ` fill="${d.mine ? css("--accent-ink") : css("--accent")}"`
-            + ` opacity="${d.mine ? 1 : 0.5}" rx="3"`
-            + (drill ? ' style="cursor:pointer" data-drill="1"' : "") + "/>";
-          // 중앙값이 흔들리는 폭. 막대 끝에 세로선으로 얹는다 — 폭이 넓은 곳은
-          // 옆 막대와 겹쳐 보이고, 그게 «순위를 못 매긴다»는 뜻이다.
-          if (d.band) {
-            const wide = bw2 > BAND_LOUD;
-            const col = wide ? css("--crit") : css("--ink-3");
-            s += `<line x1="${x + w / 2}" y1="${sy(d.band[0])}"`
-              + ` x2="${x + w / 2}" y2="${sy(d.band[1])}" stroke="${col}"`
-              + ` stroke-width="${wide ? 2 : 1.5}" opacity=".85"/>`;
-            [d.band[0], d.band[1]].forEach((v) => {
-              s += `<line x1="${x + w * 0.34}" y1="${sy(v)}" x2="${x + w * 0.66}"`
-                + ` y2="${sy(v)}" stroke="${col}" stroke-width="1.5" opacity=".85"/>`;
-            });
-          }
-          s += svgText(x + w / 2, sy(d.band ? d.band[1] : d.v) - 6, d.v.toFixed(2),
-                       { anchor: "middle", size: 11.5, fill: css("--ink"),
-                         weight: 700, mono: 1 });
-        }
-        s += svgText(x + w / 2, H - 28, d.name + (drill ? " ▾" : ""),
-                     { anchor: "middle", size: 11,
-                       fill: d.mine ? css("--accent-ink") : css("--ink-2"),
-                       weight: d.mine ? 700 : 400, click: drill });
-        s += svgText(x + w / 2, H - 16, `${num(d.inst)}개사 · ${num(d.n)}건`,
-                     { anchor: "middle", size: 9.5, mono: 1 });
-      });
-      if (ours != null) {
-        const text = `${state.mine} 중앙값 ${ours.toFixed(2)}%`;
-        const lw = text.length * 9 + 16;
-        const up = sy(ours) > PT + 26;   // 축 위쪽에 붙으면 배지가 잘린다
-        s += `<line x1="${PL}" y1="${sy(ours)}" x2="${W - PR}" y2="${sy(ours)}"`
-          + ` stroke="${css("--crit")}" stroke-width="2" stroke-dasharray="6 4"/>`;
-        s += `<rect x="${W - PR - lw}" y="${sy(ours) + (up ? -19 : 3)}" width="${lw}"`
-          + ` height="16" rx="3" fill="${css("--crit")}"/>`;
-        s += svgText(W - PR - lw / 2, sy(ours) + (up ? -7.5 : 14.5), text,
-                     { anchor: "middle", size: 10, fill: "#fff", weight: 700 });
-      }
-      s += svgText(PL, H - 3,
-                   `세로축은 ${lo.toFixed(2)}%부터 시작합니다 (0부터가 아닙니다)`,
-                   { size: 9.5 });
-    } else {
-      // 가로 막대. 한 줄에 이름·막대·값·표본이 다 들어간다.
-      const rowH = 30, PL = 66, PR = 8, PT = 6, PB = 26;
-      const H = PT + D.length * rowH + PB;
-      setBox("reg", W, H);
-      const iw = W - PL - PR;
-      const sx = (v) => PL + ((v - lo) / (hi - lo)) * iw;
-      D.forEach((d, i) => {
-        const y = PT + i * rowH;
-        const drill = regionView === "national" && d.name === BUSAN_SIDO;
-        s += svgText(PL - 6, y + 13, d.name + (drill ? " ▾" : ""),
-                     { anchor: "end", size: 11.5,
-                       fill: d.mine ? css("--accent-ink") : css("--ink-2"),
-                       weight: d.mine ? 700 : 400, click: drill });
-        if (d.n < MEDIAN_BAND_MIN) {
-          s += svgText(PL + 4, y + 13, `표본 부족(${num(d.n)}건)`, { size: 10.5 });
-        } else {
-          s += `<rect x="${PL}" y="${y + 3}" width="${Math.max(1, sx(d.v) - PL)}"`
-            + ` height="14" rx="3"`
-            + ` fill="${d.mine ? css("--accent-ink") : css("--accent")}"`
-            + ` opacity="${d.mine ? 1 : 0.5}"`
-            + (drill ? ' style="cursor:pointer" data-drill="1"' : "") + "/>";
-          // 흔들리는 폭. 세로 막대와 같은 규칙이다 (그쪽 주석 참고).
-          if (d.band) {
-            const wide = bandWidth(d.band) > BAND_LOUD;
-            const col = wide ? css("--crit") : css("--ink-3");
-            s += `<line x1="${sx(d.band[0])}" y1="${y + 10}" x2="${sx(d.band[1])}"`
-              + ` y2="${y + 10}" stroke="${col}" stroke-width="${wide ? 2 : 1.5}"`
-              + ` opacity=".85"/>`;
-            [d.band[0], d.band[1]].forEach((v) => {
-              s += `<line x1="${sx(v)}" y1="${y + 5}" x2="${sx(v)}" y2="${y + 15}"`
-                + ` stroke="${col}" stroke-width="1.5" opacity=".85"/>`;
-            });
-          }
-          s += svgText(Math.min(sx(d.band ? d.band[1] : d.v) + 5, W - PR - 26),
-                       y + 14, d.v.toFixed(2),
-                       { size: 11.5, fill: css("--ink"), weight: 700, mono: 1 });
-        }
-        s += svgText(PL, y + 26, `${num(d.inst)}개사 · ${num(d.n)}건`,
-                     { size: 10, mono: 1 });
-      });
-      if (ours != null) {
-        // 세로선 하나로 «전 권역보다 높다/낮다»가 즉시 읽힌다.
-        const x = Math.max(PL, Math.min(W - PR, sx(ours)));
-        s += `<line x1="${x}" y1="${PT}" x2="${x}" y2="${PT + D.length * rowH}"`
-          + ` stroke="${css("--crit")}" stroke-width="2" stroke-dasharray="5 3"/>`;
-        const text = `${state.mine} ${ours.toFixed(2)}%`;
-        const lw = text.length * 7.5 + 12;
-        const lx = Math.max(lw / 2 + 2, Math.min(W - lw / 2 - 2, x));
-        s += `<rect x="${lx - lw / 2}" y="${PT + D.length * rowH + 2}"`
-          + ` width="${lw}" height="15" rx="3" fill="${css("--crit")}"/>`;
-        s += svgText(lx, PT + D.length * rowH + 13, text,
-                     { anchor: "middle", size: 10, fill: "#fff", weight: 700 });
-      }
-      s += svgText(PL, H - 3,
-                   `가로축은 ${lo.toFixed(2)}%부터 시작합니다 (0부터가 아닙니다)`,
-                   { size: 9.5 });
-    }
-    $("reg").innerHTML = s;
+    // ── 네모 한 칸에 한 권역 ──────────────────────────────────────
+    //
+    // 막대 대신 네모를 쓴다. 막대는 «길이»로 말하는데 이 값들은 3.00~3.80%
+    // 안에 몰려 있어서, 축을 2.90%부터 끊지 않으면 전부 같은 길이가 되고
+    // 끊으면 «3.80이 3.00의 두 배»처럼 보인다. 네모는 길이로 말하지 않는다.
+    //
+    // 흔들리는 폭은 **조용히** 적는다. 앞서 막대 위에 붉은 선으로 그었더니
+    // 여덟 중 일곱이 붉어져 색이 경고 구실을 못 했고, 가로 막대에서는 선이
+    // 칸 밖으로 나가 숫자와 겹쳤다 (2026-08-10).
+    const vlo = Math.min(...shown.map((d) => d.v));
+    const vhi = Math.max(...shown.map((d) => d.v));
+    const heat = (v) => (vhi > vlo ? (v - vlo) / (vhi - vlo) : 0.5);
+
+    $("reg").innerHTML = D.map((d) => {
+      const drill = regionView === "national" && d.name === BUSAN_SIDO;
+      const thin = d.n < MEDIAN_BAND_MIN;
+      const w = bandWidth(d.band);
+      const t = thin ? 0 : heat(d.v);
+      // 표본이 모자라 구간조차 못 내는 칸은 색으로 말하지 않는다.
+      const bg = thin
+        ? "var(--surface-2)"
+        : `color-mix(in srgb, var(--accent) ${Math.round(14 + t * 66)}%, var(--accent-bg))`;
+      const ink = !thin && t > 0.45 ? "var(--surface)" : "var(--accent-ink)";
+      const gap = ours == null || thin ? null : d.v - ours;
+      return `<button type="button" class="regtile${d.mine ? " mine" : ""}"`
+        + ` style="background:${bg};color:${ink}"`
+        + (drill ? ' data-drill="1"' : "")
+        + ` aria-label="${esc(d.name)} 중앙값 ${thin ? "표본 부족" : d.v.toFixed(2) + "%"}">`
+        + `<span class="rg">${esc(d.name)}${drill ? " ▾" : ""}</span>`
+        + (thin
+            ? `<span class="vl thin">표본 부족</span>`
+            : `<span class="vl">${d.v.toFixed(2)}<i>%</i></span>`)
+        + (gap == null ? "" :
+            `<span class="gap">${gap >= 0 ? "+" : "−"}${Math.abs(gap).toFixed(2)}%p</span>`)
+        + `<span class="ct">${num(d.inst)}개사 · ${num(d.n)}건</span>`
+        + (thin || w == null ? ""
+            : `<span class="bd${w > BAND_LOUD ? " loud" : ""}">±${w.toFixed(2)}%p</span>`)
+        + `</button>`;
+    }).join("");
     $("reg").setAttribute("aria-label",
       `${regionView === "national" ? "권역" : "부산 구·군"}별 2금융권 `
       + "12개월 정기예금 기본금리 중앙값 막대 그래프");
@@ -2322,17 +2258,17 @@
     const loud = shown.filter((d) => bandWidth(d.band) > BAND_LOUD).length;
     $("reg-legend").innerHTML =
       `<span><i style="background:${css("--accent")}"></i>기본금리 중앙값</span>`
-      + `<span><i style="background:${css("--ink-3")}"></i>중앙값이 흔들리는 폭`
+      + `<span>±는 중앙값이 흔들리는 폭`
       + (loud
-          ? ` — <b style="color:${css("--crit")}">${loud}곳</b>은 ${BAND_LOUD.toFixed(2)}%p를`
-            + ` 넘어 이웃과 순위를 다툴 수 없습니다`
+          ? ` — <b>${loud}곳</b>(밑줄)은 ${BAND_LOUD.toFixed(2)}%p를 넘어`
+            + ` 이웃과 순위를 다툴 수 없습니다`
           : ` — 모두 ${BAND_LOUD.toFixed(2)}%p 안입니다`)
       + `</span>`
       + (regionView === "national"
           ? `<span><i style="background:${css("--accent-ink")}"></i>부산</span>` : "")
       + (ours != null
           ? `<span><i style="background:${css("--crit")}"></i>`
-            + `<b>${esc(state.mine)} 중앙값 ${ours.toFixed(2)}%</b> 기준선</span>`
+            + `칸마다 <b>${esc(state.mine)} 중앙값 ${ours.toFixed(2)}%</b> 대비를 적었습니다</span>`
           : "")
       + (regionView === "national" ? ""
           : '<button type="button" class="back" id="reg-back">← 전국으로 돌아가기</button>');
