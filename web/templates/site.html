@@ -1031,7 +1031,7 @@
   // 아래 GEO_KO가 붙이고, 시도 필터에서의 예외는 NATIONWIDE_GEO가 맡는다.
   //
   // 한때 이 목록이 화면 위 «업권 탭»의 순서였다. 탭은 2026-08-07에 뺐다 —
-  // 아래 조회 조건의 «권역»과 같은 축이라 같은 것을 두 곳에서 켜게 했다.
+  // 아래 조회 조건의 «업권»과 같은 축이라 같은 것을 두 곳에서 켜게 했다.
   // 목록은 남긴다. 어느 업권이 메인인지는 여전히 여기가 말한다.
   const MAIN_SECTORS = ["savings_bank", "kfcc", "nh_local", "cu", "bank"];
 
@@ -1120,7 +1120,7 @@
   };
 
   const GROUPS = [
-    { key: "sector", label: "권역", ko: SECTOR_KO },
+    { key: "sector", label: "업권", ko: SECTOR_KO },
     { key: "type", label: "상품유형", ko: TYPE_KO },
     { key: "term", label: "가입기간", ko: null, buckets: TERM_BUCKETS },
     { key: "region", label: "지역", ko: null },
@@ -1137,7 +1137,7 @@
     // 구·군은 **지역 안에 둔다.** 부산을 켜야만 열리는 하위 조건이라 별도
     // 축이 아니다. 부산이 꺼지면 `gu`도 함께 비운다.
     //
-    // 업권도 축을 하나만 둔다. 예전에는 화면 위 탭과 아래 «권역» 체크박스가
+    // 업권도 축을 하나만 둔다. 예전에는 화면 위 탭과 아래 «업권» 체크박스가
     // 따로 있었는데, 같은 것을 두 곳에서 켜면 어느 쪽이 이겼는지 화면으로
     // 알 수 없다. 탭을 뺐다 (2026-08-07).
     gu: new Set(),
@@ -1176,7 +1176,7 @@
   let PRESETS = [];
 
   const COLS = [
-    { key: "sector", label: "권역", cell: (r) => esc(SECTOR_KO[r.sector] || r.sector) },
+    { key: "sector", label: "업권", cell: (r) => esc(SECTOR_KO[r.sector] || r.sector) },
     { key: "institution", label: "기관", cls: "name",
       cell: (r) => esc(r.institution)
         + (r.scope === "workplace_members" ? '<span class="tag">직장</span>' : "") },
