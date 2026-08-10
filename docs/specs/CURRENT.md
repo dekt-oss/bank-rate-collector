@@ -7,12 +7,22 @@ docs/specs/20260806-rate-monitor-v4.md
 데이터 계약·식별체계·스냅샷·게이트:
 docs/specs/20260805-rate-monitor-v3.1.md
 
-두 문서가 부딪히면:
+현재 안정화 작업 범위:
+docs/specs/20260810-stabilization-v1.md
+
+두 기준 문서가 부딪히면:
 화면·우선순위는 v4, 나머지는 v3.1
+
+안정화 문서는 위 기준을 대체하지 않고,
+실제 확인된 오류·운영 리스크를 고치는 현재 작업 범위만 정한다.
 ```
 
 v4는 v3.1을 **폐기하지 않는다.** 아키텍처를 상속하고 제품 우선순위만
 바꾼다. v3.1을 `superseded`로 적으면 데이터 계약이 갈 곳이 없어진다.
+
+`20260810-stabilization-v1.md`도 v4/v3.1을 대체하지 않는다. 기존 구조와
+계약을 유지한 채 Partial Collection Gate, 행정구역 정규화, 이자방식 의미,
+warning 관측성, source freshness, 업권 용어를 안정화하는 작업 범위다.
 
 ---
 
@@ -20,6 +30,7 @@ v4는 v3.1을 **폐기하지 않는다.** 아키텍처를 상속하고 제품 �
 
 | 문서 | 상태 | 비고 |
 |---|---|---|
+| [`20260810-stabilization-v1.md`](20260810-stabilization-v1.md) | **planned/current-work** | 2026-08-10 감사에서 확인된 오류·운영 리스크 안정화. P0/P1 최소 범위 |
 | [`20260806-rate-monitor-v4.md`](20260806-rate-monitor-v4.md) | **current** | 제품·화면·우선순위. 메인 4업권 + 참고지표 |
 | [`20260806-storage-prerequisite-v1.md`](20260806-storage-prerequisite-v1.md) | partially_implemented | 저장소·이력 보관. PR 1·2 완료, 3~5 미착수 |
 | [`20260806-preference-conditions-v1.md`](20260806-preference-conditions-v1.md) | partially_implemented | §5 분류·§7 판정은 구현. `preference_conditions` 테이블(조건별 쪼개기)과 §10 관리자 화면은 미착수 |
@@ -66,6 +77,7 @@ v4는 v3.1을 **폐기하지 않는다.** 아키텍처를 상속하고 제품 �
 - 정찰 기록도 지우지 않는다. 틀린 판정은 **정정 절을 앞에 붙이고 원문을
   남긴다** — 지운 자리에는 같은 실수를 다시 하게 된다.
 - 기준 문서가 바뀌면 이 표와 각 문서의 `status` 메타를 함께 갱신한다.
+- 안정화 작업은 `20260810-stabilization-v1.md`의 Task Boundary와 PR 분리 계획을 따른다.
 
 ## 뒤집힌 결정
 
