@@ -438,16 +438,50 @@
   .basis input { accent-color: var(--accent); margin: 0; }
 
   /* ── 우대조건 ─────────────────────────────────────────────────── */
-  .pref { max-width: 22ch; }
+  /* **넘친 글자는 잘라낸다.** 칸에 `max-width`만 걸면 `white-space: nowrap`
+     인 칸에서 글자가 칸 밖으로 흘러 옆 칸 위에 겹쳐 찍힌다 — 표가 깨져
+     보이던 원인이다 (2026-08-10).
+
+     넘친 이유는 자를 자리를 «24글자»로 셌기 때문이다. 한글 한 글자는
+     `1ch`(숫자 0의 폭)의 두 배 가까이라 24글자가 22ch를 그냥 넘는다.
+     글자 수로 세지 말고 폭으로 자른다 — 재는 일은 브라우저가 한다. */
+  .pref .one {
+    display: inline-block; max-width: 22ch; overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom;
+  }
   .pref button {
     border: 0; background: none; color: var(--accent); font: inherit;
     font-size: 12px; cursor: pointer; padding: 0; text-decoration: underline;
   }
-  tr.detail td { background: var(--paper); font-size: 13px; white-space: pre-wrap; }
-  /* 우대조건 원문이 있는 칸은 칸째로 눌린다. 눌리는 자리라는 것을
-     커서로 알린다 — 안 알리면 아무도 단추 밖을 누르지 않는다. */
-  td[data-pref-cell] { cursor: pointer; }
-  td[data-pref-cell]:hover { background: var(--accent-bg); }
+  /* 원문이 있는 행은 행째로 눌린다. 눌리는 자리라는 것을 커서로 알린다 —
+     안 알리면 아무도 단추 밖을 누르지 않는다. */
+  tbody tr[data-row] { cursor: pointer; }
+
+  /* 펼친 원문. 원천이 «우대조건: … / 가입대상: …»처럼 라벨을 줄로 이어
+     붙여 주므로, 라벨을 왼쪽 열로 세워 어디까지가 한 항목인지 보이게 한다.
+     통짜 글뭉치로 두면 조건과 가입 자격이 한 문단으로 읽힌다. */
+  tr.detail td { padding: 0; background: var(--paper); white-space: normal; }
+  /* 원문 줄은 표만큼 넓다(14열이면 1,479px). 그대로 두면 휴대폰에서 한 줄이
+     1,389px로 뻗어 나가, 조건 하나 읽으려고 옆으로 계속 밀어야 했다.
+     읽을 수 있는 폭에서 접는다.
+
+     `sticky`는 표를 옆으로 민 상태에서 행을 눌렀을 때를 위한 것이다. 없으면
+     원문이 맨 왼쪽에 그려져 화면 밖에 있고, 눌렀는데 아무 일도 없는 것처럼
+     보인다. */
+  .pf {
+    display: grid; grid-template-columns: max-content minmax(0, 1fr);
+    gap: 7px 14px; margin: 0; padding: 12px 14px 13px;
+    max-width: min(1000px, calc(100vw - 44px));
+    position: sticky; left: 0;
+    border-left: 3px solid var(--accent); font-size: 12.5px; line-height: 1.7;
+  }
+  .pf dt {
+    font-size: 11px; font-weight: 700; color: var(--ink-3);
+    letter-spacing: 0.04em; white-space: nowrap; padding-top: 2px;
+  }
+  /* 원문의 줄바꿈은 살린다 — ①②가 한 줄에 붙으면 조건이 몇 개인지 안 보인다.
+     이어지는 줄은 폭에 맞춰 접는다. */
+  .pf dd { margin: 0; white-space: pre-line; }
 
   /* ══ 조회 화면 R1 (2026-08-07) ═══════════════════════════════════
      ── 색은 세 가지만 쓴다 ────────────────────────────────────────
@@ -558,12 +592,15 @@
     border: 1px solid var(--line); border-radius: 6px; padding: 2px 9px;
     background: var(--surface);
   }
+  /* **한 줄로 못 박지 않는다.** `white-space: nowrap`이면 휴대폰(390px)에서
+     이 줄 하나가 477px까지 늘어나 페이지 전체가 옆으로 밀렸다 — 화면 전체를
+     좌우로 흔들어야 조건 패널이 보였다 (2026-08-10 실측). 좁으면 접는다. */
   .rankline {
-    display: inline-flex; align-items: center; gap: 6px;
+    display: inline-flex; align-items: center; flex-wrap: wrap; gap: 2px 6px;
     background: var(--accent-bg); border: 1px solid var(--accent);
     border-left: 4px solid var(--crit);
     color: var(--accent-ink); border-radius: 6px; padding: 2px 9px;
-    font-size: 11.5px; white-space: nowrap;
+    font-size: 11.5px;
   }
   .rankline.off {
     background: var(--surface-2); border-color: var(--line);
@@ -1081,13 +1118,16 @@
             ? '<span class="dim">원천 미제공</span>'
             : '<span class="dim">—</span>';
         }
+        // **글자 수로 자르지 않는다.** 한글은 한 글자가 `1ch`의 두 배 가까이
+        // 라 «24글자»가 칸 폭을 넘겨 옆 칸 위에 겹쳐 찍혔다. 자르는 일은
+        // `.pref .one`이 폭으로 한다.
         const one = r.pref.replace(/\s+/g, " ").trim();
-        const head = one.length > 24 ? one.slice(0, 24) + "…" : one;
-        // 칸 전체가 눌린다. 「전문」 단추만 눌리게 두면 글자 폭이 좁아
-        // 겨냥하기 어렵고, 원문을 보려는 사람은 이미 그 칸을 보고 있다.
-        // 단추는 남긴다 — 키보드로 넘길 자리와 열림/닫힘 표시가 필요하다.
-        return `${esc(head)} <button type="button" data-pref="${esc(r._i)}">`
-          + `${state.open.has(r._i) ? "접기" : "전문"}</button>`;
+        // 행 전체가 눌린다. 단추는 남긴다 — 키보드로 넘길 자리와 열림/닫힘
+        // 표시가 필요하다. 누름은 행이 받으므로 단추는 표식이기만 하면 된다.
+        const open = state.open.has(r._i);
+        return `<span class="one">${esc(one)}</span> `
+          + `<button type="button" aria-expanded="${open}">`
+          + `${open ? "접기" : "전문"}</button>`;
       } },
     { key: "source", label: "수집원", cls: "dim", cell: (r) => esc(r.source) },
     { key: "asOf", label: "공시일", cls: "dim num",
@@ -1463,6 +1503,17 @@
     $("avg").innerHTML = parts.join('<span class="sep">·</span>');
   };
 
+  // 순위만으로는 «498위»가 좋은 쪽인지 알 수 없다. 분모를 나란히 적어도
+  // 30,041을 머릿속에서 나누게 된다. 백분위를 같이 적는다.
+  //
+  // **1등을 «상위 0.0%»로 적지 않는다.** 소수 첫째 자리 아래로 내려가면
+  // 반올림한 숫자가 «0»이 되어 분모가 없는 것처럼 읽힌다.
+  const topPct = (rank, total) => {
+    if (!total) return "";
+    const pct = (rank / total) * 100;
+    return pct < 0.1 ? "상위 0.1% 이내" : `상위 ${pct.toFixed(1)}%`;
+  };
+
   // 우리 회사 순위 줄. 조건이 바뀔 때마다 같이 움직여야 한다.
   const renderRank = (stats) => {
     const el = $("rankline");
@@ -1484,25 +1535,51 @@
     // 나오는데 이유가 없으면 둘 중 뭐가 맞는지 알 수 없다.
     el.innerHTML = (basisLabel() ? `<span class="on">${esc(basisLabel())}</span> ` : "")
       + `${esc(state.mine)} <b>${stats.rank}위</b> / ${num(stats.total)}`
+      + ` · ${esc(topPct(stats.rank, stats.total))}`
       + (stats.gap == null ? "" : ` · 중앙값 대비 ${deltaHtml(stats.gap)}`);
   };
 
   const rowHtml = (r, extra) => {
     const cells = COLS.map((c) => {
       let html = c.cell(r);
-      // 우대조건 칸은 칸째로 누른다. 원문이 있는 행에만 붙인다 — 없는 행에
-      // 손 모양 커서를 띄우면 눌러도 아무 일이 없어 고장으로 읽힌다.
-      const open = c.key === "pref" && r.pref
-        ? ` data-pref-cell="${esc(r._i)}"` : "";
       // 고정한 행에만 표식과 순위를 붙인다. 본문에 붙이면 정렬 결과와
       // 순위가 서로 다른 말을 하게 된다.
       if (extra && c.key === "institution") {
         html = `<span class="pin">📌</span>${html}`
           + `<span class="rank-chip">${extra.rank}위</span>`;
       }
-      return `<td class="${c.cls || ""}"${open}>${html}</td>`;
+      return `<td class="${c.cls || ""}">${html}</td>`;
     }).join("");
-    return `<tr class="${extra ? "mine pinned" : ""}">${cells}</tr>`;
+    // 행째로 누른다. 원문이 있는 행에만 붙인다 — 없는 행에 손 모양 커서를
+    // 띄우면 눌러도 아무 일이 없어 고장으로 읽힌다.
+    const hit = r.pref ? ` data-row="${esc(r._i)}"` : "";
+    return `<tr class="${extra ? "mine pinned" : ""}"${hit}>${cells}</tr>`;
+  };
+
+  // ── 펼친 우대조건 원문 ───────────────────────────────────────────
+  //
+  // 원천이 «우대조건: … \n가입대상: …»처럼 라벨을 줄로 이어 붙여 준다
+  // (저축은행중앙회·신협). 라벨을 떼어 왼쪽 열로 세우면 어디까지가 우대
+  // 조건이고 어디부터가 가입 자격인지 눈으로 갈린다.
+  //
+  // **라벨 목록은 파이썬 쪽 `preference_taxonomy._ANY_LABEL`과 같아야 한다.**
+  // 한쪽만 늘면 새 라벨이 앞 항목 본문에 붙어 버린다.
+  const PREF_LABELS = ["우대조건", "가입대상", "가입제한", "유의사항", "기타"];
+  const PREF_HEAD = new RegExp(`^(${PREF_LABELS.join("|")})\\s*:\\s*`);
+
+  const prefDetail = (raw) => {
+    const parts = [];
+    String(raw).split("\n").forEach((line) => {
+      const head = line.match(PREF_HEAD);
+      if (head) parts.push({ label: head[1], body: [line.slice(head[0].length)] });
+      // 라벨 없이 이어지는 줄은 바로 앞 항목의 본문이다. 라벨이 하나도 없는
+      // 원천(농·축협)은 통째로 한 덩이가 된다 — 그때는 라벨 칸을 비운다.
+      else if (parts.length) parts[parts.length - 1].body.push(line);
+      else parts.push({ label: "", body: [line] });
+    });
+    return `<dl class="pf">` + parts.map((p) =>
+      `<dt>${esc(p.label || "원문")}</dt>`
+      + `<dd>${esc(p.body.join("\n").trim())}</dd>`).join("") + `</dl>`;
   };
 
   const render = () => {
@@ -1542,8 +1619,10 @@
     const withDetail = (r, extra) => {
       const row = rowHtml(r, extra);
       if (!state.open.has(r._i) || !r.pref) return row;
-      return row + `<tr class="detail"><td colspan="${COLS.length}">`
-        + `${esc(r.pref)}</td></tr>`;
+      // 펼친 원문 줄에도 같은 표식을 붙인다. 원문 위를 눌러도 닫혀야
+      // 「접기」를 찾아 위로 되돌아가지 않는다.
+      return row + `<tr class="detail" data-row="${esc(r._i)}">`
+        + `<td colspan="${COLS.length}">${prefDetail(r.pref)}</td></tr>`;
     };
     const rows = slice.map((r) => withDetail(r, null));
     // 정렬과 무관하게 맨 위 한 줄이다. 87건 안에서 스크롤로 찾게 하면
@@ -2323,6 +2402,7 @@
         `${state.mine} · ${basisLabel() || "조회 조건 기준"}`,
         `${stats.value.toFixed(2)}%`,
         `<b>${stats.rank}위 / ${num(stats.total)}건</b>`
+        + ` · ${esc(topPct(stats.rank, stats.total))}`
         + (stats.gap == null ? "" : ` · 중앙값 대비 ${deltaHtml(stats.gap)}`),
         // 이력이 없으면 선을 긋지 않는다. 없는 과거를 지어내는 것이다.
         { mine: true, spark: "추이 — 스냅샷 축적 중" },
@@ -2733,11 +2813,16 @@
     redraw();
   });
   $("rows").addEventListener("click", (e) => {
-    // 단추를 눌렀든 칸을 눌렀든 같은 행을 편다. 단추가 칸 안에 있으므로
-    // 단추를 먼저 찾는다 — 순서가 바뀌면 칸이 두 번 토글돼 안 열린다.
-    const hit = e.target.closest("[data-pref], [data-pref-cell]");
-    if (!hit) return;
-    const key = Number(hit.dataset.pref ?? hit.dataset.prefCell);
+    // 행 아무 데나 누르면 원문이 열리고, 다시 누르면 닫힌다. 펼친 원문
+    // 위를 눌러도 닫힌다 — 「접기」를 겨냥해 되돌아가지 않아도 된다.
+    // 단추도 이 행 안에 있으므로 여기서 한 번만 처리된다.
+    const tr = e.target.closest("tr[data-row]");
+    if (!tr) return;
+    // 원문을 긁어 복사하는 중이면 닫지 않는다. 드래그 끝에 창이 닫히면
+    // 다시 열어 처음부터 긁어야 한다.
+    const picked = window.getSelection();
+    if (picked && !picked.isCollapsed && tr.contains(picked.anchorNode)) return;
+    const key = Number(tr.dataset.row);
     if (!Number.isFinite(key)) return;
     if (state.open.has(key)) state.open.delete(key); else state.open.add(key);
     render();
