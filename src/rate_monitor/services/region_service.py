@@ -36,27 +36,41 @@ class RegionFields(NamedTuple):
     basis: GeoBasis
     confidence: str
 
+
 # 시도 표기를 맞춘다.
 #
 # 같은 곳이 원천마다 다르게 적힌다 — 새마을금고는 "부산", 저축은행중앙회는
 # "부산광역시"다. 안 맞추면 부산진구가 두 줄로 갈라진다 (2026-08-05 실측:
 # 구 17개·시도 2개로 보이던 것이 맞춘 뒤 16개·1개가 됐다).
 SIDO_ALIASES = {
-    "서울특별시": "서울", "서울시": "서울",
-    "부산광역시": "부산", "부산시": "부산",
-    "대구광역시": "대구", "대구시": "대구",
-    "인천광역시": "인천", "인천시": "인천",
-    "광주광역시": "광주", "광주시": "광주",
-    "대전광역시": "대전", "대전시": "대전",
-    "울산광역시": "울산", "울산시": "울산",
-    "세종특별자치시": "세종", "세종시": "세종",
+    "서울특별시": "서울",
+    "서울시": "서울",
+    "부산광역시": "부산",
+    "부산시": "부산",
+    "대구광역시": "대구",
+    "대구시": "대구",
+    "인천광역시": "인천",
+    "인천시": "인천",
+    "광주광역시": "광주",
+    "광주시": "광주",
+    "대전광역시": "대전",
+    "대전시": "대전",
+    "울산광역시": "울산",
+    "울산시": "울산",
+    "세종특별자치시": "세종",
+    "세종시": "세종",
     "경기도": "경기",
-    "강원도": "강원", "강원특별자치도": "강원",
-    "충청북도": "충북", "충청남도": "충남",
-    "전라북도": "전북", "전북특별자치도": "전북",
+    "강원도": "강원",
+    "강원특별자치도": "강원",
+    "충청북도": "충북",
+    "충청남도": "충남",
+    "전라북도": "전북",
+    "전북특별자치도": "전북",
     "전라남도": "전남",
-    "경상북도": "경북", "경상남도": "경남",
-    "제주도": "제주", "제주특별자치도": "제주",
+    "경상북도": "경북",
+    "경상남도": "경남",
+    "제주도": "제주",
+    "제주특별자치도": "제주",
 }
 
 # 부산 16개 구·군 (v4 §4.3). 화면의 구·군 필터가 이 목록을 쓴다.
@@ -64,9 +78,53 @@ SIDO_ALIASES = {
 # 데이터에서 뽑지 않고 여기 적는 이유: 수집이 덜 됐거나 한 구에 점포가
 # 없으면 그 구가 화면에서 통째로 사라진다. 없는 것과 0건은 다르다.
 BUSAN_DISTRICTS = (
-    "강서구", "금정구", "기장군", "남구", "동구", "동래구", "부산진구", "북구",
-    "사상구", "사하구", "서구", "수영구", "연제구", "영도구", "중구", "해운대구",
+    "강서구",
+    "금정구",
+    "기장군",
+    "남구",
+    "동구",
+    "동래구",
+    "부산진구",
+    "북구",
+    "사상구",
+    "사하구",
+    "서구",
+    "수영구",
+    "연제구",
+    "영도구",
+    "중구",
+    "해운대구",
 )
+
+# 주소 두 번째 토막이 어떤 행정단위여야 하는지 시도 종류별로 제한한다.
+#
+# 전체 시·군·구 이름을 코드에 복제하지 않는 이유는 행정구역 개편 때문이다.
+# 2026-07-01 전남광주통합특별시처럼 새 광역단위가 생겼는데, 정적 전국 목록을
+# 두 벌로 가지면 한쪽이 곧 낡는다. 대신 이미 제품 계약으로 고정된 부산 16개는
+# 위 master로 exact 검증하고, 나머지 **알려진 시도**는 주소 구조상 가능한
+# 접미사만 받는다. 별칭표가 아직 모르는 새 시도는 아래 SIGUNGU_SUFFIXES로
+# 보수적으로 받아 forward compatibility를 유지한다.
+SIGUNGU_SUFFIXES_BY_SIDO: dict[str, tuple[str, ...]] = {
+    "서울": ("구",),
+    "부산": ("구", "군"),
+    "대구": ("구", "군"),
+    "인천": ("구", "군"),
+    "광주": ("구",),
+    "대전": ("구",),
+    "울산": ("구", "군"),
+    # 세종은 시·군·구를 한 단계 더 두지 않는다. 두 번째 토막은 도로명이다.
+    "세종": (),
+    "경기": ("시", "군"),
+    "강원": ("시", "군"),
+    "충북": ("시", "군"),
+    "충남": ("시", "군"),
+    "전북": ("시", "군"),
+    "전남": ("시", "군"),
+    "경북": ("시", "군"),
+    "경남": ("시", "군"),
+    "제주": ("시",),
+}
+SIGUNGU_SUFFIXES = ("시", "군", "구")
 
 # 원천별 지역 근거. **정찰로 확인된 것만 적는다** (v4 §0.2).
 #
@@ -121,8 +179,44 @@ def normalize_sido(sido: str | None) -> str | None:
     return SIDO_ALIASES.get(sido, sido)
 
 
+def looks_like_sigungu(sido: str | None, token: str | None) -> bool:
+    """주소 두 번째 토막이 그 시도의 시·군·구로 볼 수 있는가.
+
+    부산은 화면 계약에 쓰는 16개 구·군 master와 정확히 맞춘다.
+
+    >>> looks_like_sigungu("부산", "동구"), looks_like_sigungu("부산", "가짜구")
+    (True, False)
+
+    알려진 시도는 행정계층에 맞는 접미사만 받는다. 도로명은 여기서 탈락한다.
+
+    >>> looks_like_sigungu("대구", "달서구"), looks_like_sigungu("대구", "동덕로")
+    (True, False)
+    >>> looks_like_sigungu("경기", "수원시"), looks_like_sigungu("경기", "판교로")
+    (True, False)
+    >>> looks_like_sigungu("세종", "도움6로")
+    False
+
+    별칭표가 아직 모르는 새 광역단위는 시·군·구 접미사까지만 요구한다.
+    이름을 미리 발명하지 않으면서 실제 주소의 지역 정보는 보존한다.
+
+    >>> looks_like_sigungu("전남광주통합특별시", "여수시")
+    True
+    >>> looks_like_sigungu("전남광주통합특별시", "쌍봉로")
+    False
+    """
+    if not token or not looks_like_sido(sido):
+        return False
+    normalized_sido = normalize_sido(sido)
+    if normalized_sido == "부산":
+        return token in BUSAN_DISTRICTS
+    expected = SIGUNGU_SUFFIXES_BY_SIDO.get(normalized_sido)
+    if expected is not None:
+        return token.endswith(expected)
+    return token.endswith(SIGUNGU_SUFFIXES)
+
+
 def split_address(address: str | None) -> tuple[str | None, str | None]:
-    """주소에서 (시도, 구·군). 시도 표기는 맞춰서 돌려준다.
+    """주소에서 (시도, 시·군·구). 시도 표기는 맞춰서 돌려준다.
 
     주소가 유일하게 믿을 수 있는 근거다. 원천이 주는 지역 코드는 그 사이트의
     조회 구분값이지 행정구역이 아니다 — 새마을금고 `r1=광주`를 조회하면
@@ -133,6 +227,14 @@ def split_address(address: str | None) -> tuple[str | None, str | None]:
     >>> split_address("부산 중구 대청로 101-1")
     ('부산', '중구')
 
+    두 번째 토막이 도로명이면 시군구로 승격하지 않는다. 실제 오류였던
+    `대구 / 동덕로`가 이 경로에서 생겼다.
+
+    >>> split_address("대구광역시 동덕로 6")
+    ('대구', None)
+    >>> split_address("세종특별자치시 도움6로 42")
+    ('세종', None)
+
     토막이 모자라면 지어내지 않고 비운다.
 
     >>> split_address("세종특별자치시")
@@ -140,26 +242,27 @@ def split_address(address: str | None) -> tuple[str | None, str | None]:
     >>> split_address(None)
     (None, None)
 
-    주소처럼 안 생긴 값도 통과시킨다. 실제로 있다 — 저축은행 본점 주소에
-    `신동해빌딩 1,2,3층`이 있다. 버리면 그 기관이 사라지고, 고치면 없는
-    지역을 만든다.
+    주소처럼 안 생긴 값은 시도 검증에서 최종적으로 비워진다. 여기서도 두 번째
+    토막을 시군구로 만들지는 않는다.
 
     >>> split_address("신동해빌딩 1,2,3층")
-    ('신동해빌딩', '1,2,3층')
+    ('신동해빌딩', None)
     """
     tokens = (address or "").split()
     if not tokens:
         return None, None
+    sido = normalize_sido(tokens[0])
     if len(tokens) == 1:
-        return normalize_sido(tokens[0]), None
-    return normalize_sido(tokens[0]), tokens[1]
+        return sido, None
+    sigungu = tokens[1] if looks_like_sigungu(sido, tokens[1]) else None
+    return sido, sigungu
 
 
 def geo_basis_for(source_id: str) -> GeoBasis:
     """그 원천의 지역이 무엇에서 왔는가.
 
     모르는 원천은 `none`이다. 기본값을 `outlet_address` 같은 것으로 두면
-    근거 없는 값이 근거 있는 것처럼 보인다.
+    근거 없는 값이 근거 있어 보인다.
 
     >>> geo_basis_for("kfcc"), geo_basis_for("fsb")
     (<GeoBasis.OUTLET_ADDRESS: 'outlet_address'>, <GeoBasis.HEAD_OFFICE: 'head_office'>)
@@ -216,6 +319,12 @@ def region_fields(
     >>> f = region_fields("fsb", "신동해빌딩 1,2,3층")
     >>> f.sido, f.sigungu, f.confidence
     (None, None, 'none')
+
+    시도는 맞지만 두 번째 토막이 도로명이면 시도까지만 남긴다.
+
+    >>> f = region_fields("fsb", "대구광역시 동덕로 6")
+    >>> f.sido, f.sigungu, f.confidence
+    ('대구', None, 'medium')
 
     별칭표가 모르는 시도는 그대로 살린다. 시군구가 붙어 있는 진짜 주소다.
 
