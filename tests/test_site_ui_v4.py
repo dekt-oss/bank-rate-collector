@@ -1069,10 +1069,35 @@ def test_the_region_tiles_reflow_on_a_narrow_screen() -> None:
     배치를 손으로 갈라 두 벌 그리는 대신 격자가 스스로 접게 한다 — 한 벌만
     있으면 «넓은 쪽만 고쳤다»가 생길 수 없다.
     """
-    assert "grid-template-columns: repeat(auto-fit, minmax(136px, 1fr));" in SOURCE
+    # 열 수는 폭을 재서 정한다. `auto-fit`으로 두면 열 개를 놓을 때
+    # «9개 + 1개»가 되어 마지막 한 칸만 덩그러니 남는다 (2026-08-10 지적).
+    assert "const maxCols = Math.max(2, Math.floor((boxW + TILE_GAP)" in SOURCE
+    assert "Math.ceil(D.length / Math.ceil(D.length / maxCols))" in SOURCE
+    tiles_css = SOURCE[SOURCE.index("  .regtiles {"):SOURCE.index("  .regtile {")]
+    assert "auto-fit" not in tiles_css, "열 수를 다시 브라우저에 맡겼다"
     # 어느 폭에서든 표본 크기는 적는다. 적는 자리가 한 곳뿐이어야 한다.
     reg = SOURCE[SOURCE.index("── 차트 3"):SOURCE.index("const drawCharts")]
     assert reg.count("개사 · ${num(d.n)}건") == 1
+
+
+def test_the_tile_rows_come_out_even() -> None:
+    """칸을 줄에 고르게 나눈다. 아래는 화면과 같은 규칙을 다시 쓴 것이다.
+
+    열 개를 아홉 열에 놓으면 마지막 줄에 한 칸만 남아 «덜 그려진 것»처럼
+    보인다. 줄 수를 먼저 정하고 그 줄로 나눈다.
+    """
+    import math
+
+    def cols(n: int, max_cols: int) -> int:
+        return min(n, math.ceil(n / math.ceil(n / max_cols)))
+
+    assert cols(10, 9) == 5, "권역 열 개는 5×2로 놓인다"
+    assert cols(17, 9) == 9, "부산 구·군 열일곱은 9+8"
+    assert cols(8, 9) == 8, "여덟 개는 한 줄"
+    # 폭에서 구한 최대 열 수를 넘지 않는다 — 넘으면 칸이 최소 폭보다 좁아진다.
+    for n in range(2, 40):
+        for max_cols in (2, 3, 5, 9):
+            assert cols(n, max_cols) <= max_cols, (n, max_cols)
 
 
 def test_the_url_replaces_instead_of_pushing() -> None:
