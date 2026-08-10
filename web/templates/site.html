@@ -163,6 +163,35 @@
     text-decoration: underline;
   }
 
+  /* ── 수집 상태 신호등 ───────────────────────────────────────── */
+  .health-panel {
+    margin-top: 12px; padding: 12px 14px; background: var(--surface);
+    border: 1px solid var(--line); border-radius: 8px;
+  }
+  .health-panel[hidden] { display: none; }
+  .health-head { display:flex; align-items:center; justify-content:space-between; gap:10px; }
+  .health-head b { font-size:13px; }
+  .health-summary { font-size:12px; color:var(--ink-2); margin-left:8px; }
+  .health-live {
+    margin-top:9px; padding:8px 10px; border-radius:6px;
+    background:var(--surface-2); font-size:12px; color:var(--ink-2); line-height:1.65;
+  }
+  .health-sources {
+    display:grid; grid-template-columns:repeat(auto-fit,minmax(250px,1fr));
+    gap:8px; margin-top:9px;
+  }
+  .health-src { border:1px solid var(--line-soft); border-radius:6px; padding:9px 10px; }
+  .health-src .ht { display:flex; align-items:center; gap:7px; font-weight:650; font-size:12.5px; }
+  .health-src .hm { margin-top:5px; font-size:11.5px; color:var(--ink-2); line-height:1.6; }
+  .health-dot { width:9px; height:9px; border-radius:50%; display:inline-block; flex:none; }
+  .health-dot.green { background:var(--ok); }
+  .health-dot.yellow { background:var(--warn); }
+  .health-dot.red { background:var(--crit); }
+  .health-dot.blue { background:var(--accent); }
+  .health-dot.gray { background:var(--ink-3); }
+  .health-refresh { font:inherit; font-size:11.5px; border:1px solid var(--line);
+    background:var(--surface); color:var(--ink-2); border-radius:5px; padding:4px 8px; cursor:pointer; }
+
   /* 0% 조건 막대. 차트 바로 위라 눈에 띄되 그림을 밀어내지 않게 얇게 둔다. */
   .zero-bar {
     display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px;
@@ -707,6 +736,8 @@
       </div>
       <button type="button" class="icon-btn" id="theme" title="밝게 / 어둡게">🌙</button>
       <button type="button" class="icon-btn" id="copylink">링크 복사</button>
+      <button type="button" class="icon-btn" id="health-open"
+              aria-expanded="false" aria-controls="health-panel">수집 상태</button>
       <div class="stamp" id="stamp"></div>
       <!-- 여기서 암호를 넣으면 그 자리에서 수집이 시작된다 (명세서 §12.5).
            토큰은 같은 도메인의 서버리스 함수(`/api/collect`)에 있고 이
@@ -742,6 +773,15 @@
        **그 사실을 반드시 알린다** — 조용히 어제 값을 보여주면 보는 사람은
        그게 오늘 확인된 것이라고 믿는다. -->
   <p class="notice" id="stale-notice" hidden></p>
+
+  <section class="health-panel" id="health-panel" hidden aria-live="polite">
+    <div class="health-head">
+      <div><b>수집 시스템 상태</b><span class="health-summary" id="health-summary"></span></div>
+      <button type="button" class="health-refresh" id="health-refresh">새로고침</button>
+    </div>
+    <div class="health-live" id="health-live">마지막 발행본의 수집 상태를 표시합니다.</div>
+    <div class="health-sources" id="health-sources"></div>
+  </section>
 
   <!-- 참고카드가 먼저다 (2026-08-07 순서 교체).
        예전에는 «관측 133,849 / 기관 2,297»이 맨 위였다. 그건 데이터 규모지
@@ -2632,6 +2672,80 @@
   // 있다. 같은 도메인의 `/api/collect`가 대조하고, 워크플로가 한 번 더
   // 대조한다. 이 코드는 받은 값을 그대로 보내고 답을 옮겨 적을 뿐이다.
   const COLLECT_ENDPOINT = "api/collect";
+  const HEALTH_ENDPOINT = "api/health";
+  const HEALTH_KO = { green: "정상", yellow: "확인 필요", red: "실패·지연",
+                      blue: "진행 중", gray: "대상 아님" };
+  const healthDate = (value) => {
+    if (!value) return "—";
+    const d = new Date(value);
+    return Number.isNaN(d.getTime()) ? esc(value)
+      : d.toLocaleString("ko-KR", { timeZone: "Asia/Seoul", month: "2-digit", day: "2-digit",
+          hour: "2-digit", minute: "2-digit", hour12: false });
+  };
+  const healthDot = (signal) => `<span class="health-dot ${esc(signal || "gray")}"></span>`;
+  const staticHealth = data.collection_health || { overall: "gray", counts: {}, sources: [] };
+
+  const renderStaticHealth = () => {
+    const c = staticHealth.counts || {};
+    $("health-summary").innerHTML = `${healthDot(staticHealth.overall)} ${esc(HEALTH_KO[staticHealth.overall] || "미상")}`
+      + ` · 정상 ${num(c.green || 0)} / 확인 ${num(c.yellow || 0)} / 실패 ${num(c.red || 0)}`;
+    $("health-sources").innerHTML = (staticHealth.sources || []).map((s) => {
+      const r = s.latest_attempt || {};
+      const reasons = (s.reasons || []).filter((x) => x.severity !== "info");
+      return `<div class="health-src"><div class="ht">${healthDot(s.signal)}`
+        + `<span>${esc(s.name || s.source_id)}</span><span style="margin-left:auto;color:var(--ink-3)">`
+        + `${esc(HEALTH_KO[s.signal] || s.signal)}</span></div>`
+        + `<div class="hm">마지막 시도 ${healthDate(r.finished_at || r.started_at)} · ${esc(r.status || "없음")}<br>`
+        + `마지막 정상 ${healthDate(s.last_success_at)} · 최신성 ${esc((s.freshness || {}).label || "—")}<br>`
+        + `raw ${num(r.raw_count)} / valid ${num(r.valid_count)} / 경고 ${num(r.actionable_warning_count || 0)} / 오류 ${num(r.error_count || 0)}`
+        + (r.info_count ? ` · 정보 ${num(r.info_count)}` : "")
+        + (reasons.length ? `<br>이유 ${reasons.map((x) => `${esc(x.code)} ${num(x.count)}`).join(" · ")}` : "")
+        + `</div></div>`;
+    }).join("") || '<div class="hm">아직 수집 이력이 없습니다.</div>';
+  };
+
+  const runSignal = (run) => !run ? "gray"
+    : (["in_progress", "queued", "waiting", "pending"].includes(run.status) ? "blue"
+      : (run.conclusion === "success" ? "green" : "red"));
+  const runLine = (label, run) => {
+    if (!run) return `${label} 없음`;
+    const sig = runSignal(run);
+    const state = sig === "blue" ? "진행 중" : (run.conclusion === "success" ? "성공" : (run.conclusion || run.status));
+    const text = `${healthDot(sig)} ${label} #${esc(run.run_number)} · ${esc(state)} · ${healthDate(run.started_at)}`;
+    return run.html_url ? `<a href="${esc(run.html_url)}" target="_blank" rel="noopener">${text}</a>` : text;
+  };
+  const refreshLiveHealth = async () => {
+    $("health-live").textContent = "GitHub Actions 상태 확인 중…";
+    try {
+      const res = await fetch(HEALTH_ENDPOINT, { cache: "no-store" });
+      const body = await res.json().catch(() => null);
+      if (!body || !body.ok) {
+        $("health-live").textContent = (body && body.error) || "실시간 상태를 읽지 못했습니다. 위 source 카드는 마지막 발행본 기준입니다.";
+        return;
+      }
+      const focus = body.active_collection || body.latest_collection;
+      const steps = Object.entries(body.source_steps || {}).map(([id, step]) => {
+        const sig = step.status === "in_progress" ? "blue" : (step.conclusion === "success" ? "green" : (step.conclusion === "skipped" ? "gray" : "red"));
+        return `${healthDot(sig)} ${esc(id)} ${esc(step.conclusion || step.status || "—")}`;
+      }).join(" · ");
+      $("health-live").innerHTML = runLine("현재 수집", body.active_collection) + "<br>"
+        + runLine("마지막 수집", body.latest_collection) + "<br>"
+        + runLine("마지막 발행", body.latest_publish)
+        + (body.active_publish ? "<br>" + runLine("현재 발행", body.active_publish) : "")
+        + (focus && steps ? `<br><span style="color:var(--ink-3)">${steps}</span>` : "");
+    } catch (err) {
+      $("health-live").textContent = "실시간 상태에 연결하지 못했습니다. 위 source 카드는 마지막 발행본 기준입니다.";
+    }
+  };
+
+  renderStaticHealth();
+  $("health-open").addEventListener("click", () => {
+    const panel = $("health-panel");
+    panel.hidden = !panel.hidden;
+    $("health-open").setAttribute("aria-expanded", String(!panel.hidden));
+    if (!panel.hidden) refreshLiveHealth();
+  });
+  $("health-refresh").addEventListener("click", refreshLiveHealth);
 
   if (data.collect_workflow_url) {
     $("collect").href = data.collect_workflow_url;

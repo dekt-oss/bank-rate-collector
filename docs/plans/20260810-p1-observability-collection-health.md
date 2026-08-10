@@ -84,6 +84,17 @@
 
 ## Warning Taxonomy와 함께 하는 이유
 
+### 운영 R2 실측으로 확정한 INFO 패턴
+
+- `PREFERENCE_RATE_ROW`: NH e-joy 우대금리 carrier row
+- `TERM_NOT_PROVIDED`: NH 계약기간 `-` (기간은 추정하지 않음)
+- `EMPTY_QUERY_RESULT`: CU 지역/상품 조회 조각의 0건 응답
+- `RATELESS_SOURCE_ROW`: FSB 상품 행에 금리 필드가 없는 경우
+- `OPTIONAL_FIELD_MISSING`: parser가 optional로 선언한 필드 부재
+
+이 패턴은 INFO로 보이되 source 신호를 노랑으로 만들지 않는다. 다만 실행 전체 `parsed_count=0`은 RED로 별도 차단한다.
+
+
 현재 NH `e-joy 인터넷예금 우대금리`처럼 의도된 행도 warning으로 집계된다. 단순 `warning_count`를 신호등에 쓰면 정상 수집이 항상 노란불이 된다.
 
 다음 PR에서 최소한 다음을 구분한다.
@@ -142,6 +153,12 @@
 초기 freshness 판정은 source schedule을 기준으로 하고, 임의의 24시간 magic number를 UI에 박지 않는다. 평일 수집과 split schedule을 고려한다.
 
 ## 구현 경계
+
+- implementation branch: `agent/p1-collection-health`
+- DB schema migration: 없음
+- live status: read-only `/api/health`
+- batch identity metadata: deferred — 이번 PR은 GitHub workflow 상태와 DB source 상태를 읽기 전용으로 병렬 표시하며 CLI/수집 계약은 바꾸지 않음
+
 
 P1 PR 1 — `Collection Health + Warning Taxonomy`
 
