@@ -30,6 +30,14 @@ jobs:
       - name: Apply patch
         run: |
           uv run python scripts/_tmp_apply_p1_health.py
+          uv run python - <<'PY'
+          from pathlib import Path
+          path = Path('tests/test_collection_health.py')
+          text = path.read_text(encoding='utf-8')
+          text = text.replace('        _source(s); _run(s)\n', '        _source(s)\n        _run(s)\n')
+          text = text.replace('        _source(s); _run(s, warnings=1)\n', '        _source(s)\n        _run(s, warnings=1)\n')
+          path.write_text(text, encoding='utf-8')
+          PY
           rm scripts/_tmp_apply_p1_health.py
           rm .github/workflows/p1-health-apply.yml
 
