@@ -115,6 +115,21 @@ def _review_reason(issue_type: str, severity: str, message: str) -> tuple[str, s
     """
     if issue_type == "schema_warning" and message.startswith("우대금리 행:"):
         return "PREFERENCE_RATE_ROW", "info"
+    if issue_type == "schema_warning" and message == "행이 0건이다. 조회 조건을 확인한다":
+        # 지역/상품 조각 하나가 비는 것은 실제 원천에서 반복되는 정상 형태다.
+        # 실행 전체가 비었는지는 `_run_signal`의 parsed_count=0 gate가 따로 잡는다.
+        return "EMPTY_QUERY_RESULT", "info"
+    if issue_type == "schema_warning" and message.startswith("금리 필드가 없는 행:"):
+        # FSB가 상품 행은 주지만 해당 상품의 금리 필드를 주지 않는 경우.
+        # 다른 금리 행은 정상 수집되므로 source failure가 아니라 coverage note다.
+        return "RATELESS_SOURCE_ROW", "info"
+    if (
+        issue_type == "schema_warning"
+        and message.endswith("가 없다. 값 없이 진행한다")
+    ):
+        # parser가 명시적으로 optional로 선언한 필드의 부재. 신규/필수 필드
+        # 이상은 이 패턴이 아니므로 아래 actionable SCHEMA_WARNING으로 남는다.
+        return "OPTIONAL_FIELD_MISSING", "info"
     if issue_type == "schema_warning":
         return "SCHEMA_WARNING", "warning"
     known = {
@@ -130,11 +145,13 @@ def _review_reason(issue_type: str, severity: str, message: str) -> tuple[str, s
     return issue_type.upper(), level
 
 
-def _row_warning_reason(message: str) -> str:
+def _row_warning_reason(message: str) -> tuple[str, str]:
     """관측 행 자체의 validation warning을 운영 reason으로 정규화한다."""
-    if "계약기간을 읽지 못했다" in message:
-        return "TERM_PARSE_AMBIGUOUS"
-    return "ROW_VALIDATION_WARNING"
+    if message == "계약기간을 읽지 못했다: '-'":
+        # NH 원천이 계약기간을 '-'로 주는 실데이터가 반복된다. 기간을
+        # 지어내지 않고 unknown으로 남긴다는 coverage 정보이지 수집 장애는 아니다.
+        return "TERM_NOT_PROVIDED", "info"
+    return "ROW_VALIDATION_WARNING", "warning"
 
 
 def _reason_counts(conn: sqlite3.Connection, run_id: str | None) -> list[dict[str, Any]]:
@@ -165,8 +182,8 @@ def _reason_counts(conn: sqlite3.Connection, run_id: str | None) -> list[dict[st
         (run_id,),
     )
     for row in row_warnings:
-        code = _row_warning_reason(row["validation_message"] or "")
-        counter[(code, "warning")] += int(row["count"] or 0)
+        code, level = _row_warning_reason(row["validation_message"] or "")
+        counter[(code, level)] += int(row["count"] or 0)
 
     return [
         {"code": code, "severity": severity, "count": count}
@@ -239,6 +256,14 @@ def _run_signal(
     review_errors = sum(r["count"] for r in reasons if r["severity"] == "error")
     errors = max(int(latest.get("error_count") or 0), review_errors)
     status = latest["status"]
+    # expected INFO warning을 green으로 낮추더라도 실행 전체가 비어 있으면
+    # 절대 정상으로 보이지 않는다. 원천이 전부 빈 응답을 줬을 때의 안전망이다.
+    if (
+        status in {"success", "partial"}
+        and int(latest.get("raw_count") or 0) > 0
+        and int(latest.get("parsed_count") or 0) == 0
+    ):
+        return "red", "파싱 결과 0건", infos, warnings, errors
     if status == "running":
         return "blue", "실행 중", infos, warnings, errors
     if status in FAIL_STATUSES:

@@ -7,7 +7,12 @@ from pathlib import Path
 from rate_monitor.db import models as m
 from rate_monitor.db.session import create_db_engine, make_session_factory, session_scope
 from rate_monitor.domain.timeutil import KST
-from rate_monitor.services.source_health_service import _reason_counts, build_collection_health
+from rate_monitor.services.source_health_service import (
+    _reason_counts,
+    _review_reason,
+    _row_warning_reason,
+    build_collection_health,
+)
 
 
 def _db(tmp_path: Path):
@@ -98,7 +103,7 @@ def test_actionable_schema_warning_is_yellow(tmp_path) -> None:
         _run(s, warnings=1)
         s.add(m.ReviewItem(
             run_id="r1", issue_type="schema_warning", severity="warning",
-            message="계약기간을 읽지 못했다: '-'", payload_json={},
+            message="새로운 스키마 경고", payload_json={},
             created_at=datetime(2026, 8, 10),
         ))
     card = _health(path)["sources"][0]
@@ -135,8 +140,8 @@ def test_disabled_source_is_gray(tmp_path) -> None:
 
 
 
-def test_row_validation_warning_is_actionable_even_without_review_item() -> None:
-    """행 validation warning만 남는 parser 경로도 초록불로 숨기지 않는다."""
+def test_known_missing_term_is_info_even_without_review_item() -> None:
+    """원천이 '-'로 주는 기간은 숨기지 않되 수집 장애로 취급하지 않는다."""
     conn = sqlite3.connect(":memory:")
     try:
         conn.executescript("""
@@ -147,13 +152,55 @@ def test_row_validation_warning_is_actionable_even_without_review_item() -> None
                 last_run_id TEXT, validation_status TEXT, validation_message TEXT
             );
             INSERT INTO rate_observations VALUES
-                ('r1', 'warning', '계약기간을 읽지 못했다: -'),
+                ('r1', 'warning', '계약기간을 읽지 못했다: ''-'''),
                 ('r1', 'valid', NULL),
-                ('old', 'warning', '계약기간을 읽지 못했다: -');
+                ('old', 'warning', '계약기간을 읽지 못했다: ''-''');
         """)
         reasons = _reason_counts(conn, "r1")
     finally:
         conn.close()
     assert reasons == [
-        {"code": "TERM_PARSE_AMBIGUOUS", "severity": "warning", "count": 1}
+        {"code": "TERM_NOT_PROVIDED", "severity": "info", "count": 1}
     ]
+
+
+
+def test_known_source_shape_warnings_are_info_but_new_schema_warning_is_actionable() -> None:
+    assert _review_reason(
+        "schema_warning", "warning", "행이 0건이다. 조회 조건을 확인한다"
+    ) == ("EMPTY_QUERY_RESULT", "info")
+    assert _review_reason(
+        "schema_warning", "warning", "금리 필드가 없는 행: '310009'"
+    ) == ("RATELESS_SOURCE_ROW", "info")
+    assert _review_reason(
+        "schema_warning", "warning", "SWEETENER가 없다. 값 없이 진행한다"
+    ) == ("OPTIONAL_FIELD_MISSING", "info")
+    assert _review_reason(
+        "schema_warning", "warning", "새로운 알 수 없는 구조"
+    ) == ("SCHEMA_WARNING", "warning")
+    assert _row_warning_reason("계약기간을 읽지 못했다: '-'") == (
+        "TERM_NOT_PROVIDED", "info"
+    )
+    assert _row_warning_reason("최고금리 변환 실패: '문의'") == (
+        "ROW_VALIDATION_WARNING", "warning"
+    )
+
+
+def test_all_empty_success_is_red_even_if_empty_pages_are_info(tmp_path) -> None:
+    path, engine, factory = _db(tmp_path)
+    with session_scope(factory) as s:
+        _source(s)
+        _run(s)
+        run = s.get(m.CollectionRun, "r1")
+        run.parsed_count = 0
+        run.valid_count = 0
+        s.add(m.ReviewItem(
+            run_id="r1", issue_type="schema_warning", severity="warning",
+            message="행이 0건이다. 조회 조건을 확인한다", payload_json={},
+            created_at=datetime(2026, 8, 10),
+        ))
+    card = _health(path)["sources"][0]
+    assert card["signal"] == "red"
+    assert card["run_health"]["label"] == "파싱 결과 0건"
+    assert card["latest_attempt"]["info_count"] == 1
+    engine.dispose()
