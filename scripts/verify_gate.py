@@ -11,6 +11,7 @@
 """
 
 import argparse
+import hashlib
 import json
 import sqlite3
 import sys
@@ -21,6 +22,74 @@ results: list[tuple[bool, str, str]] = []
 
 def check(ok: bool, name: str, detail: str = "") -> None:
     results.append((ok, name, detail))
+
+
+def _workspace_run_context(
+    conn: sqlite3.Connection, raw_root: Path
+) -> tuple[list[Path], list[tuple[str, str, str]], list[str]]:
+    """현재 러너 디스크의 원본을 DB collection run과 연결한다.
+
+    ``data/raw/<날짜>/<run_id>/<파일>``은 collection_service가 만드는 계약이다.
+    복원된 DB에는 과거 run이 모두 있지만 러너 디스크에는 **이번 실행에서 받은
+    원본만** 있으므로, 이 디렉터리의 run_id가 current-run gate의 경계가 된다.
+
+    반환값은 (현재 원본 파일, DB에서 찾은 run, DB에 없는 run_id)다.
+    """
+    files = sorted(p for p in raw_root.rglob("*") if p.is_file()) if raw_root.exists() else []
+    run_ids = sorted({p.parent.name for p in files})
+    if not run_ids:
+        return files, [], []
+
+    marks = ",".join("?" for _ in run_ids)
+    rows = conn.execute(
+        f"SELECT id, source_id, status FROM collection_runs WHERE id IN ({marks})",
+        run_ids,
+    ).fetchall()
+    found = {row[0] for row in rows}
+    missing = sorted(set(run_ids) - found)
+    return files, rows, missing
+
+
+def _finlife_source_missing(files: list[Path]) -> tuple[int, int]:
+    """현재 finlife 원본에서 intr_rate2 결측을 센다.
+
+    원본 디렉터리에는 JSON 형식이 다른 수집원도 함께 있으므로 finlife의
+    ``result.optionList`` 모양인 파일만 센다.
+    """
+    source_missing = 0
+    finlife_files = 0
+    for raw_file in files:
+        if raw_file.suffix.lower() != ".json":
+            continue
+        payload = json.loads(raw_file.read_text(encoding="utf-8"))
+        if not isinstance(payload, dict):
+            continue
+        result = payload.get("result")
+        if not isinstance(result, dict) or "optionList" not in result:
+            continue
+        finlife_files += 1
+        options = result.get("optionList") or []
+        source_missing += sum(1 for o in options if o.get("intr_rate2") is None)
+    return finlife_files, source_missing
+
+
+def _finlife_observation_nulls(
+    conn: sqlite3.Connection, run_ids: list[str]
+) -> tuple[int, int]:
+    """이번 finlife run이 마지막으로 확인한 현재 관측의 NULL을 센다.
+
+    rate_observations는 change-only 이력이다. ``run_id``는 값을 처음 본 실행이고
+    ``last_run_id``가 그 값을 마지막으로 확인한 실행이므로 current-run 대조는
+    반드시 ``last_run_id``를 사용한다.
+    """
+    if not run_ids:
+        return 0, 0
+    marks = ",".join("?" for _ in run_ids)
+    return conn.execute(
+        "SELECT COUNT(*), COUNT(*) - COUNT(max_rate) FROM rate_observations "
+        f"WHERE last_run_id IN ({marks})",
+        run_ids,
+    ).fetchone()
 
 
 def main() -> int:
@@ -69,18 +138,42 @@ def main() -> int:
     observations = conn.execute("SELECT COUNT(*) FROM rate_observations").fetchone()[0]
     check(observations > 0, "실제 데이터 수집", f"관측 {observations}건")
 
-    # 수집원마다 원본 형식이 다르다. finlife는 JSON, 새마을금고는 HTML이다.
-    raw_files = list(args.raw_root.rglob("*.json")) if args.raw_root.exists() else []
-    raw_html = list(args.raw_root.rglob("*.html")) if args.raw_root.exists() else []
+    # ── Current Run Gate ───────────────────────────────────────────────
+    #
+    # 복원한 DB에는 과거 원천이 전부 들어 있지만 data/raw에는 이번 workflow가
+    # 실제로 받은 원본만 있다. 둘을 섞으면 KFCC-only 실행이 과거 finlife
+    # 관측의 원본까지 현재 디스크에서 찾다가 실패한다 (2026-08-10 run 45).
+    # 현재 raw 디렉터리의 run_id를 DB에 되짚어 이번 실행의 경계를 정한다.
+    workspace_files, workspace_runs, unknown_workspace_runs = _workspace_run_context(
+        conn, args.raw_root
+    )
+    raw_files = [p for p in workspace_files if p.suffix.lower() == ".json"]
+    raw_html = [p for p in workspace_files if p.suffix.lower() == ".html"]
+
     if args.no_collection:
         check(True, "[건너뜀] 원본 보존", "이번 실행은 수집을 하지 않았다")
+        check(
+            len(workspace_files) == 0,
+            "Current Run 원본 경계",
+            f"발행 전용 실행의 원본 {len(workspace_files)}개",
+        )
     else:
         check(
-            len(raw_files) + len(raw_html) > 0,
+            len(workspace_files) > 0,
             "원본 보존",
             f"JSON {len(raw_files)}개 / HTML {len(raw_html)}개",
         )
+        check(
+            not unknown_workspace_runs,
+            "Current Run 원본 run_id ↔ collection_runs 연결",
+            "모두 연결" if not unknown_workspace_runs else f"DB에 없음 {unknown_workspace_runs}",
+        )
 
+    # ── Historical Integrity Gate ──────────────────────────────────────
+    #
+    # 아래 provenance 검사는 현재 러너 파일 유무와 무관하게 canonical DB 전체에
+    # 적용한다. current-run raw semantic check와 historical DB integrity를
+    # 분리하되 검증 강도는 낮추지 않는다.
     missing_artifact = conn.execute(
         "SELECT COUNT(*) FROM rate_observations WHERE raw_artifact_id IS NULL"
     ).fetchone()[0]
@@ -96,59 +189,56 @@ def main() -> int:
     # max_rate NULL 규칙: 원본에 우대금리가 없으면 저장값도 NULL이어야 한다.
     # base_rate로 메우면 안 된다 (명세서 v3 §8.4).
     #
-    # 수집원마다 "없음"의 모양이 다르므로 따로 센다.
-    #   finlife  — optionList의 intr_rate2가 없는 건수와 대조한다
-    #   kfcc     — 공식 화면에 우대금리 열 자체가 없다. 전부 NULL이어야 한다
-    #
-    # data/raw에는 이제 원천 세 곳의 JSON이 섞여 있다. 모양이 서로 다르다.
-    #
-    #   finlife  {"result": {"optionList": [...]}}   dict
-    #   fsb      {"REC": [...]}                      dict
-    #   cu       [...]                               **배열**
-    #
-    # 예전에는 전부 finlife라고 보고 `payload.get("result")`를 불렀다. 신협
-    # 아티팩트가 배열이라 `AttributeError: 'list' object has no attribute
-    # 'get'`으로 게이트가 통째로 죽었다 (run 31035678422). 파일마다 모양을
-    # 보고 finlife 것만 센다.
-    source_missing = 0
-    finlife_files = 0
-    for raw_file in raw_files:
-        payload = json.loads(raw_file.read_text(encoding="utf-8"))
-        if not isinstance(payload, dict):
-            continue
-        result = payload.get("result")
-        if not isinstance(result, dict) or "optionList" not in result:
-            continue
-        finlife_files += 1
-        options = result.get("optionList") or []
-        source_missing += sum(1 for o in options if o.get("intr_rate2") is None)
+    # finlife 원본 대조는 **이번 실행에서 실제로 finlife를 수집한 run**만 본다.
+    # rate_observations는 change-only이므로 run_id가 아니라 last_run_id로 현재
+    # 확인된 값을 고른다. KFCC-only 같은 부분 수집에서 과거 finlife 관측을
+    # 현재 KFCC 원본과 대조하지 않는다.
+    from rate_monitor.services.dashboard_service import CONFIRMED_RUN_STATUSES
 
-    finlife_rows, finlife_null = conn.execute(
-        "SELECT COUNT(*), COUNT(*) - COUNT(o.max_rate) FROM rate_observations o"
-        "  JOIN collection_runs r ON r.id = o.run_id"
-        " WHERE r.source_id LIKE 'finlife%'"
-    ).fetchone()
-    # 원본을 하나도 못 찾았는데 관측은 있다면, 대조가 성립하지 않은 것이다.
-    # 0 == 0으로 조용히 통과시키면 검사가 아니라 장식이 된다.
-    #
-    # 수집을 안 한 실행에는 대조할 원본이 애초에 없다 (v3.1 §12.4). 둘 다
-    # 건너뛴다 — 특히 아래 대조는 지금까지 0 == 0으로 조용히 통과하고
-    # 있었다. 실패보다 그쪽이 나쁘다.
+    confirmed_statuses = set(CONFIRMED_RUN_STATUSES)
+    current_finlife_run_ids = sorted(
+        run_id
+        for run_id, source_id, status in workspace_runs
+        if source_id.startswith("finlife") and status in confirmed_statuses
+    )
+    current_finlife_files = [
+        p for p in workspace_files if p.parent.name in current_finlife_run_ids
+    ]
+    finlife_files, source_missing = _finlife_source_missing(current_finlife_files)
+    finlife_rows, finlife_null = _finlife_observation_nulls(conn, current_finlife_run_ids)
+
     if args.no_collection:
-        check(True, "[건너뜀] max_rate 대조용 finlife 원본 확보",
-              "이번 실행은 수집을 하지 않았다")
-        check(True, "[건너뜀] max_rate NULL 규칙 — finlife (원본 대조)",
-              "대조할 원본이 이번 실행에 없다")
+        check(
+            True,
+            "[건너뜀] max_rate 대조용 finlife 원본 확보",
+            "이번 실행은 수집을 하지 않았다",
+        )
+        check(
+            True,
+            "[건너뜀] max_rate NULL 규칙 — finlife (원본 대조)",
+            "대조할 원본이 이번 실행에 없다",
+        )
+    elif not current_finlife_run_ids:
+        check(
+            True,
+            "[건너뜀] max_rate 대조용 finlife 원본 확보",
+            "이번 실행에서 finlife를 수집하지 않았다",
+        )
+        check(
+            True,
+            "[건너뜀] max_rate NULL 규칙 — finlife (원본 대조)",
+            "이번 실행의 finlife run이 없다",
+        )
     else:
         check(
-            finlife_rows == 0 or finlife_files > 0,
+            finlife_files > 0,
             "max_rate 대조용 finlife 원본 확보",
-            f"원본 {finlife_files}개 / 관측 {finlife_rows}건",
+            f"현재 run {len(current_finlife_run_ids)}개 / 원본 {finlife_files}개",
         )
         check(
             finlife_null == source_missing,
-            "max_rate NULL 규칙 — finlife (원본 대조)",
-            f"저장 NULL {finlife_null}건 == 원본 결측 {source_missing}건",
+            "max_rate NULL 규칙 — finlife (현재 run 원본 대조)",
+            f"현재 관측 NULL {finlife_null}/{finlife_rows}건 == 원본 결측 {source_missing}건",
         )
 
     # ── 원천별 계약 검사 (v4 §5.8·§6.5) ────────────────────────────
@@ -229,8 +319,6 @@ def main() -> int:
 
     # 마지막 수집이 실패한 원천. 화면은 직전 값을 보여주지만 그 사실이
     # 발행 로그에도 남아야 한다 — 조용히 어제 값을 내보내면 안 된다.
-    from rate_monitor.services.dashboard_service import CONFIRMED_RUN_STATUSES
-
     marks = ",".join("?" for _ in CONFIRMED_RUN_STATUSES)
     stale = conn.execute(
         "SELECT last.source_id, last.status FROM ("
@@ -242,8 +330,11 @@ def main() -> int:
         CONFIRMED_RUN_STATUSES,
     ).fetchall()
     # 막지는 않는다. 한 원천이 실패해도 나머지를 발행하는 편이 낫다.
-    check(True, "마지막 수집이 실패한 원천",
-          ", ".join(f"{s}({st})" for s, st in stale) if stale else "없음")
+    check(
+        True,
+        "마지막 수집이 실패한 원천",
+        ", ".join(f"{s}({st})" for s, st in stale) if stale else "없음",
+    )
 
     integrity = conn.execute("PRAGMA integrity_check").fetchone()[0]
     check(integrity == "ok", "PRAGMA integrity_check", integrity)
@@ -258,7 +349,6 @@ def main() -> int:
     check(dup == 0, "동일 실행 내 관측 중복 0", f"{dup}건")
 
     manifest = json.loads(args.manifest.read_text(encoding="utf-8"))
-    import hashlib
 
     digest = hashlib.sha256()
     with args.db.open("rb") as handle:
@@ -281,8 +371,9 @@ def main() -> int:
     start = site_html.find('<script id="rate-monitor-data" type="application/json">')
     end = site_html.find("</script>", start)
     inline = json.loads(
-        site_html[start + len('<script id="rate-monitor-data" type="application/json">') : end]
-        .replace("<\\/", "</")
+        site_html[
+            start + len('<script id="rate-monitor-data" type="application/json">') : end
+        ].replace("<\\/", "</")
     )
     check(
         inline["totals"] == summary["totals"],
