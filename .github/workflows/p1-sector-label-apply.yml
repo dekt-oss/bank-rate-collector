@@ -1,0 +1,75 @@
+name: Apply P1 sector terminology patch
+
+on:
+  push:
+    branches: ["agent/p1-sector-label"]
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/p1-sector-label
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Sync dependencies
+        run: uv sync --locked
+
+      - name: Apply exact terminology patch
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("web/templates/site.html")
+          text = path.read_text(encoding="utf-8")
+          replacements = {
+              '{ key: "sector", label: "권역", ko: SECTOR_KO }':
+                  '{ key: "sector", label: "업권", ko: SECTOR_KO }',
+              '{ key: "sector", label: "권역", cell:':
+                  '{ key: "sector", label: "업권", cell:',
+              '아래 조회 조건의 «권역»과 같은 축':
+                  '아래 조회 조건의 «업권»과 같은 축',
+              '아래 «권역» 체크박스가':
+                  '아래 «업권» 체크박스가',
+          }
+          for old, new in replacements.items():
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"expected exactly one occurrence: {old!r}, got {count}")
+              text = text.replace(old, new)
+          path.write_text(text, encoding="utf-8")
+
+          test = Path("tests/test_sector_terminology.py")
+          test.write_text(
+              '''from pathlib import Path\n\n\ndef _template() -> str:\n    return Path("web/templates/site.html").read_text(encoding="utf-8")\n\n\ndef test_sector_filter_and_column_use_industry_term() -> None:\n    html = _template()\n    assert '{ key: "sector", label: "업권", ko: SECTOR_KO }' in html\n    assert '{ key: "sector", label: "업권", cell:' in html\n    assert '{ key: "sector", label: "권역"' not in html\n\n\ndef test_geographic_region_wording_is_preserved() -> None:\n    html = _template()\n    # 지리적 지역 묶음은 여전히 권역이다. P1-5는 sector 명칭만 바꾼다.\n    assert "권역별" in html\n    assert "REGION_GROUPS" in html\n''',
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Verify patch
+        run: |
+          uv run ruff check src tests scripts
+          uv run pytest -q
+          RATE_MONITOR_DB_URL="sqlite+pysqlite:///${RUNNER_TEMP}/p1-sector.sqlite3" uv run alembic upgrade head
+          git diff --check
+
+      - name: Remove temporary workflow and commit product change
+        run: |
+          rm .github/workflows/p1-sector-label-apply.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add web/templates/site.html tests/test_sector_terminology.py .github/workflows/p1-sector-label-apply.yml
+          git diff --cached --check
+          git commit -m "fix: rename sector label to 업권"
+          git push origin HEAD:agent/p1-sector-label
