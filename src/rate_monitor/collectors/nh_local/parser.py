@@ -203,16 +203,26 @@ def _interest_method(product_name: str, note: str) -> str:
     확인됐다. 반대로 `e-joy 인터넷예금 우대금리`는 대상상품 목록에
     `복리식 정기예탁금`을 **언급만** 하므로 그 행 자체를 복리로 보면 안 된다.
 
+    비고의 단리도 단순 문자열 존재만으로 확정하지 않는다. 대상상품 설명에
+    `단리식 상품`을 언급할 수 있으므로 `단리로`·`단리 적용`처럼 현재 행의
+    계산방식을 직접 말하는 표현만 근거로 인정한다.
+
     >>> _interest_method("복리식정기예탁금", "정기예탁금 이자를 월복리로 계산")
     'compound'
     >>> _interest_method("정기예탁금", "만기이자지급식 기준")
     'unknown'
     >>> _interest_method("단리식 예탁금", "단리 적용")
     'simple'
+    >>> _interest_method("우대금리", "대상상품: 단리식 예탁금")
+    'unknown'
     >>> _interest_method("복리식 예탁금", "단리 적용")
     'unknown'
     """
-    simple = "단리" in product_name or "단리" in note
+    simple_note = any(
+        marker in note
+        for marker in ("단리로", "단리 적용", "단리방식", "단리 방식")
+    )
+    simple = "단리" in product_name or simple_note
     compound = "복리" in product_name or "월복리" in note
     if simple == compound:
         return InterestMethod.UNKNOWN.value
