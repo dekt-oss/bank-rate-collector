@@ -601,6 +601,32 @@ def test_rank_and_gap_use_the_median_not_the_average() -> None:
     assert "> value).length + 1" in stats
 
 
+def test_the_rank_carries_its_percentile() -> None:
+    """«498위»만으로는 좋은 쪽인지 알 수 없다 (2026-08-10 사용자 요청).
+
+    분모를 나란히 적어도 30,041을 머릿속에서 나누게 된다. 순위가 나오는
+    두 자리(순위 줄·참고카드)가 **같은 말을 써야** 한 쪽만 고쳐지지 않는다.
+
+    1등이 «상위 0.0%»가 되면 분모가 없는 것처럼 읽힌다. 아래는 화면과
+    같은 계산을 파이썬으로 다시 한 것이다.
+    """
+    assert SOURCE.count("topPct(stats.rank, stats.total)") == 2, "한 자리만 고쳤다"
+
+    def top_pct(rank: int, total: int) -> str:
+        if not total:
+            return ""
+        pct = rank / total * 100
+        return "상위 0.1% 이내" if pct < 0.1 else f"상위 {pct:.1f}%"
+
+    assert top_pct(498, 30_041) == "상위 1.7%"
+    assert top_pct(1, 30_041) == "상위 0.1% 이내"
+    assert top_pct(30_041, 30_041) == "상위 100.0%"
+    assert top_pct(1, 0) == ""
+    # 화면 코드가 같은 규칙을 쓰는지.
+    assert 'return pct < 0.1 ? "상위 0.1% 이내" : `상위 ${pct.toFixed(1)}%`;' in SOURCE
+    assert "if (!total) return \"\";" in SOURCE
+
+
 def test_the_second_tier_card_leads_with_the_median() -> None:
     """시중은행 카드가 중앙값인데 2금융권만 평균이면 나란히 못 놓는다."""
     card = SOURCE[SOURCE.index("const st = marks.second_tier_12m"):
@@ -684,16 +710,62 @@ def test_the_pinned_row_can_expand_its_preference_text() -> None:
     assert "const rows = slice.map((r) => withDetail(r, null));" in SOURCE
 
 
-def test_the_whole_preference_cell_opens_the_text() -> None:
+def test_the_whole_row_opens_and_closes_the_text() -> None:
     """단추 글자만 눌리게 두면 겨냥하기 어렵다.
+
+    행 아무 데나 누르면 열리고 다시 누르면 닫힌다. 펼친 원문 줄에도 같은
+    표식을 붙여야 「접기」를 겨냥해 위로 되돌아가지 않는다.
 
     원문이 있는 행에만 붙인다 — 없는 행에 손 모양 커서를 띄우면 눌러도
     아무 일이 없어 고장으로 읽힌다.
     """
-    assert 'data-pref-cell="${esc(r._i)}"' in SOURCE
-    assert 'c.key === "pref" && r.pref' in SOURCE
-    assert 'e.target.closest("[data-pref], [data-pref-cell]")' in SOURCE
-    assert "td[data-pref-cell] { cursor: pointer; }" in SOURCE
+    assert 'const hit = r.pref ? ` data-row="${esc(r._i)}"` : "";' in SOURCE
+    assert '<tr class="detail" data-row="${esc(r._i)}">' in SOURCE
+    assert 'e.target.closest("tr[data-row]")' in SOURCE
+    assert "tbody tr[data-row] { cursor: pointer; }" in SOURCE
+    # 여는 것과 닫는 것이 같은 자리다. 따로 두면 한쪽만 고쳐진다.
+    assert "if (state.open.has(key)) state.open.delete(key); else state.open.add(key);" in SOURCE
+
+
+def test_dragging_the_text_to_copy_does_not_close_it() -> None:
+    """원문 위를 눌러도 닫히게 한 뒤로 생긴 자리다.
+
+    조건을 복사하려고 긁으면 손을 떼는 순간 창이 닫혀, 다시 열어 처음부터
+    긁어야 한다.
+    """
+    assert "const picked = window.getSelection();" in SOURCE
+    assert "if (picked && !picked.isCollapsed && tr.contains(picked.anchorNode)) return;" in SOURCE
+
+
+def test_the_preference_cell_is_clipped_by_width_not_by_letter_count() -> None:
+    """«24글자»로 자르면 한글에서는 칸을 넘긴다 (2026-08-10).
+
+    한글 한 글자는 `1ch`(숫자 0의 폭)의 두 배 가까이다. 24글자가 22ch를
+    그냥 넘어서, `white-space: nowrap`인 칸 밖으로 흘러 옆 칸 위에 겹쳐
+    찍혔다 — 표가 깨져 보이던 원인이다. 재는 일은 브라우저에 맡긴다.
+    """
+    assert "one.slice(0, 24)" not in SOURCE, "글자 수로 다시 자른다"
+    assert ".pref { max-width: 22ch; }" not in SOURCE, "칸에 걸면 글자가 넘쳐 흐른다"
+    assert "text-overflow: ellipsis" in SOURCE
+    assert '<span class="one">${esc(one)}</span>' in SOURCE
+
+
+def test_the_expanded_text_splits_the_labels_the_collector_joined() -> None:
+    """원천이 «우대조건: … / 가입대상: …»을 줄로 이어 붙여 준다.
+
+    통짜 글뭉치로 두면 우대조건과 가입 자격이 한 문단으로 읽힌다.
+    **라벨 목록이 파이썬 쪽과 어긋나면** 새 라벨이 앞 항목 본문에 붙는다.
+    """
+    import re as _re
+
+    from rate_monitor.domain import preference_taxonomy as tax
+
+    match = _re.search(r"const PREF_LABELS = \[(.*?)\];", SOURCE)
+    assert match, "PREF_LABELS를 찾지 못했다"
+    screen = set(_re.findall(r'"([^"]+)"', match.group(1)))
+    # 파이썬이 라벨로 인정하는 것과 같은 집합이어야 한다.
+    python = set(_re.findall(r"\w+", tax._ANY_LABEL.pattern.split("(?:")[1].split(")")[0]))
+    assert screen == python, f"화면 {sorted(screen)} ≠ 파이썬 {sorted(python)}"
 
 
 def test_the_histogram_counts_bins_with_integers() -> None:
