@@ -53,8 +53,8 @@ def _source_key(link_key: str | None, institution_id: str) -> str:
     return value
 
 
-def _variant_key(row: dict, interest_method: str) -> str:
-    outlet_key = _source_key(row["outlet_link_key"], row["institution_id"])
+def _variant_key(row: dict, interest_method: str, outlet_link_key: str | None) -> str:
+    outlet_key = _source_key(outlet_link_key, row["institution_id"])
     org_key = f"{SOURCE_ID}:{outlet_key}"
     term_part = (
         f"m{row['term_months']}"
@@ -80,35 +80,53 @@ def _variant_key(row: dict, interest_method: str) -> str:
     )
 
 
-def upgrade() -> None:
-    bind = op.get_bind()
+def _outlet_links(bind) -> dict[str, str]:  # noqa: ANN001
+    """NH outlet source link를 한 번만 읽는다.
+
+    `source_entity_links.entity_id`에는 인덱스가 없다. variant 16만 건 query에
+    이 표를 JOIN하면 운영 migration이 불필요하게 느려진다. NH outlet link는
+    약 4,871개뿐이므로 한 번 읽어 entity_id→source key map으로 둔다.
+    """
+    links: dict[str, str] = {}
     rows = bind.execute(
         sa.text(
-            "SELECT v.id, v.variant_key, v.interest_method,"
+            "SELECT entity_id, source_entity_key"
+            "  FROM source_entity_links"
+            " WHERE source_id = :source_id"
+            "   AND entity_type = 'outlet'"
+            "   AND valid_to IS NULL"
+        ),
+        {"source_id": SOURCE_ID},
+    ).mappings()
+    for row in rows:
+        prior = links.get(row["entity_id"])
+        if prior is not None and prior != row["source_entity_key"]:
+            raise RuntimeError(
+                "NH outlet 하나에 활성 source key가 여러 개다: "
+                f"entity={row['entity_id']}, keys={[prior, row['source_entity_key']]}"
+            )
+        links[row["entity_id"]] = row["source_entity_key"]
+    return links
+
+
+def upgrade() -> None:
+    bind = op.get_bind()
+    outlet_links = _outlet_links(bind)
+    rows = bind.execute(
+        sa.text(
+            "SELECT v.id, v.variant_key, v.interest_method, v.outlet_id,"
             "       v.term_months, v.term_days, v.join_channel, v.payment_method,"
             "       v.amount_min, v.amount_max,"
-            "       p.name AS product_name, p.institution_id AS institution_id,"
-            "       ol.source_entity_key AS outlet_link_key"
+            "       p.name AS product_name, p.institution_id AS institution_id"
             "  FROM product_variants v"
             "  JOIN products p ON p.id = v.product_id"
             "  JOIN institutions i ON i.id = p.institution_id"
-            "  LEFT JOIN source_entity_links ol"
-            "    ON ol.source_id = :source_id"
-            "   AND ol.entity_type = 'outlet'"
-            "   AND ol.entity_id = v.outlet_id"
-            "   AND ol.valid_to IS NULL"
             " WHERE i.sector = :source_id"
             "   AND (v.interest_method = 'simple'"
             "        OR (v.interest_method = 'compound' AND p.name = :bonus_product))"
         ),
         {"source_id": SOURCE_ID, "bonus_product": BONUS_PRODUCT},
     ).mappings().all()
-
-    # 한 variant에 활성 outlet link가 여러 개 붙어 query가 중복되면 조용히
-    # 어느 것을 고르지 않는다. identity 교정은 fail-closed여야 한다.
-    ids = [row["id"] for row in rows]
-    if len(ids) != len(set(ids)):
-        raise RuntimeError("NH variant에 활성 outlet source link가 여러 개다")
 
     key_owner = {
         key: entity_id
@@ -122,7 +140,8 @@ def upgrade() -> None:
     bonus_count = 0
 
     for row in rows:
-        new_key = _variant_key(dict(row), "unknown")
+        link_key = outlet_links.get(row["outlet_id"])
+        new_key = _variant_key(dict(row), "unknown", link_key)
         owner = key_owner.get(new_key)
         if owner is not None and owner != row["id"]:
             raise RuntimeError(
