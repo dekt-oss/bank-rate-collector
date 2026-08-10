@@ -436,6 +436,22 @@
      "조건에 안 걸린 구"를 구별할 수 없다. */
   .gu-inline label[data-empty="1"] { opacity: .45; }
 
+  /* ── 자주 쓰는 조건 ───────────────────────────────────────────── */
+  .presets { display: flex; flex-wrap: wrap; gap: 7px; margin: 2px 0 12px; }
+  .presets button {
+    font: inherit; font-size: 12.5px; cursor: pointer; padding: 6px 13px;
+    border-radius: 999px; border: 1px solid var(--line);
+    background: var(--surface); color: var(--ink-2); white-space: nowrap;
+  }
+  .presets button:hover { border-color: var(--accent); color: var(--accent-ink); }
+  .presets button[aria-pressed="true"] {
+    background: var(--accent); border-color: var(--accent); color: var(--surface);
+    font-weight: 650;
+  }
+  .presets button .n {
+    font-family: var(--mono); font-size: 10.5px; opacity: .7; margin-left: 5px;
+  }
+
   /* ── 금리 기준 ────────────────────────────────────────────────── */
   .basis { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-bottom: 9px; }
   .basis label {
@@ -729,6 +745,11 @@
        사실도 이 배치가 말해 준다. -->
   <section class="panel" id="conditions">
     <h2>조회 조건 <button type="button" id="reset">조건 초기화</button></h2>
+    <!-- 처음 온 사람은 체크박스 마흔 개 앞에서 «무엇부터 눌러야 하나»에 걸린다.
+         자주 묻는 조건을 미리 묶어 단추 하나로 건다. 단추가 하는 일은 아래
+         체크박스를 켜는 것뿐이라, 무엇이 걸렸는지 그 자리에서 확인할 수 있다 —
+         숨은 조건을 만들지 않는다. -->
+    <div class="presets" id="presets" role="group" aria-label="자주 쓰는 조건"></div>
     <div class="groups" id="groups"></div>
     <!-- 공시일은 다른 항목과 성격이 다르다. 값이 수백 가지라 체크박스로는
          못 쓰고, "최근 것만"이 실제로 필요한 조건이다. -->
@@ -836,6 +857,7 @@
       <h3>금리 분포 <span class="badge live" id="hist-badge">조회 조건 반영</span></h3>
       <p class="cap" id="hist-cap"></p>
       <svg id="hist" viewBox="0 0 560 210" role="img" aria-label=""></svg>
+      <p class="cap" id="hist-hover" aria-live="polite"></p>
       <div class="legend" id="hist-legend"></div>
     </div>
 
@@ -1420,6 +1442,31 @@
     return v.length % 2 ? v[mid] : (v[mid - 1] + v[mid]) / 2;
   };
 
+  // ── 중앙값이 얼마나 흔들리는가 ────────────────────────────────────
+  //
+  // 「부산 3.20%」와 「수영구 3.45%」를 나란히 놓으면 순위를 매기고 싶어진다.
+  // 그런데 수영구는 44건이라 표본이 조금만 달랐어도 3.10%나 3.50%가 나온다.
+  // 그 폭을 안 적으면 **흔들림을 차이로 읽는다.**
+  //
+  // 다시 뽑아 세지 않는다(부트스트랩). 정렬된 값에서 몇 번째와 몇 번째 사이에
+  // 참값이 있는지는 이항분포가 정해 주므로, 정렬 한 번이면 된다. 실측
+  // (부산 12개월 정기예금 17곳)에서 부트스트랩 400회와 폭 차이가 최대
+  // 0.05%p였고, 항상 이쪽이 조금 넓다 — 좁게 말하는 것보다 낫다.
+  //
+  // 8건 미만은 구간이 표본 전체가 되어 아무 말도 못 한다. 그때는 `null`이고,
+  // 화면은 막대 대신 «표본 부족»이라 적는다.
+  const MEDIAN_BAND_MIN = 8;
+  const medianBand = (sorted) => {
+    const n = sorted.length;
+    if (n < MEDIAN_BAND_MIN) return null;
+    const k = Math.max(0, Math.floor((n - 1.96 * Math.sqrt(n)) / 2));
+    return [sorted[k], sorted[n - 1 - k]];
+  };
+  // 이 폭을 넘으면 이웃과 순위를 다툴 수 없다고 본다. 실측에서 부산 구·군
+  // 중앙값이 벌어진 폭 전체가 0.47%p였다 — 0.10%p면 그 5분의 1이다.
+  const BAND_LOUD = 0.10;
+  const bandWidth = (band) => (band ? Math.round((band[1] - band[0]) * 100) / 100 : null);
+
   // ── 우리 회사의 순위와 격차 ──────────────────────────────────────
   //
   // 모집단은 **지금 걸린 조건의 결과 전부**다 — 화면에 보이는 100건이
@@ -1791,6 +1838,8 @@
     const mid = median(values);
     const W = chartWidth("hist", 560), H = 210, PL = 34, PR = 8, PT = 10, PB = 46;
     setBox("hist", W, H);
+    // 툴팁이 «전체의 몇 %»를 낼 때 쓰는 분모. 그림과 같은 모집단이어야 한다.
+    $("hist").dataset.total = String(values.length);
     const iw = W - PL - PR, ih = H - PT - PB;
     const maxN = Math.max(1, ...bins.map((b) => b.n));
     const bw = iw / bins.length;
@@ -1814,8 +1863,14 @@
       let fill = css("--ink-3"), op = ".28";
       if (inBin(b, mid)) { fill = css("--accent"); op = ".70"; }
       if (inBin(b, ours)) { fill = css("--crit"); op = ".70"; }
+      // 구간마다 값을 실어 둔다. 마우스를 올리면 아래 문장이 이 값을 읽는다.
+      // 그림은 «어디가 두꺼운가»만 말하고, 몇 건인지는 말하지 않았다.
+      s += `<rect x="${x + 1}" y="${PT}" width="${Math.max(1, bw - 2)}" height="${ih}"`
+        + ` fill="transparent" data-bin="${i}" data-lo="${b.lo.toFixed(2)}"`
+        + ` data-hi="${b.hi.toFixed(2)}" data-n="${b.n}"/>`;
       s += `<rect x="${x + 1}" y="${PT + ih - h}" width="${Math.max(1, bw - 2)}"`
-        + ` height="${h}" fill="${fill}" opacity="${op}" rx="2"/>`;
+        + ` height="${h}" fill="${fill}" opacity="${op}" rx="2"`
+        + ` pointer-events="none"/>`;
       if (i % 2 === 0) {
         s += svgText(x + bw / 2, H - 14, b.lo.toFixed(1),
                      { anchor: "middle", size: 9, mono: 1 });
@@ -2009,7 +2064,11 @@
   // 업권별 중앙값 넷을 다시 평균 내면 저축은행 6,666건과 제주 농·축협
   // 322건이 같은 무게로 들어간다.
   const REG_SECTOR = "second_tier";
-  const REG_MIN_N = 30;      // 이보다 적으면 «중앙값»이라 부를 표본이 아니다
+  // 예전에는 «30건 미만이면 표본 부족»이었다. 실측(구·군 287곳)에서 그 규칙이
+  // 부실한 것이 드러났다 — 30건 이상인데 중앙값이 0.40%p 폭으로 흔들리는 곳이
+  // 6곳 있었고, 반대로 4건뿐인데 폭이 0인 곳도 있었다(그 4건이 같은 금리다).
+  // 건수는 흔들림의 대리 지표일 뿐이라, 흔들림을 직접 잰다 (`medianBand`).
+  const REG_MIN_N = 30;      // 캡션에서 «몇 건 이상»을 말할 때만 쓴다
   let regionView = "national";
 
   // 권역 차트가 보는 집합.
@@ -2062,6 +2121,9 @@
     return [...bucket.entries()].map(([name, b]) => {
       b.vals.sort((a, x) => a - x);
       return { name, v: median(b.vals), n: b.vals.length, inst: b.inst.size,
+               // 중앙값 옆에 «얼마나 흔들리는가»를 함께 낸다. 이게 없으면
+               // 44건짜리 구와 1,284건짜리 구가 같은 굵기로 순위를 다툰다.
+               band: medianBand(b.vals),
                mine: regionView === "national" && name === BUSAN_SIDO };
     });
   };
@@ -2113,7 +2175,7 @@
     }
 
     const ours = stats && !stats.missing ? stats.value : null;
-    const shown = D.filter((d) => d.n >= REG_MIN_N);
+    const shown = D.filter((d) => d.n >= MEDIAN_BAND_MIN);
     const vals = shown.map((d) => d.v).concat(ours == null ? [] : [ours]);
     // 축 여백을 **위아래 다르게** 준다.
     //   아래 0.10%p 고정 — 최저값(보통 우리 회사 선)이 바닥에 붙으면
@@ -2145,7 +2207,8 @@
       D.forEach((d, i) => {
         const x = PL + i * bw + bw * 0.2, w = bw * 0.6;
         const drill = regionView === "national" && d.name === BUSAN_SIDO;
-        if (d.n < REG_MIN_N) {
+        const bw2 = bandWidth(d.band);
+        if (d.n < MEDIAN_BAND_MIN) {
           s += svgText(x + w / 2, PT + ih - 6, `표본 부족(${num(d.n)}건)`,
                        { anchor: "middle", size: 9.5 });
         } else {
@@ -2153,7 +2216,20 @@
             + ` fill="${d.mine ? css("--accent-ink") : css("--accent")}"`
             + ` opacity="${d.mine ? 1 : 0.5}" rx="3"`
             + (drill ? ' style="cursor:pointer" data-drill="1"' : "") + "/>";
-          s += svgText(x + w / 2, sy(d.v) - 6, d.v.toFixed(2),
+          // 중앙값이 흔들리는 폭. 막대 끝에 세로선으로 얹는다 — 폭이 넓은 곳은
+          // 옆 막대와 겹쳐 보이고, 그게 «순위를 못 매긴다»는 뜻이다.
+          if (d.band) {
+            const wide = bw2 > BAND_LOUD;
+            const col = wide ? css("--crit") : css("--ink-3");
+            s += `<line x1="${x + w / 2}" y1="${sy(d.band[0])}"`
+              + ` x2="${x + w / 2}" y2="${sy(d.band[1])}" stroke="${col}"`
+              + ` stroke-width="${wide ? 2 : 1.5}" opacity=".85"/>`;
+            [d.band[0], d.band[1]].forEach((v) => {
+              s += `<line x1="${x + w * 0.34}" y1="${sy(v)}" x2="${x + w * 0.66}"`
+                + ` y2="${sy(v)}" stroke="${col}" stroke-width="1.5" opacity=".85"/>`;
+            });
+          }
+          s += svgText(x + w / 2, sy(d.band ? d.band[1] : d.v) - 6, d.v.toFixed(2),
                        { anchor: "middle", size: 11.5, fill: css("--ink"),
                          weight: 700, mono: 1 });
         }
@@ -2192,7 +2268,7 @@
                      { anchor: "end", size: 11.5,
                        fill: d.mine ? css("--accent-ink") : css("--ink-2"),
                        weight: d.mine ? 700 : 400, click: drill });
-        if (d.n < REG_MIN_N) {
+        if (d.n < MEDIAN_BAND_MIN) {
           s += svgText(PL + 4, y + 13, `표본 부족(${num(d.n)}건)`, { size: 10.5 });
         } else {
           s += `<rect x="${PL}" y="${y + 3}" width="${Math.max(1, sx(d.v) - PL)}"`
@@ -2200,7 +2276,20 @@
             + ` fill="${d.mine ? css("--accent-ink") : css("--accent")}"`
             + ` opacity="${d.mine ? 1 : 0.5}"`
             + (drill ? ' style="cursor:pointer" data-drill="1"' : "") + "/>";
-          s += svgText(Math.min(sx(d.v) + 5, W - PR - 26), y + 14, d.v.toFixed(2),
+          // 흔들리는 폭. 세로 막대와 같은 규칙이다 (그쪽 주석 참고).
+          if (d.band) {
+            const wide = bandWidth(d.band) > BAND_LOUD;
+            const col = wide ? css("--crit") : css("--ink-3");
+            s += `<line x1="${sx(d.band[0])}" y1="${y + 10}" x2="${sx(d.band[1])}"`
+              + ` y2="${y + 10}" stroke="${col}" stroke-width="${wide ? 2 : 1.5}"`
+              + ` opacity=".85"/>`;
+            [d.band[0], d.band[1]].forEach((v) => {
+              s += `<line x1="${sx(v)}" y1="${y + 5}" x2="${sx(v)}" y2="${y + 15}"`
+                + ` stroke="${col}" stroke-width="1.5" opacity=".85"/>`;
+            });
+          }
+          s += svgText(Math.min(sx(d.band ? d.band[1] : d.v) + 5, W - PR - 26),
+                       y + 14, d.v.toFixed(2),
                        { size: 11.5, fill: css("--ink"), weight: 700, mono: 1 });
         }
         s += svgText(PL, y + 26, `${num(d.inst)}개사 · ${num(d.n)}건`,
@@ -2228,8 +2317,17 @@
       `${regionView === "national" ? "권역" : "부산 구·군"}별 2금융권 `
       + "12개월 정기예금 기본금리 중앙값 막대 그래프");
 
+    // 흔들리는 폭이 넓은 곳이 몇 군데인지 범례가 직접 센다. 「어디가 넓은가」를
+    // 눈으로 찾게 두면 안 찾는다.
+    const loud = shown.filter((d) => bandWidth(d.band) > BAND_LOUD).length;
     $("reg-legend").innerHTML =
       `<span><i style="background:${css("--accent")}"></i>기본금리 중앙값</span>`
+      + `<span><i style="background:${css("--ink-3")}"></i>중앙값이 흔들리는 폭`
+      + (loud
+          ? ` — <b style="color:${css("--crit")}">${loud}곳</b>은 ${BAND_LOUD.toFixed(2)}%p를`
+            + ` 넘어 이웃과 순위를 다툴 수 없습니다`
+          : ` — 모두 ${BAND_LOUD.toFixed(2)}%p 안입니다`)
+      + `</span>`
       + (regionView === "national"
           ? `<span><i style="background:${css("--accent-ink")}"></i>부산</span>` : "")
       + (ours != null
@@ -2239,6 +2337,23 @@
       + (regionView === "national" ? ""
           : '<button type="button" class="back" id="reg-back">← 전국으로 돌아가기</button>');
   };
+
+
+  // ── 분포 위에 마우스를 올리면 그 구간을 말한다 ────────────────────
+  //
+  // 그림만으로는 «어디가 두꺼운가»까지만 읽힌다. 몇 건이고 전체의 몇 %인지는
+  // 눈으로 못 센다. 값은 막대가 이미 들고 있으니(`data-n`) 읽어서 적기만 한다.
+  const histTotal = () => Number($("hist").dataset.total || 0);
+  $("hist").addEventListener("mousemove", (e) => {
+    const r = e.target.closest("[data-bin]");
+    if (!r) return;
+    const n = Number(r.dataset.n), all = histTotal();
+    $("hist-hover").innerHTML =
+      `<b>${esc(r.dataset.lo)}% ~ ${esc(r.dataset.hi)}%</b> 구간 `
+      + `<b>${num(n)}건</b>`
+      + (all ? ` · 전체의 ${(n / all * 100).toFixed(1)}%` : "");
+  });
+  $("hist").addEventListener("mouseleave", () => { $("hist-hover").textContent = ""; });
 
   const drawCharts = () => {
     if (!ALL.length) return;
@@ -2648,6 +2763,60 @@
 
   // ── 연결 ─────────────────────────────────────────────────────────
   const redraw = () => { state.shown = shownLimit(); render(); };
+
+  // ── 자주 쓰는 조건 ───────────────────────────────────────────────
+  //
+  // 단추가 하는 일은 **아래 체크박스를 켜는 것뿐**이다. 별도의 숨은 조건을
+  // 만들지 않는다 — 만들면 화면이 «조건 3개»라고 적는데 실제로는 네 개가
+  // 걸린 상태가 되고, 어느 쪽이 맞는지 알 수 없다.
+  //
+  // 같은 단추를 다시 누르면 그 단추가 켠 것만 끈다. 다른 조건은 건드리지
+  // 않는다 — 지역을 골라 둔 사람이 «1년 정기예금»을 껐다고 지역까지
+  // 잃으면 안 된다.
+  const COND_PRESETS = [
+    { id: "dep12", label: "1년 정기예금",
+      pick: { type: ["term_deposit"], term: ["7-12"] } },
+    { id: "sav12", label: "1년 적금",
+      pick: { type: ["installment_savings"], term: ["7-12"] } },
+    { id: "pref", label: "우대조건 있는 상품",
+      pick: { prefStatus: ["present"] } },
+    { id: "online", label: "비대면 가입",
+      pick: { channel: ["internet", "mobile"] } },
+  ];
+  const presetOn = (p) =>
+    Object.entries(p.pick).every(([k, vs]) => vs.every((v) => state.picked[k].has(v)));
+
+  const renderPresets = () => {
+    $("presets").innerHTML = COND_PRESETS.map((p) => {
+      // 이 단추를 누르면 몇 건이 되는지 미리 센다. 눌러 보고서야 0건인 것을
+      // 아는 것보다, 누르기 전에 보이는 편이 낫다.
+      const n = ALL.length
+        ? ALL.filter((r) => Object.entries(p.pick).every(([k, vs]) =>
+            k === "term" ? vs.includes((termBucket(r.term) || {}).id)
+                         : vs.includes(String(r[k])))).length
+        : null;
+      return `<button type="button" data-preset="${esc(p.id)}"`
+        + ` aria-pressed="${presetOn(p)}">${esc(p.label)}`
+        + (n == null ? "" : `<span class="n">${num(n)}</span>`) + `</button>`;
+    }).join("");
+  };
+
+  $("presets").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-preset]");
+    if (!b) return;
+    const p = COND_PRESETS.find((x) => x.id === b.dataset.preset);
+    if (!p) return;
+    const on = presetOn(p);
+    Object.entries(p.pick).forEach(([k, vs]) => vs.forEach((v) => {
+      if (on) state.picked[k].delete(v); else state.picked[k].add(v);
+    }));
+    // 우대조건 그룹을 끄면 세부 조건도 함께 비운다. 체크박스 쪽과 같은 규칙이다.
+    if (!state.picked.prefStatus.has("present")) state.prefTags.clear();
+    renderGroups();
+    renderPresets();
+    redraw();
+  });
+
   const shownLimit = () => {
     const v = $("shown").value;
     return v === "all" ? null : Number(v);
@@ -2783,6 +2952,7 @@
       if (!state.picked.prefStatus.has("present")) state.prefTags.clear();
       renderGroups();
     }
+    renderPresets();
     redraw();
   });
   $("conditions").addEventListener("change", (e) => {
@@ -2922,6 +3092,7 @@
     $("hide-zero").checked = false;
     $("rmin-label").textContent = "기본금리 이상 (%)";
     renderGroups();
+    renderPresets();
     renderAsOf();
     render();
   });
@@ -3029,6 +3200,7 @@
       renderZeroCount();
 
       renderGroups();
+      renderPresets();
       renderAsOf();
       // 여기서부터 주소를 갱신한다. 그 전에 켜면 복원 도중의 반쪽 상태가
       // 주소에 덮어써진다.

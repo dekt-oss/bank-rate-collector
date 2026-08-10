@@ -750,6 +750,92 @@ def test_the_preference_cell_is_clipped_by_width_not_by_letter_count() -> None:
     assert '<span class="one">${esc(one)}</span>' in SOURCE
 
 
+# ── 2단계: 움직이는 시각화와 자주 쓰는 조건 (2026-08-10) ──────────────
+
+
+def test_the_region_chart_shows_how_much_the_median_wobbles() -> None:
+    """«부산 3.20%»와 «수영구 3.45%»를 나란히 놓으면 순위를 매기고 싶어진다.
+
+    수영구는 44건이라 표본이 조금만 달랐어도 3.10%나 3.50%가 나온다. 그 폭을
+    안 적으면 **흔들림을 차이로 읽는다.** 막대마다 구간을 함께 긋는다.
+    """
+    assert "const medianBand = (sorted) => {" in SOURCE
+    assert "band: medianBand(b.vals)," in SOURCE
+    # 넓은 화면(세로 막대)과 좁은 화면(가로 막대) 둘 다 그어야 한다.
+    assert SOURCE.count("if (d.band) {") == 2, "한쪽 화면에만 그렸다"
+    # 몇 곳이 넓은지는 범례가 직접 센다. 눈으로 찾게 두면 안 찾는다.
+    assert "bandWidth(d.band) > BAND_LOUD" in SOURCE
+
+
+def test_the_sample_gate_measures_the_wobble_not_the_row_count() -> None:
+    """«30건 미만이면 표본 부족»은 실측에서 부실한 규칙이었다 (2026-08-10).
+
+    구·군 287곳 중 30건 이상인데 중앙값이 0.40%p 폭으로 흔들리는 곳이 6곳
+    있었고, 반대로 4건뿐인데 폭이 0인 곳도 있었다 — 그 4건이 같은 금리다.
+    건수는 흔들림의 대리 지표일 뿐이라 흔들림을 직접 잰다.
+    """
+    assert "d.n >= REG_MIN_N" not in SOURCE, "건수로 다시 자른다"
+    assert "d.n < REG_MIN_N" not in SOURCE, "건수로 다시 자른다"
+    assert "const shown = D.filter((d) => d.n >= MEDIAN_BAND_MIN);" in SOURCE
+
+
+def test_the_median_band_matches_a_bootstrap() -> None:
+    """화면은 다시 뽑아 세지 않는다(부트스트랩). 정렬 한 번으로 낸다.
+
+    몇 번째와 몇 번째 사이에 참값이 있는지는 이항분포가 정한다. 아래는 화면과
+    **같은 식**을 파이썬으로 다시 쓴 것이고, 부트스트랩 결과와 맞는지 본다.
+    순서통계량 쪽이 더 좁으면 화면이 흔들림을 좁게 말하고 있다는 뜻이다.
+    """
+    import math
+    import random
+    import statistics
+
+    def band(values: list[float]) -> tuple[float, float]:
+        v = sorted(values)
+        n = len(v)
+        k = max(0, math.floor((n - 1.96 * math.sqrt(n)) / 2))
+        return v[k], v[n - 1 - k]
+
+    rng = random.Random(11)
+    sample = [round(rng.gauss(3.2, 0.25), 2) for _ in range(120)]
+    lo, hi = band(sample)
+    boots = sorted(
+        statistics.median(rng.choices(sample, k=len(sample))) for _ in range(400)
+    )
+    assert (hi - lo) >= (boots[389] - boots[10]) - 0.02, f"{lo}~{hi}"
+    assert "1.96 * Math.sqrt(n)" in SOURCE, "화면이 다른 식을 쓴다"
+    assert "const MEDIAN_BAND_MIN = 8;" in SOURCE
+
+
+def test_a_preset_only_ticks_the_boxes_that_are_already_there() -> None:
+    """단추가 숨은 조건을 만들면 «조건 3개»라고 적힌 화면에 네 개가 걸린다.
+
+    어느 쪽이 맞는지 알 수 없게 되므로, 단추는 아래 체크박스를 켜기만 한다.
+    """
+    from rate_monitor.domain.enums import ProductType
+
+    match = re.search(r"const COND_PRESETS = \[(.*?)\n  \];", SOURCE, re.S)
+    assert match, "COND_PRESETS를 찾지 못했다"
+    body = match.group(1)
+    for key in re.findall(r"(\w+): \[", body):
+        assert key in {"type", "term", "prefStatus", "channel"}, f"없는 축: {key}"
+    for code in ("term_deposit", "installment_savings"):
+        assert code in body
+        assert code in {t.value for t in ProductType}
+    assert "if (on) state.picked[k].delete(v); else state.picked[k].add(v);" in SOURCE
+
+
+def test_the_histogram_says_how_many_rows_a_bar_holds() -> None:
+    """그림은 «어디가 두꺼운가»까지만 말한다. 몇 건인지는 눈으로 못 센다.
+
+    분모는 **그림과 같은 모집단**이어야 한다. 다른 데서 가져오면 «전체의 3%»가
+    무엇의 3%인지 알 수 없다.
+    """
+    assert 'data-n="${b.n}"' in SOURCE
+    assert '$("hist").dataset.total = String(values.length);' in SOURCE
+    assert 'id="hist-hover" aria-live="polite"' in SOURCE
+
+
 def test_the_sideways_scrollbar_is_reachable_without_going_to_the_bottom() -> None:
     """표가 100건이면 스크롤 상자가 4,032px가 된다 (2026-08-10 실측).
 
