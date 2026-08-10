@@ -36,3 +36,12 @@ def test_health_api_is_read_only_and_sanitized() -> None:
 def test_health_api_never_requires_or_returns_the_collect_password() -> None:
     assert "DASHBOARD_PASSWORD" not in API
     assert "password" not in API.lower()
+
+
+
+def test_live_pipeline_includes_the_publish_gates() -> None:
+    """수집만 성공하고 gate가 실패한 작업을 전체 정상으로 보이면 안 된다."""
+    assert '"Verify P1-A gate": "p1a_gate"' in API
+    assert '"Size gate": "size_gate"' in API
+    assert '"Volume gate": "volume_gate"' in API
+    assert '"Publish to rate-data branch": "publish"' in API

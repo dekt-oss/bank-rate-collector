@@ -1,12 +1,13 @@
 """Source freshness / run health / warning taxonomy 회귀 테스트."""
 
+import sqlite3
 from datetime import datetime
 from pathlib import Path
 
 from rate_monitor.db import models as m
 from rate_monitor.db.session import create_db_engine, make_session_factory, session_scope
 from rate_monitor.domain.timeutil import KST
-from rate_monitor.services.source_health_service import build_collection_health
+from rate_monitor.services.source_health_service import _reason_counts, build_collection_health
 
 
 def _db(tmp_path: Path):
@@ -131,3 +132,28 @@ def test_disabled_source_is_gray(tmp_path) -> None:
     card = _health(path)["sources"][0]
     assert card["signal"] == "gray"
     engine.dispose()
+
+
+
+def test_row_validation_warning_is_actionable_even_without_review_item() -> None:
+    """행 validation warning만 남는 parser 경로도 초록불로 숨기지 않는다."""
+    conn = sqlite3.connect(":memory:")
+    try:
+        conn.executescript("""
+            CREATE TABLE review_items (
+                run_id TEXT, issue_type TEXT, severity TEXT, message TEXT
+            );
+            CREATE TABLE rate_observations (
+                last_run_id TEXT, validation_status TEXT, validation_message TEXT
+            );
+            INSERT INTO rate_observations VALUES
+                ('r1', 'warning', '계약기간을 읽지 못했다: -'),
+                ('r1', 'valid', NULL),
+                ('old', 'warning', '계약기간을 읽지 못했다: -');
+        """)
+        reasons = _reason_counts(conn, "r1")
+    finally:
+        conn.close()
+    assert reasons == [
+        {"code": "TERM_PARSE_AMBIGUOUS", "severity": "warning", "count": 1}
+    ]

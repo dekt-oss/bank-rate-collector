@@ -20,6 +20,8 @@ const PIPELINE_STEPS = {
   "Build dashboard": "dashboard",
   "Export full dataset": "export",
   "Build public site": "site",
+  "Verify P1-A gate": "p1a_gate",
+  "Size gate": "size_gate",
   "Volume gate": "volume_gate",
   "Publish to rate-data branch": "publish",
   "Upload state to R2": "r2",

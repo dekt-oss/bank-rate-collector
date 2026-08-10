@@ -130,6 +130,13 @@ def _review_reason(issue_type: str, severity: str, message: str) -> tuple[str, s
     return issue_type.upper(), level
 
 
+def _row_warning_reason(message: str) -> str:
+    """관측 행 자체의 validation warning을 운영 reason으로 정규화한다."""
+    if "계약기간을 읽지 못했다" in message:
+        return "TERM_PARSE_AMBIGUOUS"
+    return "ROW_VALIDATION_WARNING"
+
+
 def _reason_counts(conn: sqlite3.Connection, run_id: str | None) -> list[dict[str, Any]]:
     if not run_id:
         return []
@@ -144,6 +151,23 @@ def _reason_counts(conn: sqlite3.Connection, run_id: str | None) -> list[dict[st
             row["issue_type"], row["severity"], row["message"] or ""
         )
         counter[(code, level)] += 1
+
+    # 일부 parser warning은 ReviewItem이 아니라 observation validation에 남는다.
+    # 예: NH의 기간 '-' 행. 이것을 안 보면 run.status=success인데 실제로는
+    # 사람이 확인해야 할 행이 있어도 초록불이 된다. change-only 저장이므로
+    # 이번 실행이 마지막으로 확인한 행(last_run_id)만 센다.
+    row_warnings = _rows(
+        conn,
+        "SELECT validation_message, COUNT(*) AS count"
+        "  FROM rate_observations"
+        " WHERE last_run_id = ? AND validation_status = 'warning'"
+        " GROUP BY validation_message",
+        (run_id,),
+    )
+    for row in row_warnings:
+        code = _row_warning_reason(row["validation_message"] or "")
+        counter[(code, "warning")] += int(row["count"] or 0)
+
     return [
         {"code": code, "severity": severity, "count": count}
         for (code, severity), count in sorted(

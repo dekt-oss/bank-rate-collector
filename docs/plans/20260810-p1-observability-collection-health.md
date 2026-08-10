@@ -146,6 +146,7 @@
 - implementation branch: `agent/p1-collection-health`
 - DB schema migration: 없음
 - live status: read-only `/api/health`
+- batch identity metadata: deferred — 이번 PR은 GitHub workflow 상태와 DB source 상태를 읽기 전용으로 병렬 표시하며 CLI/수집 계약은 바꾸지 않음
 
 
 P1 PR 1 — `Collection Health + Warning Taxonomy`
