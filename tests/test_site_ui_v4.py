@@ -551,16 +551,19 @@ def test_a_thin_sample_is_named_not_drawn() -> None:
     assert "개사 · " in SOURCE, "막대마다 표본 크기를 적어야 한다"
 
 
-def test_the_axis_says_it_does_not_start_at_zero() -> None:
-    """권역 중앙값은 서로 0.15%p 안쪽이라 축을 압축해야 차이가 보인다.
+def test_the_region_chart_does_not_encode_the_rate_as_a_length() -> None:
+    """권역 중앙값은 3.00~3.80% 안에 몰려 있다.
 
-    압축했으면 그 사실을 적어야 한다. 안 적으면 막대 높이 비율이 금리
-    비율로 읽힌다.
+    막대로 그리면 축을 2.90%부터 끊어야 차이가 보이고, 끊으면 «3.80이 3.00의
+    두 배»처럼 보인다. 그래서 길이로 말하지 않는 네모로 바꿨다 (2026-08-10).
     """
-    assert "0부터가 아닙니다" in SOURCE
-    # 여백을 위아래 같은 값으로 두면 위는 막대를 눕히고 아래는 우리 회사
-    # 선을 바닥에 붙인다. 붙으면 3.20%인데도 «0에 가깝다»로 읽힌다.
-    assert "- 0.10) * 100" in SOURCE
+    reg = SOURCE[SOURCE.index("── 차트 3"):SOURCE.index("const drawCharts")]
+    assert 'class="regtiles"' in SOURCE
+    assert "const wide = W >= 900;" not in reg, "막대 배치가 되돌아왔다"
+    assert "sy(d.v)" not in reg and "sx(d.v)" not in reg, "값을 길이로 그린다"
+    # 막대 시절에는 «0부터가 아닙니다»를 적어 압축을 밝혀야 했다. 길이로
+    # 말하지 않으면 밝힐 것도 없다 — 경고를 지웠으면 원인도 없어야 한다.
+    assert "0부터가 아닙니다" not in reg
 
 
 def test_our_company_is_one_colour_everywhere() -> None:
@@ -748,6 +751,117 @@ def test_the_preference_cell_is_clipped_by_width_not_by_letter_count() -> None:
     assert ".pref { max-width: 22ch; }" not in SOURCE, "칸에 걸면 글자가 넘쳐 흐른다"
     assert "text-overflow: ellipsis" in SOURCE
     assert '<span class="one">${esc(one)}</span>' in SOURCE
+
+
+# ── 2단계: 움직이는 시각화와 자주 쓰는 조건 (2026-08-10) ──────────────
+
+
+def test_the_region_chart_shows_how_much_the_median_wobbles() -> None:
+    """«부산 3.20%»와 «수영구 3.45%»를 나란히 놓으면 순위를 매기고 싶어진다.
+
+    수영구는 44건이라 표본이 조금만 달랐어도 3.10%나 3.50%가 나온다. 그 폭을
+    안 적으면 **흔들림을 차이로 읽는다.** 막대마다 구간을 함께 긋는다.
+    """
+    assert "const medianBand = (sorted) => {" in SOURCE
+    assert "band: medianBand(b.vals)," in SOURCE
+    # 칸마다 «±0.15%p»로 적는다. 처음에는 막대 위에 붉은 선으로 그었는데
+    # 여덟 중 일곱이 붉어져 색이 경고 구실을 못 했고, 좁은 화면에서는 선이
+    # 칸 밖으로 나가 숫자와 겹쳤다 (2026-08-10).
+    assert "±${w.toFixed(2)}%p" in SOURCE
+    assert 'w > BAND_LOUD ? " loud" : ""' in SOURCE
+    assert ".regtile .bd.loud" in SOURCE, "넘는 칸을 구분할 방법이 없다"
+    # 몇 곳이 넓은지는 범례가 직접 센다. 눈으로 찾게 두면 안 찾는다.
+    assert "bandWidth(d.band) > BAND_LOUD" in SOURCE
+
+
+def test_the_sample_gate_measures_the_wobble_not_the_row_count() -> None:
+    """«30건 미만이면 표본 부족»은 실측에서 부실한 규칙이었다 (2026-08-10).
+
+    구·군 287곳 중 30건 이상인데 중앙값이 0.40%p 폭으로 흔들리는 곳이 6곳
+    있었고, 반대로 4건뿐인데 폭이 0인 곳도 있었다 — 그 4건이 같은 금리다.
+    건수는 흔들림의 대리 지표일 뿐이라 흔들림을 직접 잰다.
+    """
+    assert "d.n >= REG_MIN_N" not in SOURCE, "건수로 다시 자른다"
+    assert "d.n < REG_MIN_N" not in SOURCE, "건수로 다시 자른다"
+    assert "const shown = D.filter((d) => d.n >= MEDIAN_BAND_MIN);" in SOURCE
+
+
+def test_the_median_band_matches_a_bootstrap() -> None:
+    """화면은 다시 뽑아 세지 않는다(부트스트랩). 정렬 한 번으로 낸다.
+
+    몇 번째와 몇 번째 사이에 참값이 있는지는 이항분포가 정한다. 아래는 화면과
+    **같은 식**을 파이썬으로 다시 쓴 것이고, 부트스트랩 결과와 맞는지 본다.
+    순서통계량 쪽이 더 좁으면 화면이 흔들림을 좁게 말하고 있다는 뜻이다.
+    """
+    import math
+    import random
+    import statistics
+
+    def band(values: list[float]) -> tuple[float, float]:
+        v = sorted(values)
+        n = len(v)
+        k = max(0, math.floor((n - 1.96 * math.sqrt(n)) / 2))
+        return v[k], v[n - 1 - k]
+
+    rng = random.Random(11)
+    sample = [round(rng.gauss(3.2, 0.25), 2) for _ in range(120)]
+    lo, hi = band(sample)
+    boots = sorted(
+        statistics.median(rng.choices(sample, k=len(sample))) for _ in range(400)
+    )
+    assert (hi - lo) >= (boots[389] - boots[10]) - 0.02, f"{lo}~{hi}"
+    assert "1.96 * Math.sqrt(n)" in SOURCE, "화면이 다른 식을 쓴다"
+    assert "const MEDIAN_BAND_MIN = 8;" in SOURCE
+
+
+def test_a_preset_only_ticks_the_boxes_that_are_already_there() -> None:
+    """단추가 숨은 조건을 만들면 «조건 3개»라고 적힌 화면에 네 개가 걸린다.
+
+    어느 쪽이 맞는지 알 수 없게 되므로, 단추는 아래 체크박스를 켜기만 한다.
+    단추가 켜는 값은 파이썬 쪽 열거형과 같은 코드여야 한다 — 한쪽만 바뀌면
+    누르는 순간 0건이 되고, 화면은 «조건에 맞는 행이 없습니다»라고만 말한다.
+    """
+    from rate_monitor.domain.enums import ProductType, Sector
+
+    match = re.search(r"const COND_PRESETS = \[(.*?)\n  \];", SOURCE, re.S)
+    assert match, "COND_PRESETS를 찾지 못했다"
+    body = match.group(1)
+    for key in re.findall(r"(\w+): \[", body):
+        assert key in {"region", "sector", "type", "term"}, f"없는 축: {key}"
+    for code in ("term_deposit", "installment_savings"):
+        assert code in body and code in {t.value for t in ProductType}
+    for code in ("savings_bank", "nh_local", "cu", "kfcc"):
+        assert code in body and code in {x.value for x in Sector}
+    assert "if (on) state.picked[k].delete(v); else state.picked[k].add(v);" in SOURCE
+
+
+def test_the_preset_count_matches_what_clicking_it_gives() -> None:
+    """단추에 «62건»이라 적어 놓고 누르니 다른 수가 나오면 둘 다 못 믿는다.
+
+    지역 조건에는 예외가 하나 있다 — 전국 공시 행은 시도에 매이지 않는다.
+    세는 쪽에도 **같은 예외**가 있어야 한다.
+    """
+    assert "const rowMatchesPick = (r, pick) =>" in SOURCE
+    assert 'if (k === "region" && NATIONWIDE_GEO.has(r.geo)) return true;' in SOURCE
+    # 표를 거를 때의 예외와 짝이다. 한쪽이 사라지면 둘이 어긋난다.
+    assert 'if (g.key === "region" && NATIONWIDE_GEO.has(r.geo)) continue;' in SOURCE
+    assert "ALL.filter((r) => rowMatchesPick(r, p.pick)).length" in SOURCE
+
+
+def test_turning_a_preset_off_also_drops_what_hung_under_it() -> None:
+    """부산을 껐는데 구·군만 남으면 아무것도 안 걸린 것처럼 보인다."""
+    assert "if (!busanOn()) state.gu.clear();" in SOURCE
+
+
+def test_the_histogram_says_how_many_rows_a_bar_holds() -> None:
+    """그림은 «어디가 두꺼운가»까지만 말한다. 몇 건인지는 눈으로 못 센다.
+
+    분모는 **그림과 같은 모집단**이어야 한다. 다른 데서 가져오면 «전체의 3%»가
+    무엇의 3%인지 알 수 없다.
+    """
+    assert 'data-n="${b.n}"' in SOURCE
+    assert '$("hist").dataset.total = String(values.length);' in SOURCE
+    assert 'id="hist-hover" aria-live="polite"' in SOURCE
 
 
 def test_the_sideways_scrollbar_is_reachable_without_going_to_the_bottom() -> None:
@@ -939,7 +1053,8 @@ def test_the_charts_use_the_real_pixel_width() -> None:
     실제 폭을 viewBox로 쓰면 배율이 1이라 font-size가 곧 픽셀이다.
     """
     assert "const chartWidth = (id, fallback) =>" in SOURCE
-    for chart in ('chartWidth("hist"', 'chartWidth("terms"', 'chartWidth("reg"'):
+    # 권역 그림은 2026-08-10에 네모로 바뀌어 SVG가 아니다 — CSS 격자가 접는다.
+    for chart in ('chartWidth("hist"', 'chartWidth("terms"'):
         assert chart in SOURCE, chart
     # 폭이 바뀌면 다시 그려야 한다. 안 그리면 창을 돌렸을 때 옛 폭이 남는다.
     assert 'window.addEventListener("resize"' in SOURCE
@@ -948,17 +1063,16 @@ def test_the_charts_use_the_real_pixel_width() -> None:
     assert "if (window.innerWidth === lastWidth) return;" in SOURCE
 
 
-def test_the_region_chart_lies_down_when_the_screen_is_narrow() -> None:
-    """세로 막대 아홉을 340px에 세우면 막대당 37px이다.
+def test_the_region_tiles_reflow_on_a_narrow_screen() -> None:
+    """세로 막대 아홉을 340px에 세우면 막대당 37px이라 이름도 안 들어갔다.
 
-    «인천·경기»도 «271개사 · 2,603건»도 안 들어간다.
+    배치를 손으로 갈라 두 벌 그리는 대신 격자가 스스로 접게 한다 — 한 벌만
+    있으면 «넓은 쪽만 고쳤다»가 생길 수 없다.
     """
+    assert "grid-template-columns: repeat(auto-fit, minmax(136px, 1fr));" in SOURCE
+    # 어느 폭에서든 표본 크기는 적는다. 적는 자리가 한 곳뿐이어야 한다.
     reg = SOURCE[SOURCE.index("── 차트 3"):SOURCE.index("const drawCharts")]
-    assert "const wide = W >= 900;" in reg
-    assert "가로축은 ${lo.toFixed(2)}%부터 시작합니다" in reg, "눕혀도 축을 밝힌다"
-    assert "세로축은 ${lo.toFixed(2)}%부터 시작합니다" in reg
-    # 어느 배치든 표본 크기는 적는다.
-    assert reg.count("개사 · ${num(d.n)}건") == 2
+    assert reg.count("개사 · ${num(d.n)}건") == 1
 
 
 def test_the_url_replaces_instead_of_pushing() -> None:
