@@ -317,8 +317,15 @@
   button.act:hover:not(:disabled) { border-color: var(--accent); color: var(--accent-ink); }
   button.act:disabled { opacity: 0.45; cursor: default; }
 
+  /* **높이를 묶어야 가로 막대에 손이 닿는다.** 표가 100건이면 이 상자가
+     4,032px가 되고, 가로 스크롤 막대는 그 맨 아래에 붙는다 — 옆 칸을 보려고
+     5,165px를 내려갔다가 다시 올라와야 했다 (2026-08-10 실측).
+
+     높이를 화면에 맞춰 자르면 막대가 늘 보이는 자리에 선다. 위의
+     `thead th`가 sticky라 세로로 굴려도 열 이름이 따라온다. */
   .scroll {
-    margin-top: 16px; overflow-x: auto; background: var(--surface);
+    margin-top: 16px; overflow: auto; max-height: 78vh;
+    background: var(--surface);
     border: 1px solid var(--line); border-radius: 3px;
   }
   table { border-collapse: collapse; width: 100%; font-size: 13px; }
