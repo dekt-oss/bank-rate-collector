@@ -1,0 +1,106 @@
+name: Validate KFCC gate
+
+on:
+  push:
+    branches: ["agent/p0-partial-collection-gate"]
+
+permissions:
+  contents: read
+
+jobs:
+  validate-kfcc-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Sync dependencies
+        run: uv sync --locked
+
+      - name: Restore production state from R2
+        env:
+          STORAGE_BACKEND: ${{ vars.STORAGE_BACKEND }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+          R2_REGION: ${{ vars.R2_REGION }}
+        run: |
+          set -euo pipefail
+          mkdir -p work
+          uv run rate-monitor storage restore --dest work/rate_monitor.sqlite3
+
+      - name: Apply migrations
+        env:
+          RATE_MONITOR_DB_URL: sqlite+pysqlite:///${{ github.workspace }}/work/rate_monitor.sqlite3
+        run: uv run alembic upgrade head
+
+      - name: Collect KFCC only — Busan validation scope
+        run: |
+          uv run rate-monitor collect \
+            --source kfcc \
+            --db work/rate_monitor.sqlite3 \
+            --raw-root data/raw \
+            --scope 부산
+
+      - name: Snapshot
+        run: |
+          uv run rate-monitor snapshot \
+            --db work/rate_monitor.sqlite3 \
+            --publish-db publish/rate_monitor.sqlite3 \
+            --manifest publish/manifest.json
+
+      - name: Validate stored data
+        run: uv run rate-monitor validate --db publish/rate_monitor.sqlite3
+
+      - name: Build dashboard
+        run: |
+          uv run rate-monitor build-dashboard \
+            --db publish/rate_monitor.sqlite3 \
+            --template web/templates/dashboard.html \
+            --site site/index.html \
+            --summary publish/summary.json
+
+      - name: Export full dataset
+        run: |
+          uv run rate-monitor export \
+            --db publish/rate_monitor.sqlite3 \
+            --out publish/export
+
+      - name: Build public site
+        run: |
+          uv run rate-monitor build-site \
+            --db publish/rate_monitor.sqlite3 \
+            --template web/templates/site.html \
+            --out site-public \
+            --export-dir publish/export
+
+      - name: Verify P1-A gate on real KFCC-only raw
+        run: |
+          uv run python scripts/verify_gate.py \
+            --db publish/rate_monitor.sqlite3 \
+            --manifest publish/manifest.json \
+            --summary publish/summary.json \
+            --site site/index.html \
+            --raw-root data/raw
+
+      - name: Upload validation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kfcc-gate-validation-${{ github.run_id }}
+          retention-days: 7
+          path: |
+            data/raw/
+            publish/manifest.json
+            publish/summary.json
+          if-no-files-found: warn
