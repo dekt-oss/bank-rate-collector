@@ -388,7 +388,6 @@
   .srcnote ul { margin: 6px 0 0; padding-left: 18px; }
   .srcnote li { margin-bottom: 7px; }
   .srcnote .how { color: var(--ink-3); }
-  .srcnote .ref { font-family: var(--mono); font-size: 11px; color: var(--ink-3); }
   .basis-note { margin-top: 12px; }
 
   @media (max-width: 640px) {
@@ -2428,30 +2427,24 @@
   //
   // 목록은 DB의 `sources`가 정하고 (`data.sources`), 설명 문장만 여기 둔다.
   // 코드에 목록을 박으면 수집원이 늘었을 때 주석만 조용히 뒤처진다.
-  // 아래에 없는 수집원이 들어오면 이름과 근거 주소만이라도 나온다.
-  // [무엇을 봤나, 그래서 무엇을 조심해야 하나]. **어떻게 받았는지는 여기
-  // 적지 않는다** — 그건 DB의 `mode`가 말한다. 두 곳에 적으면 "공시 화면
-  // 공시 화면 조회"처럼 겹쳐 나온다.
+  // 아래에 없는 수집원이 들어오면 이름만이라도 나온다.
+  //
+  // **한 줄로만 적는다** — 화면 이름, 그리고 꼬리표 하나. 여러 줄로 적었더니
+  // 표보다 주석이 길어져 아무도 안 읽었다. 자세한 주의사항은 위
+  // `notice-detail`이 이미 말한다.
+  //
+  // **어떻게 받았는지는 여기 적지 않는다** — 그건 DB의 `mode`가 말한다.
+  // 두 곳에 적으면 "공시 화면 공시 화면 조회"처럼 겹쳐 나온다.
   const SOURCE_NOTE = {
-    fsb: ["저축은행중앙회 소비자포털",
-          "지역은 <b>본점 소재지</b>입니다. 그 지점의 적용금리가 아닙니다."],
+    fsb: ["저축은행중앙회 소비자포털", "지역은 본점 소재지"],
     finlife_savings_bank: ["금융감독원 금융상품통합비교공시 — 저축은행",
-          "전국 공시입니다. 저축은행중앙회와 겹치는 상품은 표에서 물러납니다."],
-    finlife_bank: ["금융감독원 금융상품통합비교공시 — 시중은행",
-          "전국 공시라 시도·구·군에 매이지 않습니다. 표에서는 "
-          + "<b>전국 공시</b> 배지가 붙습니다."],
-    kfcc: ["새마을금고 금고위치안내 · 금고별 금리",
-          "지역은 <b>점포 주소</b>에서 뽑았습니다. 공식 화면에 우대금리 열이 "
-          + "없어 최고금리가 비어 있습니다."],
-    cu: ["신협 전자공시 금리비교",
-          "지역은 <b>조회 조건</b>이며 점포 주소가 아닙니다."],
+          "전국 공시"],
+    finlife_bank: ["금융감독원 금융상품통합비교공시 — 시중은행", "전국 공시"],
+    kfcc: ["새마을금고 금고위치안내 · 금고별 금리", "지역은 점포 주소"],
+    cu: ["신협 전자공시 금리비교", "지역은 조회 조건"],
     nh_local: ["농협 금융상품몰 농·축협별 예금금리",
-          "점포마다 따로 받습니다. 지역은 <b>점포 주소</b>에서 뽑았습니다. "
-          + "이 화면의 우대조건 칸에는 조건이 아니라 <b>상품 설명</b>이 오는 "
-          + "경우가 많아, 세부 조건 분류에서는 대부분 «기타»로 잡힙니다."],
-    bok_ecos: ["한국은행 ECOS",
-          "금융상품이 아니라 지표입니다. 위 참고카드에만 나오고 표에는 "
-          + "없습니다."],
+          "지역은 점포 주소 · 우대조건 칸에 상품 설명이 섞임"],
+    bok_ecos: ["한국은행 ECOS", "지표라 표에는 없음"],
   };
   const MODE_KO = { api: "공식 오픈API", http: "공시 화면 조회" };
 
@@ -2460,12 +2453,11 @@
     // 있는 줄 알게 된다.
     .filter((s) => s.observation_count > 0 || s.id === "bok_ecos")
     .map((s) => {
-      const [what, caveat] = SOURCE_NOTE[s.id] || [esc(s.name || s.id), ""];
+      const [what, tail] = SOURCE_NOTE[s.id] || [esc(s.name || s.id), ""];
       const how = MODE_KO[s.mode] || s.mode || "";
       return `<li><code>${esc(s.id)}</code> — ${what}`
         + (how ? ` <span class="how">${esc(how)}</span>` : "")
-        + (caveat ? `<br>${caveat}` : "")
-        + (s.base_reference ? `<br><span class="ref">${esc(s.base_reference)}</span>` : "")
+        + (tail ? ` <span class="how">(${tail})</span>` : "")
         + "</li>";
     }).join("");
 
@@ -2478,16 +2470,11 @@
         ? `<div class="srcnote"><b>표의 «수집원» 칸이 뜻하는 것</b>`
           + `<ul>${sourceNotes}</ul></div>`
         : "")
+    // 무엇이 검사되고 무엇이 검사되지 않는지는 저장소의 `docs/data-trust.md`에
+    // 있다. **화면에는 링크를 걸지 않는다** — 금리를 보러 온 사람에게 저장소
+    // 주소는 갈 곳이 아니고, 포크에서는 가리키는 곳도 달라진다.
     + `<div class="basis-note">근거 — <code>site-manifest.json</code> · `
-    + `<code>data/table.json</code>`
-    // 「이 데이터를 얼마나 믿을 수 있나」로 가는 길. 무엇이 검사되고 무엇이
-    // 검사되지 않는지, 업무에서 이렇게 말하면 안 되는 것이 무엇인지 적혀
-    // 있다. 화면에 다 적으면 아무도 안 읽으므로 링크로 둔다.
-    + (data.data_trust_url
-        ? ` · <a href="${esc(data.data_trust_url)}" target="_blank"`
-          + ` rel="noopener">이 데이터를 얼마나 믿을 수 있나</a>`
-        : "")
-    + `</div>`;
+    + `<code>data/table.json</code></div>`;
 
   // ── 화면에서 바로 수집을 시작한다 (명세서 §12.5) ──────────────────
   //
