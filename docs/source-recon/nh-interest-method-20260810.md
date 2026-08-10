@@ -96,3 +96,38 @@ Evidence 확인 당시 운영 R2 DB 복사본의 NH 현재 variant 분포:
 - 직접 복리 29,100행에 대응하는 variant는 `compound` 유지
 
 재키잉 시 target key가 이미 존재하면 자동 병합하지 않고 migration을 실패시킨다.
+
+## 운영 DB 복사본 전환 검증
+
+최종 구현은 GitHub Actions run `31381656703`에서 운영 R2 DB 복사본으로 검증했다.
+운영 R2와 `rate-data`에는 다시 쓰지 않았다.
+
+- 복원 snapshot: `state/snapshots/20260810T191536-ff62ee92.sqlite3.gz`
+- migration 전: `compound 48,572`, `simple 150,098`
+- migration 후: `compound 29,100`, `unknown 169,570`, `simple 0`
+- 전체 variants: **329,250 → 329,250**
+- observations: **720,535 → 720,535**
+- duplicate `variant_key`: **0**
+- migration elapsed: **7.53초**
+- migrated DB validation: **12/12 PASS**
+
+같은 복사본에서 새 parser로 부산을 다시 실제 수집했다.
+
+- run_id: `279b9ff8-595a-4fe7-b746-6f3f1a71be75`
+- raw/parsed: `241 / 4,920`
+- valid/error: `4,920 / 0`
+- warning: `480`
+- 최신 run interest 분포: `compound 720`, `unknown 4,200`, `simple 0`
+- e-joy: `unknown 480`, `compound 0`
+- 수집 후 전체 variants: **329,250** — 신규 variant 증가 없음
+
+후속 snapshot과 전체 경로도 검증했다.
+
+- stored-data validation: **12/12 PASS**
+- dashboard/export/public site build: PASS
+- P1-A gate: **27/27 PASS**
+- runtime evidence artifact: `p0-interest-runtime-31381656703` / ID `9060281245`
+
+전국 원천은 이미 성공 수집 raw 198,670행을 전수 분석했으므로, 동일 원천에 3시간
+이상 추가 부하를 주는 전국 live 재수집은 하지 않았다. 실제 parser 전환 경로는
+부산 120개 점포 실수집으로 검증했다.
