@@ -77,45 +77,46 @@ jobs:
           uv run python - <<'PY' | tee work/evidence.txt
           from collections import Counter
           from pathlib import Path
-          from rate_monitor.collectors.nh_local.parser import DETAIL_CAPTION, parse_rate_table
+          from rate_monitor.collectors.nh_local.parser import parse_rate_table
 
           buckets = Counter()
           patterns = Counter()
           files = 0
           rows = 0
-          for path in Path('data/raw').rglob('*'):
+          for path in Path('data/raw').rglob('rate_*.html'):
               if not path.is_file():
                   continue
-              try:
-                  text = path.read_text(encoding='utf-8')
-              except (UnicodeDecodeError, OSError):
-                  continue
-              if DETAIL_CAPTION not in text:
-                  continue
-              try:
-                  entries = parse_rate_table(text)
-              except Exception:
-                  continue
+              text = path.read_text(encoding='utf-8')
+              entries = parse_rate_table(text)
               files += 1
               for entry in entries:
                   rows += 1
-                  evidence = ' '.join((entry.product_name, entry.note, entry.interest_note)).strip()
-                  if '복리' in evidence:
-                      bucket = 'compound_explicit'
-                  elif '단리' in evidence:
+                  product = entry.product_name
+                  note = entry.note
+                  interest = entry.interest_note
+                  evidence = ' '.join((product, note, interest)).strip()
+                  if '단리' in product or '단리' in note:
                       bucket = 'simple_explicit'
+                  elif '복리' in product or '월복리로' in note:
+                      bucket = 'compound_direct'
+                  elif '복리' in evidence:
+                      bucket = 'compound_reference_only'
                   else:
                       bucket = 'no_explicit_method'
                   buckets[bucket] += 1
-                  key = (bucket, entry.product_name, entry.note, entry.interest_note)
-                  patterns[key] += 1
+                  patterns[(bucket, product, note, interest)] += 1
 
           print(f'detail_files\t{files}')
           print(f'parsed_rows\t{rows}')
-          for key in ('compound_explicit', 'simple_explicit', 'no_explicit_method'):
+          for key in (
+              'compound_direct',
+              'simple_explicit',
+              'compound_reference_only',
+              'no_explicit_method',
+          ):
               print(f'{key}\t{buckets[key]}')
-          print('\nTOP DISTINCT PATTERNS')
-          for (bucket, product, note, interest), count in patterns.most_common(80):
+          print('\nDISTINCT PATTERNS')
+          for (bucket, product, note, interest), count in patterns.most_common():
               print(f'{count}\t{bucket}\t{product}\t{note}\t{interest}')
           PY
 
