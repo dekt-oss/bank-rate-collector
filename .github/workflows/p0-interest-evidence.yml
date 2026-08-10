@@ -6,13 +6,12 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   evidence:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
-    env:
-      RATE_MONITOR_DB_URL: sqlite+pysqlite:///${{ github.workspace }}/work/rate_monitor.sqlite3
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
@@ -27,53 +26,17 @@ jobs:
       - name: Sync dependencies
         run: uv sync --locked
 
-      - name: Restore production database copy
-        env:
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
-          R2_BUCKET: ${{ vars.R2_BUCKET }}
-          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
-          R2_REGION: ${{ vars.R2_REGION }}
+      - name: Download latest successful nationwide collection artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: collection-run-31326136819
+          path: prior-run
+          github-token: ${{ github.token }}
+          run-id: 31326136819
+
+      - name: Extract nationwide NH interest evidence
         run: |
-          set -euo pipefail
           mkdir -p work
-          uv run rate-monitor storage restore --dest work/rate_monitor.sqlite3
-          uv run alembic upgrade head
-
-      - name: Baseline NH interest distribution
-        run: |
-          uv run python - <<'PY' | tee work/baseline.txt
-          import sqlite3
-          conn = sqlite3.connect('work/rate_monitor.sqlite3')
-          print('current NH variants/observations by interest_method')
-          for row in conn.execute('''
-              SELECT v.interest_method,
-                     COUNT(DISTINCT v.id) AS variants,
-                     COUNT(o.id) AS current_observations
-                FROM product_variants v
-                JOIN products p ON p.id = v.product_id
-                JOIN institutions i ON i.id = p.institution_id
-                LEFT JOIN rate_observations o
-                  ON o.variant_id = v.id AND o.valid_to IS NULL
-               WHERE i.sector = 'nh_local'
-               GROUP BY v.interest_method
-               ORDER BY v.interest_method
-          '''):
-              print(*row, sep='\t')
-          PY
-
-      - name: Collect NH Busan from live source
-        run: |
-          set -euo pipefail
-          uv run rate-monitor collect \
-            --source nh_local \
-            --scope 부산 \
-            --db work/rate_monitor.sqlite3 \
-            --raw-root data/raw | tee work/collect.txt
-
-      - name: Extract source interest evidence
-        run: |
           uv run python - <<'PY' | tee work/evidence.txt
           from collections import Counter
           from pathlib import Path
@@ -83,8 +46,8 @@ jobs:
           patterns = Counter()
           files = 0
           rows = 0
-          for path in Path('data/raw').rglob('rate_*.html'):
-              if not path.is_file():
+          for path in Path('prior-run').rglob('rate_*_SFDPW016*.html'):
+              if not path.name.endswith(('SFDPW0163R.html', 'SFDPW0164R.html')):
                   continue
               text = path.read_text(encoding='utf-8')
               entries = parse_rate_table(text)
@@ -97,7 +60,7 @@ jobs:
                   evidence = ' '.join((product, note, interest)).strip()
                   if '단리' in product or '단리' in note:
                       bucket = 'simple_explicit'
-                  elif '복리' in product or '월복리로' in note:
+                  elif '복리' in product or '월복리' in note:
                       bucket = 'compound_direct'
                   elif '복리' in evidence:
                       bucket = 'compound_reference_only'
@@ -120,16 +83,9 @@ jobs:
               print(f'{count}\t{bucket}\t{product}\t{note}\t{interest}')
           PY
 
-      - name: Validate copied database
-        run: uv run rate-monitor validate --db work/rate_monitor.sqlite3 | tee work/validate.txt
-
       - name: Upload evidence artifact
         uses: actions/upload-artifact@v4
         with:
-          name: p0-interest-evidence-${{ github.run_id }}
-          path: |
-            work/baseline.txt
-            work/collect.txt
-            work/evidence.txt
-            work/validate.txt
+          name: p0-interest-nationwide-${{ github.run_id }}
+          path: work/evidence.txt
           retention-days: 7
