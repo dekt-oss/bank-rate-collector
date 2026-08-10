@@ -1020,7 +1020,6 @@ def build_summary(db_path: Path) -> dict[str, Any]:
         "benchmarks": benchmarks,
         "stale_sources": stale_sources,
         "collect_workflow_url": _collect_workflow_url(),
-        "data_trust_url": _repo_file_url("docs/data-trust.md"),
         "table": table,
     }
 
@@ -1047,19 +1046,6 @@ def _collect_workflow_url() -> str | None:
 def _repo_slug() -> str | None:
     slug = os.environ.get("GITHUB_REPOSITORY", "").strip()
     return slug if slug and slug.count("/") == 1 else None
-
-
-def _repo_file_url(path: str) -> str | None:
-    """저장소에 있는 문서를 화면에서 가리킨다.
-
-    「이 데이터를 믿어도 되나」에 답하려면 근거 문서까지 갈 수 있어야 한다.
-    화면 안에 다 적으면 아무도 안 읽고, 어디에도 없으면 물어볼 곳이 없다.
-
-    `_collect_workflow_url`과 같은 규칙이다 — 저장소 이름을 코드에 박지 않고
-    빌드 때 환경에서 받는다. 없으면 `None`이고 화면은 링크를 숨긴다.
-    """
-    slug = _repo_slug()
-    return None if slug is None else f"https://github.com/{slug}/blob/main/{path}"
 
 
 def render(template_text: str, summary: dict[str, Any]) -> str:

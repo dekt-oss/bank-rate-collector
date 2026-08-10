@@ -414,6 +414,21 @@ def test_the_footnote_does_not_repeat_the_collection_mode() -> None:
     assert "오픈API\"" not in match.group(1), "설명에 수집 방식이 또 들어갔다"
 
 
+def test_each_footnote_is_a_single_line() -> None:
+    """주석이 표보다 길어지면 아무도 안 읽는다.
+
+    수집원 한 줄에는 화면 이름과 꼬리표 하나만 온다. 자세한 주의사항은 위
+    `notice-detail`이 이미 말하고, 원천 주소는 줄을 하나 더 만든다.
+    """
+    match = re.search(r"const SOURCE_NOTE = \{(.*?)\n  \};", SOURCE, re.S)
+    assert match, "SOURCE_NOTE를 찾지 못했다"
+    body = match.group(1)
+    assert "<br>" not in body and "<b>" not in body, "설명이 다시 여러 줄이 됐다"
+    for text in re.findall(r'"([^"]+)"', body):
+        assert len(text) <= 40, f"한 줄에 담기엔 길다: {text}"
+    assert "s.base_reference" not in SOURCE, "원천 주소가 줄을 하나 더 만든다"
+
+
 def test_a_source_with_no_observations_is_not_described() -> None:
     """없는 것을 설명하면 화면에 있는 줄 알게 된다."""
     assert "s.observation_count > 0" in SOURCE
@@ -451,45 +466,24 @@ def test_the_github_link_stays_as_a_fallback() -> None:
     assert "body.configured === false" in SOURCE
 
 
-def test_the_screen_points_at_the_document_that_says_what_is_not_guaranteed() -> None:
-    """「이 데이터를 믿어도 되나」에 답하려면 근거 문서까지 갈 수 있어야 한다.
+def test_the_basis_note_carries_no_repository_link() -> None:
+    """«근거» 줄은 어떤 파일에서 나온 값인지만 적는다.
 
-    화면 안에 다 적으면 아무도 안 읽고, 어디에도 없으면 물어볼 곳이 없다.
-    수집 링크와 같은 규칙으로 저장소 주소를 환경에서 받는다.
+    무엇이 검사되고 무엇이 검사되지 않는지는 `docs/data-trust.md`에 있지만,
+    화면에는 링크를 걸지 않는다 — 금리를 보러 온 사람에게 저장소 주소는 갈
+    곳이 아니고, 포크에서는 가리키는 곳도 달라진다. 문서는 저장소에 그대로
+    남아 있어야 하므로 파일 존재는 여기서 계속 지킨다.
     """
-    import os
     from pathlib import Path
 
-    from rate_monitor.services.dashboard_service import _repo_file_url
-
-    assert "data.data_trust_url" in SOURCE
-    assert "이 데이터를 얼마나 믿을 수 있나" in SOURCE
-    # 링크가 가리키는 문서가 실제로 있어야 한다.
-    doc = Path(__file__).resolve().parents[1] / "docs" / "data-trust.md"
-    assert doc.exists(), "화면이 없는 문서를 가리킨다"
-
-    # **여기가 진짜 검사다.** 공개 화면은 `build_summary`를 통째로 싣지
-    # 않는다. `INLINE_KEYS`에 적힌 것만 간다. 처음에 이 줄을 안 넣어서
-    # 링크가 코드에도 문서에도 있는데 발행본에서만 조용히 사라졌다 —
-    # 화면 소스만 보면 멀쩡해 보이는 종류의 결함이다.
     from rate_monitor.services.site_service import INLINE_KEYS
 
-    assert "data_trust_url" in INLINE_KEYS, "발행본까지 안 실린다"
+    assert "data_trust_url" not in SOURCE, "근거 줄에 저장소 링크가 다시 붙었다"
+    assert "data_trust_url" not in INLINE_KEYS, "안 쓰는 값이 발행본에 실린다"
+    assert "blob/main" not in SOURCE, "화면이 저장소 파일을 직접 가리킨다"
 
-    before = os.environ.get("GITHUB_REPOSITORY")
-    try:
-        os.environ["GITHUB_REPOSITORY"] = "dekt-oss/bank-rate-collector"
-        assert _repo_file_url("docs/data-trust.md") == (
-            "https://github.com/dekt-oss/bank-rate-collector"
-            "/blob/main/docs/data-trust.md"
-        )
-        os.environ["GITHUB_REPOSITORY"] = ""
-        assert _repo_file_url("docs/data-trust.md") is None
-    finally:
-        if before is None:
-            os.environ.pop("GITHUB_REPOSITORY", None)
-        else:
-            os.environ["GITHUB_REPOSITORY"] = before
+    doc = Path(__file__).resolve().parents[1] / "docs" / "data-trust.md"
+    assert doc.exists(), "근거 문서가 사라졌다"
 
 
 # ── 조회 화면 R1 (2026-08-07) ───────────────────────────────────────────
