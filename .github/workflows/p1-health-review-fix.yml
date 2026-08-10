@@ -1,0 +1,119 @@
+name: Apply P1 health review fixes
+
+on:
+  push:
+    branches: [agent/p1-collection-health]
+    paths: [.github/workflows/p1-health-review-fix.yml]
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/p1-collection-health
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Sync dependencies
+        run: uv sync --locked
+
+      - name: Apply adversarial fixes and remove temporary files
+        run: |
+          uv run python scripts/_tmp_patch_health_review.py
+          rm scripts/_tmp_patch_health_review.py
+          rm .github/workflows/p1-health-review-fix.yml
+          rm .github/workflows/p1-health-runtime.yml
+
+      - name: Diff sanity
+        run: |
+          git diff --check
+          git status --short
+
+      - name: Lint
+        run: uv run ruff check .
+
+      - name: Endpoint syntax
+        run: node --check web/api/health.js
+
+      - name: Exercise health endpoint with mocked GitHub responses
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import assert from 'node:assert/strict';
+          const source = fs.readFileSync('web/api/health.js', 'utf8');
+          const mod = await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
+          process.env.GITHUB_DISPATCH_TOKEN = 'server-only-token';
+          process.env.GITHUB_REPOSITORY = 'owner/repo';
+          globalThis.fetch = async (url) => {
+            if (url.includes('/runs?per_page=30')) {
+              return { ok: true, json: async () => ({ workflow_runs: [{
+                id: 123, run_number: 77, event: 'workflow_dispatch', status: 'completed',
+                conclusion: 'success', run_started_at: '2026-08-10T01:00:00Z',
+                updated_at: '2026-08-10T02:00:00Z', html_url: 'https://example.test/run/123'
+              }] }) };
+            }
+            if (url.includes('/actions/runs/123/jobs?per_page=20')) {
+              return { ok: true, json: async () => ({ jobs: [{ steps: [
+                { name: 'Collect NH local', status: 'completed', conclusion: 'success' },
+                { name: 'Verify P1-A gate', status: 'completed', conclusion: 'success' },
+                { name: 'Size gate', status: 'completed', conclusion: 'success' },
+                { name: 'Volume gate', status: 'completed', conclusion: 'success' },
+                { name: 'Publish to rate-data branch', status: 'completed', conclusion: 'success' }
+              ] }] }) };
+            }
+            throw new Error('unexpected URL: ' + url);
+          };
+          const res = {
+            headers: {}, code: null, body: null,
+            setHeader(k, v) { this.headers[k] = v; },
+            status(code) { this.code = code; return this; },
+            send(text) { this.body = text; }
+          };
+          await mod.default({ method: 'GET' }, res);
+          assert.equal(res.code, 200);
+          const body = JSON.parse(res.body);
+          assert.equal(body.source_steps.nh_local.conclusion, 'success');
+          assert.equal(body.pipeline_steps.p1a_gate.conclusion, 'success');
+          assert.equal(body.pipeline_steps.size_gate.conclusion, 'success');
+          assert.equal(body.pipeline_steps.volume_gate.conclusion, 'success');
+          assert.equal(body.pipeline_steps.publish.conclusion, 'success');
+          assert.ok(!res.body.includes('server-only-token'));
+          console.log('mock endpoint contract PASS');
+          NODE
+
+      - name: Targeted tests
+        run: |
+          uv run pytest -q \
+            tests/test_collection_health.py \
+            tests/test_collection_health_ui.py \
+            tests/test_snapshot_and_dashboard.py \
+            tests/test_site_service.py \
+            tests/test_collect_endpoint.py
+
+      - name: Full test suite
+        run: uv run pytest -q
+
+      - name: Migration applies to empty database
+        env:
+          RATE_MONITOR_DB_URL: sqlite+pysqlite:///${{ github.workspace }}/work/review-empty.sqlite3
+        run: |
+          mkdir -p work
+          uv run alembic upgrade head
+
+      - name: Commit reviewed product changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "fix: surface actionable collection warnings"
+          git push origin HEAD:agent/p1-collection-health
