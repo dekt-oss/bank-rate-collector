@@ -105,10 +105,28 @@ def test_rowspan_does_not_leak_the_product_name(outlets) -> None:
     assert all(r.interest_method == InterestMethod.COMPOUND for r in compound)
 
 
-def test_simple_and_compound_are_told_apart(outlets) -> None:
+def test_unstated_interest_method_stays_unknown(outlets) -> None:
+    """`복리`가 없다는 이유만으로 단리라고 만들지 않는다."""
     rows, _ = _rows(outlets[0], "deposit_detail_333072.html", ProductType.TERM_DEPOSIT)
     plain = [r for r in rows if r.product_name == "정기예탁금"]
-    assert all(r.interest_method == InterestMethod.SIMPLE for r in plain)
+    assert plain
+    assert all(r.interest_method == InterestMethod.UNKNOWN for r in plain)
+
+
+def test_direct_simple_and_conflicting_evidence_contract() -> None:
+    """직접 단리 문구는 simple, 서로 충돌하는 문구는 unknown이다."""
+    assert nh._interest_method("단리식 예탁금", "단리 적용") == InterestMethod.SIMPLE
+    assert nh._interest_method("복리식 예탁금", "단리 적용") == InterestMethod.UNKNOWN
+
+
+def test_monthly_compound_note_is_direct_evidence(outlets) -> None:
+    """상품명에 복리가 없어도 `월복리로 적용`을 직접 밝히면 compound다."""
+    rows, _ = _rows(
+        outlets[0], "saving_detail_333072.html", ProductType.INSTALLMENT_SAVINGS
+    )
+    compound = [r for r in rows if r.product_name.startswith("더불어자유적립적금")]
+    assert compound
+    assert all(r.interest_method == InterestMethod.COMPOUND for r in compound)
 
 
 def test_max_rate_is_never_filled_from_the_base(outlets) -> None:
@@ -121,13 +139,15 @@ def test_a_bonus_rate_row_is_flagged_not_dropped(outlets) -> None:
     """`우대금리`는 더해 주는 금리이지 그 자체로 가입할 상품이 아니다.
 
     버리면 원천이 공시한 것을 우리가 지우는 것이고, 조용히 두면 0.1%가
-    예금금리처럼 보인다. 남기고 센다.
+    예금금리처럼 보인다. 남기고 센다. 대상상품 목록에 `복리식`이 있어도
+    우대금리 행 자체의 계산방식을 뜻하지 않으므로 interest_method는 unknown이다.
     """
     rows, warnings = _rows(outlets[0], "deposit_detail_333072.html", ProductType.TERM_DEPOSIT)
     bonus = [r for r in rows if "우대금리" in r.product_name]
     assert bonus, "우대금리 행이 fixture에 있다"
     assert len(warnings) == len(bonus)
     assert all(r.join_channel == "internet" for r in bonus)
+    assert all(r.interest_method == InterestMethod.UNKNOWN for r in bonus)
 
 
 def test_an_unreadable_term_is_flagged_not_invented(outlets) -> None:
@@ -146,10 +166,11 @@ def test_savings_rates_match_the_screen(outlets) -> None:
     assert len(rows) == 17
     twelve = [r for r in rows if r.product_name == "정기적금" and r.term_months == 12]
     assert str(twelve[0].base_rate) == "3.2"
+    assert twelve[0].interest_method == InterestMethod.UNKNOWN
 
 
 def test_rows_carry_the_outlet_not_a_head_office(outlets) -> None:
-    """금리가 점포 단위로 나온다. 조합마다 다르고 지점마다 다르다."""
+    """금리가 점포 단위다. 조합마다 다르고 지점마다 다르다."""
     rows, _ = _rows(outlets[0], "deposit_detail_333072.html", ProductType.TERM_DEPOSIT)
     assert all(r.rate_scope == RateScope.OUTLET for r in rows)
     assert all(r.source_outlet_key == "817020" for r in rows)

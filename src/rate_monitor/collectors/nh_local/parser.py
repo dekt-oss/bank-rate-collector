@@ -195,15 +195,38 @@ def parse_rate_table(html: str) -> list[RateEntry]:
     return entries
 
 
-def _interest_method(note: str) -> str:
-    """복리인지 단리인지. 상품명과 비고가 말해 준다.
+def _interest_method(product_name: str, note: str) -> str:
+    """원천이 직접 밝힌 근거만으로 단리·복리를 정한다.
 
-    >>> _interest_method("복리식정기예탁금 이자를 월복리로")
+    2026-08-10 전국 실원본 198,670행을 전수 확인했다. 직접 `단리`라고 쓴
+    행은 0건이었고, 복리는 상품명 `복리식...` 또는 비고의 `월복리` 문구로
+    확인됐다. 반대로 `e-joy 인터넷예금 우대금리`는 대상상품 목록에
+    `복리식 정기예탁금`을 **언급만** 하므로 그 행 자체를 복리로 보면 안 된다.
+
+    비고의 단리도 단순 문자열 존재만으로 확정하지 않는다. 대상상품 설명에
+    `단리식 상품`을 언급할 수 있으므로 `단리로`·`단리 적용`처럼 현재 행의
+    계산방식을 직접 말하는 표현만 근거로 인정한다.
+
+    >>> _interest_method("복리식정기예탁금", "정기예탁금 이자를 월복리로 계산")
     'compound'
-    >>> _interest_method("만기이자지급식 기준")
+    >>> _interest_method("정기예탁금", "만기이자지급식 기준")
+    'unknown'
+    >>> _interest_method("단리식 예탁금", "단리 적용")
     'simple'
+    >>> _interest_method("우대금리", "대상상품: 단리식 예탁금")
+    'unknown'
+    >>> _interest_method("복리식 예탁금", "단리 적용")
+    'unknown'
     """
-    return InterestMethod.COMPOUND.value if "복리" in note else InterestMethod.SIMPLE.value
+    simple_note = any(
+        marker in note
+        for marker in ("단리로", "단리 적용", "단리방식", "단리 방식")
+    )
+    simple = "단리" in product_name or simple_note
+    compound = "복리" in product_name or "월복리" in note
+    if simple == compound:
+        return InterestMethod.UNKNOWN.value
+    return InterestMethod.SIMPLE.value if simple else InterestMethod.COMPOUND.value
 
 
 def _join_channel(product_name: str) -> str:
@@ -272,9 +295,7 @@ def parse_detail(
                 term_months=term_months,
                 term_days=term_days,
                 join_channel=_join_channel(entry.product_name),
-                interest_method=_interest_method(
-                    f"{entry.product_name} {entry.note} {entry.interest_note}"
-                ),
+                interest_method=_interest_method(entry.product_name, entry.note),
                 payment_method=None,
                 amount_min=None,
                 amount_max=None,
