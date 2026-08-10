@@ -639,10 +639,10 @@
   /* ── 권역 네모 ────────────────────────────────────────────────── */
   /* 막대가 아니라 네모다. 값이 3.00~3.80%에 몰려 있어 막대로 그리면 축을
      끊어야 하고, 끊으면 «3.80이 3.00의 두 배»처럼 보인다. */
-  .regtiles {
-    display: grid; grid-template-columns: repeat(auto-fit, minmax(136px, 1fr));
-    gap: 8px; margin-top: 4px;
-  }
+  /* 열 수는 `regionBars`가 폭을 재서 정한다. `auto-fit`으로 두면 열 개를 놓을 때
+     «9개 + 1개»가 되어 마지막 한 칸만 덩그러니 남는다 — 줄 수를 먼저 정하고
+     그 줄에 고르게 나눈다. */
+  .regtiles { display: grid; gap: 8px; margin-top: 4px; }
   .regtile {
     font: inherit; text-align: left; border: 1px solid transparent;
     border-radius: 9px; padding: 11px 12px 10px; cursor: default;
@@ -2219,6 +2219,15 @@
     // 흔들리는 폭은 **조용히** 적는다. 앞서 막대 위에 붉은 선으로 그었더니
     // 여덟 중 일곱이 붉어져 색이 경고 구실을 못 했고, 가로 막대에서는 선이
     // 칸 밖으로 나가 숫자와 겹쳤다 (2026-08-10).
+    // 칸을 줄에 고르게 나눈다. 열 개를 아홉 열에 놓으면 마지막 줄에 한 칸만
+    // 남아 «덜 그려진 것»처럼 보인다. 줄 수를 먼저 정하고 그 줄로 나눈다 —
+    // 열 개는 5×2, 열일곱 개는 9+8이 된다.
+    const TILE_MIN = 136, TILE_GAP = 8;
+    const boxW = $("reg").getBoundingClientRect().width || 1100;
+    const maxCols = Math.max(2, Math.floor((boxW + TILE_GAP) / (TILE_MIN + TILE_GAP)));
+    const cols = Math.min(D.length, Math.ceil(D.length / Math.ceil(D.length / maxCols)));
+    $("reg").style.gridTemplateColumns = `repeat(${cols}, minmax(0, 1fr))`;
+
     const vlo = Math.min(...shown.map((d) => d.v));
     const vhi = Math.max(...shown.map((d) => d.v));
     const heat = (v) => (vhi > vlo ? (v - vlo) / (vhi - vlo) : 0.5);
