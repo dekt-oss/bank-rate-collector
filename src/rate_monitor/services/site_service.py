@@ -70,6 +70,8 @@ INLINE_KEYS = (
     "benchmarks",
     # 마지막 수집이 실패한 원천. 화면이 그 사실을 알려야 한다.
     "stale_sources",
+    # source별 마지막 시도/정상 수집/freshness. 관리자 상태 패널이 쓴다.
+    "collection_health",
     # «지금 수집하기» 링크. 없으면 화면이 버튼을 통째로 숨긴다.
     "collect_workflow_url",
     # 권역 9개 단위 중앙값. 표를 받기 전에 그릴 때 쓴다 — 구 단위

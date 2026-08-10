@@ -20,6 +20,7 @@ import yaml
 from rate_monitor.domain.preference_taxonomy import classify as classify_preference
 from rate_monitor.domain.timeutil import kst_iso, now_kst
 from rate_monitor.services.institution_matching import normalize_institution
+from rate_monitor.services.source_health_service import build_collection_health
 
 LOGGER = logging.getLogger(__name__)
 
@@ -988,6 +989,7 @@ def build_summary(db_path: Path) -> dict[str, Any]:
         )
 
         stale_sources = _stale_sources(conn)
+        collection_health = build_collection_health(conn)
         table = build_rate_table(conn, run_ids)
         benchmarks = build_benchmarks(conn, run_ids)
     finally:
@@ -1021,6 +1023,7 @@ def build_summary(db_path: Path) -> dict[str, Any]:
         "rate_scopes": rate_scopes,
         "benchmarks": benchmarks,
         "stale_sources": stale_sources,
+        "collection_health": collection_health,
         "collect_workflow_url": _collect_workflow_url(),
         "table": table,
     }

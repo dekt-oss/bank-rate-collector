@@ -143,6 +143,11 @@
 
 ## 구현 경계
 
+- implementation branch: `agent/p1-collection-health`
+- DB schema migration: 없음
+- live status: read-only `/api/health`
+
+
 P1 PR 1 — `Collection Health + Warning Taxonomy`
 
 - source별 latest attempt / latest success summary
