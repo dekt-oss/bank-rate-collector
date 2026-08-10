@@ -1,0 +1,139 @@
+name: Validate region migration
+
+on:
+  push:
+    branches: ["agent/p0-region-normalization"]
+
+permissions:
+  contents: read
+
+jobs:
+  validate-region-migration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Sync dependencies
+        run: uv sync --locked
+
+      - name: Restore production state from R2
+        env:
+          STORAGE_BACKEND: ${{ vars.STORAGE_BACKEND }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+          R2_REGION: ${{ vars.R2_REGION }}
+        run: |
+          set -euo pipefail
+          mkdir -p work
+          uv run rate-monitor storage restore --dest work/rate_monitor.sqlite3
+
+      - name: Inspect invalid sigungu before migration
+        run: |
+          uv run python - <<'PY'
+          import sqlite3
+          from collections import Counter
+          from rate_monitor.services.region_service import looks_like_sigungu
+
+          conn = sqlite3.connect('work/rate_monitor.sqlite3')
+          total = 0
+          details = []
+          for table in ('institutions', 'outlets'):
+              rows = conn.execute(
+                  f"SELECT id, address, region_sido, region_sigungu FROM {table} "
+                  "WHERE region_sido IS NOT NULL AND region_sigungu IS NOT NULL"
+              ).fetchall()
+              bad = [r for r in rows if not looks_like_sigungu(r[2], r[3])]
+              total += len(bad)
+              print(f'PRE {table}: invalid_sigungu={len(bad)}')
+              details.extend((table, *r) for r in bad[:20])
+          print(f'PRE total_invalid_sigungu={total}')
+          for row in details:
+              print('PRE sample:', row)
+          conn.close()
+          PY
+
+      - name: Apply migrations
+        env:
+          RATE_MONITOR_DB_URL: sqlite+pysqlite:///${{ github.workspace }}/work/rate_monitor.sqlite3
+        run: uv run alembic upgrade head
+
+      - name: Verify region cleanup
+        run: |
+          uv run python - <<'PY'
+          import sqlite3
+          from rate_monitor.services.region_service import BUSAN_DISTRICTS, looks_like_sigungu
+
+          conn = sqlite3.connect('work/rate_monitor.sqlite3')
+          invalid = []
+          for table in ('institutions', 'outlets'):
+              rows = conn.execute(
+                  f"SELECT id, address, region_sido, region_sigungu FROM {table} "
+                  "WHERE region_sido IS NOT NULL AND region_sigungu IS NOT NULL"
+              ).fetchall()
+              bad = [r for r in rows if not looks_like_sigungu(r[2], r[3])]
+              print(f'POST {table}: invalid_sigungu={len(bad)}')
+              invalid.extend((table, *r) for r in bad)
+
+          issues = conn.execute(
+              "SELECT COUNT(*) FROM review_items WHERE issue_type='region_invalid_sigungu'"
+          ).fetchone()[0]
+          busan = {
+              r[0] for r in conn.execute(
+                  "SELECT DISTINCT region_sigungu FROM outlets "
+                  "WHERE region_sido='부산' AND region_sigungu IS NOT NULL"
+              )
+          }
+          unexpected_busan = sorted(busan - set(BUSAN_DISTRICTS))
+          print(f'POST review_items region_invalid_sigungu={issues}')
+          print(f'POST busan_districts={sorted(busan)}')
+          print(f'POST unexpected_busan={unexpected_busan}')
+          assert not invalid, invalid[:20]
+          assert not unexpected_busan, unexpected_busan
+          conn.close()
+          PY
+
+      - name: Validate stored data
+        run: uv run rate-monitor validate --db work/rate_monitor.sqlite3
+
+      - name: Snapshot and build public site
+        run: |
+          uv run rate-monitor snapshot \
+            --db work/rate_monitor.sqlite3 \
+            --publish-db publish/rate_monitor.sqlite3 \
+            --manifest publish/manifest.json
+          uv run rate-monitor build-dashboard \
+            --db publish/rate_monitor.sqlite3 \
+            --template web/templates/dashboard.html \
+            --site site/index.html \
+            --summary publish/summary.json
+          uv run rate-monitor export \
+            --db publish/rate_monitor.sqlite3 \
+            --out publish/export
+          uv run rate-monitor build-site \
+            --db publish/rate_monitor.sqlite3 \
+            --template web/templates/site.html \
+            --out site-public \
+            --export-dir publish/export
+
+      - name: Upload validation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: region-migration-validation-${{ github.run_id }}
+          retention-days: 7
+          path: |
+            publish/manifest.json
+            publish/summary.json
+          if-no-files-found: warn
