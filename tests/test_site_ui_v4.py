@@ -750,6 +750,30 @@ def test_the_preference_cell_is_clipped_by_width_not_by_letter_count() -> None:
     assert '<span class="one">${esc(one)}</span>' in SOURCE
 
 
+def test_the_rank_line_folds_instead_of_pushing_the_page_sideways() -> None:
+    """휴대폰에서 이 줄 하나가 페이지 전체를 옆으로 밀고 있었다 (2026-08-10 실측).
+
+    `white-space: nowrap`이라 390px 화면에서 477px까지 늘어났다. 백분위를
+    붙이기 전에도 410px로 이미 넘쳤다 — 조건 패널을 보려면 화면 전체를
+    좌우로 흔들어야 했다.
+    """
+    block = SOURCE[SOURCE.index("  .rankline {"):SOURCE.index("  .rankline.off {")]
+    assert "white-space: nowrap" not in block, "다시 한 줄로 못 박았다"
+    assert "flex-wrap: wrap" in block
+
+
+def test_the_expanded_text_does_not_stretch_to_the_table_width() -> None:
+    """원문 줄은 표만큼 넓다(14열이면 1,479px).
+
+    그대로 두면 휴대폰에서 한 줄이 1,389px로 뻗어, 조건 하나 읽으려고 옆으로
+    계속 밀어야 했다. `sticky`가 없으면 표를 옆으로 민 상태에서 행을 눌렀을
+    때 원문이 화면 밖(왼쪽 −887px)에 그려져 눌러도 아무 일이 없어 보인다.
+    """
+    block = SOURCE[SOURCE.index("  .pf {"):SOURCE.index("  .pf dt {")]
+    assert "max-width: min(1000px, calc(100vw - 44px));" in block
+    assert "position: sticky; left: 0;" in block
+
+
 def test_the_expanded_text_splits_the_labels_the_collector_joined() -> None:
     """원천이 «우대조건: … / 가입대상: …»을 줄로 이어 붙여 준다.
 

@@ -461,9 +461,18 @@
      붙여 주므로, 라벨을 왼쪽 열로 세워 어디까지가 한 항목인지 보이게 한다.
      통짜 글뭉치로 두면 조건과 가입 자격이 한 문단으로 읽힌다. */
   tr.detail td { padding: 0; background: var(--paper); white-space: normal; }
+  /* 원문 줄은 표만큼 넓다(14열이면 1,479px). 그대로 두면 휴대폰에서 한 줄이
+     1,389px로 뻗어 나가, 조건 하나 읽으려고 옆으로 계속 밀어야 했다.
+     읽을 수 있는 폭에서 접는다.
+
+     `sticky`는 표를 옆으로 민 상태에서 행을 눌렀을 때를 위한 것이다. 없으면
+     원문이 맨 왼쪽에 그려져 화면 밖에 있고, 눌렀는데 아무 일도 없는 것처럼
+     보인다. */
   .pf {
     display: grid; grid-template-columns: max-content minmax(0, 1fr);
     gap: 7px 14px; margin: 0; padding: 12px 14px 13px;
+    max-width: min(1000px, calc(100vw - 44px));
+    position: sticky; left: 0;
     border-left: 3px solid var(--accent); font-size: 12.5px; line-height: 1.7;
   }
   .pf dt {
@@ -583,12 +592,15 @@
     border: 1px solid var(--line); border-radius: 6px; padding: 2px 9px;
     background: var(--surface);
   }
+  /* **한 줄로 못 박지 않는다.** `white-space: nowrap`이면 휴대폰(390px)에서
+     이 줄 하나가 477px까지 늘어나 페이지 전체가 옆으로 밀렸다 — 화면 전체를
+     좌우로 흔들어야 조건 패널이 보였다 (2026-08-10 실측). 좁으면 접는다. */
   .rankline {
-    display: inline-flex; align-items: center; gap: 6px;
+    display: inline-flex; align-items: center; flex-wrap: wrap; gap: 2px 6px;
     background: var(--accent-bg); border: 1px solid var(--accent);
     border-left: 4px solid var(--crit);
     color: var(--accent-ink); border-radius: 6px; padding: 2px 9px;
-    font-size: 11.5px; white-space: nowrap;
+    font-size: 11.5px;
   }
   .rankline.off {
     background: var(--surface-2); border-color: var(--line);
