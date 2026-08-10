@@ -52,7 +52,7 @@ jobs:
 
           test = Path("tests/test_sector_terminology.py")
           test.write_text(
-              '''from pathlib import Path\n\n\ndef _template() -> str:\n    return Path("web/templates/site.html").read_text(encoding="utf-8")\n\n\ndef test_sector_filter_and_column_use_industry_term() -> None:\n    html = _template()\n    assert '{ key: "sector", label: "업권", ko: SECTOR_KO }' in html\n    assert '{ key: "sector", label: "업권", cell:' in html\n    assert '{ key: "sector", label: "권역"' not in html\n\n\ndef test_geographic_region_wording_is_preserved() -> None:\n    html = _template()\n    # 지리적 지역 묶음은 여전히 권역이다. P1-5는 sector 명칭만 바꾼다.\n    assert "권역별" in html\n    assert "REGION_GROUPS" in html\n''',
+              '''from pathlib import Path\n\n\ndef _template() -> str:\n    return Path("web/templates/site.html").read_text(encoding="utf-8")\n\n\ndef test_sector_filter_and_column_use_industry_term() -> None:\n    html = _template()\n    assert '{ key: "sector", label: "업권", ko: SECTOR_KO }' in html\n    assert '{ key: "sector", label: "업권", cell:' in html\n    assert '{ key: "sector", label: "권역"' not in html\n\n\ndef test_geographic_region_wording_is_preserved() -> None:\n    html = _template()\n    # 지리적 지역 묶음은 여전히 권역이다. P1-5는 sector 명칭만 바꾼다.\n    assert "권역별" in html\n''',
               encoding="utf-8",
           )
           PY
