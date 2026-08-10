@@ -750,6 +750,19 @@ def test_the_preference_cell_is_clipped_by_width_not_by_letter_count() -> None:
     assert '<span class="one">${esc(one)}</span>' in SOURCE
 
 
+def test_the_sideways_scrollbar_is_reachable_without_going_to_the_bottom() -> None:
+    """표가 100건이면 스크롤 상자가 4,032px가 된다 (2026-08-10 실측).
+
+    가로 막대는 그 맨 아래에 붙으므로, 옆 칸을 보려고 5,165px를 내려갔다가
+    다시 올라와야 했다. 상자 높이를 화면에 맞춰 자르면 막대가 늘 보인다.
+    세로로 굴려도 열 이름이 따라오도록 `thead th`의 sticky는 그대로 둔다.
+    """
+    block = SOURCE[SOURCE.index("  .scroll {"):SOURCE.index("  table { border-collapse")]
+    assert "overflow: auto;" in block, "가로만 굴리면 높이를 자를 수 없다"
+    assert "max-height: 78vh;" in block
+    assert "position: sticky; top: 0;" in SOURCE, "열 이름이 따라오지 않는다"
+
+
 def test_the_rank_line_folds_instead_of_pushing_the_page_sideways() -> None:
     """휴대폰에서 이 줄 하나가 페이지 전체를 옆으로 밀고 있었다 (2026-08-10 실측).
 
