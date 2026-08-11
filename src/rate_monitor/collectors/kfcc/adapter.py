@@ -266,22 +266,25 @@ class KfccAdapter:
             )
         return phase
 
+    @staticmethod
+    def _request_phase(url: str) -> str:
+        if url.endswith("/map/list.do"):
+            return "list"
+        if url.endswith("/map/goods_19.do"):
+            return "rate"
+        raise ValueError(f"알 수 없는 KFCC 요청 endpoint: {url!r}")
+
     async def _get(
         self,
         client: httpx.AsyncClient,
         url: str,
         params: dict[str, str],
-        *,
-        phase: str,
     ) -> bytes:
         """GET 하나를 수행하되 transient failure만 제한적으로 다시 시도한다."""
-        if phase == "list":
-            backoffs = LIST_RETRY_BACKOFF_SECONDS
-        elif phase == "rate":
-            backoffs = RATE_RETRY_BACKOFF_SECONDS
-        else:
-            raise ValueError(f"알 수 없는 KFCC 요청 phase: {phase!r}")
-
+        phase = self._request_phase(url)
+        backoffs = (
+            LIST_RETRY_BACKOFF_SECONDS if phase == "list" else RATE_RETRY_BACKOFF_SECONDS
+        )
         max_attempts = len(backoffs) + 1
         request_label = self._request_label(phase, params)
 
@@ -401,12 +404,7 @@ class KfccAdapter:
             directory: dict[str, list[dict[str, str]]] = {}
             for region in regions:
                 params = {"r1": region, "r2": ""}
-                body = await self._get(
-                    client,
-                    f"{BASE_URL}/map/list.do",
-                    params,
-                    phase="list",
-                )
+                body = await self._get(client, f"{BASE_URL}/map/list.do", params)
                 requests_made += 1
                 guard.observe(body, where=f"list r1={region}")
                 artifacts.append(
@@ -438,12 +436,7 @@ class KfccAdapter:
                             f"요청 상한 {MAX_REQUESTS}회에 도달했다. 설정을 확인한다"
                         )
                     params = {"OPEN_TRMID": gmgo_cd, "gubuncode": group}
-                    body = await self._get(
-                        client,
-                        f"{BASE_URL}/map/goods_19.do",
-                        params,
-                        phase="rate",
-                    )
+                    body = await self._get(client, f"{BASE_URL}/map/goods_19.do", params)
                     requests_made += 1
                     await self._sleep(REQUEST_INTERVAL_SECONDS)
                     # 축은 상품구분이다. 금고는 바뀌고 구분은 고정인 흐름
