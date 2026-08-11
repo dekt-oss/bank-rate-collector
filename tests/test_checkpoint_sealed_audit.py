@@ -98,3 +98,19 @@ def test_fresh_preserves_abandoned_audit_while_new_active_takes_precedence(tmp_p
     assert decision.eligible is False
     assert decision.reason_code == "NO_DURABLE_PROGRESS"
     assert decision.session_id == fresh.session_id
+
+def test_contract_failed_preserves_specific_terminal_reason_code(tmp_path) -> None:
+    store, service = _service(tmp_path)
+    manifest = service.open()
+    service.mark_terminal(
+        manifest,
+        status="contract_failed",
+        reason_code="SOURCE_SCHEMA_CHANGED",
+        reason="directory schema changed",
+    )
+
+    decision = decide_recovery(store, _identity())
+    assert decision.eligible is False
+    assert decision.reason_code == "SOURCE_SCHEMA_CHANGED"
+    assert decision.manifest_status == "contract_failed"
+
