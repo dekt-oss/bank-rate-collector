@@ -1,0 +1,247 @@
+name: Collect savings bank fast
+
+# 저축은행은 하루 중에도 공시금리가 바뀔 수 있다. 전국 지역 수집(CU/NH/KFCC)과
+# 묶으면 다음 확인까지 너무 오래 걸리므로 FINLIFE 저축은행 + 저축은행중앙회만
+# 짧게 다시 확인한다. 기존 00:17/04:17 전체 수집은 건드리지 않는다.
+on:
+  schedule:
+    # 평일 10:00 / 15:00 / 18:00 KST. 이 시간대는 UTC와 날짜가 같아 1-5 그대로다.
+    - cron: "0 1 * * 1-5"
+    - cron: "0 6 * * 1-5"
+    - cron: "0 9 * * 1-5"
+
+# 기존 전체 수집과 같은 운영 DB와 rate-data 브랜치를 쓴다. 서로 겹치면
+# 마지막 writer가 앞 실행의 DB를 덮을 수 있으므로 저장소 전체에서 같은 줄에 세운다.
+concurrency:
+  group: rate-data-writer
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  collect-savings:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Sync dependencies
+        run: uv sync --locked
+
+      - name: Decide storage backend
+        id: storage
+        env:
+          STORAGE_BACKEND: ${{ vars.STORAGE_BACKEND }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+          R2_REGION: ${{ vars.R2_REGION }}
+        run: |
+          BACKEND=$(uv run python -c "
+          from pathlib import Path
+          from rate_monitor.services.storage_service import load_backend
+          c = load_backend(Path('config/storage.yaml'))
+          print(c.backend.value)
+          import sys; print(f'backend={c.backend.value} ({c.source})', file=sys.stderr)
+          ")
+          echo "backend=$BACKEND" >> "$GITHUB_OUTPUT"
+          echo "상태 저장소: $BACKEND"
+
+      - name: Restore previous database
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+          R2_REGION: ${{ vars.R2_REGION }}
+        run: |
+          set -euo pipefail
+          mkdir -p work
+
+          if [ "${{ steps.storage.outputs.backend }}" = "r2" ]; then
+            uv run rate-monitor storage restore --dest work/rate_monitor.sqlite3
+            exit 0
+          fi
+
+          if git ls-remote --exit-code --heads origin rate-data >/dev/null 2>&1; then
+            git fetch origin rate-data --depth=1
+            git checkout origin/rate-data -- latest/rate_monitor.sqlite3.gz 2>/dev/null || true
+            if [ -f latest/rate_monitor.sqlite3.gz ]; then
+              gunzip -c latest/rate_monitor.sqlite3.gz > work/rate_monitor.sqlite3
+              echo "이전 DB 복원: $(stat -c%s work/rate_monitor.sqlite3) bytes"
+            fi
+            rm -rf latest
+          else
+            echo "rate-data 브랜치 없음. 새 DB로 시작한다."
+          fi
+
+      - name: Apply migrations
+        env:
+          RATE_MONITOR_DB_URL: sqlite+pysqlite:///${{ github.workspace }}/work/rate_monitor.sqlite3
+        run: uv run alembic upgrade head
+
+      - name: Collect finlife savings bank
+        env:
+          FINLIFE_API_KEY: ${{ secrets.FINLIFE_API_KEY }}
+        run: |
+          uv run rate-monitor collect \
+            --source finlife_savings_bank \
+            --db work/rate_monitor.sqlite3 \
+            --raw-root data/raw \
+            --groups 030300
+
+      - name: Collect FSB
+        continue-on-error: true
+        run: |
+          uv run rate-monitor collect \
+            --source fsb \
+            --db work/rate_monitor.sqlite3 \
+            --raw-root data/raw
+
+      - name: Snapshot
+        run: |
+          uv run rate-monitor snapshot \
+            --db work/rate_monitor.sqlite3 \
+            --publish-db publish/rate_monitor.sqlite3 \
+            --manifest publish/manifest.json
+
+      - name: Validate stored data
+        run: uv run rate-monitor validate --db publish/rate_monitor.sqlite3
+
+      - name: Build dashboard
+        run: |
+          uv run rate-monitor build-dashboard \
+            --db publish/rate_monitor.sqlite3 \
+            --template web/templates/dashboard.html \
+            --site site/index.html \
+            --summary publish/summary.json
+
+      - name: Export full dataset
+        run: |
+          uv run rate-monitor export \
+            --db publish/rate_monitor.sqlite3 \
+            --out publish/export
+
+      - name: Build public site
+        run: |
+          uv run rate-monitor build-site \
+            --db publish/rate_monitor.sqlite3 \
+            --template web/templates/site.html \
+            --out site-public \
+            --export-dir publish/export
+
+      - name: Verify P1-A gate
+        run: |
+          uv run python scripts/verify_gate.py \
+            --db publish/rate_monitor.sqlite3 \
+            --manifest publish/manifest.json \
+            --summary publish/summary.json \
+            --site site/index.html \
+            --raw-root data/raw
+
+      # 새 수집의 물량이 무너졌으면 authoritative R2 current를 바꾸기 전에 멈춘다.
+      - name: Volume gate
+        run: uv run python scripts/volume_gate.py --summary publish/summary.json
+
+      - name: Stage rate-data payload
+        env:
+          BACKEND: ${{ steps.storage.outputs.backend }}
+        run: |
+          set -euo pipefail
+          rm -rf stage && mkdir -p stage/latest
+
+          if [ "$BACKEND" = "r2" ]; then
+            echo "backend=r2 — 상태 DB를 rate-data에 싣지 않는다"
+          else
+            gzip -kf publish/rate_monitor.sqlite3
+            cp publish/rate_monitor.sqlite3.gz stage/latest/
+          fi
+          cp publish/manifest.json publish/summary.json stage/latest/
+          cp -r site-public stage/site-public
+          cp vercel.json stage/vercel.json
+          cp -r web/api stage/api
+
+      - name: Size gate
+        run: uv run python scripts/size_gate.py stage --backend ${{ steps.storage.outputs.backend }}
+
+      - name: Upload raw and reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: savings-fast-${{ github.run_id }}
+          retention-days: 90
+          path: |
+            data/raw/
+            publish/manifest.json
+            publish/summary.json
+          if-no-files-found: warn
+
+      # R2가 authoritative이면 이 단계가 실패한 상태로 공개 데이터만 먼저 내보내면
+      # 다음 실행이 이전 DB를 복원해 방금 갱신을 되돌릴 수 있다. 그래서 publish보다 앞이다.
+      - name: Upload state to R2
+        if: steps.storage.outputs.backend != 'github_legacy'
+        continue-on-error: ${{ steps.storage.outputs.backend == 'r2_migration' }}
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+          R2_REGION: ${{ vars.R2_REGION }}
+        run: uv run rate-monitor storage upload --db publish/rate_monitor.sqlite3
+
+      - name: Publish to rate-data branch
+        run: |
+          set -euo pipefail
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git fetch origin rate-data --depth=1 2>/dev/null || true
+          BEFORE=$(git rev-parse origin/rate-data 2>/dev/null || echo "")
+
+          for attempt in 1 2; do
+            git checkout -q --detach 2>/dev/null || true
+            git branch -D rate-data-new 2>/dev/null || true
+            git checkout -q --orphan rate-data-new
+            git rm -rq --cached . 2>/dev/null || true
+
+            find . -maxdepth 1 -mindepth 1 \
+              -not -name .git -not -name work -not -name publish \
+              -not -name stage -not -name data -not -name site \
+              -not -name site-public -exec rm -rf {} +
+            rm -rf latest site site-public vercel.json api
+            cp -r stage/latest stage/site-public stage/api .
+            cp stage/vercel.json .
+
+            git add -f latest site-public vercel.json api
+            git commit -q -m "data: 저축은행 경량 수집 갱신 (run ${{ github.run_id }})"
+
+            if [ -n "$BEFORE" ]; then
+              PUSH="git push --force-with-lease=rate-data:$BEFORE origin HEAD:rate-data"
+            else
+              PUSH="git push origin HEAD:rate-data"
+            fi
+            if $PUSH; then
+              echo "push 성공 (시도 $attempt)"
+              exit 0
+            fi
+
+            echo "push 거부됨. 원격이 그 사이 바뀌었다. 재시도 $attempt"
+            git fetch origin rate-data --depth=1 2>/dev/null || true
+            BEFORE=$(git rev-parse origin/rate-data 2>/dev/null || echo "")
+          done
+          echo "push 재시도 실패" >&2
+          exit 1
