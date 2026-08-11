@@ -1,0 +1,29 @@
+name: Temporary — fix KFCC regression expectation
+
+on:
+  push:
+    branches: [agent/kfcc-source-label]
+    paths:
+      - .github/workflows/dev-kfcc-test-expectation.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Update one regression expectation
+        run: python scripts/dev_kfcc_test_expectation.py
+      - name: Check diff
+        run: git diff --check
+      - name: Commit regression fix
+        run: |
+          git config user.name dekt-oss
+          git config user.email degackt@gmail.com
+          git add tests/test_kfcc_collection.py
+          git commit -m "test: align KFCC source metadata expectation"
+          git push origin HEAD:agent/kfcc-source-label
