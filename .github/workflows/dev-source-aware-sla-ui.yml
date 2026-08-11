@@ -1,0 +1,31 @@
+name: Temporary — apply source-aware SLA UI
+
+on:
+  push:
+    branches: [agent/collection-sla-schedule]
+    paths:
+      - .github/workflows/dev-source-aware-sla-ui.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Update SLA display
+        run: python scripts/dev_source_aware_sla_ui.py
+      - name: Static checks
+        run: |
+          node --check web/api/health.js
+          git diff --check
+      - name: Commit UI fix
+        run: |
+          git config user.name dekt-oss
+          git config user.email degackt@gmail.com
+          git add web/templates/site.html
+          git commit -m "fix: show degraded SLA when a source fails"
+          git push origin HEAD:agent/collection-sla-schedule
