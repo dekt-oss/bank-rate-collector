@@ -93,4 +93,16 @@ addition = '''def test_manual_nh_fresh_is_operator_only_and_recovery_stays_auto(
 '''
 if marker not in text:
     raise SystemExit("workflow test insertion marker mismatch")
-t.write_text(text.replace(marker, addition + marker, 1), encoding="utf-8")
+text = text.replace(marker, addition + marker, 1)
+old_assert = '''    assert first["continue-on-error"] is True
+    assert "--resume auto" in first["run"]
+    assert "steps.collect_nh_local.outcome == 'failure'" in str(decision["if"])
+'''
+new_assert = '''    assert first["continue-on-error"] is True
+    assert '--resume "$RESUME_MODE"' in first["run"]
+    assert "steps.collect_nh_local.outcome == 'failure'" in str(decision["if"])
+'''
+if text.count(old_assert) != 1:
+    raise SystemExit("bounded graph first-attempt assertion marker mismatch")
+text = text.replace(old_assert, new_assert, 1)
+t.write_text(text, encoding="utf-8")
