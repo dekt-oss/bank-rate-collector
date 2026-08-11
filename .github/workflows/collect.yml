@@ -38,6 +38,12 @@ on:
         required: false
         default: "전국"
         options: ["전국", "수도권", "부산"]
+      nh_resume_mode:
+        description: "농·축협 checkpoint. 보통 auto, 같은 날 새로 받으려면 fresh"
+        type: choice
+        required: false
+        default: "auto"
+        options: ["auto", "fresh"]
       skip_finlife_bank:
         description: "시중은행(참고지표) 수집을 건너뛴다"
         type: boolean
@@ -457,6 +463,7 @@ jobs:
         continue-on-error: true
         env:
           SCOPE: ${{ inputs.nh_local_scope }}
+          RESUME_MODE: ${{ inputs.nh_resume_mode || 'auto' }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
@@ -466,7 +473,7 @@ jobs:
         run: |
           uv run rate-monitor collect \
             --source nh_local \
-            --resume auto \
+            --resume "$RESUME_MODE" \
             --cycle-date "${{ steps.nh_checkpoint.outputs.cycle_date }}" \
             --db work/rate_monitor.sqlite3 \
             --raw-root data/raw \

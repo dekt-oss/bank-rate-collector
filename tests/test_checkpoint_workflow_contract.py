@@ -73,6 +73,23 @@ def test_kfcc_is_still_outside_checkpoint_integration_pr_b() -> None:
     assert not any(name.startswith("Recover KFCC") for name in names)
 
 
+def test_manual_nh_fresh_is_operator_only_and_recovery_stays_auto() -> None:
+    workflow = _workflow()
+    triggers = workflow.get("on", workflow.get(True))
+    nh_mode = triggers["workflow_dispatch"]["inputs"]["nh_resume_mode"]
+    assert nh_mode["type"] == "choice"
+    assert nh_mode["default"] == "auto"
+    assert nh_mode["options"] == ["auto", "fresh"]
+
+    first = _step("Collect NH local")
+    assert (first.get("env") or {}).get("RESUME_MODE") == "${{ inputs.nh_resume_mode || 'auto' }}"
+    assert '--resume "$RESUME_MODE"' in first["run"]
+
+    recovery = _step("Recover NH local")
+    assert "RESUME_MODE" not in (recovery.get("env") or {})
+    assert "--resume auto" in recovery["run"]
+
+
 def test_nh_checkpoint_recovery_graph_is_bounded_to_one_attempt() -> None:
     names = [str(step.get("name") or "") for step in _steps()]
     assert names.count("Prepare NH checkpoint context") == 1
@@ -84,7 +101,7 @@ def test_nh_checkpoint_recovery_graph_is_bounded_to_one_attempt() -> None:
     decision = _step("Decide NH recovery")
     recovery = _step("Recover NH local")
     assert first["continue-on-error"] is True
-    assert "--resume auto" in first["run"]
+    assert '--resume "$RESUME_MODE"' in first["run"]
     assert "steps.collect_nh_local.outcome == 'failure'" in str(decision["if"])
     assert "--attempt-failed" in decision["run"]
     condition = str(recovery["if"])
