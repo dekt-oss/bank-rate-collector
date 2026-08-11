@@ -77,6 +77,10 @@ LIST_RETRY_BACKOFF_SECONDS = (5.0, 20.0, 60.0)
 RATE_RETRY_BACKOFF_SECONDS = (3.0, 12.0)
 RETRYABLE_STATUS_CODES = frozenset({500, 502, 503, 504})
 MAX_TOTAL_RETRIES = 50
+# 07:30 normal 목표의 관측 최소 여유가 약 10분이었다. retry backoff가
+# 그 여유를 25분까지 잠식하지 않도록, 실제로 sleep하는 누적 추가 대기를
+# 10분으로 별도 제한한다. 요청 자체 timeout은 기존 per-request 제한을 따른다.
+MAX_TOTAL_RETRY_DELAY_SECONDS = 10 * 60.0
 
 # 수집 대상 상품군. 요구불(12)은 단계금액 구간 파싱이 따로 필요해 미룬다.
 DEFAULT_GROUPS = ("13", "14")
@@ -178,6 +182,7 @@ class KfccAdapter:
         self._regions_path = regions_path or REGIONS_PATH
         self._sleep = sleep or asyncio.sleep
         self._retry_count = 0
+        self._retry_delay_seconds = 0.0
         self._retry_reasons: Counter[str] = Counter()
 
     # ── 지역 ────────────────────────────────────────────────────────────
@@ -216,6 +221,7 @@ class KfccAdapter:
 
     def _reset_retry_state(self) -> None:
         self._retry_count = 0
+        self._retry_delay_seconds = 0.0
         self._retry_reasons.clear()
 
     def _retry_note(self) -> str:
@@ -240,6 +246,7 @@ class KfccAdapter:
         attempt: int,
         max_attempts: int,
         cause: Exception,
+        delay: float,
     ) -> None:
         if self._retry_count >= MAX_TOTAL_RETRIES:
             raise KfccRequestFailure(
@@ -252,7 +259,19 @@ class KfccAdapter:
                 retry_count=self._retry_count,
                 failure_reasons=self._failure_reasons_with(code),
             ) from cause
+        if self._retry_delay_seconds + delay > MAX_TOTAL_RETRY_DELAY_SECONDS:
+            raise KfccRequestFailure(
+                "RETRY_DELAY_BUDGET_EXHAUSTED",
+                phase=phase,
+                request_label=request_label,
+                attempt=attempt,
+                max_attempts=max_attempts,
+                cause=cause,
+                retry_count=self._retry_count,
+                failure_reasons=self._failure_reasons_with(code),
+            ) from cause
         self._retry_count += 1
+        self._retry_delay_seconds += delay
         self._retry_reasons[code] += 1
 
     @staticmethod
@@ -337,6 +356,7 @@ class KfccAdapter:
                     failure_reasons=self._failure_reasons_with(code),
                 ) from failure
 
+            delay = REQUEST_INTERVAL_SECONDS + backoffs[attempt - 1]
             self._reserve_retry(
                 code=code,
                 phase=phase,
@@ -344,11 +364,11 @@ class KfccAdapter:
                 attempt=attempt,
                 max_attempts=max_attempts,
                 cause=failure,
+                delay=delay,
             )
-            delay = REQUEST_INTERVAL_SECONDS + backoffs[attempt - 1]
             logger.warning(
                 "KFCC retry source_id=%s phase=%s request=%s attempt=%d max_attempts=%d "
-                "error_class=%s http_status=%s retry_delay=%.1f",
+                "error_class=%s http_status=%s retry_delay=%.1f cumulative_retry_delay=%.1f",
                 self.source_id,
                 phase,
                 request_label,
@@ -357,6 +377,7 @@ class KfccAdapter:
                 code,
                 http_status if http_status is not None else "-",
                 delay,
+                self._retry_delay_seconds,
             )
             await self._sleep(delay)
 
