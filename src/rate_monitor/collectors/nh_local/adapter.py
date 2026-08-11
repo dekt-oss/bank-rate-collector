@@ -401,9 +401,10 @@ class NhLocalAdapter:
                             },
                         )
                     )
-        guard_note = guard.summary()
+        self.fetch_note = guard.summary()
         retry_note = self._retry_note()
-        self.fetch_note = " · ".join(note for note in (guard_note, retry_note) if note)
+        if retry_note:
+            self.fetch_note = f"{self.fetch_note} · {retry_note}"
         self.fetch_alert = guard.tripped
         return artifacts
 
