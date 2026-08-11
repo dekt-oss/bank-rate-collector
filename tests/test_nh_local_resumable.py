@@ -202,6 +202,10 @@ def test_directory_is_frozen_and_plan_change_fails_closed(tmp_path: Path, monkey
     with pytest.raises(CheckpointIncompatibleError, match="work_plan_hash"):
         _run(resumed, request)
 
+    decision = decide_recovery(store, _identity(request), attempt_failed=True)
+    assert decision.eligible is False
+    assert decision.reason_code == "ACQUISITION_CONTRACT_CHANGED"
+
 
 def test_blocked_source_is_terminal_and_not_recoverable(tmp_path: Path, monkeypatch) -> None:
     _install_directory(monkeypatch)

@@ -169,7 +169,11 @@ class NhResumableAdapter(NhLocalAdapter):
         self._restore_retry_state(manifest)
         artifacts = service.materialize(manifest) if manifest.completed_work_count else []
         guard = self._guard_factory()
-        self._replay_guard(guard, artifacts)
+        try:
+            self._replay_guard(guard, artifacts)
+        except CheckpointIncompatibleError as exc:
+            self._seal_contract_failure(service, manifest, exc)
+            raise
         if guard.tripped:
             terminal = service.mark_terminal(
                 manifest,
@@ -364,6 +368,9 @@ class NhResumableAdapter(NhLocalAdapter):
                 guard_state=self._checkpoint_state(),
             )
             raise
+        except CheckpointIncompatibleError as exc:
+            self._seal_contract_failure(service, manifest, exc)
+            raise
         except SchemaChangedError as exc:
             if buffer:
                 manifest = service.flush(
@@ -379,6 +386,26 @@ class NhResumableAdapter(NhLocalAdapter):
                 guard_state=self._checkpoint_state(),
             )
             raise
+
+    def _seal_contract_failure(
+        self,
+        service: ResumableAcquisitionService,
+        manifest: AcquisitionManifest,
+        exc: CheckpointIncompatibleError,
+    ) -> None:
+        """Seal same-session contract drift so workflow recovery cannot loop it."""
+        try:
+            service.mark_terminal(
+                manifest,
+                status="contract_failed",
+                reason_code="ACQUISITION_CONTRACT_CHANGED",
+                reason=str(exc),
+                guard_state=self._checkpoint_state(),
+            )
+        except CheckpointIncompatibleError:
+            # Identity-level incompatibility can mean this manifest is not the active
+            # session. In that case the common recovery decision itself fails closed.
+            return
 
     def _build_plan(
         self,
