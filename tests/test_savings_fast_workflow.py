@@ -24,6 +24,10 @@ def _triggers(workflow: dict) -> dict:
     return workflow.get("on", workflow.get(True))
 
 
+def _steps() -> list[dict]:
+    return _workflow()["jobs"]["collect-bank-rates"]["steps"]
+
+
 def test_fast_lane_runs_weekdays_at_ten_three_and_six_kst() -> None:
     workflow = _workflow()
     schedules = _triggers(workflow)["schedule"]
@@ -53,9 +57,8 @@ def test_fast_lane_serializes_with_the_existing_rate_data_writer() -> None:
 
 
 def test_fast_lane_collects_only_bank_and_savings_sources() -> None:
-    steps = _workflow()["jobs"]["collect-savings"]["steps"]
     collectors = [
-        step for step in steps if str(step.get("name", "")).startswith("Collect ")
+        step for step in _steps() if str(step.get("name", "")).startswith("Collect ")
     ]
     assert [step["name"] for step in collectors] == [
         "Collect finlife bank",
@@ -78,8 +81,7 @@ def test_fast_lane_collects_only_bank_and_savings_sources() -> None:
 
 
 def test_fast_lane_keeps_persistence_validation_and_publish_gates() -> None:
-    steps = _workflow()["jobs"]["collect-savings"]["steps"]
-    names = [step.get("name") for step in steps]
+    names = [step.get("name") for step in _steps()]
     required = {
         "Decide storage backend",
         "Restore previous database",
