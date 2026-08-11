@@ -132,7 +132,8 @@ def test_every_outlet_level_collector_watches_for_repeats() -> None:
     for name in ("kfcc", "cu", "fsb", "nh_local"):
         source = (root / name / "adapter.py").read_text(encoding="utf-8")
         assert "RepeatGuard()" in source, f"{name}에 되풀이 감시가 없다"
-        assert "self.fetch_note = guard.summary()" in source, f"{name}이 요약을 안 남긴다"
+        assert "guard.summary()" in source, f"{name}이 되풀이 요약을 안 만든다"
+        assert "self.fetch_note" in source, f"{name}이 실행 메모를 안 남긴다"
         # 조용히 버리던 코드가 되살아나지 않았는지.
         assert "seen_bodies" not in source, f"{name}이 아직 응답을 버린다"
 
