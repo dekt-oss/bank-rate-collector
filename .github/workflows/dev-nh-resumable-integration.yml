@@ -24,7 +24,9 @@ jobs:
         run: uv python install 3.12
 
       - name: Apply integration patch
-        run: python .github/dev/nh_resumable_integration_patch.py
+        run: |
+          python .github/dev/nh_resumable_integration_patch.py
+          python .github/dev/nh_resumable_postfix.py
 
       - name: Verify
         run: |
@@ -41,7 +43,7 @@ jobs:
           # GitHub Actions token cannot update collect.yml. Keep that workflow file
           # out of the bot push; a connector-owned final commit applies it next.
           git checkout HEAD -- .github/workflows/collect.yml
-          git rm .github/dev/nh_resumable_integration_patch.py
+          git rm .github/dev/nh_resumable_integration_patch.py .github/dev/nh_resumable_postfix.py
           git add -A
           git commit -m "feat: integrate NH resumable acquisition"
           git push origin HEAD:agent/nh-resumable-acquisition-v1
