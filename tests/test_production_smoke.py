@@ -3,9 +3,7 @@ from __future__ import annotations
 import json
 
 import pytest
-
 import scripts.production_smoke as smoke
-
 
 EXPECTED_MANIFEST = {
     "generated_at": "2026-08-11T08:57:02+09:00",
