@@ -11,8 +11,8 @@
 <!-- 파비콘을 인라인으로 둔다. 없으면 브라우저가 /favicon.ico를 찾다 404를
      남기고, 그 404가 콘솔에서 진짜 오류처럼 보인다. -->
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%232D5F7C'/%3E%3Ctext x='8' y='12' font-size='11' font-family='monospace' font-weight='bold' text-anchor='middle' fill='white'%3E%25%3C/text%3E%3C/svg%3E">
-<title>2금융권 수신금리 조회 · rate-monitor</title>
-<meta name="description" content="저축은행·새마을금고·신협의 공시 수신금리를 한 표에서 조회하고 파일로 내려받습니다. 공식 공시 화면에서 직접 수집한 값입니다.">
+<title>RATE FINDER · 전국 예·적금 금리 비교</title>
+<meta name="description" content="은행·저축은행·새마을금고·신협·지역농축협의 공시 예·적금 금리를 한 화면에서 비교하고 내려받습니다.">
 <!-- 검색엔진 색인에서 뺀다.
      주소를 아는 사람은 그대로 들어온다. 다만 "부산 금리" 같은 검색어로
      이 화면이 걸려 나오지는 않게 한다 — 공시금리를 옮겨 실은 화면이
@@ -28,7 +28,7 @@
      운영 보드(dashboard.html)·조회 화면(public.html)과 같은 색을 쓴다.
      같은 데이터를 세 화면이 다른 색으로 보여주면 같은 것인지 알 수 없다. */
   :root {
-    --paper:      #EEF1F4;
+    --paper:      #F3F6FB;
     --surface:    #FFFFFF;
     --surface-2:  #F6F8FA;
     --line:       #D3DAE1;
@@ -36,9 +36,11 @@
     --ink:        #171C23;
     --ink-2:      #4A5563;
     --ink-3:      #77828F;
-    --accent:     #2D5F7C;
-    --accent-ink: #24506A;
-    --accent-bg:  #E5EDF2;
+    --accent:     #2563EB;
+    --accent-ink: #1748B5;
+    --accent-bg:  #EAF1FF;
+    --teal:       #0F9F92;
+    --violet:     #7C3AED;
     --ok:         #2E7D5B;
     --warn:       #A9741A;
     --crit:       #AC4238;
@@ -51,53 +53,44 @@
     --sans: system-ui, -apple-system, "Apple SD Gothic Neo", "Pretendard",
             "Malgun Gothic", "Noto Sans KR", sans-serif;
   }
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --paper: #10141A; --surface: #181D25; --surface-2: #1E242D;
-      --line: #2C3540; --line-soft: #232B35;
-      --ink: #E3E8EE; --ink-2: #A7B2BF; --ink-3: #7A8695;
-      --accent: #6FA8C7; --accent-ink: #8CBEDA; --accent-bg: #1B2A34;
-      --ok: #5DBE90; --warn: #D6A343; --crit: #E0776C;
-      --ok-bg: #172C24; --warn-bg: #2E2718; --crit-bg: #2E1E1D;
-    }
-  }
-  :root[data-theme="dark"] {
-    --paper: #10141A; --surface: #181D25; --surface-2: #1E242D;
-    --line: #2C3540; --line-soft: #232B35;
-    --ink: #E3E8EE; --ink-2: #A7B2BF; --ink-3: #7A8695;
-    --accent: #6FA8C7; --accent-ink: #8CBEDA; --accent-bg: #1B2A34;
-    --ok: #5DBE90; --warn: #D6A343; --crit: #E0776C;
-    --ok-bg: #172C24; --warn-bg: #2E2718; --crit-bg: #2E1E1D;
-  }
-  :root[data-theme="light"] {
-    --paper: #EEF1F4; --surface: #FFFFFF; --surface-2: #F6F8FA;
-    --line: #D3DAE1; --line-soft: #E4E9EE;
-    --ink: #171C23; --ink-2: #4A5563; --ink-3: #77828F;
-    --accent: #2D5F7C; --accent-ink: #24506A; --accent-bg: #E5EDF2;
-    --ok: #2E7D5B; --warn: #A9741A; --crit: #AC4238;
-    --ok-bg: #E4F1EA; --warn-bg: #F7EEDA; --crit-bg: #F7E5E3;
-  }
-
   * { box-sizing: border-box; }
   body {
     margin: 0; background: var(--paper); color: var(--ink);
     font-family: var(--sans); font-size: 14.5px; line-height: 1.5;
     -webkit-font-smoothing: antialiased;
   }
-  .wrap { max-width: 1440px; margin: 0 auto; padding: 22px 18px 64px; }
+  .wrap { max-width: 1440px; margin: 0 auto; padding: 18px 18px 64px; }
 
   header.top {
-    display: flex; flex-wrap: wrap; align-items: flex-end;
+    position: relative; overflow: visible;
+    display: flex; flex-wrap: wrap; align-items: center;
     justify-content: space-between; gap: 12px;
-    padding-bottom: 14px; border-bottom: 2px solid var(--ink);
+    padding: 22px 24px; border: 0; border-radius: 18px;
+    background:
+      radial-gradient(circle at 12% 10%, rgba(255,255,255,.19), transparent 32%),
+      linear-gradient(125deg, #123B8F 0%, #2563EB 52%, #0F9F92 118%);
+    color: #fff; box-shadow: 0 14px 34px rgba(25, 62, 135, .18);
   }
-  header.top h1 {
-    margin: 0; font-size: 23px; font-weight: 650;
-    letter-spacing: -0.015em; text-wrap: balance;
+  .brand { display: flex; align-items: center; gap: 13px; min-width: min(100%, 390px); }
+  .brand-mark {
+    display: grid; place-items: center; flex: 0 0 46px; height: 46px;
+    border-radius: 14px; background: rgba(255,255,255,.16);
+    border: 1px solid rgba(255,255,255,.28); font: 800 24px/1 var(--mono);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.22);
   }
-  header.top .sub { margin: 4px 0 0; color: var(--ink-2); font-size: 13px; }
+  .eyebrow {
+    margin: 0 0 2px; color: rgba(255,255,255,.7); font: 700 9.5px/1.2 var(--mono);
+    letter-spacing: .16em;
+  }
+  header.top h1 { margin: 0; text-wrap: balance; line-height: 1.12; }
+  .brand-en { font-size: 25px; font-weight: 850; letter-spacing: -.025em; }
+  .brand-ko {
+    display: inline-block; margin-left: 9px; font-size: 14px; font-weight: 650;
+    color: rgba(255,255,255,.86); letter-spacing: -.01em;
+  }
+  header.top .sub { margin: 5px 0 0; color: rgba(255,255,255,.72); font-size: 11.5px; }
   .stamp {
-    font-family: var(--mono); font-size: 11.5px; color: var(--ink-3);
+    font-family: var(--mono); font-size: 10.5px; color: rgba(255,255,255,.7);
     text-align: right; line-height: 1.7; font-variant-numeric: tabular-nums;
   }
 
@@ -113,17 +106,17 @@
     display: inline-flex; align-items: center; gap: 6px;
     font-size: 12.5px; font-weight: 600; text-decoration: none;
     padding: 6px 12px; border-radius: 6px; cursor: pointer;
-    background: var(--surface); color: var(--accent-ink);
-    border: 1px solid var(--accent);
+    background: rgba(255,255,255,.96); color: var(--accent-ink);
+    border: 1px solid rgba(255,255,255,.66);
   }
-  .collect:hover { background: var(--accent); color: #fff; }
+  .collect:hover { background: #fff; color: var(--accent-ink); transform: translateY(-1px); }
   /* 누구나 눌러도 아무 일이 안 일어난다는 것을 미리 알린다. */
   .collect .who {
     font-size: 10.5px; font-weight: 700; letter-spacing: .04em;
     color: var(--ink-3); border: 1px solid var(--line);
     border-radius: 3px; padding: 0 4px;
   }
-  .collect:hover .who { color: #fff; border-color: rgba(255,255,255,.5); }
+  .collect:hover .who { color: var(--accent-ink); border-color: var(--accent); }
 
   /* 암호를 넣는 자리. 버튼 아래에 겹쳐 띄운다 — 헤더 줄을 밀어내면 누를
      때마다 화면 전체가 흔들린다. 좁은 화면에서는 화면 밖으로 나가지 않게
@@ -144,7 +137,7 @@
   .collect-panel input {
     flex: 1 1 150px; min-width: 0; font-size: 13px; padding: 5px 8px;
     border-radius: 5px; border: 1px solid var(--line);
-    background: var(--bg); color: var(--ink);
+    background: var(--surface-2); color: var(--ink);
   }
   .collect-panel button {
     font-size: 12.5px; font-weight: 700; padding: 6px 12px; cursor: pointer;
@@ -189,6 +182,9 @@
   .health-dot.red { background:var(--crit); }
   .health-dot.blue { background:var(--accent); }
   .health-dot.gray { background:var(--ink-3); }
+  #health-open .health-dot {
+    width: 8px; height: 8px; box-shadow: 0 0 0 3px rgba(255,255,255,.18);
+  }
   .health-refresh { font:inherit; font-size:11.5px; border:1px solid var(--line);
     background:var(--surface); color:var(--ink-2); border-radius:5px; padding:4px 8px; cursor:pointer; }
 
@@ -205,13 +201,18 @@
   .zero-bar b { font-family: var(--mono); font-weight: 700; }
   .zero-bar .why { font-size: 11.5px; color: var(--ink-3); }
 
-  .notice {
-    margin: 14px 0 0; padding: 9px 13px;
-    background: var(--warn-bg); color: var(--warn);
-    border-left: 3px solid var(--warn); border-radius: 2px;
-    font-size: 12.5px; font-weight: 600;
+  .status-alert {
+    margin: 8px 4px 0; color: var(--crit); font-size: 11px; line-height: 1.55;
   }
-  .notice span { display: block; font-weight: 400; margin-top: 3px; }
+  .status-alert::before { content: "●"; margin-right: 5px; font-size: 8px; }
+  .status-alert span { color: var(--ink-3); margin-left: 5px; }
+  .source-caveat {
+    margin: 16px 2px 0; padding: 9px 12px; border-radius: 8px;
+    background: #FFF9E8; color: #83611A; border: 1px solid #F1E2B7;
+    font-size: 10.5px; line-height: 1.55;
+  }
+  .source-caveat b { font-weight: 700; }
+  .source-caveat span { display: block; margin-top: 2px; color: #8F753E; }
 
   .totals {
     display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
@@ -252,13 +253,15 @@
 
   .panel {
     margin-top: 16px; background: var(--surface);
-    border: 1px solid var(--line); border-radius: 3px;
+    border: 1px solid #DCE4F0; border-radius: 14px; overflow: hidden;
+    box-shadow: 0 8px 24px rgba(35, 65, 120, .07);
   }
   .panel > h2 {
-    margin: 0; padding: 10px 14px; font-size: 11px; font-weight: 700;
+    margin: 0; padding: 12px 16px; font-size: 11px; font-weight: 750;
     letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-3);
     border-bottom: 1px solid var(--line-soft);
     display: flex; justify-content: space-between; align-items: center;
+    background: linear-gradient(90deg, #F7FAFF, #FFFFFF);
   }
   .panel > h2 button {
     font: inherit; text-transform: none; letter-spacing: 0;
@@ -269,6 +272,28 @@
     display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
     gap: 0;
   }
+  .advanced-filters[hidden] { display: none; }
+  .advanced-filters { border-top: 1px solid var(--line-soft); background: #FBFCFF; }
+  .filter-mode-bar {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    padding: 9px 14px; border-top: 1px solid var(--line-soft);
+    background: linear-gradient(90deg, var(--accent-bg), #F4FBFA);
+  }
+  .filter-mode-summary {
+    display: flex; flex-wrap: wrap; gap: 5px 7px; color: var(--ink-2); font-size: 11px;
+  }
+  .filter-mode-summary span {
+    padding: 2px 7px; border-radius: 999px; background: rgba(255,255,255,.8);
+    border: 1px solid rgba(37,99,235,.15);
+  }
+  .filter-toggle {
+    flex: none; font: inherit; font-size: 11.5px; font-weight: 700; cursor: pointer;
+    color: #fff; background: linear-gradient(110deg, var(--accent), var(--teal));
+    border: 0; border-radius: 999px; padding: 6px 12px;
+    box-shadow: 0 4px 10px rgba(37,99,235,.18);
+  }
+  .filter-toggle::after { content: " ↓"; }
+  .filter-toggle[aria-expanded="true"]::after { content: " ↑"; }
   .group { padding: 12px 14px; border-right: 1px solid var(--line-soft);
            border-bottom: 1px solid var(--line-soft); }
   .group > .lbl {
@@ -276,9 +301,10 @@
     letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: 7px;
     display: flex; justify-content: space-between; align-items: baseline;
   }
-  .group > .lbl a {
+  .group > .lbl a, .group > .lbl button {
     font-size: 11px; color: var(--accent); cursor: pointer;
-    text-transform: none; letter-spacing: 0; font-weight: 600;
+    text-transform: none; letter-spacing: 0; font-weight: 650;
+    background: none; border: 0; padding: 0; font-family: inherit;
   }
   .checks { display: flex; flex-wrap: wrap; gap: 5px 12px; }
   .checks label {
@@ -428,8 +454,13 @@
 
   @media (max-width: 640px) {
     .wrap { padding: 16px 12px 48px; }
-  .marks { grid-template-columns: 1fr; }
-    header.top h1 { font-size: 19px; }
+    .marks { grid-template-columns: 1fr; }
+    header.top { padding: 18px 16px; border-radius: 14px; }
+    .brand-en { font-size: 21px; }
+    .brand-ko { display: block; margin: 3px 0 0; font-size: 12px; }
+    .head-right { justify-content: flex-start; width: 100%; }
+    .head-right .stamp { text-align: left; }
+    .filter-mode-bar { align-items: flex-start; flex-direction: column; }
     .group { border-right: 0; }
   }
 
@@ -440,7 +471,13 @@
   }
   .mark {
     background: var(--surface); border: 1px solid var(--line);
-    border-radius: 10px; padding: 12px 14px;
+    position: relative; overflow: hidden; border-radius: 12px; padding: 14px 15px;
+    box-shadow: 0 6px 18px rgba(38,67,114,.06);
+  }
+  .mark::before {
+    content: ""; position: absolute; inset: 0 0 auto; height: 3px;
+    background: linear-gradient(90deg, var(--accent), var(--teal), var(--violet));
+    opacity: .8;
   }
   .mark .t { font-size: 12px; color: var(--ink-3); letter-spacing: .02em; }
   .mark .v { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
@@ -461,12 +498,16 @@
     font-size: 11px; color: var(--accent); cursor: pointer;
     letter-spacing: 0; font-weight: 600;
   }
+  .gu-lbl button {
+    font: inherit; font-size: 11px; color: var(--accent); cursor: pointer;
+    letter-spacing: 0; font-weight: 650; background: none; border: 0; padding: 0;
+  }
   /* 점포가 없는 구도 지운다는 뜻이 아니라 흐리게만 둔다. 지우면 "없는 구"와
      "조건에 안 걸린 구"를 구별할 수 없다. */
   .gu-inline label[data-empty="1"] { opacity: .45; }
 
   /* ── 자주 쓰는 조건 ───────────────────────────────────────────── */
-  .presets { display: flex; flex-wrap: wrap; gap: 7px; margin: 2px 0 12px; }
+  .presets { display: flex; flex-wrap: wrap; gap: 7px; margin: 0; padding: 10px 14px; }
   .presets button {
     font: inherit; font-size: 12.5px; cursor: pointer; padding: 6px 13px;
     border-radius: 999px; border: 1px solid var(--line);
@@ -549,7 +590,7 @@
      하나»로 읽힌다. */
   .mine-pick {
     display: inline-flex; align-items: center; gap: 6px;
-    background: var(--accent-bg); border: 1px solid var(--accent);
+    background: rgba(255,255,255,.95); border: 1px solid rgba(255,255,255,.7);
     border-radius: 6px; padding: 4px 8px;
   }
   .mine-pick label {
@@ -563,11 +604,12 @@
   }
   .mine-pick select:disabled { color: var(--ink-3); cursor: progress; }
   .icon-btn {
-    border: 1px solid var(--line); background: var(--surface); color: var(--ink-2);
+    display: inline-flex; align-items: center; gap: 6px;
+    border: 1px solid rgba(255,255,255,.55); background: rgba(255,255,255,.14); color: #fff;
     border-radius: 6px; padding: 5px 10px; font-size: 12.5px; cursor: pointer;
     font-family: var(--sans);
   }
-  .icon-btn:hover { border-color: var(--accent); color: var(--accent-ink); }
+  .icon-btn:hover { background: rgba(255,255,255,.24); border-color: #fff; color: #fff; }
 
   /* ── 참고카드 ─────────────────────────────────────────────────── */
   .mark .v.key { color: var(--accent-ink); }
@@ -719,9 +761,13 @@
 
 <div class="wrap">
   <header class="top">
-    <div>
-      <h1>2금융권 수신금리 조회</h1>
-      <p class="sub" id="sub">금리표를 불러오는 중입니다…</p>
+    <div class="brand">
+      <div class="brand-mark" aria-hidden="true">%</div>
+      <div>
+        <p class="eyebrow">DEPOSIT RATE INTELLIGENCE</p>
+        <h1><span class="brand-en">RATE FINDER</span><span class="brand-ko">전국 예·적금 금리 비교</span></h1>
+        <p class="sub" id="sub">금리표를 불러오는 중입니다…</p>
+      </div>
     </div>
     <div class="head-right">
       <!-- 우리 회사. 화면 전체의 기준점이라 헤더에 둔다 — 조회 조건 안에
@@ -734,10 +780,11 @@
           <option value="">기관 목록 불러오는 중</option>
         </select>
       </div>
-      <button type="button" class="icon-btn" id="theme" title="밝게 / 어둡게">🌙</button>
-      <button type="button" class="icon-btn" id="copylink">링크 복사</button>
       <button type="button" class="icon-btn" id="health-open"
-              aria-expanded="false" aria-controls="health-panel">수집 상태</button>
+              aria-expanded="false" aria-controls="health-panel">
+        <span class="health-dot gray" id="health-head-dot" aria-hidden="true"></span>
+        <span id="health-head-label">수집 상태</span>
+      </button>
       <div class="stamp" id="stamp"></div>
       <!-- 여기서 암호를 넣으면 그 자리에서 수집이 시작된다 (명세서 §12.5).
            토큰은 같은 도메인의 서버리스 함수(`/api/collect`)에 있고 이
@@ -764,15 +811,10 @@
     </div>
   </header>
 
-  <p class="notice">
-    저축은행 공시금리 — 전국 본점 기준 참고값
-    <span id="notice-detail"></span>
-  </p>
-
   <!-- 마지막 수집이 실패한 원천. 화면에는 직전에 확인한 값이 남아 있으므로
        **그 사실을 반드시 알린다** — 조용히 어제 값을 보여주면 보는 사람은
        그게 오늘 확인된 것이라고 믿는다. -->
-  <p class="notice" id="stale-notice" hidden></p>
+  <p class="status-alert" id="stale-notice" hidden></p>
 
   <section class="health-panel" id="health-panel" hidden aria-live="polite">
     <div class="health-head">
@@ -816,18 +858,25 @@
        세부는 아래 표에서 본다. 그림과 표가 같은 조건에서 나온 것이라는
        사실도 이 배치가 말해 준다. -->
   <section class="panel" id="conditions">
-    <h2>조회 조건 <button type="button" id="reset">조건 초기화</button></h2>
+    <h2>조회 조건 <button type="button" id="reset">기본값으로</button></h2>
     <!-- 처음 온 사람은 체크박스 마흔 개 앞에서 «무엇부터 눌러야 하나»에 걸린다.
          자주 묻는 조건을 미리 묶어 단추 하나로 건다. 단추가 하는 일은 아래
          체크박스를 켜는 것뿐이라, 무엇이 걸렸는지 그 자리에서 확인할 수 있다 —
          숨은 조건을 만들지 않는다. -->
     <div class="presets" id="presets" role="group" aria-label="자주 쓰는 조건"></div>
-    <div class="groups" id="groups"></div>
+    <div class="groups" id="groups-basic"></div>
+    <div class="filter-mode-bar">
+      <div class="filter-mode-summary" id="filter-mode-summary" aria-live="polite"></div>
+      <button type="button" class="filter-toggle" id="filter-toggle"
+              aria-expanded="false" aria-controls="advanced-filters">상세 조건 펼치기</button>
+    </div>
+    <div class="advanced-filters" id="advanced-filters" hidden>
+      <div class="groups" id="groups-advanced"></div>
     <!-- 공시일은 다른 항목과 성격이 다르다. 값이 수백 가지라 체크박스로는
          못 쓰고, "최근 것만"이 실제로 필요한 조건이다. -->
     <div class="group">
       <div class="lbl">공시일
-        <a data-clear="asOf" role="button" tabindex="0">전체</a>
+        <button type="button" data-clear="asOf">기간 전체</button>
       </div>
       <div class="checks" id="asof-presets"></div>
       <!-- 시작·종료를 따로 준다. "최근 것만"으로는 "작년 6월에 무엇이
@@ -873,6 +922,7 @@
           <input type="number" id="tmax" step="1" min="0" placeholder="예: 36">
         </div>
       </div>
+    </div>
     </div>
     <div class="bar">
       <span style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
@@ -985,6 +1035,11 @@
     <button type="button" class="act" id="more">더 보기</button>
   </div>
 
+  <p class="source-caveat">
+    <b>저축은행 공시금리 — 전국 본점 기준 참고값</b>
+    <span id="notice-detail"></span>
+  </p>
+
   <footer id="foot"></footer>
 </div>
 
@@ -1054,9 +1109,10 @@
 
   // ── 조회 조건 ────────────────────────────────────────────────────
   //
-  // 기본값은 **아무 조건도 걸지 않은 전체 목록**이다. 체크를 하나도 안 한
-  // 묶음은 "그 항목으로 거르지 않는다"는 뜻이고, 하나라도 켜면 켜진 것만
-  // 남는다. 처음부터 전부 체크해두면 하나만 보려고 나머지를 다 꺼야 한다.
+  // 기본 화면은 업무에서 가장 자주 비교하는 범위를 바로 보여준다. 업권과
+  // 상품유형은 전체, 기간은 4~24개월, 지역은 서울·경기·부산, 공시일은
+  // 최신 공시일 기준 최근 7일이다. «전체 선택»은 빈 체크로 전체를 암시하지
+  // 않고 실제 체크박스를 모두 채운다.
   // ── 가입기간 구간 ────────────────────────────────────────────────
   //
   // 개월값 그대로 체크박스를 만들면 46종이 나온다 (2026-08-06 발행 DB).
@@ -1124,10 +1180,11 @@
     { key: "type", label: "상품유형", ko: TYPE_KO },
     { key: "term", label: "가입기간", ko: null, buckets: TERM_BUCKETS },
     { key: "region", label: "지역", ko: null },
-    { key: "channel", label: "가입채널", ko: CHANNEL_KO },
-    { key: "scope", label: "가입제한", ko: SCOPE_KO },
-    { key: "method", label: "이자방식", ko: METHOD_KO },
-    { key: "prefStatus", label: "우대조건", ko: PREF_STATUS_KO, pref: true },
+    { key: "channel", label: "가입채널", ko: CHANNEL_KO, advanced: true },
+    { key: "scope", label: "가입제한", ko: SCOPE_KO, advanced: true },
+    { key: "method", label: "이자방식", ko: METHOD_KO, advanced: true },
+    { key: "prefStatus", label: "우대조건", ko: PREF_STATUS_KO, pref: true,
+      advanced: true },
   ];
   const state = {
     picked: Object.fromEntries(GROUPS.map((g) => [g.key, new Set()])),
@@ -1160,7 +1217,6 @@
   const MINE_CHOICES = ["고려저축은행", "예가람저축은행", "동원제일저축은행"];
 
   const MINE_KEY = "rate-monitor.mine";
-  const THEME_KEY = "rate-monitor.theme";
   // localStorage는 없을 수 있다 (사생활 보호 모드, 파일 프로토콜). 없다고
   // 화면이 죽으면 안 되므로 실패를 삼킨다 — 잃는 것은 다음 방문의 편의뿐이다.
   const store = {
@@ -1295,6 +1351,54 @@
     return c;
   };
 
+  const DEFAULT_TERMS = ["4-6", "7-12", "13-24"];
+  const DEFAULT_REGIONS = ["서울", "경기", BUSAN_SIDO];
+  const groupValues = (g) => g.buckets
+    ? g.buckets.map((b) => b.id)
+    : [...countsOf(g.key).keys()].map(String);
+  const selectAllGroup = (key) => {
+    const g = GROUPS.find((x) => x.key === key);
+    if (!g) return;
+    state.picked[key].clear();
+    groupValues(g).forEach((v) => state.picked[key].add(v));
+  };
+  const applyDefaultGroup = (g) => {
+    state.picked[g.key].clear();
+    if (g.key === "term") DEFAULT_TERMS.forEach((v) => state.picked.term.add(v));
+    else if (g.key === "region") DEFAULT_REGIONS
+      .filter((v) => groupValues(g).includes(v))
+      .forEach((v) => state.picked.region.add(v));
+    else selectAllGroup(g.key);
+  };
+  const applyDefaultFilters = () => {
+    GROUPS.forEach(applyDefaultGroup);
+    Object.assign(state, { q: "", rmin: null, tmin: null, tmax: null,
+                           dfrom: latestAsOf ? shiftDays(latestAsOf, 7) : null,
+                           dto: null, basis: "base", hideZero: false,
+                           sort: "base", dir: -1, shown: 100 });
+    state.gu.clear();
+    state.prefTags.clear();
+    state.open.clear();
+  };
+
+  const shortGroupSummary = (key) => {
+    const g = GROUPS.find((x) => x.key === key);
+    const picked = state.picked[key];
+    const all = groupValues(g);
+    if (all.length && all.every((v) => picked.has(v))) return `${g.label} 전체`;
+    if (g.buckets) return [...picked]
+      .map((v) => (g.buckets.find((b) => b.id === v) || {}).label || v).join(" · ");
+    return [...picked].map((v) => g.ko ? (g.ko[v] || v) : v).join(" · ") || `${g.label} 전체`;
+  };
+  const renderFilterSummary = () => {
+    const sevenDays = latestAsOf && state.dfrom === shiftDays(latestAsOf, 7) && !state.dto;
+    const date = sevenDays ? "공시일 최근 7일"
+      : (!state.dfrom && !state.dto ? "공시일 전체" : "공시일 직접 지정");
+    $("filter-mode-summary").innerHTML = ["sector", "type", "term", "region"]
+      .map((k) => `<span>${esc(shortGroupSummary(k))}</span>`).join("")
+      + `<span>${esc(date)}</span>`;
+  };
+
   const renderAsOf = () => {
     $("asof-presets").innerHTML = PRESETS.map((p) => {
       const n = ALL.filter((r) => r.asOf && r.asOf >= p.from).length;
@@ -1339,7 +1443,7 @@
     }).join("");
     return `<div class="gu-inline">
       <div class="gu-lbl">부산 구·군
-        <a data-clear="gu" role="button" tabindex="0">전체</a>
+        <button type="button" data-all="gu">전체 선택</button>
       </div>
       <div class="checks">${boxes}</div>
     </div>`;
@@ -1368,14 +1472,13 @@
     </label>`).join("");
     return `<div class="gu-inline">
       <div class="gu-lbl">세부 조건
-        <a data-clear="prefTags" role="button" tabindex="0">전체</a>
+        <button type="button" data-all="prefTags">전체 선택</button>
       </div>
       <div class="checks">${boxes}</div>
     </div>`;
   };
 
-  const renderGroups = () => {
-    $("groups").innerHTML = GROUPS.map((g) => {
+  const groupHtml = (groups) => groups.map((g) => {
       let boxes;
       if (g.buckets) {
         // 구간은 데이터에서 뽑지 않고 위 목록 순서 그대로 그린다. 0건인
@@ -1413,13 +1516,17 @@
       }
       return `<div class="group">
         <div class="lbl">${esc(g.label)}
-          <a data-clear="${esc(g.key)}" role="button" tabindex="0">전체</a>
+          <button type="button" data-all="${esc(g.key)}">전체 선택</button>
         </div>
         <div class="checks">${boxes}</div>
         ${g.key === "region" ? busanGuBoxes() : ""}
         ${g.pref ? prefTagBoxes() : ""}
       </div>`;
     }).join("");
+  const renderGroups = () => {
+    $("groups-basic").innerHTML = groupHtml(GROUPS.filter((g) => !g.advanced));
+    $("groups-advanced").innerHTML = groupHtml(GROUPS.filter((g) => g.advanced));
+    renderFilterSummary();
   };
 
   // `skipRegion`은 권역 차트만 쓴다. 그 차트의 x축이 지역이라, 지역을
@@ -1709,6 +1816,7 @@
   };
 
   const render = () => {
+    renderFilterSummary();
     // 조건이 바뀌었으니 캐시부터 비운다. `current`를 새로 만들기 전에
     // 비워야, 아래에서 누가 물어도 옛 집합이 안 나온다.
     clearBasis();
@@ -1969,7 +2077,7 @@
                      { anchor: "middle", size: 9, fill: css("--crit"), weight: 700 });
       }
       s += `<line x1="${sx(ours)}" y1="${PT - 4}" x2="${sx(ours)}" y2="${PT + ih}"`
-        + ` stroke="${css("--crit")}" stroke-width="2.5"/>`;
+        + ` stroke="${css("--crit")}" stroke-width="2.5" stroke-dasharray="6 4"/>`;
       const text = `${state.mine} 중앙값 ${ours.toFixed(2)}%`;
       const lw = text.length * 8 + 14;
       const lx = Math.max(PL + lw / 2, Math.min(W - PR - lw / 2, sx(ours)));
@@ -2360,6 +2468,9 @@
   const URL_VALUES = ["q", "rmin", "tmin", "tmax", "dfrom", "dto",
                       "basis", "sort", "dir"];
   let urlReady = false;
+  let hasUrlFilters = false;
+  const urlSetKeys = new Set();
+  let urlDateSpecified = false;
   const syncUrl = () => {
     if (!urlReady) return;
     const p = new URLSearchParams();
@@ -2378,16 +2489,21 @@
       }
     });
     if (state.dir !== -1) p.set("dir", String(state.dir));
+    if (!state.dfrom && !state.dto) p.set("date", "all");
     if (state.mine) p.set("mine", state.mine);
     const q = p.toString();
     history.replaceState(null, "", q ? `?${q}` : location.pathname);
   };
   const readUrl = () => {
     const p = new URLSearchParams(location.search);
+    hasUrlFilters = [...URL_SETS, ...URL_VALUES, "gu", "pref", "nozero", "date"]
+      .some((k) => p.has(k));
     URL_SETS.forEach((k) => {
       const v = p.get(k);
+      if (p.has(k)) urlSetKeys.add(k);
       if (v) v.split(",").filter(Boolean).forEach((x) => state.picked[k].add(x));
     });
+    urlDateSpecified = p.has("dfrom") || p.has("dto") || p.get("date") === "all";
     (p.get("gu") || "").split(",").filter(Boolean).forEach((x) => state.gu.add(x));
     (p.get("pref") || "").split(",").filter(Boolean).forEach((x) => state.prefTags.add(x));
     ["q", "dfrom", "dto", "sort"].forEach((k) => {
@@ -2690,6 +2806,9 @@
 
   const renderStaticHealth = () => {
     const c = staticHealth.counts || {};
+    $("health-head-dot").className = `health-dot ${staticHealth.overall || "gray"}`;
+    $("health-head-label").textContent = `수집 ${HEALTH_KO[staticHealth.overall] || "상태"}`;
+    $("health-open").title = `수집 상태: ${HEALTH_KO[staticHealth.overall] || "미상"}`;
     $("health-summary").innerHTML = `${healthDot(staticHealth.overall)} ${esc(HEALTH_KO[staticHealth.overall] || "미상")}`
       + ` · 정상 ${num(c.green || 0)} / 확인 ${num(c.yellow || 0)} / 실패 ${num(c.red || 0)}`;
     $("health-sources").innerHTML = (staticHealth.sources || []).map((s) => {
@@ -2845,13 +2964,9 @@
 
   // ── 자주 쓰는 조건 ───────────────────────────────────────────────
   //
-  // 단추가 하는 일은 **아래 체크박스를 켜는 것뿐**이다. 별도의 숨은 조건을
-  // 만들지 않는다 — 만들면 화면이 «조건 3개»라고 적는데 실제로는 네 개가
-  // 걸린 상태가 되고, 어느 쪽이 맞는지 알 수 없다.
-  //
-  // 같은 단추를 다시 누르면 그 단추가 켠 것만 끈다. 다른 조건은 건드리지
-  // 않는다 — 지역을 골라 둔 사람이 «1년 정기예금»을 껐다고 지역까지
-  // 잃으면 안 된다.
+  // 단추는 **아래 체크박스 네 묶음을 프리셋 값으로 바꿀 뿐**이다. 별도의
+  // 숨은 조건은 만들지 않는다. 같은 단추를 다시 누르면 그 네 묶음을 기본
+  // 조회값으로 되돌린다.
   // 이 도구가 무엇을 위해 만들어졌는지가 여기 그대로 드러난다 — 부산의
   // 저축은행이 «우리 금리가 어디쯤인가»를 보려고 만든 것이다. 그래서 기본
   // 단추는 전국 전체가 아니라 **부산·1년**을 기준으로 업권을 가른다.
@@ -2883,8 +2998,8 @@
     return vs.includes(String(r[k]));
   });
 
-  const presetOn = (p) =>
-    Object.entries(p.pick).every(([k, vs]) => vs.every((v) => state.picked[k].has(v)));
+  const presetOn = (p) => Object.entries(p.pick).every(([k, vs]) =>
+    state.picked[k].size === vs.length && vs.every((v) => state.picked[k].has(v)));
 
   const renderPresets = () => {
     $("presets").innerHTML = COND_PRESETS.map((p) => {
@@ -2903,9 +3018,12 @@
     const p = COND_PRESETS.find((x) => x.id === b.dataset.preset);
     if (!p) return;
     const on = presetOn(p);
-    Object.entries(p.pick).forEach(([k, vs]) => vs.forEach((v) => {
-      if (on) state.picked[k].delete(v); else state.picked[k].add(v);
-    }));
+    Object.entries(p.pick).forEach(([k, vs]) => {
+      const g = GROUPS.find((x) => x.key === k);
+      state.picked[k].clear();
+      if (on && g) applyDefaultGroup(g);
+      else vs.forEach((v) => state.picked[k].add(v));
+    });
     // 우대조건·부산을 끄면 그 아래 조건도 함께 비운다. 체크박스 쪽과 같은
     // 규칙이다 — 부산을 껐는데 구·군만 남으면 아무것도 안 걸린 것처럼 보인다.
     if (!state.picked.prefStatus.has("present")) state.prefTags.clear();
@@ -2965,46 +3083,8 @@
     redraw();
   });
 
-  // 다크모드. 색을 CSS 변수에서 읽으므로 차트를 다시 그려야 따라온다.
-  const applyTheme = (mode) => {
-    if (mode) document.documentElement.setAttribute("data-theme", mode);
-    else document.documentElement.removeAttribute("data-theme");
-    $("theme").textContent = mode === "dark" ? "☀️" : "🌙";
-  };
-  applyTheme(store.get(THEME_KEY));
-  $("theme").addEventListener("click", () => {
-    // 저장된 값이 없으면 지금 보이는 것의 반대로 간다 — 시스템 설정을
-    // 따르고 있었을 때도 한 번에 뒤집힌다.
-    const dark = document.documentElement.getAttribute("data-theme") === "dark"
-      || (!document.documentElement.hasAttribute("data-theme")
-          && matchMedia("(prefers-color-scheme: dark)").matches);
-    const next = dark ? "light" : "dark";
-    applyTheme(next);
-    store.set(THEME_KEY, next);
-    drawCharts();
-  });
-
-  $("copylink").addEventListener("click", async (e) => {
-    const b = e.currentTarget;
-    const done = () => {
-      b.textContent = "복사했습니다";
-      setTimeout(() => { b.textContent = "링크 복사"; }, 1500);
-    };
-    try {
-      await navigator.clipboard.writeText(location.href);
-      done();
-    } catch {
-      // HTTPS가 아니면 클립보드 API가 없다. 옛 방법으로 되돌아간다.
-      const box = document.createElement("textarea");
-      box.value = location.href;
-      document.body.appendChild(box);
-      box.select();
-      const ok = document.execCommand("copy");
-      box.remove();
-      if (ok) done();
-      else b.textContent = "복사하지 못했습니다";
-    }
-  });
+  // 화면은 항상 밝은 테마를 사용한다. 공시표와 상태 색의 의미를 방문자별
+  // 시스템 설정에 따라 뒤집지 않는다.
 
   // 폭이 바뀌면 차트를 다시 그린다. viewBox를 실제 폭에 맞추기 때문에
   // 안 그리면 창을 돌렸을 때 옛 폭 그대로 늘어나거나 눌린다.
@@ -3038,6 +3118,9 @@
     if (!box) return;
     const set = state.picked[box.dataset.group];
     if (box.checked) set.add(box.value); else set.delete(box.value);
+    // 마지막 하나를 끄면 다시 전체 선택으로 돌린다. 빈 체크를 «전체»로
+    // 해석하면 화면과 실제 조건이 반대로 보이기 때문이다.
+    if (!set.size) selectAllGroup(box.dataset.group);
     // 부산을 끄면 구·군도 함께 비운다. 안 비우면 안 보이는 조건이 살아
     // 남아, 나중에 부산을 다시 켰을 때 왜 적게 나오는지 알 수 없다.
     if (box.dataset.group === "region") {
@@ -3069,23 +3152,40 @@
     redraw();
   });
   $("conditions").addEventListener("click", (e) => {
+    const all = e.target.closest("[data-all]");
+    if (all) {
+      const key = all.dataset.all;
+      if (key === "gu") {
+        state.gu.clear();
+        $("conditions").querySelectorAll("[data-gu]")
+          .forEach((box) => state.gu.add(box.dataset.gu));
+      } else if (key === "prefTags") {
+        state.prefTags.clear();
+        $("conditions").querySelectorAll("[data-preftag]")
+          .forEach((box) => state.prefTags.add(box.dataset.preftag));
+      } else {
+        selectAllGroup(key);
+      }
+      renderGroups();
+      renderPresets();
+      redraw();
+      return;
+    }
     const clear = e.target.closest("[data-clear]");
     if (!clear) return;
     if (clear.dataset.clear === "asOf") {
       state.dfrom = null;
       state.dto = null;
       renderAsOf();
-    } else if (clear.dataset.clear === "gu") {
-      state.gu.clear();
-      renderGroups();
-    } else if (clear.dataset.clear === "prefTags") {
-      state.prefTags.clear();
-      renderGroups();
-    } else {
-      state.picked[clear.dataset.clear].clear();
-      renderGroups();
     }
     redraw();
+  });
+
+  $("filter-toggle").addEventListener("click", () => {
+    const panel = $("advanced-filters");
+    panel.hidden = !panel.hidden;
+    $("filter-toggle").setAttribute("aria-expanded", String(!panel.hidden));
+    $("filter-toggle").textContent = panel.hidden ? "상세 조건 펼치기" : "상세 조건 접기";
   });
   $("rows").addEventListener("click", (e) => {
     // 행 아무 데나 누르면 원문이 열리고, 다시 누르면 닫힌다. 펼친 원문
@@ -3177,15 +3277,10 @@
   // 우리 회사는 여기서 지우지 않는다. 조회 조건이 아니라 화면의 기준점이라,
   // 조건을 비웠다고 기준점까지 사라지면 처음부터 다시 골라야 한다.
   $("reset").addEventListener("click", () => {
-    GROUPS.forEach((g) => state.picked[g.key].clear());
-    Object.assign(state, { q: "", rmin: null, tmin: null, tmax: null,
-                           dfrom: null, dto: null, basis: "base",
-                           hideZero: false, sort: "base", dir: -1, shown: 100 });
+    applyDefaultFilters();
     $("shown").value = "100";
-    state.gu.clear();
-    state.prefTags.clear();
-    state.open.clear();
     ["q", "rmin", "tmin", "tmax", "dfrom", "dto"].forEach((id) => { $(id).value = ""; });
+    $("dfrom").value = state.dfrom || "";
     $("basis").querySelector('input[value="base"]').checked = true;
     $("hide-zero").checked = false;
     $("rmin-label").textContent = "기본금리 이상 (%)";
@@ -3261,6 +3356,11 @@
       PRESETS = latestAsOf
         ? [7, 30, 90, 365].map((d) => ({ days: d, from: shiftDays(latestAsOf, d) }))
         : [];
+      if (!hasUrlFilters) applyDefaultFilters();
+      else {
+        GROUPS.filter((g) => !urlSetKeys.has(g.key)).forEach(applyDefaultGroup);
+        if (!urlDateSpecified) state.dfrom = latestAsOf ? shiftDays(latestAsOf, 7) : null;
+      }
 
       const bySector = {};
       ALL.forEach((r) => { bySector[r.sector] = (bySector[r.sector] || 0) + 1; });
