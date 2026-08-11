@@ -2,7 +2,7 @@
 
 이 저장소가 다루는 것은 한국 금융기관의 공시금리이고 읽는 사람도 한국에
 있다. 그런데 GitHub Actions는 UTC로 돌고, DB에도 UTC가 적힌다. 경계에서
-바꾸는 것을 잊으면 07:00에 도는 정기 수집이 화면에 22:00으로 뜬다.
+바꾸는 것을 잊으면 정기 수집 시각과 날짜가 하루씩 어긋나 보일 수 있다.
 """
 
 import sqlite3
@@ -15,25 +15,22 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_the_scheduled_run_lands_on_the_right_korean_day() -> None:
-    """정기 수집은 22:00 UTC에 돈다. 그때 한국은 이미 다음 날 07:00이다.
+    """core 정기 수집은 전날 15:17 UTC, 한국에서는 다음 날 00:17이다.
 
     UTC 날짜로 파일 이름과 원본 디렉터리를 만들면 하루 전 날짜가 붙는다.
     """
-    scheduled = datetime(2026, 8, 5, 22, 0, tzinfo=UTC)
-    assert to_kst(scheduled).strftime("%Y-%m-%d %H:%M") == "2026-08-06 07:00"
+    scheduled = datetime(2026, 8, 5, 15, 17, tzinfo=UTC)
+    assert to_kst(scheduled).strftime("%Y-%m-%d %H:%M") == "2026-08-06 00:17"
     assert kst_date_stamp(scheduled) == "20260806"
     assert kst_path_stamp(scheduled) == "2026/08/06"
 
 
-def test_the_cron_matches_two_in_the_morning_korea_time() -> None:
-    """워크플로우의 cron이 실제로 한국시간 02:00인지.
+def test_the_core_cron_matches_twelve_seventeen_korea_time() -> None:
+    """워크플로우의 첫 cron이 실제로 한국시간 00:17인지 값에서 확인한다.
 
-    주석과 값이 어긋나도 아무도 모른다. 값에서 되짚어 확인한다.
-
-    2026-08-06에 평일 07:00에서 월·수·금 02:00으로,
-    2026-08-07에 평일 02:00으로 바꿨다. **요일이 하루
-    밀린다** — 02:00 KST는 전날 17:00 UTC라 월·수·금 새벽은 일·화·목 UTC다.
-    요일까지 보는 것은 `test_gate_contract`가 맡는다.
+    08:00 hard deadline에 여유를 두기 위해 core를 00:17 KST로 앞당겼다.
+    00:17 KST는 전날 15:17 UTC다. 요일 이동과 두 번째 KFCC cron까지의
+    계약은 `test_gate_contract`가 별도로 검증한다.
     """
     import re
 
@@ -42,7 +39,7 @@ def test_the_cron_matches_two_in_the_morning_korea_time() -> None:
     assert match, "cron을 찾지 못했다"
     minute, hour = int(match.group(1)), int(match.group(2))
     utc = datetime(2026, 8, 5, hour, minute, tzinfo=UTC)
-    assert to_kst(utc).strftime("%H:%M") == "02:00"
+    assert to_kst(utc).strftime("%H:%M") == "00:17"
 
 
 def test_the_page_carries_korean_time(tmp_path: Path) -> None:
@@ -90,14 +87,80 @@ def test_run_times_are_converted_on_the_way_out(tmp_path: Path) -> None:
     assert summary["latest_run"]["started_at"].startswith("2026-08-06T14:20:52")
 
 
-def test_kst_is_nine_hours_ahead() -> None:
-    assert KST.utcoffset(None).total_seconds() == 9 * 3600
-
-
-def _make_schema(db: Path) -> None:
-    from rate_monitor.db.models import Base
-    from rate_monitor.db.session import create_db_engine
-
-    engine = create_db_engine(db)
-    Base.metadata.create_all(engine)
-    engine.dispose()
+def _make_schema(path: Path) -> None:
+    conn = sqlite3.connect(path)
+    conn.executescript(
+        """
+        CREATE TABLE sources (
+          id TEXT PRIMARY KEY, name TEXT NOT NULL, sector TEXT NOT NULL,
+          mode TEXT NOT NULL, source_role TEXT NOT NULL, trust_level TEXT NOT NULL,
+          priority INTEGER NOT NULL, base_reference TEXT NOT NULL,
+          enabled INTEGER NOT NULL, policy_status TEXT NOT NULL,
+          coverage_status TEXT NOT NULL, parser_version TEXT NOT NULL,
+          created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+        );
+        CREATE TABLE collection_runs (
+          id TEXT PRIMARY KEY, source_id TEXT NOT NULL, status TEXT NOT NULL,
+          started_at TEXT NOT NULL, finished_at TEXT,
+          raw_count INTEGER NOT NULL DEFAULT 0,
+          parsed_count INTEGER NOT NULL DEFAULT 0,
+          valid_count INTEGER NOT NULL DEFAULT 0,
+          warning_count INTEGER NOT NULL DEFAULT 0,
+          error_count INTEGER NOT NULL DEFAULT 0,
+          mode TEXT NOT NULL, query_context_json TEXT NOT NULL,
+          fallback_used INTEGER NOT NULL DEFAULT 0,
+          message TEXT
+        );
+        CREATE TABLE collection_run_stats (
+          run_id TEXT PRIMARY KEY, fetched_count INTEGER NOT NULL DEFAULT 0,
+          parsed_count INTEGER NOT NULL DEFAULT 0,
+          unchanged_count INTEGER NOT NULL DEFAULT 0,
+          changed_count INTEGER NOT NULL DEFAULT 0,
+          new_variant_count INTEGER NOT NULL DEFAULT 0,
+          missing_variant_count INTEGER NOT NULL DEFAULT 0,
+          error_count INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE TABLE review_items (
+          id TEXT PRIMARY KEY, run_id TEXT, issue_type TEXT NOT NULL,
+          severity TEXT NOT NULL, message TEXT NOT NULL,
+          raw_ref TEXT, entity_ref TEXT, status TEXT NOT NULL DEFAULT 'open',
+          created_at TEXT NOT NULL, resolved_at TEXT
+        );
+        CREATE TABLE institutions (
+          id TEXT PRIMARY KEY, sector TEXT NOT NULL, canonical_name TEXT NOT NULL,
+          raw_name TEXT NOT NULL, institution_code TEXT, region_sido TEXT,
+          region_sigungu TEXT, address TEXT, geo_basis TEXT,
+          availability_scope TEXT NOT NULL DEFAULT 'public', active INTEGER NOT NULL DEFAULT 1
+        );
+        CREATE TABLE products (
+          id TEXT PRIMARY KEY, institution_id TEXT NOT NULL,
+          product_type TEXT NOT NULL, name TEXT NOT NULL, raw_name TEXT NOT NULL,
+          source_product_key TEXT, availability_scope TEXT NOT NULL DEFAULT 'public'
+        );
+        CREATE TABLE product_variants (
+          id TEXT PRIMARY KEY, product_id TEXT NOT NULL, variant_key TEXT NOT NULL,
+          term_months INTEGER, interest_method TEXT, payment_method TEXT,
+          join_channel TEXT, rate_scope TEXT, amount_min TEXT, amount_max TEXT,
+          raw_terms_text TEXT, preference_status TEXT,
+          preference_tags_json TEXT
+        );
+        CREATE TABLE rate_observations (
+          id TEXT PRIMARY KEY, variant_id TEXT NOT NULL, run_id TEXT NOT NULL,
+          last_run_id TEXT, base_rate TEXT, max_rate TEXT,
+          source_effective_at TEXT, validation_status TEXT NOT NULL,
+          validation_message TEXT, raw_ref TEXT,
+          raw_preference_text TEXT, preference_status TEXT,
+          preference_tags_json TEXT
+        );
+        CREATE TABLE market_indicators (
+          id TEXT PRIMARY KEY, source_id TEXT NOT NULL, indicator_key TEXT NOT NULL,
+          value TEXT, source_effective_at TEXT, run_id TEXT
+        );
+        CREATE TABLE outlets (
+          id TEXT PRIMARY KEY, institution_id TEXT NOT NULL, name TEXT,
+          region_sido TEXT, region_sigungu TEXT, address TEXT, geo_basis TEXT
+        );
+        """
+    )
+    conn.commit()
+    conn.close()
