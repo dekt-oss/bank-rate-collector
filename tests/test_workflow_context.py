@@ -74,15 +74,17 @@ def test_resolve_cycle_date_fails_closed_for_wrong_run_response() -> None:
             request=request,
         )
 
-    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
-        with pytest.raises(WorkflowContextError, match="GITHUB_RUN_ID"):
-            resolve_cycle_date_kst(
-                client=client,
-                environ={
-                    "GITHUB_RUN_ID": "12345",
-                    "GITHUB_REPOSITORY": "dekt-oss/bank-rate-collector",
-                },
-            )
+    with (
+        httpx.Client(transport=httpx.MockTransport(handler)) as client,
+        pytest.raises(WorkflowContextError, match="GITHUB_RUN_ID"),
+    ):
+        resolve_cycle_date_kst(
+            client=client,
+            environ={
+                "GITHUB_RUN_ID": "12345",
+                "GITHUB_REPOSITORY": "dekt-oss/bank-rate-collector",
+            },
+        )
 
 
 def test_resolve_cycle_date_fails_closed_without_run_identity() -> None:
