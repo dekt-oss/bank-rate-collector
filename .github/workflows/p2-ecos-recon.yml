@@ -1,12 +1,8 @@
-name: P2 ECOS recon
+name: Diagnostic — BOK ECOS probe
 
-# 한국은행 ECOS 정찰 (v4 §7.2).
-#
-# 인증키가 GitHub Secrets에만 있어서 로컬에서 돌릴 수 없다. 결과 JSON은
-# 아티팩트로 받고, 그걸 보고 파서를 만든다.
-#
-# **아무것도 저장소에 쓰지 않는다.** 정찰이므로 읽기만 한다.
-
+# Manual recovery/source-contract probe. This is not part of the scheduled
+# collection pipeline. Keep it because ECOS credentials and response semantics
+# can be diagnosed here without changing the production collector.
 on:
   workflow_dispatch:
 
@@ -49,6 +45,6 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: ecos-recon
+          name: diagnostic-ecos-probe
           path: docs/source-recon/bok-ecos-recon.json
           retention-days: 7
