@@ -85,7 +85,7 @@ class KfccAdapter:
     source_role = SourceRole.PRIMARY_OFFICIAL
     trust_level = TrustLevel.OFFICIAL_DIRECT
 
-    source_name = "새마을금고 금고위치안내"
+    source_name = "새마을금고 예·적금 금리"
     sector = Sector.KFCC
     mode = CollectionMode.HTTP
     priority = 10
