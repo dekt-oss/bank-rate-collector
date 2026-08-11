@@ -120,7 +120,10 @@ def _failure_code(exc: Exception) -> str:
         return "NETWORK_TIMEOUT"
     if isinstance(exc, httpx.RemoteProtocolError):
         return "NETWORK_PROTOCOL"
-    if isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code in RETRYABLE_STATUS_CODES:
+    if (
+        isinstance(exc, httpx.HTTPStatusError)
+        and exc.response.status_code in RETRYABLE_STATUS_CODES
+    ):
         return "HTTP_SERVER_ERROR"
     return "NETWORK_PROTOCOL"
 
