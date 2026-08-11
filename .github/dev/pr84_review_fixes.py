@@ -1,0 +1,315 @@
+from pathlib import Path
+
+
+def replace_once(path: str, old: str, new: str) -> None:
+    p = Path(path)
+    text = p.read_text(encoding="utf-8")
+    count = text.count(old)
+    if count != 1:
+        raise SystemExit(f"{path}: expected one match, got {count}: {old[:100]!r}")
+    p.write_text(text.replace(old, new), encoding="utf-8")
+
+
+# 1) Ruff hygiene: warning rules on; broad checkpoint ignore removed.
+replace_once(
+    "pyproject.toml",
+    'select = ["E", "F", "I", "UP", "B", "SIM"]\n\n'
+    '[tool.ruff.lint.per-file-ignores]\n'
+    '# checkpoint core의 두 forward-reference 표기는 dataclass classmethod 반환형을\n'
+    '# 가까이 읽기 위한 것이고, tar open은 바로 다음 `with archive:`에서 닫힌다.\n'
+    '# E501 한 건은 예외 chain 문장이며 동작과 무관하다. PR 후속 정리 때 좁힌다.\n'
+    '"src/rate_monitor/services/resumable_acquisition.py" = ["UP037", "SIM115", "E501"]\n',
+    'select = ["E", "F", "I", "UP", "B", "SIM", "W"]\n',
+)
+
+# 2) Source steps must authenticate the GitHub current-run lookup.
+workflow = Path(".github/workflows/collect.yml")
+text = workflow.read_text(encoding="utf-8")
+for scope_name in ("kfcc_scope", "nh_local_scope"):
+    old = f'          SCOPE: ${{{{ inputs.{scope_name} }}}}\n          R2_ACCESS_KEY_ID:'
+    new = (
+        f'          SCOPE: ${{{{ inputs.{scope_name} }}}}\n'
+        '          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}\n'
+        '          R2_ACCESS_KEY_ID:'
+    )
+    if text.count(old) != 1:
+        raise SystemExit(f"workflow env insertion mismatch: {scope_name}")
+    text = text.replace(old, new, 1)
+workflow.write_text(text, encoding="utf-8")
+
+# 3) Common checkpoint core review fixes.
+p = Path("src/rate_monitor/services/resumable_acquisition.py")
+text = p.read_text(encoding="utf-8")
+
+old = "Checkpoint state is staging/evidence. It is never canonical rate data.\n"
+new = (
+    old
+    + "\nA ``collecting`` manifest alone never proves that its collector died. The\n"
+    + "recovery caller must separately prove the source attempt finished with failure;\n"
+    + "the production workflow also keeps a single-writer concurrency contract.\n"
+)
+if text.count(old) != 1:
+    raise SystemExit("module docstring marker mismatch")
+text = text.replace(old, new, 1)
+
+text = text.replace(
+    'def from_dict(cls, data: Mapping[str, Any]) -> "AcquisitionManifest":',
+    'def from_dict(cls, data: Mapping[str, Any]) -> AcquisitionManifest:',
+    1,
+)
+text = text.replace(
+    'def from_dict(cls, data: Mapping[str, Any]) -> "ActiveCheckpointRef":',
+    'def from_dict(cls, data: Mapping[str, Any]) -> ActiveCheckpointRef:',
+    1,
+)
+
+old = (
+    'def active_key(source_id: str, cycle_date_kst: str) -> str:\n'
+    '    return f"{CHECKPOINT_PREFIX}/{source_id}/{cycle_date_kst}/active.json"\n\n'
+)
+new = old + (
+    '\ndef sealed_key(source_id: str, cycle_date_kst: str) -> str:\n'
+    '    """Audit pointer to the latest terminal/sealed manifest for a cycle."""\n'
+    '    return f"{CHECKPOINT_PREFIX}/{source_id}/{cycle_date_kst}/sealed.json"\n\n'
+)
+if text.count(old) != 1:
+    raise SystemExit("active_key marker mismatch")
+text = text.replace(old, new, 1)
+
+load_active_block = '''    def load_active_manifest(\n        self, source_id: str, cycle_date_kst: str\n    ) -> AcquisitionManifest | None:\n        ref = self.load_active(source_id, cycle_date_kst)\n        if ref is None:\n            return None\n        manifest = self.load_manifest(ref.manifest_key, ref.manifest_sha256)\n        if manifest.session_id != ref.session_id:\n            raise CheckpointCorruptError("active.json과 manifest의 session_id가 다르다")\n        return manifest\n\n'''
+sealed_methods = load_active_block + '''    def load_sealed(self, source_id: str, cycle_date_kst: str) -> ActiveCheckpointRef | None:\n        key = sealed_key(source_id, cycle_date_kst)\n        if not self.store.exists(key):\n            return None\n        try:\n            payload = json.loads(self.store.get(key))\n        except (json.JSONDecodeError, TypeError) as exc:\n            raise CheckpointCorruptError(f"sealed.json을 읽을 수 없다: {key}") from exc\n        ref = ActiveCheckpointRef.from_dict(payload)\n        if ref.source_id != source_id or ref.cycle_date_kst != cycle_date_kst:\n            raise CheckpointCorruptError("sealed.json의 source/cycle identity가 경로와 다르다")\n        return ref\n\n    def load_sealed_manifest(\n        self, source_id: str, cycle_date_kst: str\n    ) -> AcquisitionManifest | None:\n        ref = self.load_sealed(source_id, cycle_date_kst)\n        if ref is None:\n            return None\n        manifest = self.load_manifest(ref.manifest_key, ref.manifest_sha256)\n        if manifest.session_id != ref.session_id:\n            raise CheckpointCorruptError("sealed.json과 manifest의 session_id가 다르다")\n        if manifest.status not in TERMINAL_STATUSES:\n            raise CheckpointCorruptError("sealed.json이 terminal manifest를 가리키지 않는다")\n        return manifest\n\n'''
+if text.count(load_active_block) != 1:
+    raise SystemExit("load_active_manifest marker mismatch")
+text = text.replace(load_active_block, sealed_methods, 1)
+
+marker = '''    def delete_active(self, source_id: str, cycle_date_kst: str) -> None:\n        self.store.delete(active_key(source_id, cycle_date_kst))\n\n'''
+record_method = marker + '''    def record_sealed(self, manifest: AcquisitionManifest) -> None:\n        if manifest.status not in TERMINAL_STATUSES:\n            raise CheckpointError("terminal manifest만 sealed pointer로 기록할 수 있다")\n        raw_manifest = _pretty_json_bytes(manifest.to_dict())\n        digest = _sha256(raw_manifest)\n        manifest_object = _manifest_object_key(manifest, digest)\n        if not self.store.exists(manifest_object):\n            raise CheckpointError(f"sealed가 가리킬 manifest가 없다: {manifest_object}")\n        ref = ActiveCheckpointRef(\n            schema_version=ACTIVE_SCHEMA_VERSION,\n            source_id=manifest.source_id,\n            cycle_date_kst=manifest.cycle_date_kst,\n            session_id=manifest.session_id,\n            manifest_key=manifest_object,\n            manifest_sha256=digest,\n            updated_at=manifest.updated_at,\n        )\n        pointer_key = sealed_key(manifest.source_id, manifest.cycle_date_kst)\n        self.store.put(pointer_key, _pretty_json_bytes(ref.to_dict()))\n        if self.load_sealed(manifest.source_id, manifest.cycle_date_kst) != ref:\n            raise CheckpointCorruptError(f"sealed.json 업로드 검증 실패: {pointer_key}")\n\n'''
+if text.count(marker) != 1:
+    raise SystemExit("delete_active marker mismatch")
+text = text.replace(marker, record_method, 1)
+
+old = (
+    '                self.repo.commit_manifest(abandoned)\n'
+    '                self.repo.delete_active(active.source_id, active.cycle_date_kst)\n'
+)
+new = (
+    '                self.repo.commit_manifest(abandoned)\n'
+    '                self.repo.record_sealed(abandoned)\n'
+    '                self.repo.delete_active(active.source_id, active.cycle_date_kst)\n'
+)
+if text.count(old) != 1:
+    raise SystemExit("fresh abandoned marker mismatch")
+text = text.replace(old, new, 1)
+
+old = '        if active is None:\n            return self._create_session()\n'
+new = '''        if active is None:\n            sealed = self.repo.load_sealed_manifest(\n                self.identity.source_id, self.identity.cycle_date_kst\n            )\n            if sealed is not None:\n                raise CheckpointIncompatibleError(\n                    f"same-cycle terminal status={sealed.status!r}; operator fresh가 필요하다"\n                )\n            return self._create_session()\n'''
+if text.count(old) != 1:
+    raise SystemExit("open auto marker mismatch")
+text = text.replace(old, new, 1)
+
+old = (
+    '        self.repo.commit_manifest(updated)\n'
+    '        self.repo.delete_active(updated.source_id, updated.cycle_date_kst)\n'
+    '        return updated\n\n    def mark_canonical_committed'
+)
+new = (
+    '        self.repo.commit_manifest(updated)\n'
+    '        self.repo.record_sealed(updated)\n'
+    '        self.repo.delete_active(updated.source_id, updated.cycle_date_kst)\n'
+    '        return updated\n\n    def mark_canonical_committed'
+)
+if text.count(old) != 1:
+    raise SystemExit("mark_terminal marker mismatch")
+text = text.replace(old, new, 1)
+
+old = (
+    '        updated = self._next_manifest(manifest, status="canonical_committed")\n'
+    '        self.repo.commit_manifest(updated)\n'
+    '        self.repo.delete_active(updated.source_id, updated.cycle_date_kst)\n'
+)
+new = (
+    '        updated = self._next_manifest(manifest, status="canonical_committed")\n'
+    '        self.repo.commit_manifest(updated)\n'
+    '        self.repo.record_sealed(updated)\n'
+    '        self.repo.delete_active(updated.source_id, updated.cycle_date_kst)\n'
+)
+if text.count(old) != 1:
+    raise SystemExit("canonical marker mismatch")
+text = text.replace(old, new, 1)
+
+old = '''def decide_recovery(store: ObjectStore, identity: AcquisitionSessionIdentity) -> RecoveryDecision:\n    """Return a fail-closed, machine-readable same-cycle recovery decision."""\n    repo = CheckpointRepository(store)\n    try:\n        manifest = repo.load_active_manifest(identity.source_id, identity.cycle_date_kst)\n    except CheckpointCorruptError:\n'''
+new = '''def decide_recovery(\n    store: ObjectStore,\n    identity: AcquisitionSessionIdentity,\n    *,\n    attempt_failed: bool = False,\n) -> RecoveryDecision:\n    """Return a fail-closed, machine-readable same-cycle recovery decision.\n\n    ``attempt_failed`` is caller evidence. It is required before a plain\n    ``collecting`` manifest can be interpreted as an abnormal child exit.\n    """\n    repo = CheckpointRepository(store)\n    try:\n        manifest = repo.load_active_manifest(identity.source_id, identity.cycle_date_kst)\n        if manifest is None:\n            manifest = repo.load_sealed_manifest(\n                identity.source_id, identity.cycle_date_kst\n            )\n    except CheckpointCorruptError:\n'''
+if text.count(old) != 1:
+    raise SystemExit("decide_recovery marker mismatch")
+text = text.replace(old, new, 1)
+
+old = '    if manifest.status == "collecting":\n        eligible = manifest.completed_work_count > 0\n'
+new = '''    if manifest.status == "collecting":\n        if not attempt_failed:\n            return RecoveryDecision(\n                False,\n                "CALLER_FAILURE_NOT_CONFIRMED",\n                identity.source_id,\n                identity.cycle_date_kst,\n                manifest.session_id,\n                manifest.status,\n                manifest.completed_work_count,\n            )\n        eligible = manifest.completed_work_count > 0\n'''
+if text.count(old) != 1:
+    raise SystemExit("collecting recovery marker mismatch")
+text = text.replace(old, new, 1)
+
+old = '        archive = tarfile.open(fileobj=io.BytesIO(raw), mode="r:gz")\n'
+new = '        archive = tarfile.open(fileobj=io.BytesIO(raw), mode="r:gz")  # noqa: SIM115\n'
+if text.count(old) != 1:
+    raise SystemExit("tar open marker mismatch")
+text = text.replace(old, new, 1)
+
+old = '                raise CheckpointCorruptError("checkpoint item artifact metadata가 잘못됐다") from exc\n'
+new = (
+    '                raise CheckpointCorruptError(\n'
+    '                    "checkpoint item artifact metadata가 잘못됐다"\n'
+    '                ) from exc\n'
+)
+if text.count(old) != 1:
+    raise SystemExit("E501 marker mismatch")
+text = text.replace(old, new, 1)
+p.write_text(text, encoding="utf-8")
+
+# 4) CLI caller-evidence switch.
+replace_once(
+    "src/rate_monitor/checkpoint_cli.py",
+    '    decision = decide_recovery(_store(args.local_root), identity)\n',
+    '    decision = decide_recovery(\n'
+    '        _store(args.local_root), identity, attempt_failed=args.attempt_failed\n'
+    '    )\n',
+)
+replace_once(
+    "src/rate_monitor/checkpoint_cli.py",
+    '    recovery.add_argument("--acquisition-contract-version", type=int, default=1)\n'
+    '    recovery.add_argument("--json", default=None, help="동일 JSON을 저장할 경로")\n',
+    '    recovery.add_argument("--acquisition-contract-version", type=int, default=1)\n'
+    '    recovery.add_argument(\n'
+    '        "--attempt-failed",\n'
+    '        action="store_true",\n'
+    '        help="first source attempt가 이미 failure로 끝났음을 caller가 확인했다",\n'
+    '    )\n'
+    '    recovery.add_argument("--json", default=None, help="동일 JSON을 저장할 경로")\n',
+)
+
+# 5) Workflow static contract includes token wiring.
+replace_once(
+    "tests/test_checkpoint_workflow_contract.py",
+    '        assert set(env) >= R2_ENV_KEYS, f"{name} checkpoint R2 env 누락"\n'
+    '        assert env.get("SCOPE") is not None\n',
+    '        assert set(env) >= R2_ENV_KEYS, f"{name} checkpoint R2 env 누락"\n'
+    '        assert env.get("GITHUB_TOKEN") == "${{ secrets.GITHUB_TOKEN }}"\n'
+    '        assert env.get("SCOPE") is not None\n',
+)
+
+# 6) Recovery tests + bounded manifest serialization evidence.
+tr = Path("tests/test_resumable_acquisition.py")
+text = tr.read_text(encoding="utf-8")
+text = text.replace(
+    '    AcquisitionSessionIdentity,\n',
+    '    AcquisitionManifest,\n    AcquisitionSessionIdentity,\n    CheckpointChunkRef,\n',
+    1,
+)
+old = (
+    '    collecting = decide_recovery(store, _identity())\n'
+    '    assert collecting.eligible is True\n'
+    '    assert collecting.reason_code == "RECOVERABLE_ABNORMAL_EXIT"\n'
+)
+new = (
+    '    live_looking = decide_recovery(store, _identity())\n'
+    '    assert live_looking.eligible is False\n'
+    '    assert live_looking.reason_code == "CALLER_FAILURE_NOT_CONFIRMED"\n\n'
+    '    collecting = decide_recovery(store, _identity(), attempt_failed=True)\n'
+    '    assert collecting.eligible is True\n'
+    '    assert collecting.reason_code == "RECOVERABLE_ABNORMAL_EXIT"\n'
+)
+if text.count(old) != 1:
+    raise SystemExit("collecting test marker mismatch")
+text = text.replace(old, new, 1)
+
+old = (
+    '    decision = decide_recovery(store, _identity())\n'
+    '    assert decision.eligible is False\n'
+    '    assert decision.reason_code == "NO_VALID_CHECKPOINT"\n\n\n'
+    'def test_complete_is_canonical_pending_and_replay_is_not_auto_approved'
+)
+new = (
+    '    decision = decide_recovery(store, _identity())\n'
+    '    assert decision.eligible is False\n'
+    '    assert decision.reason_code == "GUARD_TRIPPED"\n\n'
+    '    with pytest.raises(CheckpointIncompatibleError, match="operator fresh"):\n'
+    '        service.open("auto")\n\n\n'
+    'def test_complete_is_canonical_pending_and_replay_is_not_auto_approved'
+)
+if text.count(old) != 1:
+    raise SystemExit("guard terminal test marker mismatch")
+text = text.replace(old, new, 1)
+
+insert_before = '\n\ndef test_canonical_fingerprint_is_mapping_order_independent() -> None:\n'
+benchmark = '''\n\ndef test_nh_manifest_serialization_growth_is_bounded_for_v1() -> None:\n    """9,742 NH-like work keys remain bounded under 200-item flush policy."""\n    import json\n    import math\n\n    keys = [f"nh:{index:04d}:SFDPW0163R" for index in range(9742)]\n    chunks: list[CheckpointChunkRef] = []\n    cumulative_bytes = 0\n    final_bytes = 0\n    template = AcquisitionManifest(\n        schema_version=1,\n        source_id="nh_local",\n        session_id="a" * 32,\n        cycle_date_kst="2026-08-11",\n        request_fingerprint="b" * 64,\n        checkpoint_contract_version=1,\n        acquisition_contract_version=1,\n        revision=1,\n        status="collecting",\n        work_plan_hash="c" * 64,\n        expected_work_count=9742,\n        completed_work_count=0,\n        completed_work_keys=(),\n        chunks=(),\n        guard_state=None,\n        terminal_reason_code=None,\n        terminal_reason=None,\n        created_at="2026-08-11T00:00:00Z",\n        updated_at="2026-08-11T00:00:00Z",\n    )\n    previous = 0\n    for completed in range(200, 9943, 200):\n        actual = min(completed, 9742)\n        sequence = len(chunks) + 1\n        chunks.append(\n            CheckpointChunkRef(\n                sequence=sequence,\n                object_key=(\n                    "checkpoints/v1/nh_local/2026-08-11/sessions/"\n                    + "a" * 32\n                    + f"/chunks/{sequence:06d}-"\n                    + "d" * 16\n                    + ".tar.gz"\n                ),\n                sha256="d" * 64,\n                item_count=actual - previous,\n                bytes=123456,\n                created_at="2026-08-11T00:00:00Z",\n            )\n        )\n        manifest = replace(\n            template,\n            revision=sequence + 1,\n            completed_work_count=actual,\n            completed_work_keys=tuple(keys[:actual]),\n            chunks=tuple(chunks),\n        )\n        size = len(\n            json.dumps(\n                manifest.to_dict(), ensure_ascii=False, sort_keys=True, indent=2\n            ).encode("utf-8")\n        )\n        cumulative_bytes += size\n        final_bytes = size\n        previous = actual\n        if actual == 9742:\n            break\n\n    assert len(chunks) == math.ceil(9742 / 200)\n    assert final_bytes < 512 * 1024\n    assert cumulative_bytes < 10 * 1024 * 1024\n'''
+if insert_before not in text:
+    raise SystemExit("benchmark insertion marker mismatch")
+text = text.replace(insert_before, benchmark + insert_before, 1)
+tr.write_text(text, encoding="utf-8")
+
+# 7) CLI boundary test for caller evidence.
+tc = Path("tests/test_checkpoint_cli.py")
+text = tc.read_text(encoding="utf-8")
+append = '''\n\ndef test_collecting_checkpoint_cli_requires_attempt_failed_evidence(tmp_path, capsys) -> None:\n    root = tmp_path / "objects"\n    store = LocalObjectStore(root)\n    fingerprint = canonical_fingerprint({"scope": "전국"})\n    identity = AcquisitionSessionIdentity(\n        source_id="nh_local",\n        cycle_date_kst="2026-08-11",\n        request_fingerprint=fingerprint,\n    )\n    service = ResumableAcquisitionService(store, identity, now=lambda: NOW)\n    manifest = service.open()\n    service.flush(\n        manifest,\n        [\n            CheckpointArtifact(\n                work_key="nh:1:screen",\n                artifact=RawArtifactData(\n                    artifact_type="html",\n                    content=b"ok",\n                    filename="one.html",\n                    request_meta={"n": 1},\n                    schema_fingerprint="fp",\n                    source_role="primary_official",\n                    trust_level="official_direct",\n                ),\n            )\n        ],\n    )\n\n    base = [\n        "recovery-decision",\n        "--source",\n        "nh_local",\n        "--cycle-date",\n        "2026-08-11",\n        "--request-fingerprint",\n        fingerprint,\n        "--local-root",\n        str(root),\n    ]\n    assert main(base) == 0\n    without = json.loads(capsys.readouterr().out)\n    assert without["eligible"] is False\n    assert without["reason_code"] == "CALLER_FAILURE_NOT_CONFIRMED"\n\n    assert main([*base, "--attempt-failed"]) == 0\n    confirmed = json.loads(capsys.readouterr().out)\n    assert confirmed["eligible"] is True\n    assert confirmed["reason_code"] == "RECOVERABLE_ABNORMAL_EXIT"\n'''
+if "test_collecting_checkpoint_cli_requires_attempt_failed_evidence" in text:
+    raise SystemExit("CLI test already present")
+tc.write_text(text.rstrip() + append + "\n", encoding="utf-8")
+
+# 8) Spec clarifications.
+spec = Path("docs/specs/20260811-resumable-acquisition-v1.md")
+text = spec.read_text(encoding="utf-8")
+text = text.replace(
+    'workflow에서 가능한 한 명시적 cycle metadata를 source command에 전달한다.\n',
+    'workflow에서 가능한 한 명시적 cycle metadata를 source command에 전달한다.\n\n'
+    '구현에서는 current run API 조회를 인증된 `GITHUB_TOKEN`으로 수행한다. 익명 API\n'
+    'rate limit에 checkpoint 시작 가능 여부를 맡기지 않는다.\n',
+    1,
+)
+text = text.replace(
+    '  active.json\n  sessions/\n',
+    '  active.json\n  sealed.json   # terminal/sealed 사유 감사 pointer; resume pointer가 아님\n  sessions/\n',
+    1,
+)
+text = text.replace(
+    'first source command가 failure로 끝난 경우 workflow는 checkpoint/session 상태를 읽어 `RecoveryDecision`을 만든다.\n',
+    'first source command가 failure로 끝난 경우 workflow는 checkpoint/session 상태를 읽어 `RecoveryDecision`을 만든다.\n\n'
+    '`continue-on-error: true`여도 step의 `outcome`은 failure로 남는다. 따라서 별도\n'
+    '06:00 cron이나 다음날 scheduled run을 recovery caller로 쓰지 않고 **같은 workflow에서\n'
+    '즉시 1회** 판정하고 이어받는다.\n',
+    1,
+)
+text = text.replace(
+    '  --cycle-date 2026-08-12 \\\n  --json work/nh-recovery-decision.json\n',
+    '  --cycle-date 2026-08-12 \\\n  --attempt-failed \\\n  --json work/nh-recovery-decision.json\n',
+    1,
+)
+text = text.replace(
+    'collecting + valid compatible durable checkpoint after child-process abnormal termination\n',
+    'collecting + valid compatible durable checkpoint after child-process abnormal termination\n'
+    '  + caller가 first source attempt failure를 명시적으로 확인(`--attempt-failed`)\n',
+    1,
+)
+perf = (
+    '이 값은 acceptance target이며 runtime evidence에 따라 조정할 수 있다. '
+    '근거 없이 request interval을 줄여 target을 맞추지 않는다.\n'
+)
+addition = perf + '''\n### 19.1 Manifest serialization bound (PR A review evidence)\n\n`completed_work_keys`를 revision마다 반복 저장하는 구조는 누적 바이트가 이론상 2차식이다.\nPR A에서는 v1의 실제 최대 작업량을 synthetic serialization으로 먼저 고정한다.\n\n```text\nNH 9,742 work keys / 200-item flush\nfinal manifest < 512 KiB\nall manifest revisions cumulative < 10 MiB\n```\n\n현재 구현 형상의 계산값은 대략 final 271 KiB, cumulative 6.3 MiB다. 이는 R2 latency가\n아니라 JSON 크기 evidence다. 실제 PUT p95/전체 overhead가 §19 target을 넘으면\n`completed_work_keys` 외부 index/chunk 구조로 바꾸고, 넘지 않으면 v1 bounded cost로 유지한다.\n'''
+if text.count(perf) != 1:
+    raise SystemExit("spec performance marker mismatch")
+text = text.replace(perf, addition, 1)
+spec.write_text(text, encoding="utf-8")
+
+# 9) W292: normalize EOF newline for known offender and touched files.
+for path in [
+    "src/rate_monitor/collectors/kfcc/adapter.py",
+    "src/rate_monitor/services/resumable_acquisition.py",
+    "src/rate_monitor/checkpoint_cli.py",
+    "tests/test_resumable_acquisition.py",
+    "tests/test_checkpoint_cli.py",
+    "tests/test_checkpoint_workflow_contract.py",
+    "docs/specs/20260811-resumable-acquisition-v1.md",
+]:
+    fp = Path(path)
+    data = fp.read_bytes()
+    if data and not data.endswith(b"\n"):
+        fp.write_bytes(data + b"\n")
