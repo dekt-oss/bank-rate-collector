@@ -7,6 +7,7 @@ import json
 import sys
 from pathlib import Path
 
+from rate_monitor.collectors.kfcc.resumable import build_kfcc_checkpoint_context
 from rate_monitor.collectors.nh_local.resumable import build_nh_checkpoint_context
 from rate_monitor.domain.schemas import CollectionRequest
 from rate_monitor.services.resumable_acquisition import (
@@ -36,12 +37,22 @@ def _store(local_root: str | None):
 
 
 def _prepare_context(args: argparse.Namespace) -> int:
-    if args.source != "nh_local":
-        raise ValueError("prepare-context는 현재 nh_local만 지원한다")
     cycle_date = args.cycle_date or resolve_cycle_date_kst()
     options = {"scope": args.scope} if args.scope else {}
-    request = CollectionRequest(source_id="nh_local", options=options)
-    context = build_nh_checkpoint_context(request, cycle_date_kst=cycle_date)
+    if args.source == "nh_local":
+        if args.regions:
+            raise ValueError("nh_local prepare-context는 --regions를 쓰지 않는다")
+        request = CollectionRequest(source_id="nh_local", options=options)
+        context = build_nh_checkpoint_context(request, cycle_date_kst=cycle_date)
+    elif args.source == "kfcc":
+        request = CollectionRequest(
+            source_id="kfcc",
+            regions=tuple(args.regions or ()),
+            options=options,
+        )
+        context = build_kfcc_checkpoint_context(request, cycle_date_kst=cycle_date)
+    else:  # argparse choices should make this unreachable.
+        raise ValueError(f"prepare-context가 지원하지 않는 source: {args.source}")
     body = json.dumps(context.to_dict(), ensure_ascii=False, indent=2, sort_keys=True) + "\n"
     if args.json:
         path = Path(args.json)
@@ -77,10 +88,16 @@ def build_parser() -> argparse.ArgumentParser:
 
     prepare = sub.add_parser(
         "prepare-context",
-        help="NH checkpoint source command와 recovery decision이 공유할 identity를 만든다",
+        help="NH/KFCC source command와 recovery decision이 공유할 identity를 만든다",
     )
-    prepare.add_argument("--source", required=True, choices=["nh_local"])
+    prepare.add_argument("--source", required=True, choices=["nh_local", "kfcc"])
     prepare.add_argument("--scope", default=None)
+    prepare.add_argument(
+        "--regions",
+        nargs="+",
+        default=None,
+        help="KFCC만 지원. 직접 지정한 r1 지역 목록",
+    )
     prepare.add_argument(
         "--cycle-date", default=None,
         help="생략하면 GitHub current run의 run_started_at을 KST 날짜로 변환",
