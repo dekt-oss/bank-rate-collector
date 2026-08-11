@@ -183,12 +183,14 @@ def test_no_phone_number_reaches_the_database(factory, tmp_path) -> None:
     with session_scope(factory) as session:
         outlets = session.scalars(select(m.Outlet)).all()
         institutions = session.scalars(select(m.Institution)).all()
-        blob = " ".join(
-            str(value)
+        persisted_text = [
+            value
             for row in (*outlets, *institutions)
-            for value in row.__dict__.values()
-        )
-        assert "033-" not in blob and "051-" not in blob
+            for column in row.__table__.columns
+            if column.name != "id" and not column.name.endswith("_id")
+            if isinstance((value := getattr(row, column.name)), str)
+        ]
+        assert all("033-" not in value and "051-" not in value for value in persisted_text)
 
 
 # ── 범위 ────────────────────────────────────────────────────────────────
