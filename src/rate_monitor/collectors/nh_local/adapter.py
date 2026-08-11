@@ -14,13 +14,18 @@ fetch()만 담당한다. 파싱은 parser가, 저장은 오케스트레이터가
 새마을금고처럼 지역별로 요청을 나눌 수가 없다.
 
 그래서 요청 수가 점포 수에 정비례한다 — 부산 119점포면 239회(약 4분),
-전국이면 9,743회(약 2시간 43분)다. 기본 범위를 부산으로 두는 이유이고,
-config가 그 값을 갖고 있다.
+전국이면 9,743회(약 2시간 43분)다. 기본 범위는 현재 전국이며 config가 그
+값을 갖고 있다.
 
 차단 우회는 하지 않는다 (v3 §0.2, §16.1). 차단이 보이면 즉시 멈춘다.
+일시적인 연결/timeout/5xx만 제한적으로 다시 시도하며 정상 요청 간격 1초는
+줄이지 않는다 (`20260811-nh-kfcc-reliability-sla-v1.md`).
 """
 
 import asyncio
+import logging
+from collections import Counter
+from collections.abc import Awaitable, Callable
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -42,6 +47,8 @@ from rate_monitor.domain.enums import (
 from rate_monitor.domain.schemas import CollectionRequest, ParsedRateRow, RawArtifactData
 from rate_monitor.domain.timeutil import now_kst
 
+logger = logging.getLogger(__name__)
+
 BASE_URL = "https://wmall.nonghyup.com"
 LIST_SCREEN = "SFDPW0161R"
 REGIONS_PATH = Path("config/regions.yaml")
@@ -55,6 +62,13 @@ CONNECT_TIMEOUT = 10.0
 # 명부가 3.1 MB다. 금리 화면(121 KB)보다 훨씬 오래 걸린다.
 READ_TIMEOUT = 60.0
 
+# 일시 장애에만 적용하는 bounded retry. tuple의 각 값은 다음 시도 전에 더하는
+# backoff이고, 실제 대기에는 정상 요청 간격 1초도 함께 들어간다.
+PREFLIGHT_RETRY_BACKOFF_SECONDS = (5.0, 20.0, 60.0)
+DETAIL_RETRY_BACKOFF_SECONDS = (3.0, 12.0)
+RETRYABLE_STATUS_CODES = frozenset({500, 502, 503, 504})
+MAX_TOTAL_RETRIES = 50
+
 # 수집할 상품 분류.
 #
 # 입출금식(`SFDPW0162R`)은 **뺀다.** 그 화면의 실물을 아직 한 번도 못 봤고,
@@ -67,6 +81,48 @@ MAX_REQUESTS = 12000
 
 BLOCK_MARKERS = ("Request Blocked", "Access Denied", "접속이 차단")
 BLOCK_STATUSES = (400, 403, 429)
+
+Sleep = Callable[[float], Awaitable[None]]
+
+
+class NhRequestFailure(RuntimeError):
+    """NH 요청이 bounded retry 뒤에도 실패했음을 구조화해 남긴다."""
+
+    def __init__(
+        self,
+        code: str,
+        *,
+        phase: str,
+        screen: str,
+        attempt: int,
+        max_attempts: int,
+        cause: Exception,
+        retry_count: int,
+    ) -> None:
+        self.code = code
+        self.phase = phase
+        self.screen = screen
+        self.attempt = attempt
+        self.max_attempts = max_attempts
+        self.cause = cause
+        self.retry_count = retry_count
+        super().__init__(
+            f"{code}: phase={phase} screen={screen} attempt={attempt}/{max_attempts} "
+            f"retries={retry_count} cause={type(cause).__name__}: {cause}"
+        )
+
+
+def _failure_code(exc: Exception) -> str:
+    """실제로 구별할 수 있는 네트워크 실패만 분류한다."""
+    if isinstance(exc, httpx.ConnectError):
+        return "NETWORK_CONNECT"
+    if isinstance(exc, (httpx.ConnectTimeout, httpx.ReadTimeout)):
+        return "NETWORK_TIMEOUT"
+    if isinstance(exc, httpx.RemoteProtocolError):
+        return "NETWORK_PROTOCOL"
+    if isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code in RETRYABLE_STATUS_CODES:
+        return "HTTP_SERVER_ERROR"
+    return "NETWORK_PROTOCOL"
 
 
 class NhLocalAdapter:
@@ -90,8 +146,11 @@ class NhLocalAdapter:
     # 입출금식 화면을 아직 안 받는다.
     coverage_status = "partial"
 
-    def __init__(self, regions_path: Path | None = None) -> None:
+    def __init__(self, regions_path: Path | None = None, *, sleep: Sleep | None = None) -> None:
         self._regions_path = regions_path or REGIONS_PATH
+        self._sleep = sleep or asyncio.sleep
+        self._retry_count = 0
+        self._retry_reasons: Counter[str] = Counter()
 
     # ── 범위 ────────────────────────────────────────────────────────────
 
@@ -116,22 +175,131 @@ class NhLocalAdapter:
 
     # ── 요청 ────────────────────────────────────────────────────────────
 
+    def _reset_retry_state(self) -> None:
+        self._retry_count = 0
+        self._retry_reasons.clear()
+
+    def _retry_note(self) -> str:
+        if not self._retry_count:
+            return ""
+        reasons = ", ".join(
+            f"{code} {count}" for code, count in sorted(self._retry_reasons.items())
+        )
+        return f"재시도 {self._retry_count}회 ({reasons})"
+
+    def _reserve_retry(
+        self,
+        *,
+        code: str,
+        phase: str,
+        screen: str,
+        attempt: int,
+        max_attempts: int,
+        cause: Exception,
+    ) -> None:
+        if self._retry_count >= MAX_TOTAL_RETRIES:
+            raise NhRequestFailure(
+                "RETRY_BUDGET_EXHAUSTED",
+                phase=phase,
+                screen=screen,
+                attempt=attempt,
+                max_attempts=max_attempts,
+                cause=cause,
+                retry_count=self._retry_count,
+            ) from cause
+        self._retry_count += 1
+        self._retry_reasons[code] += 1
+
     async def _get(
-        self, client: httpx.AsyncClient, screen: str, params: dict[str, str]
+        self,
+        client: httpx.AsyncClient,
+        screen: str,
+        params: dict[str, str],
+        *,
+        phase: str,
     ) -> bytes:
+        """GET 하나를 수행하되 transient failure만 제한적으로 다시 시도한다."""
+        if phase == "preflight":
+            backoffs = PREFLIGHT_RETRY_BACKOFF_SECONDS
+        elif phase == "detail":
+            backoffs = DETAIL_RETRY_BACKOFF_SECONDS
+        else:
+            raise ValueError(f"알 수 없는 NH 요청 phase: {phase!r}")
+
+        max_attempts = len(backoffs) + 1
         url = f"{BASE_URL}/servlet/{screen}.view"
-        response = await client.get(url, params=params)
-        body = response.content
-        if response.status_code in BLOCK_STATUSES:
-            text = body.decode("utf-8", "ignore")
-            if any(marker in text for marker in BLOCK_MARKERS):
-                raise SourceBlockedError(
-                    f"차단 응답 {response.status_code}: {url} — 우회하지 않고 중단한다"
-                )
-        response.raise_for_status()
-        return body
+
+        for attempt in range(1, max_attempts + 1):
+            failure: Exception | None = None
+            code = ""
+            http_status: int | None = None
+            try:
+                response = await client.get(url, params=params)
+                body = response.content
+                if response.status_code in BLOCK_STATUSES:
+                    text = body.decode("utf-8", "ignore")
+                    if any(marker in text for marker in BLOCK_MARKERS):
+                        raise SourceBlockedError(
+                            f"차단 응답 {response.status_code}: {url} — 우회하지 않고 중단한다"
+                        )
+                response.raise_for_status()
+                return body
+            except SourceBlockedError:
+                raise
+            except httpx.HTTPStatusError as exc:
+                http_status = exc.response.status_code
+                if http_status not in RETRYABLE_STATUS_CODES:
+                    raise
+                failure = exc
+                code = "HTTP_SERVER_ERROR"
+            except (
+                httpx.ConnectError,
+                httpx.ConnectTimeout,
+                httpx.ReadTimeout,
+                httpx.RemoteProtocolError,
+            ) as exc:
+                failure = exc
+                code = _failure_code(exc)
+
+            assert failure is not None
+            if attempt >= max_attempts:
+                raise NhRequestFailure(
+                    code,
+                    phase=phase,
+                    screen=screen,
+                    attempt=attempt,
+                    max_attempts=max_attempts,
+                    cause=failure,
+                    retry_count=self._retry_count,
+                ) from failure
+
+            self._reserve_retry(
+                code=code,
+                phase=phase,
+                screen=screen,
+                attempt=attempt,
+                max_attempts=max_attempts,
+                cause=failure,
+            )
+            delay = REQUEST_INTERVAL_SECONDS + backoffs[attempt - 1]
+            logger.warning(
+                "NH retry source_id=%s phase=%s screen=%s attempt=%d max_attempts=%d "
+                "error_class=%s http_status=%s retry_delay=%.1f",
+                self.source_id,
+                phase,
+                screen,
+                attempt,
+                max_attempts,
+                code,
+                http_status if http_status is not None else "-",
+                delay,
+            )
+            await self._sleep(delay)
+
+        raise AssertionError("NH retry loop exhausted without returning or raising")
 
     async def fetch(self, request: CollectionRequest) -> list[RawArtifactData]:
+        self._reset_retry_state()
         prefixes = self._load_prefixes(request)
         products = tuple(request.options.get("products") or DEFAULT_PRODUCTS)
         # 조회일이 곧 기준일이다. 원천이 별도 공시일을 주지 않는다 (정찰 §0.2).
@@ -151,16 +319,19 @@ class NhLocalAdapter:
         requests_made = 0
 
         timeout = httpx.Timeout(
-            connect=CONNECT_TIMEOUT, read=READ_TIMEOUT,
-            write=READ_TIMEOUT, pool=CONNECT_TIMEOUT,
+            connect=CONNECT_TIMEOUT,
+            read=READ_TIMEOUT,
+            write=READ_TIMEOUT,
+            pool=CONNECT_TIMEOUT,
         )
         async with httpx.AsyncClient(
             timeout=timeout,
             follow_redirects=True,
             headers={"User-Agent": USER_AGENT},
         ) as client:
-            # 1단계: 전국 명부. 페이지네이션이 없다.
-            body = await self._get(client, LIST_SCREEN, {})
+            # 1단계: 전국 명부. 페이지네이션이 없다. 전국 수집의 전제라서
+            # detail보다 한 번 더 retry할 수 있는 preflight 정책을 쓴다.
+            body = await self._get(client, LIST_SCREEN, {}, phase="preflight")
             requests_made += 1
             guard.observe(body, where="outlet list")
             artifacts.append(
@@ -170,7 +341,7 @@ class NhLocalAdapter:
                     meta={"kind": "list", "screen": LIST_SCREEN},
                 )
             )
-            await asyncio.sleep(REQUEST_INTERVAL_SECONDS)
+            await self._sleep(REQUEST_INTERVAL_SECONDS)
 
             outlets = parser.outlets_in(
                 parser.parse_outlet_list(body.decode("utf-8", "replace")), prefixes
@@ -202,9 +373,10 @@ class NhLocalAdapter:
                             "inq_str": "",
                             "searchContent": "",
                         },
+                        phase="detail",
                     )
                     requests_made += 1
-                    await asyncio.sleep(REQUEST_INTERVAL_SECONDS)
+                    await self._sleep(REQUEST_INTERVAL_SECONDS)
                     # 축은 화면이다. 점포는 바뀌고 화면은 고정인 흐름 안에서
                     # 봐야 "이 구간이 통째로 같은 답을 준다"가 보인다.
                     guard.observe(
@@ -226,7 +398,9 @@ class NhLocalAdapter:
                             },
                         )
                     )
-        self.fetch_note = guard.summary()
+        guard_note = guard.summary()
+        retry_note = self._retry_note()
+        self.fetch_note = " · ".join(note for note in (guard_note, retry_note) if note)
         self.fetch_alert = guard.tripped
         return artifacts
 
