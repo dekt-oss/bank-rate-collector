@@ -32,6 +32,14 @@ def _step(name: str) -> dict:
     return next(step for step in _steps() if step.get("name") == name)
 
 
+def test_checkpoint_workflow_can_read_its_authenticated_run_metadata() -> None:
+    workflow = _workflow()
+    assert workflow["permissions"]["actions"] == "read"
+    for name in ("Collect NH local", "Collect KFCC"):
+        env = _step(name).get("env") or {}
+        assert env.get("GITHUB_TOKEN") == "${{ secrets.GITHUB_TOKEN }}"
+
+
 def test_checkpoint_pr_keeps_the_approved_schedule_and_single_writer() -> None:
     workflow = _workflow()
     triggers = workflow.get("on", workflow.get(True))
