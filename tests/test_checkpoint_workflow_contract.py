@@ -77,7 +77,8 @@ def _assert_manual_fresh_contract(source: str, input_name: str) -> None:
     assert mode["options"] == ["auto", "fresh"]
 
     first = _step(source)
-    assert (first.get("env") or {}).get("RESUME_MODE") == f"${{{{ inputs.{input_name} || 'auto' }}}}"
+    expected_mode = f"${{{{ inputs.{input_name} || 'auto' }}}}"
+    assert (first.get("env") or {}).get("RESUME_MODE") == expected_mode
     assert '--resume "$RESUME_MODE"' in first["run"]
 
 
