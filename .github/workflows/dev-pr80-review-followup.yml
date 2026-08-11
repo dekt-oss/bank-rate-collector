@@ -17,7 +17,13 @@ jobs:
         with:
           ref: agent/collection-sla-schedule
       - name: Apply review follow-up
-        run: python scripts/dev_review_followup_80.py
+        run: |
+          python scripts/dev_review_followup_80.py
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('tests/test_collection_sla_api.py')
+          path.write_text(path.read_text(encoding='utf-8').rstrip() + '\n', encoding='utf-8')
+          PY
       - name: Check diff
         run: |
           git diff --check
