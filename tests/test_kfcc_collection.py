@@ -153,7 +153,7 @@ def test_source_row_uses_kfcc_metadata(factory, tmp_path) -> None:
     run_collect(factory, tmp_path / "raw")
     with session_scope(factory) as session:
         source = session.get(m.Source, "kfcc")
-        assert source.name == "새마을금고 예·적금 금리"
+        assert source.name == "새마을금고 금고위치안내"
         assert source.sector == Sector.KFCC
         # 약관 미확인이므로 allowed가 아니다.
         assert source.policy_status == "review"
