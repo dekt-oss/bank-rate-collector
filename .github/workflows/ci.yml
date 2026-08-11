@@ -28,7 +28,7 @@ jobs:
         run: uv sync --locked
 
       - name: Lint
-        run: uv run ruff check src tests scripts
+        run: uv run ruff check src tests scripts --output-format=github
 
       - name: Test
         run: uv run pytest -q
