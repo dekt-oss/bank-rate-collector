@@ -18,6 +18,7 @@ from rate_monitor.collectors.finlife.adapter import (
 )
 from rate_monitor.collectors.fsb.adapter import FsbAdapter
 from rate_monitor.collectors.kfcc.adapter import KfccAdapter
+from rate_monitor.collectors.kfcc.resumable import KfccResumableAdapter
 from rate_monitor.collectors.nh_local.adapter import NhLocalAdapter
 from rate_monitor.collectors.nh_local.resumable import NhResumableAdapter
 from rate_monitor.db.session import DEFAULT_DB_PATH, create_db_engine, make_session_factory
@@ -57,10 +58,11 @@ def _checkpoint_store():
     config = R2Config.from_env()
     if config is None:
         raise StorageError(
-            "NH checkpoint mode에는 R2 설정이 모두 필요하다. "
+            "checkpoint mode에는 R2 설정이 모두 필요하다. "
             + ", ".join(R2Config.ENV_KEYS)
         )
     return open_store(config)
+
 
 ADAPTERS = {
     # finlife는 권역마다 소스가 갈린다 (v4 §6.2). 옛 이름 `finlife`는
@@ -156,17 +158,24 @@ def _collect(args: argparse.Namespace) -> int:
         print(str(error), file=sys.stderr)
         return 2
     if args.resume != "off":
-        if args.source != "nh_local":
-            print("--resume은 현재 nh_local에서만 지원한다", file=sys.stderr)
+        if args.source not in {"nh_local", "kfcc"}:
+            print("--resume은 현재 nh_local/kfcc에서만 지원한다", file=sys.stderr)
             return 2
         if not args.cycle_date:
-            print("NH checkpoint mode에는 --cycle-date가 필요하다", file=sys.stderr)
+            print("checkpoint mode에는 --cycle-date가 필요하다", file=sys.stderr)
             return 2
-        adapter = NhResumableAdapter(
-            _checkpoint_store(),
-            cycle_date_kst=args.cycle_date,
-            resume_mode=args.resume,
-        )
+        if args.source == "nh_local":
+            adapter = NhResumableAdapter(
+                _checkpoint_store(),
+                cycle_date_kst=args.cycle_date,
+                resume_mode=args.resume,
+            )
+        else:
+            adapter = KfccResumableAdapter(
+                _checkpoint_store(),
+                cycle_date_kst=args.cycle_date,
+                resume_mode=args.resume,
+            )
     else:
         adapter = adapter_cls()
 
@@ -394,7 +403,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     collect.add_argument(
         "--resume", choices=["off", "auto", "fresh"], default="off",
-        help="NH durable checkpoint. off=기존 경로, auto=같은 cycle 재개, fresh=새 세션",
+        help="NH/KFCC durable checkpoint. off=기존 경로, auto=같은 cycle 재개, fresh=새 세션",
     )
     collect.add_argument(
         "--cycle-date", default=None,

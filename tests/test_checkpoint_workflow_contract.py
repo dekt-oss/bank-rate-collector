@@ -1,8 +1,7 @@
-"""Resumable Acquisition PR A의 workflow 경계를 고정한다.
+"""NH/KFCC resumable-acquisition workflow 경계를 고정한다.
 
-이 PR은 공통 checkpoint 인프라와 R2 credential wiring까지만 넣는다.
-NH/KFCC adapter integration과 recovery step은 뒤 PR에서 들어오므로 여기서
-실수로 수집 동작·schedule·concurrency를 바꾸지 않았는지 정적으로 검사한다.
+두 장시간 수집원 모두 같은 workflow 안에서 최대 한 번만 복구하고,
+schedule/concurrency/source split/R2 credential 계약을 바꾸지 않는지 정적으로 검사한다.
 """
 
 from pathlib import Path
@@ -35,10 +34,9 @@ def _step(name: str) -> dict:
 def test_checkpoint_workflow_can_read_its_authenticated_run_metadata() -> None:
     workflow = _workflow()
     assert workflow["permissions"]["actions"] == "read"
-    nh_prepare = _step("Prepare NH checkpoint context").get("env") or {}
-    assert nh_prepare.get("GITHUB_TOKEN") == "${{ secrets.GITHUB_TOKEN }}"
-    kfcc = _step("Collect KFCC").get("env") or {}
-    assert kfcc.get("GITHUB_TOKEN") == "${{ secrets.GITHUB_TOKEN }}"
+    for name in ("Prepare NH checkpoint context", "Prepare KFCC checkpoint context"):
+        env = _step(name).get("env") or {}
+        assert env.get("GITHUB_TOKEN") == "${{ secrets.GITHUB_TOKEN }}"
 
 
 def test_checkpoint_pr_keeps_the_approved_schedule_and_single_writer() -> None:
@@ -55,61 +53,93 @@ def test_checkpoint_pr_keeps_the_approved_schedule_and_single_writer() -> None:
 
 
 def test_long_running_source_steps_receive_complete_r2_configuration() -> None:
-    for name in ("Collect NH local", "Recover NH local", "Collect KFCC"):
+    for name in (
+        "Collect NH local",
+        "Recover NH local",
+        "Collect KFCC",
+        "Recover KFCC",
+    ):
         env = _step(name).get("env") or {}
         assert set(env) >= R2_ENV_KEYS, f"{name} checkpoint R2 env 누락"
-    assert (_step("Collect NH local").get("env") or {}).get("SCOPE") is not None
-    assert (_step("Recover NH local").get("env") or {}).get("SCOPE") is not None
-    assert (_step("Collect KFCC").get("env") or {}).get("SCOPE") is not None
-    decision_env = _step("Decide NH recovery").get("env") or {}
-    assert set(decision_env) >= R2_ENV_KEYS
+        assert env.get("SCOPE") is not None
+
+    for name in ("Decide NH recovery", "Decide KFCC recovery"):
+        env = _step(name).get("env") or {}
+        assert set(env) >= R2_ENV_KEYS, f"{name} checkpoint R2 env 누락"
 
 
-def test_kfcc_is_still_outside_checkpoint_integration_pr_b() -> None:
-    body = _step("Collect KFCC")["run"]
-    assert "--resume" not in body
-    names = {str(step.get("name") or "") for step in _steps()}
-    assert not any(name.startswith("Decide KFCC recovery") for name in names)
-    assert not any(name.startswith("Recover KFCC") for name in names)
-
-
-def test_manual_nh_fresh_is_operator_only_and_recovery_stays_auto() -> None:
+def _assert_manual_fresh_contract(source: str, input_name: str) -> None:
     workflow = _workflow()
     triggers = workflow.get("on", workflow.get(True))
-    nh_mode = triggers["workflow_dispatch"]["inputs"]["nh_resume_mode"]
-    assert nh_mode["type"] == "choice"
-    assert nh_mode["default"] == "auto"
-    assert nh_mode["options"] == ["auto", "fresh"]
+    mode = triggers["workflow_dispatch"]["inputs"][input_name]
+    assert mode["type"] == "choice"
+    assert mode["default"] == "auto"
+    assert mode["options"] == ["auto", "fresh"]
 
-    first = _step("Collect NH local")
-    assert (first.get("env") or {}).get("RESUME_MODE") == "${{ inputs.nh_resume_mode || 'auto' }}"
+    first = _step(source)
+    expected_mode = f"${{{{ inputs.{input_name} || 'auto' }}}}"
+    assert (first.get("env") or {}).get("RESUME_MODE") == expected_mode
     assert '--resume "$RESUME_MODE"' in first["run"]
 
-    recovery = _step("Recover NH local")
-    assert "RESUME_MODE" not in (recovery.get("env") or {})
+
+def test_manual_fresh_is_operator_only_and_recovery_stays_auto() -> None:
+    _assert_manual_fresh_contract("Collect NH local", "nh_resume_mode")
+    _assert_manual_fresh_contract("Collect KFCC", "kfcc_resume_mode")
+
+    for name in ("Recover NH local", "Recover KFCC"):
+        recovery = _step(name)
+        assert "RESUME_MODE" not in (recovery.get("env") or {})
+        assert "--resume auto" in recovery["run"]
+
+
+def _assert_one_shot_recovery_graph(
+    *,
+    prepare: str,
+    collect: str,
+    collect_id: str,
+    decide: str,
+    decide_id: str,
+    recover: str,
+) -> None:
+    names = [str(step.get("name") or "") for step in _steps()]
+    for name in (prepare, collect, decide, recover):
+        assert names.count(name) == 1
+
+    first = _step(collect)
+    decision = _step(decide)
+    recovery = _step(recover)
+    assert first["continue-on-error"] is True
+    assert '--resume "$RESUME_MODE"' in first["run"]
+    assert f"steps.{collect_id}.outcome == 'failure'" in str(decision["if"])
+    assert "--attempt-failed" in decision["run"]
+    condition = str(recovery["if"])
+    assert f"steps.{collect_id}.outcome == 'failure'" in condition
+    assert f"steps.{decide_id}.outcome == 'success'" in condition
+    assert f"steps.{decide_id}.outputs.eligible == 'true'" in condition
+    assert recovery["continue-on-error"] is True
     assert "--resume auto" in recovery["run"]
 
 
 def test_nh_checkpoint_recovery_graph_is_bounded_to_one_attempt() -> None:
-    names = [str(step.get("name") or "") for step in _steps()]
-    assert names.count("Prepare NH checkpoint context") == 1
-    assert names.count("Collect NH local") == 1
-    assert names.count("Decide NH recovery") == 1
-    assert names.count("Recover NH local") == 1
+    _assert_one_shot_recovery_graph(
+        prepare="Prepare NH checkpoint context",
+        collect="Collect NH local",
+        collect_id="collect_nh_local",
+        decide="Decide NH recovery",
+        decide_id="decide_nh_recovery",
+        recover="Recover NH local",
+    )
 
-    first = _step("Collect NH local")
-    decision = _step("Decide NH recovery")
-    recovery = _step("Recover NH local")
-    assert first["continue-on-error"] is True
-    assert '--resume "$RESUME_MODE"' in first["run"]
-    assert "steps.collect_nh_local.outcome == 'failure'" in str(decision["if"])
-    assert "--attempt-failed" in decision["run"]
-    condition = str(recovery["if"])
-    assert "steps.collect_nh_local.outcome == 'failure'" in condition
-    assert "steps.decide_nh_recovery.outcome == 'success'" in condition
-    assert "steps.decide_nh_recovery.outputs.eligible == 'true'" in condition
-    assert recovery["continue-on-error"] is True
-    assert "--resume auto" in recovery["run"]
+
+def test_kfcc_checkpoint_recovery_graph_is_bounded_to_one_attempt() -> None:
+    _assert_one_shot_recovery_graph(
+        prepare="Prepare KFCC checkpoint context",
+        collect="Collect KFCC",
+        collect_id="collect_kfcc",
+        decide="Decide KFCC recovery",
+        decide_id="decide_kfcc_recovery",
+        recover="Recover KFCC",
+    )
 
 
 def test_existing_source_split_conditions_are_unchanged() -> None:
