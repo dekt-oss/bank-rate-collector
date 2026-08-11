@@ -3,13 +3,14 @@ name: Temporary — apply collection SLA patch
 on:
   push:
     branches: [agent/collection-sla-schedule]
+    paths:
+      - .github/workflows/dev-apply-sla-patch.yml
 
 permissions:
   contents: write
 
 jobs:
   apply:
-    if: github.event.head_commit.message == 'chore: run SLA patch script'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
