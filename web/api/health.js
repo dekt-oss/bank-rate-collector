@@ -8,6 +8,7 @@ const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
 const SCHEDULED_SOURCES = [
   "finlife_savings_bank", "finlife_bank", "bok_ecos", "fsb", "cu", "nh_local", "kfcc",
 ];
+const FAILED_CONCLUSIONS = new Set(["failure", "cancelled", "timed_out", "action_required", "startup_failure"]);
 
 const kstParts = (value) => {
   const shifted = new Date(new Date(value).getTime() + KST_OFFSET_MS);
@@ -21,8 +22,20 @@ const pad2 = (value) => String(value).padStart(2, "0");
 const kstIsoAt = ({ year, month, day }, hour, minute) => (
   `${year}-${pad2(month)}-${pad2(day)}T${pad2(hour)}:${pad2(minute)}:00+09:00`
 );
+const kstDateOfRun = (run) => {
+  if (!run) return null;
+  const reference = run.run_started_at || run.created_at;
+  if (!reference) return null;
+  const parts = kstParts(reference);
+  return `${parts.year}-${pad2(parts.month)}-${pad2(parts.day)}`;
+};
 
-export const cycleSla = (scheduledRun, publishCompletedAt, now = new Date()) => {
+export const cycleSla = (
+  scheduledRun,
+  publishCompletedAt,
+  now = new Date(),
+  sourceState = null,
+) => {
   if (!scheduledRun) return null;
   const reference = scheduledRun.run_started_at || scheduledRun.created_at;
   if (!reference) return null;
@@ -35,18 +48,33 @@ export const cycleSla = (scheduledRun, publishCompletedAt, now = new Date()) => 
   const completedMs = publishCompletedAt ? Date.parse(publishCompletedAt) : null;
   const nowMs = new Date(now).getTime();
 
-  let status;
+  let timingStatus;
   if (completedMs !== null) {
-    status = completedMs <= normalMs ? "normal" : (completedMs <= deadlineMs ? "warning" : "breached");
+    timingStatus = completedMs <= normalMs
+      ? "normal"
+      : (completedMs <= deadlineMs ? "warning" : "breached");
   } else {
-    status = nowMs < normalMs ? "pending" : (nowMs < deadlineMs ? "warning" : "breached");
+    timingStatus = nowMs < normalMs
+      ? "pending"
+      : (nowMs < deadlineMs ? "warning" : "breached");
   }
+
+  const sourceStatus = sourceState?.status || "unknown";
+  let status = timingStatus;
+  if (timingStatus !== "breached" && ["failed", "incomplete"].includes(sourceStatus)) {
+    status = "degraded";
+  }
+
   return {
     cycle_date_kst: cycleDate,
     scheduled_sources: SCHEDULED_SOURCES,
     latest_publish_completed_at: publishCompletedAt || null,
     normal_target_at: normalTargetAt,
     sla_deadline_at: deadlineAt,
+    timing_status: timingStatus,
+    source_status: sourceStatus,
+    failed_sources: sourceState?.failed_sources || [],
+    missing_sources: sourceState?.missing_sources || [],
     status,
   };
 };
@@ -121,6 +149,40 @@ const loadRunSteps = async (token, slug, run) => {
   return { sourceSteps, pipelineSteps };
 };
 
+const cycleSourceState = (cycleDetails, publishCompletedAt) => {
+  const sourceSteps = {};
+  for (const detail of cycleDetails) {
+    for (const [sourceId, step] of Object.entries(detail.sourceSteps || {})) {
+      if (step.conclusion === "skipped") continue;
+      // cycleDetails는 최신 run부터 온다. 같은 source가 재실행됐으면 최신 결과를 쓴다.
+      if (!sourceSteps[sourceId]) sourceSteps[sourceId] = step;
+    }
+  }
+
+  const failedSources = SCHEDULED_SOURCES.filter((sourceId) => {
+    const conclusion = sourceSteps[sourceId]?.conclusion;
+    return conclusion && FAILED_CONCLUSIONS.has(conclusion);
+  });
+  const successfulSources = SCHEDULED_SOURCES.filter(
+    (sourceId) => sourceSteps[sourceId]?.conclusion === "success",
+  );
+  const missingSources = SCHEDULED_SOURCES.filter(
+    (sourceId) => !successfulSources.includes(sourceId) && !failedSources.includes(sourceId),
+  );
+
+  let status;
+  if (failedSources.length) status = "failed";
+  else if (publishCompletedAt && missingSources.length) status = "incomplete";
+  else if (missingSources.length) status = "pending";
+  else status = "healthy";
+
+  return {
+    status,
+    failed_sources: failedSources,
+    missing_sources: missingSources,
+  };
+};
+
 const settings = () => {
   const token = process.env.GITHUB_DISPATCH_TOKEN;
   const owner = process.env.VERCEL_GIT_REPO_OWNER;
@@ -151,21 +213,27 @@ export default async function handler(req, res) {
   const activeCollection = collections.find((run) => ACTIVE.has(run.status)) || null;
   const activePublish = runs.find((run) => run.event === "push" && ACTIVE.has(run.status)) || null;
   const latestCollection = collections[0] || null;
-  const latestScheduled = collections.find((run) => run.event === "schedule") || null;
+  const scheduledRuns = collections.filter((run) => run.event === "schedule");
+  const latestScheduled = scheduledRuns[0] || null;
   const latestPublish = runs.find((run) => run.conclusion === "success") || null;
   const detailRun = activeCollection || latestCollection;
 
   const detail = await loadRunSteps(token, slug, detailRun);
-  const scheduled = latestScheduled && detailRun && latestScheduled.id === detailRun.id
-    ? detail
-    : await loadRunSteps(token, slug, latestScheduled);
-  const kfccStep = scheduled.sourceSteps.kfcc || null;
-  const cycleFinisher = kfccStep && kfccStep.conclusion !== "skipped";
-  const publishStep = scheduled.pipelineSteps.publish || null;
-  const publishCompletedAt = cycleFinisher && publishStep && publishStep.conclusion === "success"
+  const cycleDate = kstDateOfRun(latestScheduled);
+  const cycleRuns = scheduledRuns.filter((run) => kstDateOfRun(run) === cycleDate);
+  const cycleDetails = await Promise.all(cycleRuns.map(async (run) => (
+    detailRun && run.id === detailRun.id ? detail : loadRunSteps(token, slug, run)
+  )));
+  const finisher = cycleDetails.find((entry) => {
+    const step = entry.sourceSteps.kfcc;
+    return step && step.conclusion !== "skipped";
+  }) || null;
+  const publishStep = finisher?.pipelineSteps.publish || null;
+  const publishCompletedAt = publishStep?.conclusion === "success"
     ? publishStep.completed_at
     : null;
-  const sla = cycleSla(latestScheduled, publishCompletedAt);
+  const sourceState = cycleSourceState(cycleDetails, publishCompletedAt);
+  const sla = cycleSla(latestScheduled, publishCompletedAt, new Date(), sourceState);
 
   return json(res, 200, {
     ok: true,
