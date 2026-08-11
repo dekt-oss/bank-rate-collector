@@ -24,7 +24,6 @@ import httpx
 from rate_monitor.collectors.base import SchemaChangedError, SourceBlockedError
 from rate_monitor.collectors.nh_local import parser
 from rate_monitor.collectors.nh_local.adapter import (
-    BASE_URL,
     CONNECT_TIMEOUT,
     DEFAULT_PRODUCTS,
     LIST_SCREEN,
@@ -247,7 +246,9 @@ class NhResumableAdapter(NhLocalAdapter):
                     expected_work_count=1 + len(plan),
                 )
 
-                requests_made = max(0, manifest.completed_work_count - 1)
+                # Existing MAX_REQUESTS includes the directory request. A resume
+                # therefore starts from all durable completed work, not details only.
+                requests_made = manifest.completed_work_count
                 for item in plan:
                     if guard.tripped:
                         break

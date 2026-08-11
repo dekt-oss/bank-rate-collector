@@ -692,6 +692,7 @@ class ResumableAcquisitionService:
         *,
         reason_code: str,
         reason: str,
+        guard_state: dict[str, Any] | None = None,
     ) -> AcquisitionManifest:
         if (
             not reason_code.startswith("RECOVERABLE_")
@@ -702,6 +703,7 @@ class ResumableAcquisitionService:
         updated = self._next_manifest(
             manifest,
             status="recoverable_failed",
+            guard_state=guard_state,
             terminal_reason_code=reason_code,
             terminal_reason=reason,
         )
@@ -945,7 +947,8 @@ def decide_recovery(
     }
     return RecoveryDecision(
         False,
-        reason_by_status.get(manifest.status, "UNKNOWN_FATAL"),
+        manifest.terminal_reason_code
+        or reason_by_status.get(manifest.status, "UNKNOWN_FATAL"),
         identity.source_id,
         identity.cycle_date_kst,
         manifest.session_id,

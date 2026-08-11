@@ -35,9 +35,10 @@ def _step(name: str) -> dict:
 def test_checkpoint_workflow_can_read_its_authenticated_run_metadata() -> None:
     workflow = _workflow()
     assert workflow["permissions"]["actions"] == "read"
-    for name in ("Collect NH local", "Collect KFCC"):
-        env = _step(name).get("env") or {}
-        assert env.get("GITHUB_TOKEN") == "${{ secrets.GITHUB_TOKEN }}"
+    nh_prepare = _step("Prepare NH checkpoint context").get("env") or {}
+    assert nh_prepare.get("GITHUB_TOKEN") == "${{ secrets.GITHUB_TOKEN }}"
+    kfcc = _step("Collect KFCC").get("env") or {}
+    assert kfcc.get("GITHUB_TOKEN") == "${{ secrets.GITHUB_TOKEN }}"
 
 
 def test_checkpoint_pr_keeps_the_approved_schedule_and_single_writer() -> None:
@@ -54,31 +55,44 @@ def test_checkpoint_pr_keeps_the_approved_schedule_and_single_writer() -> None:
 
 
 def test_long_running_source_steps_receive_complete_r2_configuration() -> None:
-    for name in ("Collect NH local", "Collect KFCC"):
+    for name in ("Collect NH local", "Recover NH local", "Collect KFCC"):
         env = _step(name).get("env") or {}
         assert set(env) >= R2_ENV_KEYS, f"{name} checkpoint R2 env 누락"
-        assert env.get("GITHUB_TOKEN") == "${{ secrets.GITHUB_TOKEN }}"
-        assert env.get("SCOPE") is not None
+    assert (_step("Collect NH local").get("env") or {}).get("SCOPE") is not None
+    assert (_step("Recover NH local").get("env") or {}).get("SCOPE") is not None
+    assert (_step("Collect KFCC").get("env") or {}).get("SCOPE") is not None
+    decision_env = _step("Decide NH recovery").get("env") or {}
+    assert set(decision_env) >= R2_ENV_KEYS
 
 
-def test_common_infrastructure_does_not_enable_checkpoint_collection_yet() -> None:
-    """PR A alone must not change live source behavior.
-
-    Adapter loops do not consume the checkpoint service until NH/KFCC integration PRs.
-    Therefore workflow source commands must not pass a resume/checkpoint flag yet.
-    """
-    for name in ("Collect NH local", "Collect KFCC"):
-        body = _step(name)["run"]
-        assert "--resume" not in body
-        assert "checkpoint" not in body.lower()
-
-
-def test_common_infrastructure_does_not_install_recovery_steps_early() -> None:
+def test_kfcc_is_still_outside_checkpoint_integration_pr_b() -> None:
+    body = _step("Collect KFCC")["run"]
+    assert "--resume" not in body
     names = {str(step.get("name") or "") for step in _steps()}
-    assert not any(name.startswith("Decide NH recovery") for name in names)
-    assert not any(name.startswith("Recover NH local") for name in names)
     assert not any(name.startswith("Decide KFCC recovery") for name in names)
     assert not any(name.startswith("Recover KFCC") for name in names)
+
+
+def test_nh_checkpoint_recovery_graph_is_bounded_to_one_attempt() -> None:
+    names = [str(step.get("name") or "") for step in _steps()]
+    assert names.count("Prepare NH checkpoint context") == 1
+    assert names.count("Collect NH local") == 1
+    assert names.count("Decide NH recovery") == 1
+    assert names.count("Recover NH local") == 1
+
+    first = _step("Collect NH local")
+    decision = _step("Decide NH recovery")
+    recovery = _step("Recover NH local")
+    assert first["continue-on-error"] is True
+    assert "--resume auto" in first["run"]
+    assert "steps.collect_nh_local.outcome == 'failure'" in str(decision["if"])
+    assert "--attempt-failed" in decision["run"]
+    condition = str(recovery["if"])
+    assert "steps.collect_nh_local.outcome == 'failure'" in condition
+    assert "steps.decide_nh_recovery.outcome == 'success'" in condition
+    assert "steps.decide_nh_recovery.outputs.eligible == 'true'" in condition
+    assert recovery["continue-on-error"] is True
+    assert "--resume auto" in recovery["run"]
 
 
 def test_existing_source_split_conditions_are_unchanged() -> None:
