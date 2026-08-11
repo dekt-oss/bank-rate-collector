@@ -90,6 +90,7 @@ const SOURCE_STEPS = {
   "Collect FSB": "fsb",
   "Collect CU": "cu",
   "Collect KFCC": "kfcc",
+  "Recover KFCC": "kfcc",
   "Collect NH local": "nh_local",
   "Recover NH local": "nh_local",
 };
