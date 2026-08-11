@@ -25,11 +25,13 @@ NORMAL_STATUSES = ("success", "no_change")
 DISPLAY_STATUSES = ("success", "partial", "no_change")
 FAIL_STATUSES = ("failed", "blocked", "schema_changed")
 
-# 평일 정기 cycle의 hard deadline은 08:00 KST다. core/KFCC 시작시각은
-# 서로 다르지만 사용자가 요구하는 최신성 계약은 "같은 날 08시까지 성공"이다.
-# 개별 source의 run health와 전체 cycle SLA는 별도로 표시한다.
-EXPECTED_BY_HOUR_KST: dict[str, int] = {}
-DEFAULT_EXPECTED_BY_HOUR_KST = 8
+# 개별 source freshness와 전체 cycle SLA를 분리한다. core source의 기존
+# 07:00 freshness cutoff는 느슨하게 만들지 않고, KFCC만 09:00 -> 08:00으로
+# 조인다. 전체 cycle의 hard deadline 08:00은 /api/health에서 별도 계산한다.
+EXPECTED_BY_HOUR_KST: dict[str, int] = {
+    "kfcc": 8,
+}
+DEFAULT_EXPECTED_BY_HOUR_KST = 7
 
 _SIGNAL_RANK = {"gray": 0, "green": 1, "blue": 2, "yellow": 3, "red": 4}
 

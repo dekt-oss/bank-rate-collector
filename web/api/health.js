@@ -59,9 +59,13 @@ export const cycleSla = (
       : (nowMs < deadlineMs ? "warning" : "breached");
   }
 
-  const sourceStatus = sourceState?.status || "unknown";
+  const sourceStatus = sourceState?.status || "not_checked";
   let status = timingStatus;
-  if (timingStatus !== "breached" && ["failed", "incomplete"].includes(sourceStatus)) {
+  if (sourceState && sourceStatus === "unknown") {
+    status = "unknown";
+  } else if (
+    timingStatus !== "breached" && ["failed", "incomplete"].includes(sourceStatus)
+  ) {
     status = "degraded";
   }
 
@@ -136,9 +140,9 @@ const stepView = (step) => ({
 const loadRunSteps = async (token, slug, run) => {
   const sourceSteps = {};
   const pipelineSteps = {};
-  if (!run) return { sourceSteps, pipelineSteps };
+  if (!run) return { sourceSteps, pipelineSteps, evidenceAvailable: true };
   const jobsRes = await gh(token, `/repos/${slug}/actions/runs/${run.id}/jobs?per_page=20`);
-  if (!jobsRes.ok) return { sourceSteps, pipelineSteps };
+  if (!jobsRes.ok) return { sourceSteps, pipelineSteps, evidenceAvailable: false };
   const jobs = (await jobsRes.json()).jobs || [];
   for (const job of jobs) {
     for (const step of job.steps || []) {
@@ -146,10 +150,18 @@ const loadRunSteps = async (token, slug, run) => {
       if (PIPELINE_STEPS[step.name]) pipelineSteps[PIPELINE_STEPS[step.name]] = stepView(step);
     }
   }
-  return { sourceSteps, pipelineSteps };
+  return { sourceSteps, pipelineSteps, evidenceAvailable: true };
 };
 
 const cycleSourceState = (cycleDetails, publishCompletedAt) => {
+  if (cycleDetails.some((detail) => detail.evidenceAvailable === false)) {
+    return {
+      status: "unknown",
+      failed_sources: [],
+      missing_sources: [],
+    };
+  }
+
   const sourceSteps = {};
   for (const detail of cycleDetails) {
     for (const [sourceId, step] of Object.entries(detail.sourceSteps || {})) {
@@ -204,16 +216,25 @@ export default async function handler(req, res) {
     });
   }
 
-  const runsRes = await gh(token, `/repos/${slug}/actions/workflows/${WORKFLOW}/runs?per_page=30`);
+  const [runsRes, scheduledRunsRes] = await Promise.all([
+    gh(token, `/repos/${slug}/actions/workflows/${WORKFLOW}/runs?per_page=30`),
+    gh(token, `/repos/${slug}/actions/workflows/${WORKFLOW}/runs?event=schedule&per_page=20`),
+  ]);
   if (!runsRes.ok) {
     return json(res, 502, { ok: false, error: `GitHub 실행 상태를 읽지 못했습니다 (${runsRes.status}).` });
   }
+  if (!scheduledRunsRes.ok) {
+    return json(res, 502, {
+      ok: false,
+      error: `GitHub 정기 수집 이력을 읽지 못했습니다 (${scheduledRunsRes.status}).`,
+    });
+  }
   const runs = (await runsRes.json()).workflow_runs || [];
+  const scheduledRuns = (await scheduledRunsRes.json()).workflow_runs || [];
   const collections = runs.filter((run) => run.event !== "push");
   const activeCollection = collections.find((run) => ACTIVE.has(run.status)) || null;
   const activePublish = runs.find((run) => run.event === "push" && ACTIVE.has(run.status)) || null;
   const latestCollection = collections[0] || null;
-  const scheduledRuns = collections.filter((run) => run.event === "schedule");
   const latestScheduled = scheduledRuns[0] || null;
   const latestPublish = runs.find((run) => run.conclusion === "success") || null;
   const detailRun = activeCollection || latestCollection;

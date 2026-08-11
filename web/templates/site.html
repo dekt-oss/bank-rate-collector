@@ -2717,11 +2717,13 @@
   const slaLine = (sla) => {
     if (!sla) return "";
     const sig = (sla.status === "breached" || sla.status === "degraded") ? "red"
-      : (sla.status === "normal" ? "green" : (sla.status === "warning" ? "yellow" : "blue"));
+      : (sla.status === "normal" ? "green"
+        : (sla.status === "warning" ? "yellow" : (sla.status === "unknown" ? "gray" : "blue")));
     const label = sla.status === "normal" ? "정상"
       : (sla.status === "warning" ? "마감 임박"
         : (sla.status === "breached" ? "08:00 초과"
-          : (sla.status === "degraded" ? "일부 원천 실패" : "진행 중")));
+          : (sla.status === "degraded" ? "일부 원천 실패"
+            : (sla.status === "unknown" ? "판정 불가" : "진행 중"))));
     const done = sla.latest_publish_completed_at
       ? ` · 최종 발행 ${healthDate(sla.latest_publish_completed_at)}` : "";
     const failed = (sla.failed_sources || []).length
