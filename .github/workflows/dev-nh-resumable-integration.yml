@@ -1,0 +1,47 @@
+name: Apply NH resumable integration
+
+on:
+  push:
+    branches:
+      - agent/nh-resumable-acquisition-v1
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/nh-resumable-acquisition-v1
+          fetch-depth: 0
+
+      - uses: astral-sh/setup-uv@v5
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Apply integration patch
+        run: python .github/dev/nh_resumable_integration_patch.py
+
+      - name: Verify
+        run: |
+          uv sync --locked
+          uv run ruff check src tests scripts --fix
+          uv run ruff check src tests scripts
+          uv run pytest -q
+          RATE_MONITOR_DB_URL=sqlite+pysqlite:///${{ runner.temp }}/nh-resume.sqlite3 uv run alembic upgrade head
+
+      - name: Commit non-workflow implementation
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # GitHub Actions token cannot update collect.yml. Keep that workflow file
+          # out of the bot push; a connector-owned final commit applies it next.
+          git checkout HEAD -- .github/workflows/collect.yml
+          git rm .github/dev/nh_resumable_integration_patch.py
+          git add -A
+          git commit -m "feat: integrate NH resumable acquisition"
+          git push origin HEAD:agent/nh-resumable-acquisition-v1
