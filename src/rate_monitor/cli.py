@@ -63,6 +63,7 @@ def _checkpoint_store():
         )
     return open_store(config)
 
+
 ADAPTERS = {
     # finlife는 권역마다 소스가 갈린다 (v4 §6.2). 옛 이름 `finlife`는
     # 더 받지 않는다 — 그 이름으로 돌리면 어느 권역인지 알 수 없다.
@@ -472,7 +473,7 @@ def build_parser() -> argparse.ArgumentParser:
     validate.set_defaults(func=_validate)
 
     export = sub.add_parser("export", help="전체 조사 내용을 파일로 내보낸다")
-    export.add_argument("--db", default="publish/export")
+    export.add_argument("--db", default="publish/rate_monitor.sqlite3")
     export.add_argument("--out", default="publish/export")
     export.add_argument(
         "--format", nargs="+", default=["csv", "json"], choices=["csv", "json"],
