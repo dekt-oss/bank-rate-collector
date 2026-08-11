@@ -10,7 +10,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <!-- 파비콘을 인라인으로 둔다. 없으면 브라우저가 /favicon.ico를 찾다 404를
      남기고, 그 404가 콘솔에서 진짜 오류처럼 보인다. -->
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%232D5F7C'/%3E%3Ctext x='8' y='12' font-size='11' font-family='monospace' font-weight='bold' text-anchor='middle' fill='white'%3E%25%3C/text%3E%3C/svg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%23D33A7C'/%3E%3Ctext x='8' y='12' font-size='11' font-family='monospace' font-weight='bold' text-anchor='middle' fill='white'%3E%25%3C/text%3E%3C/svg%3E">
 <title>전국 예·적금 금리 비교</title>
 <meta name="description" content="은행·저축은행·새마을금고·신협·지역농축협의 공시 예·적금 금리를 한 화면에서 비교하고 내려받습니다.">
 <!-- 검색엔진 색인에서 뺀다.
@@ -25,22 +25,22 @@
 <meta name="robots" content="noindex, nofollow">
 <style>
   /* ── 토큰 ──────────────────────────────────────────────────────────
-     운영 보드(dashboard.html)·조회 화면(public.html)과 같은 색을 쓴다.
-     같은 데이터를 세 화면이 다른 색으로 보여주면 같은 것인지 알 수 없다. */
+     고려저축은행 CI의 핑크 심벌·딥 퍼플 워드마크를 낮은 채도로 옮겼다.
+     상태 신호등은 브랜드색과 섞지 않고 기존 의미색을 그대로 유지한다. */
   :root {
-    --paper:      #F3F6FB;
+    --paper:      #F7F4F8;
     --surface:    #FFFFFF;
-    --surface-2:  #F6F8FA;
-    --line:       #D3DAE1;
-    --line-soft:  #E4E9EE;
-    --ink:        #171C23;
-    --ink-2:      #4A5563;
-    --ink-3:      #77828F;
-    --accent:     #2563EB;
-    --accent-ink: #1748B5;
-    --accent-bg:  #EAF1FF;
-    --teal:       #0F9F92;
-    --violet:     #7C3AED;
+    --surface-2:  #FAF7FA;
+    --line:       #DED5DF;
+    --line-soft:  #ECE6ED;
+    --ink:        #251D27;
+    --ink-2:      #665B68;
+    --ink-3:      #8B7F8D;
+    --accent:     #D33A7C;
+    --accent-ink: #5B2F64;
+    --accent-bg:  #F8EAF1;
+    --teal:       #A75982;
+    --violet:     #734A7E;
     --ok:         #2E7D5B;
     --warn:       #A9741A;
     --crit:       #AC4238;
@@ -67,9 +67,11 @@
     justify-content: space-between; gap: 12px;
     padding: 22px 24px; border: 0; border-radius: 18px;
     background:
-      radial-gradient(circle at 12% 10%, rgba(255,255,255,.19), transparent 32%),
-      linear-gradient(125deg, #123B8F 0%, #2563EB 52%, #0F9F92 118%);
-    color: #fff; box-shadow: 0 14px 34px rgba(25, 62, 135, .18);
+      radial-gradient(circle at 14% 5%, rgba(255,255,255,.22), transparent 34%),
+      radial-gradient(circle at 88% 105%, rgba(245,174,205,.24), transparent 34%),
+      linear-gradient(130deg, #4D2D58 0%, #784060 53%, #B34A77 118%);
+    color: #fff;
+    box-shadow: 0 16px 36px rgba(75,42,75,.18), inset 0 1px 0 rgba(255,255,255,.2);
   }
   .brand { display: flex; align-items: center; gap: 13px; min-width: min(100%, 390px); }
   .brand-mark {
@@ -80,9 +82,9 @@
   }
   header.top h1 { margin: 0; text-wrap: balance; line-height: 1.12; }
   .brand-title { font-size: 25px; font-weight: 850; letter-spacing: -.025em; }
-  header.top .sub { margin: 5px 0 0; color: rgba(255,255,255,.72); font-size: 11.5px; }
+  header.top .sub { margin: 5px 0 0; color: rgba(255,255,255,.88); font-size: 11.5px; }
   .stamp {
-    font-family: var(--mono); font-size: 10.5px; color: rgba(255,255,255,.7);
+    font-family: var(--mono); font-size: 10.5px; color: #fff;
     text-align: right; line-height: 1.7; font-variant-numeric: tabular-nums;
   }
 
@@ -245,15 +247,15 @@
 
   .panel {
     margin-top: 16px; background: var(--surface);
-    border: 1px solid #DCE4F0; border-radius: 14px; overflow: hidden;
-    box-shadow: 0 8px 24px rgba(35, 65, 120, .07);
+    border: 1px solid #E6DEE7; border-radius: 14px; overflow: hidden;
+    box-shadow: 0 10px 26px rgba(75,42,75,.075), inset 0 1px 0 rgba(255,255,255,.9);
   }
   .panel > h2 {
     margin: 0; padding: 12px 16px; font-size: 11px; font-weight: 750;
     letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-3);
     border-bottom: 1px solid var(--line-soft);
     display: flex; justify-content: space-between; align-items: center;
-    background: linear-gradient(90deg, #F7FAFF, #FFFFFF);
+    background: linear-gradient(90deg, #FBF7FA, #FFFFFF);
   }
   .panel > h2 button {
     font: inherit; text-transform: none; letter-spacing: 0;
@@ -265,24 +267,24 @@
     gap: 0;
   }
   .advanced-filters[hidden] { display: none; }
-  .advanced-filters { border-top: 1px solid var(--line-soft); background: #FBFCFF; }
+  .advanced-filters { border-top: 1px solid var(--line-soft); background: #FCF9FB; }
   .filter-mode-bar {
     display: flex; align-items: center; justify-content: space-between; gap: 10px;
     padding: 9px 14px; border-top: 1px solid var(--line-soft);
-    background: linear-gradient(90deg, var(--accent-bg), #F4FBFA);
+    background: linear-gradient(90deg, var(--accent-bg), #F7F0F6);
   }
   .filter-mode-summary {
     display: flex; flex-wrap: wrap; gap: 5px 7px; color: var(--ink-2); font-size: 11px;
   }
   .filter-mode-summary span {
     padding: 2px 7px; border-radius: 999px; background: rgba(255,255,255,.8);
-    border: 1px solid rgba(37,99,235,.15);
+    border: 1px solid rgba(211,58,124,.16);
   }
   .filter-toggle {
     flex: none; font: inherit; font-size: 11.5px; font-weight: 700; cursor: pointer;
     color: #fff; background: linear-gradient(110deg, var(--accent), var(--teal));
     border: 0; border-radius: 999px; padding: 6px 12px;
-    box-shadow: 0 4px 10px rgba(37,99,235,.18);
+    box-shadow: 0 5px 12px rgba(91,47,100,.18), inset 0 1px 0 rgba(255,255,255,.22);
   }
   .filter-toggle::after { content: " ↓"; }
   .filter-toggle[aria-expanded="true"]::after { content: " ↑"; }
@@ -463,7 +465,7 @@
   .mark {
     background: var(--surface); border: 1px solid var(--line);
     position: relative; overflow: hidden; border-radius: 12px; padding: 14px 15px;
-    box-shadow: 0 6px 18px rgba(38,67,114,.06);
+    box-shadow: 0 7px 20px rgba(75,42,75,.065), inset 0 1px 0 rgba(255,255,255,.92);
   }
   .mark::before {
     content: ""; position: absolute; inset: 0 0 auto; height: 3px;
@@ -474,28 +476,30 @@
   .mark .v { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
   .mark .d { font-size: 12px; color: var(--ink-3); margin-top: 2px; }
 
-  /* 구·군은 지역 조건 안에서 한 단 들여 편다. 지역의 하위 조건이라는 것이
-     선 하나로 보여야 한다. */
-  .gu-inline {
-    margin-top: 9px; padding-left: 9px;
-    border-left: 2px solid var(--accent-bg);
+  /* 하위 조건은 모두 선택된 상태를 요약해 두고, 필요할 때만 편다. 상위와
+     하위의 관계가 한 카드 안에서 보이되 기본 화면 높이는 늘리지 않는다. */
+  .nested-filter {
+    margin-top: 9px; padding: 7px 9px;
+    border: 1px solid var(--line-soft); border-radius: 8px;
+    background: linear-gradient(145deg, rgba(255,255,255,.86), var(--surface-2));
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.95);
   }
-  .gu-lbl {
-    font-size: 11px; font-weight: 700; color: var(--ink-3);
-    letter-spacing: 0.06em; margin-bottom: 6px;
-    display: flex; justify-content: space-between; align-items: baseline;
+  .nested-head {
+    display: flex; justify-content: space-between; align-items: center; gap: 8px;
+    color: var(--ink-2); font-size: 11px; font-weight: 700;
   }
-  .gu-lbl a {
-    font-size: 11px; color: var(--accent); cursor: pointer;
-    letter-spacing: 0; font-weight: 600;
+  .nested-head .selected { color: var(--ink-3); font-weight: 500; margin-left: 4px; }
+  .nested-head button, .nested-actions button {
+    font: inherit; font-size: 11px; color: var(--accent-ink); cursor: pointer;
+    letter-spacing: 0; font-weight: 700; background: var(--surface);
+    border: 1px solid var(--line); border-radius: 999px; padding: 2px 8px;
   }
-  .gu-lbl button {
-    font: inherit; font-size: 11px; color: var(--accent); cursor: pointer;
-    letter-spacing: 0; font-weight: 650; background: none; border: 0; padding: 0;
+  .nested-actions {
+    display: flex; justify-content: flex-end; margin: 7px 0 6px;
   }
   /* 점포가 없는 구도 지운다는 뜻이 아니라 흐리게만 둔다. 지우면 "없는 구"와
      "조건에 안 걸린 구"를 구별할 수 없다. */
-  .gu-inline label[data-empty="1"] { opacity: .45; }
+  .nested-filter label[data-empty="1"] { opacity: .45; }
 
   /* ── 자주 쓰는 조건 ───────────────────────────────────────────── */
   .presets { display: flex; flex-wrap: wrap; gap: 7px; margin: 0; padding: 10px 14px; }
@@ -514,12 +518,11 @@
   }
 
   /* ── 금리 기준 ────────────────────────────────────────────────── */
-  .basis { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-bottom: 9px; }
-  .basis label {
-    display: inline-flex; align-items: center; gap: 5px;
-    font-size: 12.5px; cursor: pointer; white-space: nowrap;
+  .basis {
+    display: inline-flex; align-items: center; gap: 7px; margin-bottom: 9px;
+    padding: 4px 9px; border-radius: 999px; color: var(--accent-ink);
+    background: var(--accent-bg); border: 1px solid var(--line); font-size: 11.5px;
   }
-  .basis input { accent-color: var(--accent); margin: 0; }
 
   /* ── 우대조건 ─────────────────────────────────────────────────── */
   /* **넘친 글자는 잘라낸다.** 칸에 `max-width`만 걸면 `white-space: nowrap`
@@ -841,7 +844,7 @@
   <!-- 순서 = 쓰는 순서다 (2026-08-09 교체).
 
        예전에는 차트가 위, 조회 조건이 아래였다. 그러면 처음 들어온 사람이
-       «전체 기준» 그림부터 보고, 조건을 걸려고 내려갔다가, 바뀐 그림을
+       전체 그림부터 보고, 조건을 걸려고 내려갔다가, 바뀐 그림을
        보려고 다시 올라와야 한다.
 
        조건 → 그림 → 표로 세운다. 조건을 정하고, 그 결과를 그림으로 읽고,
@@ -886,21 +889,16 @@
 
     <div class="group" style="border-right:0">
       <div class="lbl">검색 · 범위</div>
-      <!-- 어느 금리로 거르고 정렬할 것인가.
-           기본금리는 거의 모든 행에 있고, 최고금리는 원천이 주는 곳에만
-           있다 (실측 27.6%). 둘을 한 칸에서 섞어 물으면 답이 달라진 것을
-           눈치채기 어려워서 축을 밖으로 꺼냈다. -->
-      <div class="basis" id="basis">
-        <label><input type="radio" name="basis" value="base" checked> 기본금리 기준</label>
-        <label><input type="radio" name="basis" value="max"> 우대금리(최고) 기준</label>
-      </div>
+      <!-- 비교·정렬·하한·차트는 모두 최고금리 하나를 쓴다. 화면에서 기준을
+           바꿀 수 있게 두면 같은 조건인데 결과가 달라져 업무 기준이 흔들린다. -->
+      <div class="basis" id="basis"><b>금리 기준</b> 최고금리(우대 포함)</div>
       <div class="fields">
         <div class="field">
           <label for="q">기관·상품 이름</label>
           <input type="search" id="q" placeholder="예: 정기적금, 국제시장" autocomplete="off">
         </div>
         <div class="field">
-          <label for="rmin" id="rmin-label">기본금리 이상 (%)</label>
+          <label for="rmin" id="rmin-label">최고금리 이상 (%)</label>
           <input type="number" id="rmin" step="0.1" min="0" placeholder="예: 3.0">
         </div>
         <div class="field">
@@ -977,14 +975,13 @@
          그려서 조건을 안 따랐는데, 0% 조건을 켜도 이 그림만 안 바뀌면
          «켰는데 왜 안 바뀌지»가 된다.
 
-         배지와 캡션이 매번 무엇을 세었는지 다시 적는다. 표를 받기 전에는
-         전체 집계로 그리므로, 한 번 적어 두면 둘 중 하나는 거짓말이 된다. -->
+         배지와 캡션이 매번 무엇을 세었는지 다시 적는다. -->
     <div class="card">
       <h3>가입기간별 금리 범위 <span class="badge live" id="terms-badge">조회 조건 반영</span></h3>
       <p class="cap" id="terms-cap"></p>
       <svg id="terms" viewBox="0 0 560 200" role="img" aria-label=""></svg>
       <div class="legend">
-        <span><i style="background:var(--ink-3);opacity:.25"></i>기본금리 최저~최고</span>
+        <span><i style="background:var(--ink-3);opacity:.25"></i>최고금리 최저~최고</span>
         <span><i style="background:var(--accent)"></i>중앙값 (막대 안 숫자)</span>
         <span>막대 오른쪽 숫자 = 관측 건수</span>
       </div>
@@ -1100,8 +1097,8 @@
   // ── 조회 조건 ────────────────────────────────────────────────────
   //
   // 기본 화면은 업무에서 가장 자주 비교하는 범위를 바로 보여준다. 업권과
-  // 상품유형은 전체, 기간은 4~24개월, 지역은 서울·경기·부산, 공시일은
-  // 최신 공시일 기준 최근 7일이다. «전체 선택»은 빈 체크로 전체를 암시하지
+  // 상품유형과 가입기간은 전체, 지역은 서울·경기·부산, 공시일은
+  // 최신 공시일 기준 최근 30일이다. «전체 선택»은 빈 체크로 전체를 암시하지
   // 않고 실제 체크박스를 모두 채운다.
   // ── 가입기간 구간 ────────────────────────────────────────────────
   //
@@ -1179,8 +1176,7 @@
   const state = {
     picked: Object.fromEntries(GROUPS.map((g) => [g.key, new Set()])),
     q: "", rmin: null, tmin: null, tmax: null, dfrom: null, dto: null,
-    basis: "base",    // 기본금리 기준 | max = 우대금리(최고) 기준
-    sort: "base", dir: -1, shown: 100,
+    sort: "max", dir: -1, shown: 100,
     // 구·군은 **지역 안에 둔다.** 부산을 켜야만 열리는 하위 조건이라 별도
     // 축이 아니다. 부산이 꺼지면 `gu`도 함께 비운다.
     //
@@ -1191,6 +1187,7 @@
     // 0.00%로 공시된 행을 뺄 것인가. 기본은 «넣는다» — 빈 조건은 전체다.
     hideZero: false,
     prefTags: new Set(),   // 세부 우대조건. 우대조건 그룹 안에서만 열린다
+    detailOpen: new Set(), // 부산 구·군·우대 세부조건의 표시 상태(필터와 별개)
     open: new Set(),  // 우대조건을 펼친 행
     // 우리 회사. null이면 «지정 안 함»이고 관련 표시가 전부 사라진다.
     // 지정 상태를 못 빠져나오면 안 되므로 이 값은 반드시 비울 수 있어야 한다.
@@ -1218,6 +1215,7 @@
   };
 
   let ALL = [];            // 표를 받기 전에는 비어 있다
+  let PREF_TAG_CODES = []; // 전체 선택과 부분 필터를 가르는 실제 분류 목록
   let latestAsOf = null;
   let PRESETS = [];
 
@@ -1341,33 +1339,43 @@
     return c;
   };
 
-  const DEFAULT_TERMS = ["4-6", "7-12", "13-24"];
   const DEFAULT_REGIONS = ["서울", "경기", BUSAN_SIDO];
   const groupValues = (g) => g.buckets
     ? g.buckets.map((b) => b.id)
     : [...countsOf(g.key).keys()].map(String);
+  const selectAllBusanDistricts = () => {
+    state.gu.clear();
+    BUSAN.forEach((gu) => state.gu.add(gu));
+  };
+  const selectAllPreferenceTags = () => {
+    state.prefTags.clear();
+    PREF_TAG_CODES.forEach((code) => state.prefTags.add(code));
+  };
   const selectAllGroup = (key) => {
     const g = GROUPS.find((x) => x.key === key);
     if (!g) return;
     state.picked[key].clear();
     groupValues(g).forEach((v) => state.picked[key].add(v));
+    if (key === "region" && busanOn()) selectAllBusanDistricts();
+    if (key === "prefStatus" && state.picked.prefStatus.has("present")) {
+      selectAllPreferenceTags();
+    }
   };
   const applyDefaultGroup = (g) => {
     state.picked[g.key].clear();
-    if (g.key === "term") DEFAULT_TERMS.forEach((v) => state.picked.term.add(v));
-    else if (g.key === "region") DEFAULT_REGIONS
-      .filter((v) => groupValues(g).includes(v))
-      .forEach((v) => state.picked.region.add(v));
-    else selectAllGroup(g.key);
+    if (g.key === "region") {
+      DEFAULT_REGIONS.filter((v) => groupValues(g).includes(v))
+        .forEach((v) => state.picked.region.add(v));
+      if (busanOn()) selectAllBusanDistricts();
+    } else selectAllGroup(g.key);
   };
   const applyDefaultFilters = () => {
     GROUPS.forEach(applyDefaultGroup);
     Object.assign(state, { q: "", rmin: null, tmin: null, tmax: null,
-                           dfrom: latestAsOf ? shiftDays(latestAsOf, 7) : null,
-                           dto: null, basis: "base", hideZero: false,
-                           sort: "base", dir: -1, shown: 100 });
-    state.gu.clear();
-    state.prefTags.clear();
+                           dfrom: latestAsOf ? shiftDays(latestAsOf, 30) : null,
+                           dto: null, hideZero: false,
+                           sort: "max", dir: -1, shown: 100 });
+    state.detailOpen.clear();
     state.open.clear();
   };
 
@@ -1381,8 +1389,8 @@
     return [...picked].map((v) => g.ko ? (g.ko[v] || v) : v).join(" · ") || `${g.label} 전체`;
   };
   const renderFilterSummary = () => {
-    const sevenDays = latestAsOf && state.dfrom === shiftDays(latestAsOf, 7) && !state.dto;
-    const date = sevenDays ? "공시일 최근 7일"
+    const thirtyDays = latestAsOf && state.dfrom === shiftDays(latestAsOf, 30) && !state.dto;
+    const date = thirtyDays ? "공시일 최근 30일"
       : (!state.dfrom && !state.dto ? "공시일 전체" : "공시일 직접 지정");
     $("filter-mode-summary").innerHTML = ["sector", "type", "term", "region"]
       .map((k) => `<span>${esc(shortGroupSummary(k))}</span>`).join("")
@@ -1431,11 +1439,16 @@
         ${esc(gu)}<span class="n">${num(n)}</span>
       </label>`;
     }).join("");
-    return `<div class="gu-inline">
-      <div class="gu-lbl">부산 구·군
-        <button type="button" data-all="gu">전체 선택</button>
+    const open = state.detailOpen.has("gu");
+    const selected = BUSAN.filter((gu) => state.gu.has(gu)).length;
+    return `<div class="nested-filter">
+      <div class="nested-head"><span>부산 구·군
+        <span class="selected">${num(selected)}/${num(BUSAN.length)} 선택</span></span>
+        <button type="button" data-detail="gu" aria-expanded="${open}">
+          ${open ? "세부 접기" : "세부 보기"}</button>
       </div>
-      <div class="checks">${boxes}</div>
+      ${open ? `<div class="nested-actions"><button type="button" data-all="gu">전체 선택</button></div>
+      <div class="checks">${boxes}</div>` : ""}
     </div>`;
   };
 
@@ -1460,11 +1473,16 @@
              ${state.prefTags.has(code) ? "checked" : ""}>
       ${esc(PREF_KO[code] || code)}<span class="n">${num(counts.get(code))}</span>
     </label>`).join("");
-    return `<div class="gu-inline">
-      <div class="gu-lbl">세부 조건
-        <button type="button" data-all="prefTags">전체 선택</button>
+    const open = state.detailOpen.has("pref");
+    const selected = order.filter((code) => state.prefTags.has(code)).length;
+    return `<div class="nested-filter">
+      <div class="nested-head"><span>세부 우대조건
+        <span class="selected">${num(selected)}/${num(order.length)} 선택</span></span>
+        <button type="button" data-detail="pref" aria-expanded="${open}">
+          ${open ? "세부 접기" : "세부 보기"}</button>
       </div>
-      <div class="checks">${boxes}</div>
+      ${open ? `<div class="nested-actions"><button type="button" data-all="prefTags">전체 선택</button></div>
+      <div class="checks">${boxes}</div>` : ""}
     </div>`;
   };
 
@@ -1527,8 +1545,9 @@
     // 신협의 지역은 조회조건이고 저축은행은 본점 소재지라, 그걸 구 단위
     // 정확 필터로 쓰면 그 구에 없는 지점을 있다고 말하는 셈이 된다.
     // 그런 행은 구를 골라도 남기고 화면이 배지로 성격을 밝힌다.
-    if (!skipRegion && busanOn() && state.gu.size && GU_EXACT.has(r.geo)
-        && !state.gu.has(r.district)) {
+    const guNarrowed = state.gu.size > 0 && state.gu.size < BUSAN.length;
+    if (!skipRegion && busanOn() && guNarrowed && r.region === BUSAN_SIDO
+        && GU_EXACT.has(r.geo) && !state.gu.has(r.district)) {
       return false;
     }
     for (const g of GROUPS) {
@@ -1547,7 +1566,9 @@
     }
     // 세부 우대조건은 **하나라도 걸리면** 통과다. 조건은 여러 개가 함께
     // 붙는 것이라 전부 만족을 요구하면 거의 아무것도 안 남는다.
-    if (state.prefTags.size) {
+    const prefNarrowed = state.prefTags.size > 0
+      && state.prefTags.size < PREF_TAG_CODES.length;
+    if (prefNarrowed) {
       if (!r.prefTags || !r.prefTags.size) return false;
       let hit = false;
       state.prefTags.forEach((code) => { if (r.prefTags.has(code)) hit = true; });
@@ -1578,8 +1599,8 @@
     return true;
   };
 
-  // 지금 고른 기준의 금리. 없으면 null이고 절대 다른 값으로 메우지 않는다.
-  const rateOf = (r) => (state.basis === "max" ? r.max : r.base);
+  // 업무 기준은 항상 최고금리다. 없으면 null이고 기본금리로 메우지 않는다.
+  const rateOf = (r) => r.max;
 
   // 표가 소수 둘째 자리까지 적는다. 0.001%도 «0.00%»로 보인다.
   const isShownAsZero = (v) => v != null && Math.round(v * 100) === 0;
@@ -1704,21 +1725,17 @@
   // 100건이 아니다. 보이는 것만으로 내면 정렬을 바꿀 때마다 평균이 움직인다.
   const renderAvg = () => {
     if (!current.length) { $("avg").textContent = ""; return; }
-    const base = average(current, (r) => r.base);
     const parts = [];
-    // 중앙값을 먼저, 크게 적는다. 순위·격차가 이 값을 기준으로 나오므로
-    // 평균만 보이면 «무엇에 대한 −0.18%p인가»를 알 수 없다.
-    const mid = median(current.map((r) => r.base));
+    const max = average(current, rateOf);
+    // 최고금리가 있는 행만으로 낸 값이다. 중앙값·평균 모두 같은 분모를
+    // 사용하고, 원천 미제공 건수는 숨기지 않는다.
+    const mid = median(current.map(rateOf));
     if (mid != null) {
-      parts.push(`기본금리 중앙값 <b class="key">${mid.toFixed(2)}%</b>`);
+      parts.push(`최고금리 중앙값 <b class="key">${mid.toFixed(2)}%</b>`);
     }
-    if (base) parts.push(`평균 <b>${base.avg.toFixed(2)}%</b>`);
-    // 최고금리는 분모가 다르다. 건수를 안 적으면 같은 모집단의 평균처럼
-    // 읽힌다 — 실제로는 원천이 준 행에서만 낸 값이다.
-    const max = average(current, (r) => r.max);
     if (max) {
       const missing = current.length - max.n;
-      parts.push(`최고금리 평균 <b>${max.avg.toFixed(2)}%</b>`
+      parts.push(`평균 <b>${max.avg.toFixed(2)}%</b>`
         + `<span class="den">${num(max.n)}건 기준`
         + (missing ? ` · ${num(missing)}건은 원천 미제공` : "") + `</span>`);
     }
@@ -1968,7 +1985,7 @@
     const values = source.map(rateOf).filter((v) => v != null).sort((a, b) => a - b);
     const cap = $("hist-cap");
     const legend = $("hist-legend");
-    const label = state.basis === "max" ? "최고금리" : "기본금리";
+    const label = "최고금리";
     $("hist-badge").textContent = narrowedOn ? "12개월 정기예금 기준" : "조회 조건 반영";
     $("hist-badge").className = narrowedOn ? "badge" : "badge live";
     if (values.length < HIST_MIN_ROWS) {
@@ -2119,8 +2136,8 @@
   // 중앙값을 건수로 가중한 근사»였다. 0% 조건을 켜도 이 그림만 그대로라
   // «켰는데 왜 안 바뀌지»가 된다.
   //
-  // 표를 아직 못 받았을 때만 `by_term`으로 그린다. 첫 화면이 비어 있는
-  // 것보다는 전체 기준이라도 보이는 편이 낫고, 받는 즉시 다시 그린다.
+  // 인라인 `by_term`에는 기본금리 집계만 있다. 최고금리 기준을 고정했으므로
+  // 표를 받기 전에는 다른 기준의 임시 그림을 그리지 않는다.
   const termRowsFromScreen = () => {
     // **여기서는 좁히지 않는다.** `screenBasis()`는 조건이 비면 12개월
     // 정기예금만 남기는데, 이 차트의 x축이 곧 가입기간이라 그러면 막대가
@@ -2148,39 +2165,18 @@
     }).filter(Boolean);
   };
 
-  const termRowsFromSummary = () => {
-    const src = data.by_term || [];
-    return TERM_BUCKETS.map((b) => {
-      const hit = src.filter((x) => x.term_months != null
-        && x.term_months >= b.lo && x.term_months <= b.hi);
-      if (!hit.length) return null;
-      const n = hit.reduce((a, x) => a + (x.count || 0), 0);
-      const mids = hit.filter((x) => x.base_p50 != null);
-      // 건수로 가중한 근사. 표를 받기 전에만 쓴다.
-      const mid = mids.length
-        ? mids.reduce((a, x) => a + Number(x.base_p50) * (x.count || 0), 0)
-          / mids.reduce((a, x) => a + (x.count || 0), 0)
-        : null;
-      const nums = (key) => hit.map((x) => x[key]).filter((v) => v != null).map(Number);
-      const lows = nums("base_min"), highs = nums("base_max");
-      if (!lows.length || !highs.length) return null;
-      return { label: b.label, min: Math.min(...lows), max: Math.max(...highs), mid, n };
-    }).filter(Boolean);
-  };
+  const termRowsFromSummary = () => [];
 
   const termRange = () => {
     const live = ALL.length > 0;
     const rows = live ? termRowsFromScreen() : termRowsFromSummary();
-    // 무엇을 세어 그린 그림인지 매번 다시 적는다. 표를 받기 전과 받은 뒤가
-    // 서로 다른 모집단이라, 한 번 적어 두면 둘 중 하나는 거짓말이 된다.
-    $("terms-badge").textContent = live ? "조회 조건 반영" : "전체 기준";
+    $("terms-badge").textContent = live ? "조회 조건 반영" : "불러오는 중";
     $("terms-badge").className = live ? "badge live" : "badge";
     $("terms-cap").textContent = live
       ? `조회 결과 ${num(current.length)}건을 가입기간으로 묶은 것입니다.`
         + " 막대는 최저~최고, 안의 숫자는 중앙값입니다."
         + " 기간을 비교하는 그림이라 기간으로는 좁히지 않습니다."
-      : "표를 받기 전이라 전체 집계로 그렸습니다."
-        + " 구간 중앙값은 개월별 중앙값을 건수로 가중한 근사값입니다.";
+      : "최고금리 표를 받는 중입니다.";
     if (!rows.length) { $("terms").innerHTML = ""; return; }
 
     const W = chartWidth("terms", 560), H = 200;
@@ -2218,10 +2214,10 @@
     });
     $("terms").innerHTML = s;
     $("terms").setAttribute("aria-label",
-      "가입기간 구간별 기본금리 최저~최고 범위와 중앙값");
+      "가입기간 구간별 최고금리 최저~최고 범위와 중앙값");
   };
 
-  // ── 차트 3. 권역별 기본금리 중앙값 (전체 기준) ───────────────────
+  // ── 차트 3. 권역별 최고금리 중앙값 ──────────────────────────────
   //
   // 대표값이 **최고값이 아니라 중앙값**이다. 최고값은 그 권역에 우대 조건이
   // 붙은 상품이 단 한 건만 있어도 통째로 끌어올린다 — 실측에서 새마을금고
@@ -2233,7 +2229,6 @@
   // 2금융권 조회 도구다. 합산은 발행에서 원래 관측으로 한 번에 낸다 —
   // 업권별 중앙값 넷을 다시 평균 내면 저축은행 6,666건과 제주 농·축협
   // 322건이 같은 무게로 들어간다.
-  const REG_SECTOR = "second_tier";
   // 예전에는 «30건 미만이면 표본 부족»이었다. 실측(구·군 287곳)에서 그 규칙이
   // 부실한 것이 드러났다 — 30건 이상인데 중앙값이 0.40%p 폭으로 흔들리는 곳이
   // 6곳 있었고, 반대로 4건뿐인데 폭이 0인 곳도 있었다(그 4건이 같은 금리다).
@@ -2298,19 +2293,8 @@
     });
   };
 
-  // 표를 받기 전에는 발행된 집계로 그린다. 첫 화면이 비는 것보다 낫다.
-  const regionRowsFromSummary = () => {
-    const rows = (data.by_region || [])
-      .filter((r) => r.sector === REG_SECTOR && r.base_p50 != null);
-    return regionView === "national"
-      ? rows.filter((r) => !r.district)
-          .map((r) => ({ name: r.region, v: Number(r.base_p50),
-                         n: r.observations, inst: r.institutions,
-                         mine: r.region === BUSAN_SIDO }))
-      : rows.filter((r) => r.region === BUSAN_SIDO && r.district)
-          .map((r) => ({ name: r.district, v: Number(r.base_p50),
-                         n: r.observations, inst: r.institutions }));
-  };
+  // 인라인 권역 집계도 기본금리뿐이라 표를 받기 전에는 그리지 않는다.
+  const regionRowsFromSummary = () => [];
 
   const regionBars = (stats) => {
     const live = ALL.length > 0;
@@ -2321,7 +2305,7 @@
     // 제목이 지금 무엇을 세었는지 말한다. 조건에 따라 모집단이 바뀌므로
     // «2금융권»이라 박아 두면 저축은행만 켰을 때 거짓말이 된다.
     const picked = [...state.picked.sector].map((s) => SECTOR_KO[s] || s);
-    const who = !live ? "2금융권"
+    const who = !live ? "최고금리"
       : picked.length ? picked.join("·")
       : "전체";
     $("reg-title").innerHTML =
@@ -2329,15 +2313,15 @@
       + ` ${esc(who)}${basisLabel() ? " " + basisLabel() : ""} 중앙값 `
       + (live
           ? '<span class="badge live">조회 조건 반영 (지역 제외)</span>'
-          : '<span class="badge">전체 기준</span>');
+          : '<span class="badge">불러오는 중</span>');
     // 캡션도 지금 세고 있는 것을 그대로 적는다.
     $("reg-cap").innerHTML = live
-      ? `조회 조건에 맞는 ${num(regionBasis().length)}건의 기본금리 <b>중앙값</b>입니다.`
+      ? `조회 조건에 맞는 ${num(regionBasis().length)}건의 최고금리 <b>중앙값</b>입니다.`
         + " <b>지역 조건만 빼고</b> 나머지는 그대로 따릅니다 — 이 그림이 가르는"
         + " 것이 지역이라, 지역까지 걸면 칸이 하나만 남아 비교가 사라집니다."
         + " 최고값이 아니라 중앙값을 쓰는 이유는, 우대 조건이 붙은 한 건이 그"
         + " 권역 전체를 대표해 버리는 것을 막기 위해서입니다."
-      : "표를 받기 전이라 발행된 전체 집계로 그렸습니다.";
+      : "최고금리 표를 받는 중입니다.";
     if (!D.length) {
       $("reg").innerHTML = "";
       $("reg-legend").innerHTML = "<span>조건에 맞는 행이 없어 그릴 것이 없습니다.</span>";
@@ -2398,13 +2382,13 @@
     }).join("");
     $("reg").setAttribute("aria-label",
       `${regionView === "national" ? "권역" : "부산 구·군"}별 2금융권 `
-      + "12개월 정기예금 기본금리 중앙값 막대 그래프");
+      + "12개월 정기예금 최고금리 중앙값 타일 차트");
 
     // 흔들리는 폭이 넓은 곳이 몇 군데인지 범례가 직접 센다. 「어디가 넓은가」를
     // 눈으로 찾게 두면 안 찾는다.
     const loud = shown.filter((d) => bandWidth(d.band) > BAND_LOUD).length;
     $("reg-legend").innerHTML =
-      `<span><i style="background:${css("--accent")}"></i>기본금리 중앙값</span>`
+      `<span><i style="background:${css("--accent")}"></i>최고금리 중앙값</span>`
       + `<span>±는 중앙값이 흔들리는 폭`
       + (loud
           ? ` — <b>${loud}곳</b>(밑줄)은 ${BAND_LOUD.toFixed(2)}%p를 넘어`
@@ -2456,7 +2440,7 @@
   const URL_SETS = ["sector", "type", "term", "region", "channel", "scope",
                     "method", "prefStatus"];
   const URL_VALUES = ["q", "rmin", "tmin", "tmax", "dfrom", "dto",
-                      "basis", "sort", "dir"];
+                      "sort", "dir"];
   let urlReady = false;
   let hasUrlFilters = false;
   const urlSetKeys = new Set();
@@ -2468,13 +2452,17 @@
       const v = [...state.picked[k]];
       if (v.length) p.set(k, v.join(","));
     });
-    if (state.gu.size) p.set("gu", [...state.gu].join(","));
-    if (state.prefTags.size) p.set("pref", [...state.prefTags].join(","));
+    const guNarrowed = state.gu.size > 0 && state.gu.size < BUSAN.length;
+    if (guNarrowed) p.set("gu", [...state.gu].join(","));
+    const prefNarrowed = state.prefTags.size > 0
+      && state.prefTags.size < PREF_TAG_CODES.length;
+    if (prefNarrowed) p.set("pref", [...state.prefTags].join(","));
     // 조건이므로 링크에도 실린다. 안 실으면 링크를 받은 사람이 다른 건수를
     // 보면서 같은 화면이라고 믿는다.
     if (state.hideZero) p.set("nozero", "1");
     URL_VALUES.forEach((k) => {
-      if (state[k] != null && state[k] !== "" && state[k] !== "base" && k !== "dir") {
+      if (state[k] != null && state[k] !== "" && k !== "dir"
+          && !(k === "sort" && state[k] === "max")) {
         p.set(k, String(state[k]));
       }
     });
@@ -2504,7 +2492,6 @@
       if (Number.isFinite(v)) state[k] = v;
     });
     if (p.get("nozero") === "1") state.hideZero = true;
-    if (p.get("basis") === "max") state.basis = "max";
     if (p.get("dir") === "1") state.dir = 1;
     // 우리 회사는 주소 → 저장소 → 기본값 순이다. 링크를 받은 사람은 보낸
     // 사람이 보던 화면을 봐야 하고, 처음 오는 사람은 고르지 않아도 우리
@@ -2884,7 +2871,7 @@
   // 0.00%로 보이는 행이 기준별로 몇 건인가. 표를 받을 때 한 번만 센다.
   const zeroCount = { base: 0, max: 0 };
   const renderZeroCount = () => {
-    const n = state.basis === "max" ? zeroCount.max : zeroCount.base;
+    const n = zeroCount.max;
     $("zero-count").textContent = n ? `· ${num(n)}건` : "";
   };
 
@@ -3016,8 +3003,12 @@
     });
     // 우대조건·부산을 끄면 그 아래 조건도 함께 비운다. 체크박스 쪽과 같은
     // 규칙이다 — 부산을 껐는데 구·군만 남으면 아무것도 안 걸린 것처럼 보인다.
-    if (!state.picked.prefStatus.has("present")) state.prefTags.clear();
-    if (!busanOn()) state.gu.clear();
+    if (!state.picked.prefStatus.has("present")) {
+      state.prefTags.clear(); state.detailOpen.delete("pref");
+    } else if (!state.prefTags.size) selectAllPreferenceTags();
+    if (!busanOn()) {
+      state.gu.clear(); state.detailOpen.delete("gu");
+    } else if (!state.gu.size) selectAllBusanDistricts();
     renderGroups();
     renderPresets();
     redraw();
@@ -3114,13 +3105,17 @@
     // 부산을 끄면 구·군도 함께 비운다. 안 비우면 안 보이는 조건이 살아
     // 남아, 나중에 부산을 다시 켰을 때 왜 적게 나오는지 알 수 없다.
     if (box.dataset.group === "region") {
-      if (!busanOn()) state.gu.clear();
+      if (!busanOn()) {
+        state.gu.clear(); state.detailOpen.delete("gu");
+      } else if (!state.gu.size) selectAllBusanDistricts();
       renderGroups();
     }
     // «우대조건 있음»을 끄면 세부 조건도 비운다. 안 비우면 안 보이는
     // 조건이 살아남아 왜 적게 나오는지 알 수 없다 — 구·군과 같은 이유다.
     if (box.dataset.group === "prefStatus") {
-      if (!state.picked.prefStatus.has("present")) state.prefTags.clear();
+      if (!state.picked.prefStatus.has("present")) {
+        state.prefTags.clear(); state.detailOpen.delete("pref");
+      } else if (!state.prefTags.size) selectAllPreferenceTags();
       renderGroups();
     }
     renderPresets();
@@ -3131,6 +3126,8 @@
     if (!box) return;
     const code = box.dataset.preftag;
     if (box.checked) state.prefTags.add(code); else state.prefTags.delete(code);
+    if (!state.prefTags.size) selectAllPreferenceTags();
+    renderGroups();
     redraw();
   });
   // 구·군은 지역 그룹 안에 있어서 같은 컨테이너가 받는다.
@@ -3139,20 +3136,26 @@
     if (!box) return;
     const gu = box.dataset.gu;
     if (box.checked) state.gu.add(gu); else state.gu.delete(gu);
+    if (!state.gu.size) selectAllBusanDistricts();
+    renderGroups();
     redraw();
   });
   $("conditions").addEventListener("click", (e) => {
+    const detail = e.target.closest("[data-detail]");
+    if (detail) {
+      const key = detail.dataset.detail;
+      if (state.detailOpen.has(key)) state.detailOpen.delete(key);
+      else state.detailOpen.add(key);
+      renderGroups();
+      return;
+    }
     const all = e.target.closest("[data-all]");
     if (all) {
       const key = all.dataset.all;
       if (key === "gu") {
-        state.gu.clear();
-        $("conditions").querySelectorAll("[data-gu]")
-          .forEach((box) => state.gu.add(box.dataset.gu));
+        selectAllBusanDistricts();
       } else if (key === "prefTags") {
-        state.prefTags.clear();
-        $("conditions").querySelectorAll("[data-preftag]")
-          .forEach((box) => state.prefTags.add(box.dataset.preftag));
+        selectAllPreferenceTags();
       } else {
         selectAllGroup(key);
       }
@@ -3240,19 +3243,6 @@
     renderAsOf();
     redraw();
   });
-  // 금리 기준을 바꾸면 하한 조건과 정렬이 함께 그 열로 옮겨간다. 한쪽만
-  // 옮기면 "최고금리 3% 이상"을 걸었는데 기본금리로 정렬되는 일이 생긴다.
-  $("basis").addEventListener("change", (e) => {
-    const radio = e.target.closest("input[name=basis]");
-    if (!radio) return;
-    state.basis = radio.value;
-    $("rmin-label").textContent =
-      state.basis === "max" ? "최고금리 이상 (%)" : "기본금리 이상 (%)";
-    if (state.sort === "base" || state.sort === "max") state.sort = state.basis;
-    renderZeroCount();
-    redraw();
-  });
-
   // 차트는 따로 부르지 않는다. `render()`가 끝에서 `drawCharts()`를 부르므로
   // 여기서 또 부르면 SVG 셋을 두 번씩 그린다.
   $("hide-zero").addEventListener("change", (e) => {
@@ -3271,9 +3261,8 @@
     $("shown").value = "100";
     ["q", "rmin", "tmin", "tmax", "dfrom", "dto"].forEach((id) => { $(id).value = ""; });
     $("dfrom").value = state.dfrom || "";
-    $("basis").querySelector('input[value="base"]').checked = true;
     $("hide-zero").checked = false;
-    $("rmin-label").textContent = "기본금리 이상 (%)";
+    $("rmin-label").textContent = "최고금리 이상 (%)";
     renderGroups();
     renderPresets();
     renderAsOf();
@@ -3341,6 +3330,13 @@
         failed("금리표에 행이 없습니다.", data.table_url);
         return;
       }
+      PREF_TAG_CODES = [...new Set(ALL.flatMap((r) =>
+        r.prefTags ? [...r.prefTags] : []))];
+      // 주소에는 오래된/오타 코드가 남을 수 있다. 실제 목록 밖 값은 버려야
+      // 선택 개수만으로 «전체/일부»를 O(1)에 판정할 수 있다.
+      state.gu = new Set([...state.gu].filter((gu) => BUSAN.includes(gu)));
+      state.prefTags = new Set([...state.prefTags]
+        .filter((code) => PREF_TAG_CODES.includes(code)));
       const dates = ALL.map((r) => r.asOf).filter(Boolean).sort();
       latestAsOf = dates.at(-1) || null;
       PRESETS = latestAsOf
@@ -3349,7 +3345,11 @@
       if (!hasUrlFilters) applyDefaultFilters();
       else {
         GROUPS.filter((g) => !urlSetKeys.has(g.key)).forEach(applyDefaultGroup);
-        if (!urlDateSpecified) state.dfrom = latestAsOf ? shiftDays(latestAsOf, 7) : null;
+        if (busanOn() && !state.gu.size) selectAllBusanDistricts();
+        if (state.picked.prefStatus.has("present") && !state.prefTags.size) {
+          selectAllPreferenceTags();
+        }
+        if (!urlDateSpecified) state.dfrom = latestAsOf ? shiftDays(latestAsOf, 30) : null;
       }
 
       const bySector = {};
@@ -3370,12 +3370,10 @@
       ["q", "rmin", "tmin", "tmax", "dfrom", "dto"].forEach((id) => {
         if (state[id] != null) $(id).value = state[id];
       });
-      $("basis").querySelector(`input[value="${state.basis}"]`).checked = true;
       $("hide-zero").checked = state.hideZero;
       // 표를 받은 뒤에야 보인다. 건수를 못 적는 동안 띄우면 «0건»으로 읽힌다.
       $("zero-bar").hidden = false;
-      $("rmin-label").textContent =
-        state.basis === "max" ? "최고금리 이상 (%)" : "기본금리 이상 (%)";
+      $("rmin-label").textContent = "최고금리 이상 (%)";
       // 몇 건이 걸리는 조건인지 먼저 알린다. 숫자가 없으면 켜 볼 이유도
       // 알 수 없고, 껐다 켜며 건수를 세어 보게 된다.
       //
