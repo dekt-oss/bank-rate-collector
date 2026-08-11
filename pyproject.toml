@@ -15,6 +15,7 @@ dependencies = [
 
 [project.scripts]
 rate-monitor = "rate_monitor.cli:main"
+rate-monitor-checkpoint = "rate_monitor.checkpoint_cli:main"
 
 [dependency-groups]
 dev = [
