@@ -129,9 +129,17 @@ gmgoCd + gubuncode
 
 현재 `Collect NH local`, `Collect KFCC` step은 모두 `continue-on-error: true`다.
 
-따라서 source command 실패 후 pipeline은 계속되지만 별도 recovery run은 자동으로 생성되지 않는다. v1은 source별 workflow recovery step을 명시적으로 추가해야 한다.
+따라서 source command 실패 후 pipeline은 계속되지만 별도 recovery run은 자동으로 생성되지 않는다. v1은 source별 workflow recovery path를 명시적으로 추가해야 한다.
 
-## 1.6 R2 credential wiring
+## 1.6 Current CLI failure ambiguity
+
+현재 `rate-monitor collect`는 `success/partial/no_change`만 exit 0이고, `failed/blocked/schema_changed`는 모두 exit 1이다.
+
+따라서 **step outcome failure만으로 recovery eligibility를 판단할 수 없다.**
+
+source block/schema failure까지 자동 재호출하지 않으려면 checkpoint/session state 또는 별도 result artifact를 읽는 machine-readable recovery decision이 필요하다.
+
+## 1.7 R2 credential wiring
 
 현재 NH/KFCC collection step의 env에는 `SCOPE`만 있고 R2 credential이 없다. R2 credential은 restore/upload 단계에만 있다.
 
@@ -181,9 +189,11 @@ acquisition complete 뒤 `_process()`와 최종 state snapshot/R2 commit이 끝�
 
 checkpoint 도입 때문에 원천 요청 간격을 줄이거나 concurrency를 늘리지 않는다.
 
-## I7. Recovery는 bounded
+## I7. Recovery는 bounded + fail-closed
 
 같은 workflow에서 source failure당 자동 recovery는 최대 1회다.
+
+`unknown`, `blocked`, `guard_tripped`, `schema/contract failure`, `corrupt checkpoint`는 자동 recovery 대상이 아니다.
 
 ---
 
@@ -212,9 +222,13 @@ R2 checkpoints/v1/...
              ├─ guard_tripped
              │    └─ materialize_partial() ─► existing PARTIAL path
              │
-             └─ recoverable_failed
-                  └─ workflow recovery step once
-                       └─ auto resume same cycle
+             └─ command failure
+                  ↓
+             RecoveryDecision
+                  │
+                  ├─ eligible=false ─► no retry
+                  └─ eligible=true  ─► workflow recovery step once
+                                        └─ same-cycle resume
 ```
 
 ---
@@ -295,9 +309,20 @@ class AcquisitionManifest:
     terminal_reason: str | None
     created_at: str
     updated_at: str
+
+
+@dataclass(frozen=True)
+class RecoveryDecision:
+    eligible: bool
+    reason_code: str
+    source_id: str
+    cycle_date_kst: str
+    session_id: str | None
+    manifest_status: str | None
+    completed_work_count: int
 ```
 
-가능한 status:
+가능한 manifest status:
 
 ```text
 collecting
@@ -489,11 +514,46 @@ SIGKILL/OOM/runner hard termination에서는 finally가 보장되지 않는다. 
 
 # 11. Automatic Recovery Trigger
 
-## 11.1 Workflow contract
+## 11.1 단순 outcome-only 재시도 금지
 
-각 source step에 `id`를 부여하고 실패 시 바로 recovery step을 한 번 실행한다.
+다음처럼 구현하면 안 된다.
 
-개념 예:
+```yaml
+if: ${{ steps.collect_nh_local.outcome == 'failure' }}
+```
+
+이 조건만 쓰면 `blocked`, `schema_changed`, generic fatal도 모두 다시 요청될 수 있다.
+
+## 11.2 Machine-readable recovery decision
+
+first source command가 failure로 끝난 경우 workflow는 checkpoint/session 상태를 읽어 `RecoveryDecision`을 만든다.
+
+권장 인터페이스 예:
+
+```text
+rate-monitor checkpoint recovery-decision \
+  --source nh_local \
+  --cycle-date 2026-08-12 \
+  --json work/nh-recovery-decision.json
+```
+
+실제 command 이름은 구현 시 조정 가능하나 다음 계약은 고정한다.
+
+```json
+{
+  "eligible": true,
+  "reason_code": "RECOVERABLE_NETWORK",
+  "session_id": "...",
+  "manifest_status": "recoverable_failed",
+  "completed_work_count": 7800
+}
+```
+
+stdout 자연어 parsing으로 판단하지 않는다.
+
+## 11.3 Workflow contract
+
+개념:
 
 ```yaml
 - name: Collect NH local
@@ -501,46 +561,58 @@ SIGKILL/OOM/runner hard termination에서는 finally가 보장되지 않는다. 
   continue-on-error: true
   ...
 
-- name: Recover NH local
+- name: Decide NH recovery
+  id: decide_nh_recovery
   if: ${{ steps.collect_nh_local.outcome == 'failure' }}
+  ...
+
+- name: Recover NH local
+  if: ${{ steps.collect_nh_local.outcome == 'failure' &&
+           steps.decide_nh_recovery.outputs.eligible == 'true' }}
   continue-on-error: true
   ... --resume auto
 ```
 
 KFCC도 동일한 패턴을 사용한다.
 
-실제 YAML/CLI 인자 이름은 구현 시 테스트 가능한 최소 계약으로 확정한다.
+## 11.4 Recovery eligibility
 
-## 11.2 Recovery eligibility
-
-workflow step failure가 모두 resume 가능한 것은 아니다.
-
-자동 recovery 허용:
+`eligible=true` 가능:
 
 ```text
-recoverable transport/server acquisition failure
-checkpoint storage의 일시적 recoverable failure 중 안전하게 재시도 가능하다고 분류된 경우
+recoverable_failed + valid compatible checkpoint
+collecting + valid compatible durable checkpoint after child-process abnormal termination
+complete + canonical process not confirmed, and re-materialization is proven idempotent/safe
 ```
 
-자동 recovery 금지:
+`eligible=false` 고정:
 
 ```text
-SourceBlockedError / block marker
-403 / 429 policy block
-RepeatGuard trip
-schema/contract incompatibility
-corrupt checkpoint
-request fingerprint mismatch
-operator fresh request
+blocked
+guard_tripped
+contract_failed
+checkpoint_corrupt
+checkpoint_incompatible
+next_cycle
+no_valid_checkpoint
+unknown_fatal
 ```
 
-## 11.3 Recovery count
+`unknown != recoverable`이다.
+
+## 11.5 Fail-closed
+
+recovery-decision command 자체가 실패하거나 R2 상태를 읽지 못하면 automatic recovery를 실행하지 않는다.
+
+source block을 network error로 추정해서 다시 요청하지 않는다.
+
+## 11.6 Recovery count
 
 source/cycle/workflow당 자동 recovery 1회만 허용한다.
 
 두 번째 실패 후에는 계속 반복하지 않는다.
 
-## 11.4 Whole-runner crash
+## 11.7 Whole-runner crash
 
 runner 자체가 죽으면 recovery step도 실행되지 않는다. 이 경우 같은 날짜의 manual `workflow_dispatch`가 `--resume auto`로 이어갈 수 있어야 한다.
 
@@ -610,6 +682,7 @@ terminal_reason 기록
 active resume eligibility 제거
 partial artifacts materialize
 기존 adapter.fetch_alert / _process() 경로 사용
+recovery_eligible=false
 ```
 
 ## 13.4 Guard state rehydrate
@@ -680,15 +753,38 @@ resume에서 이 metadata를 원본과 동일하게 복원할 수 있어야 한�
 
 ---
 
-# 15. Memory Contract
+# 15. CollectionRun / AcquisitionSession Provenance
 
-## 15.1 명시적 비목표
+첫 source command가 실패하고 recovery command가 실행되면 DB에는 서로 다른 `CollectionRun` 두 개가 생길 수 있다.
+
+checkpoint session은 `run_id`에 종속시키지 않는다.
+
+권장 provenance:
+
+```text
+CollectionRun attempt 1
+  acquisition_session_id = S
+  recovery_attempt = 0
+
+CollectionRun attempt 2
+  acquisition_session_id = S
+  recovery_attempt = 1
+  resumed_from_run_id = attempt 1
+```
+
+DB schema migration을 피하기 위해 우선 기존 `query_context_json`에 기록할 수 있다. 실제 persistent contract 변경이 필요하면 구현 전에 별도 migration 판단을 한다.
+
+---
+
+# 16. Memory Contract
+
+## 16.1 명시적 비목표
 
 v1은 `fetch() -> list[RawArtifactData]` 계약을 유지하고 완료 시 artifacts 전체를 다시 materialize한다.
 
 따라서 checkpoint가 생겨도 peak RSS가 낮아진다고 주장하지 않는다.
 
-## 15.2 가능한 peak 구성
+## 16.2 가능한 peak 구성
 
 구현이 잘못되면 동시에 다음이 존재할 수 있다.
 
@@ -699,14 +795,14 @@ RepeatGuard._seen bytes
 RepeatGuard._last bytes
 ```
 
-## 15.3 구현 규칙
+## 16.3 구현 규칙
 
 - durable flush가 끝난 batch body는 필요하지 않다면 staging buffer에서 해제
 - final materialize 직전 불필요한 temporary buffer 해제
 - 중복 copy를 피하도록 tar decode/materialize 경로 설계
 - 단, 정확성을 위해 RepeatGuard 현재 계약은 임의 변경하지 않음
 
-## 15.4 Runtime verification
+## 16.4 Runtime verification
 
 반드시 기록:
 
@@ -723,9 +819,9 @@ OOM 또는 runner memory pressure가 보이면 rollout을 중단한다.
 
 ---
 
-# 16. R2 Credential Wiring
+# 17. R2 Credential Wiring
 
-## 16.1 확정된 현재 상태
+## 17.1 확정된 현재 상태
 
 NH/KFCC collect step에는 R2 env가 없다.
 
@@ -738,11 +834,11 @@ NH/KFCC collect step에는 R2 env가 없다.
 - `R2_ENDPOINT`
 - `R2_REGION`
 
-을 checkpoint를 사용하는 source step/recovery step에 전달한다.
+을 checkpoint를 사용하는 source step, recovery-decision step, recovery source step에 전달한다.
 
 기존 restore/upload 단계와 같은 repository Secret/Variable을 재사용한다.
 
-## 16.2 Fail-closed
+## 17.2 Fail-closed
 
 checkpoint mode를 켰는데 R2 설정이 일부만 있으면 source를 fresh non-checkpoint mode로 조용히 downgrade하지 않는다.
 
@@ -750,7 +846,7 @@ checkpoint mode를 켰는데 R2 설정이 일부만 있으면 source를 fresh no
 
 ---
 
-# 17. Error Classification
+# 18. Error Classification
 
 common layer는 최소 다음을 구분한다.
 
@@ -774,7 +870,7 @@ checkpoint layer가 `403/429/block`을 generic network failure로 바꾸지 않�
 
 ---
 
-# 18. Performance Metrics
+# 19. Performance Metrics
 
 `전체 overhead <= 5%` 외에 직접 지표를 측정한다.
 
@@ -794,7 +890,7 @@ resume skipped request 수 기록
 
 ---
 
-# 19. GC / Retention
+# 20. GC / Retention
 
 기본값:
 
@@ -821,7 +917,7 @@ abandoned/orphan  : 7d
 
 ---
 
-# 20. Canonical Commit / Cleanup Ordering
+# 21. Canonical Commit / Cleanup Ordering
 
 정상 complete:
 
@@ -842,7 +938,7 @@ acquisition complete
 
 ---
 
-# 21. CLI / Operator Contract
+# 22. CLI / Operator Contract
 
 최소 제안:
 
@@ -851,7 +947,7 @@ acquisition complete
 --resume fresh   # 같은 cycle checkpoint 무시하고 새 session
 ```
 
-추가 debug/admin command는 실제 필요성이 확인되면 별도 추가한다.
+recovery eligibility는 별도의 machine-readable command/output을 둔다.
 
 운영 로그에는 secret 없이 다음을 남긴다.
 
@@ -866,12 +962,13 @@ checkpoint revision
 checkpoint flush count
 skipped completed work count
 recovery attempt number
+recovery eligible/reason
 terminal status/reason
 ```
 
 ---
 
-# 22. KFCC Retry Prerequisite
+# 23. KFCC Retry Prerequisite
 
 Resumable Acquisition 구현 전에 별도 작은 PR로 KFCC transient retry를 먼저 적용한다.
 
@@ -896,22 +993,23 @@ retry telemetry 기록
 
 ---
 
-# 23. PR Sequence / Dependency
+# 24. PR Sequence / Dependency
 
 ## PR 0 — KFCC bounded transient retry
 
 Resumable Acquisition 바깥의 선행 작업.
 
-## PR A — Common infrastructure + workflow credential wiring
+## PR A — Common infrastructure + workflow credential/recovery-decision wiring
 
 - resumable domain types
 - LocalObjectStore-based tests
 - R2 namespace/manifest/chunk service
 - hash/corruption validation
 - `auto/fresh` session policy
+- `RecoveryDecision` machine-readable contract
 - GC primitives
 - CLI plumbing
-- **NH/KFCC collect/recovery step용 R2 env wiring**
+- **NH/KFCC collect/recovery-decision/recovery step용 R2 env wiring**
 - 기능 flag/default OFF 가능
 
 PR A는 adapter behavior를 바꾸지 않는다.
@@ -923,7 +1021,7 @@ PR A는 adapter behavior를 바꾸지 않는다.
 - frozen NH directory/work plan
 - NH work key
 - checkpoint flush
-- same-workflow immediate recovery 1회
+- same-workflow recovery decision + immediate recovery 1회
 - #79 retry와 통합
 - guard terminal semantics 유지
 - baseline/resume result equivalence tests
@@ -935,7 +1033,7 @@ PR A는 adapter behavior를 바꾸지 않는다.
 - frozen regional directory
 - KFCC work key
 - full artifact metadata reconstruction
-- same-workflow immediate recovery 1회
+- same-workflow recovery decision + immediate recovery 1회
 - KFCC retry와 통합
 - RepeatGuard terminal semantics 유지
 
@@ -959,9 +1057,9 @@ PR A ─► PR B ─┐
 
 ---
 
-# 24. Tests
+# 25. Tests
 
-## 24.1 Common service
+## 25.1 Common service
 
 - new session create
 - chunk immutable upload
@@ -975,38 +1073,45 @@ PR A ─► PR B ─┐
 - fresh -> previous session abandoned + new active session
 - GC never deletes active/canonical-pending session
 - abandoned session becomes GC eligible
+- recovery decision returns false for unknown/corrupt/blocked/guard/contract failure
 
-## 24.2 NH
+## 25.2 NH
 
 - first 400 items checkpoint, process crash, resume -> first 400 not refetched
 - resumed final artifact set == fresh full artifact set
 - transient request retry from #79 still works
-- source failure after checkpoint -> first command exit 1
+- source recoverable failure after checkpoint -> first command exit 1
+- decision command -> eligible=true
 - recovery command resumes same session
 - second failure -> no third auto recovery
+- SourceBlocked -> decision false
+- schema_changed -> decision false
 - RepeatGuard trip -> partial terminal, no resume
 
-## 24.3 KFCC
+## 25.3 KFCC
 
 - directory freeze survives resume
 - `outlet_directory` reconstructs exactly
 - resumed artifacts parse identically to fresh run
 - transient retry prerequisite works
+- blocked -> decision false
 - RepeatGuard trip -> partial terminal, no recovery
 
-## 24.4 Workflow contract
+## 25.4 Workflow contract
 
 static tests should verify:
 
 - source step IDs exist
-- recovery condition uses first step `outcome == failure`
+- recovery-decision step only runs after first step failure
+- recovery step requires `eligible == true`
 - recovery max 1 step per source
 - NH recovery excluded from KFCC-only cycle
-- source/recovery steps receive required R2 env
+- source/decision/recovery steps receive required R2 env
 - existing single-writer concurrency unchanged
 - schedule cron unchanged by this feature unless separately approved
+- naive outcome-only recovery condition does not exist
 
-## 24.5 Memory/performance
+## 25.5 Memory/performance
 
 - production-sized fixture or real controlled run peak RSS measured
 - checkpoint PUT latency recorded
@@ -1015,27 +1120,29 @@ static tests should verify:
 
 ---
 
-# 25. Runtime Verification Matrix
+# 26. Runtime Verification Matrix
 
 | Scenario | Expected |
 |---|---|
 | normal NH | checkpoint flushes, complete, canonical same as baseline |
 | normal KFCC | same |
 | NH transient failure recovered by request retry | source command continues, workflow recovery unnecessary |
-| NH terminal recoverable failure after progress | first step failure, immediate recovery resumes |
+| NH terminal recoverable failure after progress | first step failure, decision eligible=true, immediate recovery resumes |
 | recovery succeeds | final canonical success |
 | recovery also fails | stale prior canonical kept, degraded |
 | KFCC same | same semantics |
-| RepeatGuard trip | terminal PARTIAL, no recovery request to remaining work |
-| source blocked | no recovery loop |
-| corrupt checkpoint | fail closed, do not mix/fresh silently |
+| RepeatGuard trip | terminal PARTIAL, decision=false, remaining work not requested |
+| source blocked | decision=false, no recovery loop |
+| schema/contract fail | decision=false |
+| corrupt checkpoint | decision=false/fail closed, do not fresh silently |
 | next-day scheduled run | previous checkpoint not auto resumed |
 | fresh operator run | old session abandoned, new session |
+| child Python abnormal exit with valid collecting checkpoint | decision may be true after validation |
 | runner hard crash | durable checkpoint remains; same-day manual resume possible |
 
 ---
 
-# 26. Rollback
+# 27. Rollback
 
 v1은 canonical DB migration이 없으므로 rollback은 checkpoint feature path를 끄고 기존 direct fetch로 돌아가는 것이 기본이다.
 
@@ -1044,13 +1151,13 @@ rollback 원칙:
 - checkpoint objects를 즉시 삭제하지 않음
 - canonical state는 기존 R2 snapshot이 authoritative
 - partial checkpoint를 canonical로 승격하지 않음
-- workflow recovery step을 제거/disable해도 기존 source command는 기존 방식으로 실행 가능해야 함
+- workflow recovery path를 제거/disable해도 기존 source command는 기존 방식으로 실행 가능해야 함
 
 feature flag를 도입할 경우 default/rollback path는 명시적으로 테스트한다.
 
 ---
 
-# 27. Adversarial Self-Review Checklist
+# 28. Adversarial Self-Review Checklist
 
 구현 완료 전에 다음을 반대로 가정하고 공격한다.
 
@@ -1058,26 +1165,31 @@ feature flag를 도입할 경우 default/rollback path는 명시적으로 테스
 - request fingerprint collision/누락으로 다른 scope를 섞지 않는가
 - cycle_date 정의가 health와 갈라지지 않는가
 - RepeatGuard trip을 recoverable failure로 오분류하지 않는가
+- `blocked/schema_changed`가 exit 1이라는 이유만으로 recovery되지 않는가
+- recovery decision이 없거나 깨졌을 때 retry하는가 — 그러면 실패
 - checkpoint corruption에서 fresh로 조용히 떨어지지 않는가
 - R2 credential 일부 누락을 무시하지 않는가
 - `fresh` old session이 GC 불가 상태로 영구 잔존하지 않는가
 - canonical commit 전에 checkpoint를 지우지 않는가
-- memory copy가 2배 이상 급증하지 않는가
+- memory copy가 비정상적으로 급증하지 않는가
 - checkpoint PUT 지연이 08:00 SLA를 갉아먹지 않는가
 - runner crash 시 마지막 durable manifest가 실제로 복원 가능한가
 - workflow recovery가 무한 loop하지 않는가
-- blocked source에 recovery가 재요청하지 않는가
+- first attempt와 recovery가 서로 다른 checkpoint session을 잘못 만드는가
+- acquisition session을 DB `run_id`에 묶어 recovery를 막고 있지 않은가
 
 ---
 
-# 28. 결정표
+# 29. 결정표
 
 | 항목 | 결정 |
 |---|---|
 | 적용 source | NH + KFCC |
 | checkpoint store | 기존 R2 ObjectStore |
 | canonical DB migration | 없음 |
-| automatic recovery caller | 같은 workflow의 source별 즉시 recovery step 1회 |
+| automatic recovery caller | 같은 workflow의 source별 immediate recovery path |
+| recovery gate | step failure + machine-readable `RecoveryDecision.eligible=true` |
+| outcome-only recovery | 금지 |
 | runner hard-crash recovery | same-day manual resume, scheduled watchdog은 v1 제외 |
 | RepeatGuard trip | terminal PARTIAL, resume 금지 |
 | memory reduction | v1 비목표, peak RSS 측정 필수 |
@@ -1099,7 +1211,7 @@ feature flag를 도입할 경우 default/rollback path는 명시적으로 테스
 
 ---
 
-# 29. Acceptance Criteria
+# 30. Acceptance Criteria
 
 구현 완료라고 판정하려면 최소 다음이 필요하다.
 
@@ -1107,24 +1219,26 @@ feature flag를 도입할 경우 default/rollback path는 명시적으로 테스
 2. common checkpoint storage tests green
 3. NH/KFCC resume integration tests green
 4. corrupted/incompatible checkpoint fail-closed
-5. same-workflow automatic recovery 실제 경로 검증
-6. RepeatGuard trip의 기존 PARTIAL 의미 회귀 없음
-7. next-day checkpoint 자동 혼합 없음
-8. `fresh`/GC 계약 검증
-9. source/recovery step R2 env wiring 검증
-10. checkpoint OFF/ON result equivalence
-11. peak RSS baseline/with-checkpoint 측정
-12. checkpoint PUT p95/overhead 측정
-13. 08:00 SLA에 미치는 영향 기록
-14. request pacing/block policy 변화 없음
-15. adversarial self-review 완료
-16. production rollout 전 controlled/manual evidence 확보
+5. machine-readable recovery decision contract 검증
+6. blocked/schema/guard/unknown 상태에서 automatic recovery가 실행되지 않음
+7. same-workflow automatic recovery 실제 경로 검증
+8. RepeatGuard trip의 기존 PARTIAL 의미 회귀 없음
+9. next-day checkpoint 자동 혼합 없음
+10. `fresh`/GC 계약 검증
+11. source/decision/recovery step R2 env wiring 검증
+12. checkpoint OFF/ON result equivalence
+13. peak RSS baseline/with-checkpoint 측정
+14. checkpoint PUT p95/overhead 측정
+15. 08:00 SLA에 미치는 영향 기록
+16. request pacing/block policy 변화 없음
+17. adversarial self-review 완료
+18. production rollout 전 controlled/manual evidence 확보
 
 PR/CI green만으로 runtime 완료라고 판정하지 않는다.
 
 ---
 
-# 30. Implementation Start Gate
+# 31. Implementation Start Gate
 
 이 문서를 머지한 뒤 실제 구현에 착수할 때는 다음 순서로 다시 확인한다.
 
