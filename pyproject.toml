@@ -15,6 +15,7 @@ dependencies = [
 
 [project.scripts]
 rate-monitor = "rate_monitor.cli:main"
+rate-monitor-checkpoint = "rate_monitor.checkpoint_cli:main"
 
 [dependency-groups]
 dev = [
@@ -44,4 +45,4 @@ target-version = "py312"
 extend-exclude = ["src/rate_monitor/db/migrations/versions"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP", "B", "SIM"]
+select = ["E", "F", "I", "UP", "B", "SIM", "W"]
