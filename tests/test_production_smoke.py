@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 
 import pytest
-from scripts import production_smoke as smoke
+import scripts.production_smoke as smoke
 
 
 EXPECTED_MANIFEST = {
