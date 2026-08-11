@@ -21,7 +21,7 @@ permissions:
   actions: read
 
 jobs:
-  collect-savings:
+  collect-bank-rates:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
