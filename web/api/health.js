@@ -4,6 +4,53 @@
 const WORKFLOW = "collect.yml";
 const ACTIVE = new Set(["in_progress", "queued", "waiting", "pending"]);
 
+const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
+const SCHEDULED_SOURCES = [
+  "finlife_savings_bank", "finlife_bank", "bok_ecos", "fsb", "cu", "nh_local", "kfcc",
+];
+
+const kstParts = (value) => {
+  const shifted = new Date(new Date(value).getTime() + KST_OFFSET_MS);
+  return {
+    year: shifted.getUTCFullYear(),
+    month: shifted.getUTCMonth() + 1,
+    day: shifted.getUTCDate(),
+  };
+};
+const pad2 = (value) => String(value).padStart(2, "0");
+const kstIsoAt = ({ year, month, day }, hour, minute) => (
+  `${year}-${pad2(month)}-${pad2(day)}T${pad2(hour)}:${pad2(minute)}:00+09:00`
+);
+
+export const cycleSla = (scheduledRun, publishCompletedAt, now = new Date()) => {
+  if (!scheduledRun) return null;
+  const reference = scheduledRun.run_started_at || scheduledRun.created_at;
+  if (!reference) return null;
+  const parts = kstParts(reference);
+  const cycleDate = `${parts.year}-${pad2(parts.month)}-${pad2(parts.day)}`;
+  const normalTargetAt = kstIsoAt(parts, 7, 30);
+  const deadlineAt = kstIsoAt(parts, 8, 0);
+  const normalMs = Date.parse(normalTargetAt);
+  const deadlineMs = Date.parse(deadlineAt);
+  const completedMs = publishCompletedAt ? Date.parse(publishCompletedAt) : null;
+  const nowMs = new Date(now).getTime();
+
+  let status;
+  if (completedMs !== null) {
+    status = completedMs <= normalMs ? "normal" : (completedMs <= deadlineMs ? "warning" : "breached");
+  } else {
+    status = nowMs < normalMs ? "pending" : (nowMs < deadlineMs ? "warning" : "breached");
+  }
+  return {
+    cycle_date_kst: cycleDate,
+    scheduled_sources: SCHEDULED_SOURCES,
+    latest_publish_completed_at: publishCompletedAt || null,
+    normal_target_at: normalTargetAt,
+    sla_deadline_at: deadlineAt,
+    status,
+  };
+};
+
 const SOURCE_STEPS = {
   "Collect finlife savings bank": "finlife_savings_bank",
   "Collect finlife bank": "finlife_bank",
@@ -58,6 +105,22 @@ const stepView = (step) => ({
   completed_at: step.completed_at,
 });
 
+const loadRunSteps = async (token, slug, run) => {
+  const sourceSteps = {};
+  const pipelineSteps = {};
+  if (!run) return { sourceSteps, pipelineSteps };
+  const jobsRes = await gh(token, `/repos/${slug}/actions/runs/${run.id}/jobs?per_page=20`);
+  if (!jobsRes.ok) return { sourceSteps, pipelineSteps };
+  const jobs = (await jobsRes.json()).jobs || [];
+  for (const job of jobs) {
+    for (const step of job.steps || []) {
+      if (SOURCE_STEPS[step.name]) sourceSteps[SOURCE_STEPS[step.name]] = stepView(step);
+      if (PIPELINE_STEPS[step.name]) pipelineSteps[PIPELINE_STEPS[step.name]] = stepView(step);
+    }
+  }
+  return { sourceSteps, pipelineSteps };
+};
+
 const settings = () => {
   const token = process.env.GITHUB_DISPATCH_TOKEN;
   const owner = process.env.VERCEL_GIT_REPO_OWNER;
@@ -88,23 +151,21 @@ export default async function handler(req, res) {
   const activeCollection = collections.find((run) => ACTIVE.has(run.status)) || null;
   const activePublish = runs.find((run) => run.event === "push" && ACTIVE.has(run.status)) || null;
   const latestCollection = collections[0] || null;
+  const latestScheduled = collections.find((run) => run.event === "schedule") || null;
   const latestPublish = runs.find((run) => run.conclusion === "success") || null;
   const detailRun = activeCollection || latestCollection;
 
-  const sourceSteps = {};
-  const pipelineSteps = {};
-  if (detailRun) {
-    const jobsRes = await gh(token, `/repos/${slug}/actions/runs/${detailRun.id}/jobs?per_page=20`);
-    if (jobsRes.ok) {
-      const jobs = (await jobsRes.json()).jobs || [];
-      for (const job of jobs) {
-        for (const step of job.steps || []) {
-          if (SOURCE_STEPS[step.name]) sourceSteps[SOURCE_STEPS[step.name]] = stepView(step);
-          if (PIPELINE_STEPS[step.name]) pipelineSteps[PIPELINE_STEPS[step.name]] = stepView(step);
-        }
-      }
-    }
-  }
+  const detail = await loadRunSteps(token, slug, detailRun);
+  const scheduled = latestScheduled && detailRun && latestScheduled.id === detailRun.id
+    ? detail
+    : await loadRunSteps(token, slug, latestScheduled);
+  const kfccStep = scheduled.sourceSteps.kfcc || null;
+  const cycleFinisher = kfccStep && kfccStep.conclusion !== "skipped";
+  const publishStep = scheduled.pipelineSteps.publish || null;
+  const publishCompletedAt = cycleFinisher && publishStep && publishStep.conclusion === "success"
+    ? publishStep.completed_at
+    : null;
+  const sla = cycleSla(latestScheduled, publishCompletedAt);
 
   return json(res, 200, {
     ok: true,
@@ -112,7 +173,8 @@ export default async function handler(req, res) {
     active_collection: runView(activeCollection),
     active_publish: runView(activePublish),
     latest_publish: runView(latestPublish),
-    source_steps: sourceSteps,
-    pipeline_steps: pipelineSteps,
+    source_steps: detail.sourceSteps,
+    pipeline_steps: detail.pipelineSteps,
+    sla,
   });
 }

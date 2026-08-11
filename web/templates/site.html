@@ -2714,6 +2714,16 @@
     const text = `${healthDot(sig)} ${label} #${esc(run.run_number)} · ${esc(state)} · ${healthDate(run.started_at)}`;
     return run.html_url ? `<a href="${esc(run.html_url)}" target="_blank" rel="noopener">${text}</a>` : text;
   };
+  const slaLine = (sla) => {
+    if (!sla) return "";
+    const sig = sla.status === "normal" ? "green"
+      : (sla.status === "warning" ? "yellow" : (sla.status === "breached" ? "red" : "blue"));
+    const label = sla.status === "normal" ? "정상"
+      : (sla.status === "warning" ? "마감 임박" : (sla.status === "breached" ? "08:00 초과" : "진행 중"));
+    const done = sla.latest_publish_completed_at
+      ? ` · 최종 발행 ${healthDate(sla.latest_publish_completed_at)}` : "";
+    return `${healthDot(sig)} 08:00 SLA ${esc(label)} · 기준일 ${esc(sla.cycle_date_kst)}${done}`;
+  };
   const refreshLiveHealth = async () => {
     $("health-live").textContent = "GitHub Actions 상태 확인 중…";
     try {
@@ -2732,6 +2742,7 @@
         + runLine("마지막 수집", body.latest_collection) + "<br>"
         + runLine("마지막 발행", body.latest_publish)
         + (body.active_publish ? "<br>" + runLine("현재 발행", body.active_publish) : "")
+        + (body.sla ? "<br>" + slaLine(body.sla) : "")
         + (focus && steps ? `<br><span style="color:var(--ink-3)">${steps}</span>` : "");
     } catch (err) {
       $("health-live").textContent = "실시간 상태에 연결하지 못했습니다. 위 source 카드는 마지막 발행본 기준입니다.";

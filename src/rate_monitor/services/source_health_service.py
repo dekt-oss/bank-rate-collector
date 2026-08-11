@@ -25,13 +25,11 @@ NORMAL_STATUSES = ("success", "no_change")
 DISPLAY_STATUSES = ("success", "partial", "no_change")
 FAIL_STATUSES = ("failed", "blocked", "schema_changed")
 
-# 정기수집 완료를 기대하는 한국시간. UI에 24시간 같은 숫자를 박지 않고,
-# 실제 workflow의 split schedule(02시 core / 06시 KFCC)을 기준으로 둔다.
-# core 전국수집은 약 4시간, KFCC는 약 2시간이므로 완료 여유를 포함한다.
-EXPECTED_BY_HOUR_KST = {
-    "kfcc": 9,
-}
-DEFAULT_EXPECTED_BY_HOUR_KST = 7
+# 평일 정기 cycle의 hard deadline은 08:00 KST다. core/KFCC 시작시각은
+# 서로 다르지만 사용자가 요구하는 최신성 계약은 "같은 날 08시까지 성공"이다.
+# 개별 source의 run health와 전체 cycle SLA는 별도로 표시한다.
+EXPECTED_BY_HOUR_KST: dict[str, int] = {}
+DEFAULT_EXPECTED_BY_HOUR_KST = 8
 
 _SIGNAL_RANK = {"gray": 0, "green": 1, "blue": 2, "yellow": 3, "red": 4}
 

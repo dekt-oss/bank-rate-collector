@@ -100,12 +100,11 @@ def test_only_fixed_scope_sources_get_a_scope_check() -> None:
 # ── 수집 주기 (2026-08-06) ──────────────────────────────────────────────
 
 
-def test_the_schedule_is_every_weekday_at_two_am_kst() -> None:
-    """평일(월~금) 02:00 KST.
+def test_the_schedule_starts_early_enough_for_eight_am_sla() -> None:
+    """평일 core 00:17 KST, KFCC 04:17 KST를 UTC cron으로 정확히 환산한다.
 
-    **요일이 하루 밀린다.** cron은 UTC로 도는데 02:00 KST는 전날 17:00
-    UTC이므로, 월·수·금 새벽은 일·화·목(0,2,4) UTC다. 이걸 1,3,5로 적으면
-    화·목·토 새벽에 돈다 — 조용히 틀리는 종류라 테스트로 박는다.
+    두 실행 모두 한국시간 자정~새벽이므로 UTC에서는 전날 일~목에 걸린다.
+    정각을 피하고, 08:00 hard deadline 앞에 queue/후처리 여유를 둔다.
     """
     import datetime as dt
     from pathlib import Path
@@ -113,22 +112,24 @@ def test_the_schedule_is_every_weekday_at_two_am_kst() -> None:
     import yaml
 
     workflow = Path(__file__).resolve().parents[1] / ".github" / "workflows" / "collect.yml"
-    # `on:`은 YAML 1.1에서 True로 읽힌다. 키를 그대로 두고 찾는다.
     loaded = yaml.safe_load(workflow.read_text(encoding="utf-8"))
     triggers = loaded.get("on", loaded.get(True))
     crons = [s["cron"] for s in triggers["schedule"]]
-    # 02:00 메인, 06:00 새마을금고. 나눈 이유는 아래 테스트가 적는다.
-    assert crons == ["0 17 * * 0-4", "0 21 * * 0-4"]
+    assert crons == ["17 15 * * 0-4", "17 19 * * 0-4"]
 
-    # 적어 둔 환산이 실제로 맞는지 되짚는다. 평일은 걸리고 주말은 안 걸린다.
     kst = dt.timezone(dt.timedelta(hours=9))
-    for day in range(10, 17):                      # 2026-08-10(월)~16(일)
-        local = dt.datetime(2026, 8, day, 2, 0, tzinfo=kst)
-        utc = local.astimezone(dt.UTC)
-        assert utc.hour == 17
-        caught = 0 <= (utc.weekday() + 1) % 7 <= 4
-        weekday = local.weekday() < 5
-        assert caught is weekday, f"{local:%m-%d %a}가 어긋난다"
+    cases = [(0, 17, 15), (4, 17, 19)]
+    for local_hour, local_minute, utc_hour in cases:
+        for day in range(10, 17):                  # 2026-08-10(월)~16(일)
+            local = dt.datetime(
+                2026, 8, day, local_hour, local_minute, tzinfo=kst
+            )
+            utc = local.astimezone(dt.UTC)
+            assert (utc.hour, utc.minute) == (utc_hour, 17)
+            cron_weekday = (utc.weekday() + 1) % 7  # Python 월=0 → cron 일=0
+            caught = 0 <= cron_weekday <= 4
+            weekday = local.weekday() < 5
+            assert caught is weekday, f"{local:%m-%d %a %H:%M}가 어긋난다"
 
 
 def test_the_two_crons_split_the_work_so_neither_run_hits_six_hours() -> None:
@@ -157,7 +158,7 @@ def test_the_two_crons_split_the_work_so_neither_run_hits_six_hours() -> None:
 
 
 def test_each_scheduled_run_collects_a_different_half() -> None:
-    """02:00은 새마을금고 말고 전부, 06:00은 새마을금고만."""
+    """00:17은 새마을금고 말고 전부, 04:17은 새마을금고만."""
     steps = _workflow()["jobs"]["collect"]["steps"]
     collectors = {
         s["name"]: str(s.get("if") or "")

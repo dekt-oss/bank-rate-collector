@@ -45,3 +45,15 @@ def test_live_pipeline_includes_the_publish_gates() -> None:
     assert '"Size gate": "size_gate"' in API
     assert '"Volume gate": "volume_gate"' in API
     assert '"Publish to rate-data branch": "publish"' in API
+
+
+
+def test_live_health_exposes_eight_am_cycle_sla() -> None:
+    assert "export const cycleSla" in API
+    assert "normal_target_at: normalTargetAt" in API
+    assert "sla_deadline_at: deadlineAt" in API
+    assert "latest_publish_completed_at: publishCompletedAt || null" in API
+    assert 'collections.find((run) => run.event === "schedule")' in API
+    assert "scheduled.pipelineSteps.publish" in API
+    assert "08:00 SLA" in SITE
+    assert 'body.sla ? "<br>" + slaLine(body.sla)' in SITE

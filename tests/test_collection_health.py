@@ -118,14 +118,14 @@ def test_business_day_freshness_handles_weekend_and_missed_cycles(tmp_path) -> N
         _source(s)
         # 8/7 00:00 UTC = 금요일 09:00 KST
         _run(s, started=datetime(2026, 8, 7, 0, 0))
-    # 월요일 06:30 KST: core cutoff(07시) 전이므로 금요일이 기대일 → 정상
-    before = _health(path, datetime(2026, 8, 10, 6, 30, tzinfo=KST))["sources"][0]
+    # 월요일 07:45 KST: hard cutoff(08시) 전이므로 금요일이 기대일 → 정상
+    before = _health(path, datetime(2026, 8, 10, 7, 45, tzinfo=KST))["sources"][0]
     assert before["freshness"]["signal"] == "green"
-    # 월요일 밤: 월요일 수집 1회를 놓침 → yellow
-    after = _health(path, datetime(2026, 8, 10, 22, 0, tzinfo=KST))["sources"][0]
+    # 월요일 08:05: 월요일 수집 1회를 놓침 → yellow
+    after = _health(path, datetime(2026, 8, 10, 8, 5, tzinfo=KST))["sources"][0]
     assert after["freshness"]["signal"] == "yellow"
-    # 화요일 밤까지 못 받음 → 2회 지연 red
-    late = _health(path, datetime(2026, 8, 11, 22, 0, tzinfo=KST))["sources"][0]
+    # 화요일 08:05까지 못 받음 → 2회 지연 red
+    late = _health(path, datetime(2026, 8, 11, 8, 5, tzinfo=KST))["sources"][0]
     assert late["freshness"]["signal"] == "red"
     engine.dispose()
 
