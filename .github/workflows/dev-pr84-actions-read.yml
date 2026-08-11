@@ -1,0 +1,54 @@
+name: Verify checkpoint actions permission
+
+on:
+  push:
+    branches:
+      - agent/resumable-acquisition-common-v1
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/resumable-acquisition-common-v1
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v5
+      - name: Set up Python
+        run: uv python install 3.12
+      - name: Patch and verify
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('.github/workflows/collect.yml')
+          text = p.read_text(encoding='utf-8')
+          old = 'permissions:\n  contents: write\n'
+          new = 'permissions:\n  contents: write\n  actions: read\n'
+          if text.count(old) != 1:
+              raise SystemExit('permissions marker mismatch')
+          p.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          t = Path('tests/test_checkpoint_workflow_contract.py')
+          text = t.read_text(encoding='utf-8')
+          marker = 'def test_checkpoint_pr_keeps_the_approved_schedule_and_single_writer() -> None:\n'
+          test = '''def test_checkpoint_workflow_can_read_its_authenticated_run_metadata() -> None:\n    workflow = _workflow()\n    assert workflow["permissions"]["actions"] == "read"\n    for name in ("Collect NH local", "Collect KFCC"):\n        env = _step(name).get("env") or {{}}\n        assert env.get("GITHUB_TOKEN") == "${{{{ secrets.GITHUB_TOKEN }}}}"\n\n\n'''
+          if marker not in text:
+              raise SystemExit('test insertion marker mismatch')
+          t.write_text(text.replace(marker, test + marker, 1), encoding='utf-8')
+          PY
+          uv sync --locked
+          uv run ruff check src tests scripts
+          uv run pytest -q tests/test_checkpoint_workflow_contract.py tests/test_workflow_context.py
+      - name: Create final commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/dev-pr84-actions-read.yml
+          git add -A
+          git commit -m "fix: grant checkpoint workflow actions read"
+          echo "FINAL_COMMIT=$(git rev-parse HEAD)"
+          git push origin HEAD:agent/resumable-acquisition-common-v1
