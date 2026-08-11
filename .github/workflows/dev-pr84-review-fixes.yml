@@ -29,6 +29,9 @@ jobs:
       - name: Sync dependencies
         run: uv sync --locked
 
+      - name: Ruff autofix
+        run: uv run ruff check src tests scripts --fix
+
       - name: Ruff
         run: uv run ruff check src tests scripts
 
