@@ -945,7 +945,8 @@ def decide_recovery(
     }
     return RecoveryDecision(
         False,
-        reason_by_status.get(manifest.status, "UNKNOWN_FATAL"),
+        manifest.terminal_reason_code
+        or reason_by_status.get(manifest.status, "UNKNOWN_FATAL"),
         identity.source_id,
         identity.cycle_date_kst,
         manifest.session_id,
