@@ -1,5 +1,8 @@
-name: P0 KFCC capture
+name: Diagnostic — KFCC source capture
 
+# Manual recovery/source-contract probe. This is not part of the scheduled
+# collection pipeline. Keep it available so a KFCC HTML/schema change can be
+# captured with the same evidence path used to build the parser.
 on:
   workflow_dispatch:
     inputs:
@@ -11,6 +14,9 @@ on:
         description: "시군구"
         required: false
         default: "중구"
+
+permissions:
+  contents: read
 
 jobs:
   capture:
@@ -26,9 +32,10 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: p0-kfcc-capture
+          name: diagnostic-kfcc-capture
           path: |
             data/raw/p0/kfcc/
             tests/fixtures/kfcc/
             docs/source-recon/kfcc-capture.json
+          retention-days: 7
           if-no-files-found: ignore
