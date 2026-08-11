@@ -2627,11 +2627,14 @@
     finlife_savings_bank: ["금융감독원 금융상품통합비교공시 — 저축은행",
           "전국 공시"],
     finlife_bank: ["금융감독원 금융상품통합비교공시 — 시중은행", "전국 공시"],
-    kfcc: ["새마을금고 금고위치안내 · 금고별 금리", "지역은 점포 주소"],
+    kfcc: ["새마을금고 공식 홈페이지 금고위치안내/금리조회", "지역은 점포 주소"],
     cu: ["신협 전자공시 금리비교", "지역은 조회 조건"],
     nh_local: ["농협 금융상품몰 농·축협별 예금금리",
           "지역은 점포 주소 · 우대조건 칸에 상품 설명이 섞임"],
     bok_ecos: ["한국은행 ECOS", "지표라 표에는 없음"],
+  };
+  const SOURCE_DISPLAY_NAME = {
+    kfcc: "새마을금고 예·적금 금리",
   };
   const MODE_KO = { api: "공식 오픈API", http: "공시 화면 조회" };
 
@@ -2693,7 +2696,7 @@
       const r = s.latest_attempt || {};
       const reasons = (s.reasons || []).filter((x) => x.severity !== "info");
       return `<div class="health-src"><div class="ht">${healthDot(s.signal)}`
-        + `<span>${esc(s.name || s.source_id)}</span><span style="margin-left:auto;color:var(--ink-3)">`
+        + `<span>${esc(SOURCE_DISPLAY_NAME[s.source_id] || s.name || s.source_id)}</span><span style="margin-left:auto;color:var(--ink-3)">`
         + `${esc(HEALTH_KO[s.signal] || s.signal)}</span></div>`
         + `<div class="hm">마지막 시도 ${healthDate(r.finished_at || r.started_at)} · ${esc(r.status || "없음")}<br>`
         + `마지막 정상 ${healthDate(s.last_success_at)} · 최신성 ${esc((s.freshness || {}).label || "—")}<br>`
