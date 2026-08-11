@@ -1,0 +1,53 @@
+name: Temporary — NH outlet-list connectivity probe
+
+on:
+  push:
+    branches: [agent/nh-transient-resilience]
+    paths: [.github/workflows/nh-connectivity-probe.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv python install 3.12
+      - run: uv sync --locked
+      - name: Fetch NH outlet list only
+        run: |
+          uv run python - <<'PY'
+          import asyncio
+          import httpx
+          from rate_monitor.collectors.nh_local.adapter import (
+              CONNECT_TIMEOUT,
+              LIST_SCREEN,
+              READ_TIMEOUT,
+              USER_AGENT,
+              NhLocalAdapter,
+          )
+
+          async def main():
+              adapter = NhLocalAdapter()
+              timeout = httpx.Timeout(
+                  connect=CONNECT_TIMEOUT,
+                  read=READ_TIMEOUT,
+                  write=READ_TIMEOUT,
+                  pool=CONNECT_TIMEOUT,
+              )
+              async with httpx.AsyncClient(
+                  timeout=timeout,
+                  follow_redirects=True,
+                  headers={"User-Agent": USER_AGENT},
+              ) as client:
+                  body = await adapter._get(client, LIST_SCREEN, {}, phase="preflight")
+              print(f"NH outlet-list probe PASS bytes={len(body)} retries={adapter._retry_count}")
+              if not body:
+                  raise SystemExit("empty NH outlet-list response")
+
+          asyncio.run(main())
+          PY
