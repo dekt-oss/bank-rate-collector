@@ -1,0 +1,98 @@
+name: Temporary — apply KFCC display label patch
+
+on:
+  push:
+    branches: [agent/kfcc-source-label]
+    paths:
+      - .github/workflows/dev-kfcc-label-patch.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Apply label patch
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_exact(path: str, old: str, new: str, expected: int = 1) -> None:
+              p = Path(path)
+              text = p.read_text(encoding="utf-8")
+              hits = text.count(old)
+              if hits != expected:
+                  raise SystemExit(f"{path}: expected {expected} hits, got {hits}: {old!r}")
+              p.write_text(text.replace(old, new), encoding="utf-8")
+
+          replace_exact(
+              "src/rate_monitor/collectors/kfcc/adapter.py",
+              '    source_name = "새마을금고 금고위치안내"',
+              '    source_name = "새마을금고 예·적금 금리"',
+          )
+
+          site = Path("web/templates/site.html")
+          text = site.read_text(encoding="utf-8")
+          old_note = '    kfcc: ["새마을금고 금고위치안내 · 금고별 금리", "지역은 점포 주소"],'
+          new_note = '    kfcc: ["새마을금고 공식 홈페이지 금고위치안내/금리조회", "지역은 점포 주소"],'
+          if text.count(old_note) != 1:
+              raise SystemExit("site.html: KFCC SOURCE_NOTE anchor missing/non-unique")
+          text = text.replace(old_note, new_note, 1)
+
+          anchor = '''  const MODE_KO = { api: "공식 오픈API", http: "공시 화면 조회" };
+'''
+          display_map = '''  const SOURCE_DISPLAY_NAME = {
+    kfcc: "새마을금고 예·적금 금리",
+  };
+'''
+          if text.count(anchor) != 1:
+              raise SystemExit("site.html: MODE_KO anchor missing/non-unique")
+          text = text.replace(anchor, display_map + anchor, 1)
+
+          health_old = '+ `<span>${esc(s.name || s.source_id)}</span><span style="margin-left:auto;color:var(--ink-3)">`'
+          health_new = '+ `<span>${esc(SOURCE_DISPLAY_NAME[s.source_id] || s.name || s.source_id)}</span><span style="margin-left:auto;color:var(--ink-3)">`'
+          if text.count(health_old) != 1:
+              raise SystemExit("site.html: health source-name anchor missing/non-unique")
+          text = text.replace(health_old, health_new, 1)
+          site.write_text(text, encoding="utf-8")
+
+          Path("tests/test_kfcc_source_label.py").write_text('''"""KFCC 기술 경로명을 사용자 표시명과 분리한다."""
+
+from pathlib import Path
+
+from rate_monitor.collectors.kfcc.adapter import KfccAdapter
+
+ROOT = Path(__file__).resolve().parents[1]
+SITE = (ROOT / "web/templates/site.html").read_text(encoding="utf-8")
+
+
+def test_kfcc_adapter_keeps_identity_but_uses_product_display_name() -> None:
+    assert KfccAdapter.source_id == "kfcc"
+    assert KfccAdapter.source_name == "새마을금고 예·적금 금리"
+    assert KfccAdapter.base_reference == "kfcc.co.kr/map"
+
+
+def test_kfcc_health_card_does_not_show_location_page_as_source_name() -> None:
+    assert 'kfcc: "새마을금고 예·적금 금리"' in SITE
+    assert "SOURCE_DISPLAY_NAME[s.source_id] || s.name || s.source_id" in SITE
+
+
+def test_kfcc_footer_explains_the_official_location_and_rate_route() -> None:
+    assert 'kfcc: ["새마을금고 공식 홈페이지 금고위치안내/금리조회", "지역은 점포 주소"]' in SITE
+    assert 'kfcc: ["새마을금고 금고위치안내 · 금고별 금리"' not in SITE
+''', encoding="utf-8")
+          PY
+      - name: Static checks
+        run: |
+          git diff --check
+      - name: Commit product changes
+        run: |
+          git config user.name dekt-oss
+          git config user.email degackt@gmail.com
+          git add src/rate_monitor/collectors/kfcc/adapter.py web/templates/site.html tests/test_kfcc_source_label.py
+          git commit -m "fix: clarify KFCC user-facing source label"
+          git push origin HEAD:agent/kfcc-source-label
