@@ -21,9 +21,14 @@ fetch()만 담당한다. 파싱은 parser가, 저장은 오케스트레이터가
 부산 기준 점포 273개 대비 금고 137개라 요청이 절반으로 줄고 중복 행도 안 생긴다.
 
 차단 우회는 하지 않는다 (v3 §0.2, §16.1). 차단이 보이면 즉시 멈춘다.
+일시적인 연결/timeout/5xx만 제한적으로 다시 시도하며 정상 요청 간격 1초는
+줄이지 않는다 (`20260811-resumable-acquisition-v1.md` §23).
 """
 
 import asyncio
+import logging
+from collections import Counter
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
@@ -41,6 +46,8 @@ from rate_monitor.domain.enums import (
     TrustLevel,
 )
 from rate_monitor.domain.schemas import CollectionRequest, ParsedRateRow, RawArtifactData
+
+logger = logging.getLogger(__name__)
 
 BASE_URL = "https://www.kfcc.co.kr"
 REGIONS_PATH = Path("config/regions.yaml")
@@ -63,6 +70,14 @@ REQUEST_INTERVAL_SECONDS = 1.0
 CONNECT_TIMEOUT = 10.0
 READ_TIMEOUT = 20.0
 
+# transient failure만 제한적으로 다시 시도한다. 목록은 뒤의 모든 금리 요청을
+# 가능하게 하는 선행 단계라 한 번 더 기다리고, 금리 요청은 SLA 여유를 지키기
+# 위해 더 짧게 끝낸다. 실제 retry 대기에도 정상 1초 요청 간격을 더한다.
+LIST_RETRY_BACKOFF_SECONDS = (5.0, 20.0, 60.0)
+RATE_RETRY_BACKOFF_SECONDS = (3.0, 12.0)
+RETRYABLE_STATUS_CODES = frozenset({500, 502, 503, 504})
+MAX_TOTAL_RETRIES = 50
+
 # 수집 대상 상품군. 요구불(12)은 단계금액 구간 파싱이 따로 필요해 미룬다.
 DEFAULT_GROUPS = ("13", "14")
 
@@ -70,12 +85,70 @@ DEFAULT_GROUPS = ("13", "14")
 #   부산  = 목록   1 + 금고   137 × 2 =   275회 (약 5분)
 #   전국  = 목록  17 + 금고 1,260 × 2 = 2,537회 (약 42분)
 # 전국을 다 돌고도 남을 만큼만 둔다. 이 값에 닿았다면 원천 구조가 바뀐 것이다.
+# retry는 별도 MAX_TOTAL_RETRIES로 제한하므로 실제 HTTP 시도는 이 값보다 최대
+# 그만큼 더 많을 수 있다.
 MAX_REQUESTS = 4000
 
 # 새마을금고는 차단 시 200이 아니라 400에 이 문구를 실어 보낸 이력이 있다.
 # finlife처럼 403/429만 보면 이 경우를 놓친다.
 BLOCK_MARKERS = ("Request Blocked", "Access Denied")
 BLOCK_STATUSES = (400, 403, 429)
+
+Sleep = Callable[[float], Awaitable[None]]
+
+
+class KfccRequestFailure(RuntimeError):
+    """KFCC 요청이 bounded retry 뒤에도 실패했음을 구조화해 남긴다."""
+
+    def __init__(
+        self,
+        code: str,
+        *,
+        phase: str,
+        request_label: str,
+        attempt: int,
+        max_attempts: int,
+        cause: Exception,
+        retry_count: int,
+        failure_reasons: dict[str, int] | None = None,
+    ) -> None:
+        self.code = code
+        self.phase = phase
+        self.request_label = request_label
+        self.attempt = attempt
+        self.max_attempts = max_attempts
+        self.cause = cause
+        self.retry_count = retry_count
+        self.failure_reasons = dict(failure_reasons or {})
+        reasons = ", ".join(
+            f"{reason} {count}" for reason, count in sorted(self.failure_reasons.items())
+        ) or "none"
+        super().__init__(
+            f"{code}: phase={phase} request={request_label} "
+            f"attempt={attempt}/{max_attempts} retries={retry_count} "
+            f"failures={reasons} cause={type(cause).__name__}: {cause}"
+        )
+
+
+def _failure_code(exc: Exception) -> str:
+    """실제로 구별할 수 있는 transient 실패만 분류한다."""
+    if isinstance(exc, httpx.ConnectError):
+        return "NETWORK_CONNECT"
+    if isinstance(
+        exc,
+        (httpx.ConnectTimeout, httpx.ReadTimeout, httpx.WriteTimeout, httpx.PoolTimeout),
+    ):
+        return "NETWORK_TIMEOUT"
+    if isinstance(exc, (httpx.ReadError, httpx.WriteError)):
+        return "NETWORK_IO"
+    if isinstance(exc, httpx.RemoteProtocolError):
+        return "NETWORK_PROTOCOL"
+    if (
+        isinstance(exc, httpx.HTTPStatusError)
+        and exc.response.status_code in RETRYABLE_STATUS_CODES
+    ):
+        return "HTTP_SERVER_ERROR"
+    return "NETWORK_UNKNOWN"
 
 
 class KfccAdapter:
@@ -101,8 +174,11 @@ class KfccAdapter:
     # 여기서 명시한다 (docs/source-recon/kfcc.md §2.2).
     join_channel = JoinChannel.BRANCH
 
-    def __init__(self, regions_path: Path | None = None) -> None:
+    def __init__(self, regions_path: Path | None = None, *, sleep: Sleep | None = None) -> None:
         self._regions_path = regions_path or REGIONS_PATH
+        self._sleep = sleep or asyncio.sleep
+        self._retry_count = 0
+        self._retry_reasons: Counter[str] = Counter()
 
     # ── 지역 ────────────────────────────────────────────────────────────
 
@@ -138,19 +214,156 @@ class KfccAdapter:
 
     # ── 요청 ────────────────────────────────────────────────────────────
 
-    async def _get(self, client: httpx.AsyncClient, url: str, params: dict) -> bytes:
-        response = await client.get(url, params=params)
-        body = response.content
-        if response.status_code in BLOCK_STATUSES:
-            text = body.decode("utf-8", "ignore")
-            if any(marker in text for marker in BLOCK_MARKERS):
-                raise SourceBlockedError(
-                    f"차단 응답 {response.status_code}: {url} — 우회하지 않고 중단한다"
-                )
-        response.raise_for_status()
-        return body
+    def _reset_retry_state(self) -> None:
+        self._retry_count = 0
+        self._retry_reasons.clear()
+
+    def _retry_note(self) -> str:
+        if not self._retry_count:
+            return ""
+        reasons = ", ".join(
+            f"{code} {count}" for code, count in sorted(self._retry_reasons.items())
+        )
+        return f"재시도 {self._retry_count}회 ({reasons})"
+
+    def _failure_reasons_with(self, code: str) -> dict[str, int]:
+        reasons = Counter(self._retry_reasons)
+        reasons[code] += 1
+        return dict(sorted(reasons.items()))
+
+    def _reserve_retry(
+        self,
+        *,
+        code: str,
+        phase: str,
+        request_label: str,
+        attempt: int,
+        max_attempts: int,
+        cause: Exception,
+    ) -> None:
+        if self._retry_count >= MAX_TOTAL_RETRIES:
+            raise KfccRequestFailure(
+                "RETRY_BUDGET_EXHAUSTED",
+                phase=phase,
+                request_label=request_label,
+                attempt=attempt,
+                max_attempts=max_attempts,
+                cause=cause,
+                retry_count=self._retry_count,
+                failure_reasons=self._failure_reasons_with(code),
+            ) from cause
+        self._retry_count += 1
+        self._retry_reasons[code] += 1
+
+    @staticmethod
+    def _request_label(phase: str, params: dict[str, str]) -> str:
+        if phase == "list":
+            return f"r1={params.get('r1', '')}"
+        if phase == "rate":
+            return (
+                f"gmgoCd={params.get('OPEN_TRMID', '')} "
+                f"gubuncode={params.get('gubuncode', '')}"
+            )
+        return phase
+
+    @staticmethod
+    def _request_phase(url: str) -> str:
+        if url.endswith("/map/list.do"):
+            return "list"
+        if url.endswith("/map/goods_19.do"):
+            return "rate"
+        raise ValueError(f"알 수 없는 KFCC 요청 endpoint: {url!r}")
+
+    async def _get(
+        self,
+        client: httpx.AsyncClient,
+        url: str,
+        params: dict[str, str],
+    ) -> bytes:
+        """GET 하나를 수행하되 transient failure만 제한적으로 다시 시도한다."""
+        phase = self._request_phase(url)
+        backoffs = (
+            LIST_RETRY_BACKOFF_SECONDS if phase == "list" else RATE_RETRY_BACKOFF_SECONDS
+        )
+        max_attempts = len(backoffs) + 1
+        request_label = self._request_label(phase, params)
+
+        for attempt in range(1, max_attempts + 1):
+            failure: Exception | None = None
+            code = ""
+            http_status: int | None = None
+            try:
+                response = await client.get(url, params=params)
+                body = response.content
+                if response.status_code in BLOCK_STATUSES:
+                    text = body.decode("utf-8", "ignore")
+                    if any(marker in text for marker in BLOCK_MARKERS):
+                        raise SourceBlockedError(
+                            f"차단 응답 {response.status_code}: {url} — 우회하지 않고 중단한다"
+                        )
+                response.raise_for_status()
+                return body
+            except SourceBlockedError:
+                raise
+            except httpx.HTTPStatusError as exc:
+                http_status = exc.response.status_code
+                if http_status not in RETRYABLE_STATUS_CODES:
+                    raise
+                failure = exc
+                code = "HTTP_SERVER_ERROR"
+            except (
+                httpx.ConnectError,
+                httpx.ConnectTimeout,
+                httpx.ReadTimeout,
+                httpx.WriteTimeout,
+                httpx.PoolTimeout,
+                httpx.ReadError,
+                httpx.WriteError,
+                httpx.RemoteProtocolError,
+            ) as exc:
+                failure = exc
+                code = _failure_code(exc)
+
+            assert failure is not None
+            if attempt >= max_attempts:
+                raise KfccRequestFailure(
+                    code,
+                    phase=phase,
+                    request_label=request_label,
+                    attempt=attempt,
+                    max_attempts=max_attempts,
+                    cause=failure,
+                    retry_count=self._retry_count,
+                    failure_reasons=self._failure_reasons_with(code),
+                ) from failure
+
+            self._reserve_retry(
+                code=code,
+                phase=phase,
+                request_label=request_label,
+                attempt=attempt,
+                max_attempts=max_attempts,
+                cause=failure,
+            )
+            delay = REQUEST_INTERVAL_SECONDS + backoffs[attempt - 1]
+            logger.warning(
+                "KFCC retry source_id=%s phase=%s request=%s attempt=%d max_attempts=%d "
+                "error_class=%s http_status=%s retry_delay=%.1f",
+                self.source_id,
+                phase,
+                request_label,
+                attempt,
+                max_attempts,
+                code,
+                http_status if http_status is not None else "-",
+                delay,
+            )
+            await self._sleep(delay)
+
+        raise AssertionError("KFCC retry loop exhausted without returning or raising")
 
     async def fetch(self, request: CollectionRequest) -> list[RawArtifactData]:
+        self._reset_retry_state()
         regions = self._load_regions(request)
         groups = tuple(request.options.get("groups") or DEFAULT_GROUPS)
 
@@ -173,8 +386,12 @@ class KfccAdapter:
         guard = RepeatGuard()
         requests_made = 0
 
-        timeout = httpx.Timeout(connect=CONNECT_TIMEOUT, read=READ_TIMEOUT,
-                                write=READ_TIMEOUT, pool=CONNECT_TIMEOUT)
+        timeout = httpx.Timeout(
+            connect=CONNECT_TIMEOUT,
+            read=READ_TIMEOUT,
+            write=READ_TIMEOUT,
+            pool=CONNECT_TIMEOUT,
+        )
         async with httpx.AsyncClient(
             timeout=timeout,
             follow_redirects=True,
@@ -204,7 +421,7 @@ class KfccAdapter:
                     entries = directory.setdefault(row["gmgoCd"], [])
                     if not any(e["divCd"] == row.get("divCd") for e in entries):
                         entries.append(row)
-                await asyncio.sleep(REQUEST_INTERVAL_SECONDS)
+                await self._sleep(REQUEST_INTERVAL_SECONDS)
 
             # 2단계: 금고별 금리
             for gmgo_cd, row in outlets.items():
@@ -219,11 +436,9 @@ class KfccAdapter:
                             f"요청 상한 {MAX_REQUESTS}회에 도달했다. 설정을 확인한다"
                         )
                     params = {"OPEN_TRMID": gmgo_cd, "gubuncode": group}
-                    body = await self._get(
-                        client, f"{BASE_URL}/map/goods_19.do", params
-                    )
+                    body = await self._get(client, f"{BASE_URL}/map/goods_19.do", params)
                     requests_made += 1
-                    await asyncio.sleep(REQUEST_INTERVAL_SECONDS)
+                    await self._sleep(REQUEST_INTERVAL_SECONDS)
                     # 축은 상품구분이다. 금고는 바뀌고 구분은 고정인 흐름
                     # 안에서 봐야 "이 지역이 통째로 같은 답을 준다"가 보인다.
                     guard.observe(
@@ -251,6 +466,9 @@ class KfccAdapter:
                         )
                     )
         self.fetch_note = guard.summary()
+        retry_note = self._retry_note()
+        if retry_note:
+            self.fetch_note = f"{self.fetch_note} · {retry_note}"
         self.fetch_alert = guard.tripped
         return artifacts
 
