@@ -156,13 +156,25 @@ def test_health_handler_combines_core_failure_with_kfcc_publish() -> None:
       globalThis.fetch = async (url) => {{
         const value = String(url);
         if (value.includes('/actions/workflows/collect.yml/runs?per_page=30')) {{
-          return {{ ok: true, status: 200, json: async () => ({{ workflow_runs: runs }}) }};
+          return {{
+            ok: true,
+            status: 200,
+            json: async () => ({{ workflow_runs: runs }}),
+          }};
         }}
         if (value.includes('/actions/runs/202/jobs?per_page=20')) {{
-          return {{ ok: true, status: 200, json: async () => ({{ jobs: [{{ steps: kfccSteps }}] }}) }};
+          return {{
+            ok: true,
+            status: 200,
+            json: async () => ({{ jobs: [{{ steps: kfccSteps }}] }}),
+          }};
         }}
         if (value.includes('/actions/runs/201/jobs?per_page=20')) {{
-          return {{ ok: true, status: 200, json: async () => ({{ jobs: [{{ steps: coreSteps }}] }}) }};
+          return {{
+            ok: true,
+            status: 200,
+            json: async () => ({{ jobs: [{{ steps: coreSteps }}] }}),
+          }};
         }}
         throw new Error(`unexpected URL: ${{value}}`);
       }};
