@@ -252,16 +252,25 @@ def test_schedule_history_is_not_lost_when_recent_window_is_push_heavy() -> None
       globalThis.fetch = async (url) => {{
         const value = String(url);
         if (value.includes('/runs?event=schedule&per_page=20')) {{
-          return {{ ok: true, status: 200, json: async () => ({{ workflow_runs: scheduledRuns }}) }};
+          return {{
+            ok: true, status: 200,
+            json: async () => ({{ workflow_runs: scheduledRuns }}),
+          }};
         }}
         if (value.includes('/runs?per_page=30')) {{
           return {{ ok: true, status: 200, json: async () => ({{ workflow_runs: recentRuns }}) }};
         }}
         if (value.includes('/actions/runs/302/jobs?per_page=20')) {{
-          return {{ ok: true, status: 200, json: async () => ({{ jobs: [{{ steps: kfccSteps }}] }}) }};
+          return {{
+            ok: true, status: 200,
+            json: async () => ({{ jobs: [{{ steps: kfccSteps }}] }}),
+          }};
         }}
         if (value.includes('/actions/runs/301/jobs?per_page=20')) {{
-          return {{ ok: true, status: 200, json: async () => ({{ jobs: [{{ steps: coreSteps }}] }}) }};
+          return {{
+            ok: true, status: 200,
+            json: async () => ({{ jobs: [{{ steps: coreSteps }}] }}),
+          }};
         }}
         throw new Error(`unexpected URL: ${{value}}`);
       }};
