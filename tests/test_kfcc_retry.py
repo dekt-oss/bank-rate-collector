@@ -9,6 +9,7 @@ from rate_monitor.collectors.base import SourceBlockedError
 from rate_monitor.collectors.kfcc.adapter import (
     BASE_URL,
     MAX_TOTAL_RETRIES,
+    MAX_TOTAL_RETRY_DELAY_SECONDS,
     KfccAdapter,
     KfccRequestFailure,
     _failure_code,
@@ -222,6 +223,29 @@ def test_retry_budget_stops_additional_requests() -> None:
     assert sleep.delays == []
     assert adapter._retry_count == MAX_TOTAL_RETRIES
     assert caught.value.failure_reasons == {"NETWORK_CONNECT": 1}
+
+
+def test_retry_delay_budget_stops_before_next_sleep() -> None:
+    calls = 0
+    sleep = SleepRecorder()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        raise httpx.ConnectError("still down", request=request)
+
+    adapter = KfccAdapter(sleep=sleep)
+    adapter._retry_delay_seconds = MAX_TOTAL_RETRY_DELAY_SECONDS - 3.0
+
+    with pytest.raises(KfccRequestFailure) as caught:
+        _run_get(adapter, handler, phase="rate")
+
+    assert caught.value.code == "RETRY_DELAY_BUDGET_EXHAUSTED"
+    assert calls == 1
+    assert sleep.delays == []
+    assert adapter._retry_count == 0
+    assert adapter._retry_delay_seconds == MAX_TOTAL_RETRY_DELAY_SECONDS - 3.0
+
 
 
 def test_unknown_failure_taxonomy_does_not_mislabel_as_protocol() -> None:
