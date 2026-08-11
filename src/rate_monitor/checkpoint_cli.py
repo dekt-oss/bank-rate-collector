@@ -7,8 +7,8 @@ import sys
 from pathlib import Path
 
 from rate_monitor.services.resumable_acquisition import (
-    AcquisitionSessionIdentity,
     CHECKPOINT_CONTRACT_VERSION,
+    AcquisitionSessionIdentity,
     decide_recovery,
 )
 from rate_monitor.services.storage_service import (
