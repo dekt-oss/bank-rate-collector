@@ -24,60 +24,9 @@ jobs:
         run: uv python install 3.12
 
       - name: Apply review fixes
-        run: python .github/dev/pr84_review_fixes.py
-
-      - name: Preserve no-progress recovery reason
         run: |
-          python - <<'PY'
-          from pathlib import Path
-          p = Path("src/rate_monitor/services/resumable_acquisition.py")
-          text = p.read_text(encoding="utf-8")
-          old = '''    if manifest.status == "collecting":
-        if not attempt_failed:
-            return RecoveryDecision(
-                False,
-                "CALLER_FAILURE_NOT_CONFIRMED",
-                identity.source_id,
-                identity.cycle_date_kst,
-                manifest.session_id,
-                manifest.status,
-                manifest.completed_work_count,
-            )
-        eligible = manifest.completed_work_count > 0
-        return RecoveryDecision(
-            eligible,
-            "RECOVERABLE_ABNORMAL_EXIT" if eligible else "NO_DURABLE_PROGRESS",
-'''
-          new = '''    if manifest.status == "collecting":
-        if manifest.completed_work_count <= 0:
-            return RecoveryDecision(
-                False,
-                "NO_DURABLE_PROGRESS",
-                identity.source_id,
-                identity.cycle_date_kst,
-                manifest.session_id,
-                manifest.status,
-                manifest.completed_work_count,
-            )
-        if not attempt_failed:
-            return RecoveryDecision(
-                False,
-                "CALLER_FAILURE_NOT_CONFIRMED",
-                identity.source_id,
-                identity.cycle_date_kst,
-                manifest.session_id,
-                manifest.status,
-                manifest.completed_work_count,
-            )
-        eligible = True
-        return RecoveryDecision(
-            eligible,
-            "RECOVERABLE_ABNORMAL_EXIT",
-'''
-          if text.count(old) != 1:
-              raise SystemExit("collecting recovery block mismatch")
-          p.write_text(text.replace(old, new), encoding="utf-8")
-          PY
+          python .github/dev/pr84_review_fixes.py
+          python .github/dev/pr84_postfix.py
 
       - name: Sync dependencies
         run: uv sync --locked
@@ -101,7 +50,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git rm .github/workflows/dev-pr84-review-fixes.yml
-          git rm .github/dev/pr84_review_fixes.py
+          git rm .github/dev/pr84_review_fixes.py .github/dev/pr84_postfix.py
           git add -A
           git commit -m "fix: address checkpoint review findings"
           git push origin HEAD:agent/resumable-acquisition-common-v1
