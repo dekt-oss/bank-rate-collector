@@ -87,80 +87,14 @@ def test_run_times_are_converted_on_the_way_out(tmp_path: Path) -> None:
     assert summary["latest_run"]["started_at"].startswith("2026-08-06T14:20:52")
 
 
-def _make_schema(path: Path) -> None:
-    conn = sqlite3.connect(path)
-    conn.executescript(
-        """
-        CREATE TABLE sources (
-          id TEXT PRIMARY KEY, name TEXT NOT NULL, sector TEXT NOT NULL,
-          mode TEXT NOT NULL, source_role TEXT NOT NULL, trust_level TEXT NOT NULL,
-          priority INTEGER NOT NULL, base_reference TEXT NOT NULL,
-          enabled INTEGER NOT NULL, policy_status TEXT NOT NULL,
-          coverage_status TEXT NOT NULL, parser_version TEXT NOT NULL,
-          created_at TEXT NOT NULL, updated_at TEXT NOT NULL
-        );
-        CREATE TABLE collection_runs (
-          id TEXT PRIMARY KEY, source_id TEXT NOT NULL, status TEXT NOT NULL,
-          started_at TEXT NOT NULL, finished_at TEXT,
-          raw_count INTEGER NOT NULL DEFAULT 0,
-          parsed_count INTEGER NOT NULL DEFAULT 0,
-          valid_count INTEGER NOT NULL DEFAULT 0,
-          warning_count INTEGER NOT NULL DEFAULT 0,
-          error_count INTEGER NOT NULL DEFAULT 0,
-          mode TEXT NOT NULL, query_context_json TEXT NOT NULL,
-          fallback_used INTEGER NOT NULL DEFAULT 0,
-          message TEXT
-        );
-        CREATE TABLE collection_run_stats (
-          run_id TEXT PRIMARY KEY, fetched_count INTEGER NOT NULL DEFAULT 0,
-          parsed_count INTEGER NOT NULL DEFAULT 0,
-          unchanged_count INTEGER NOT NULL DEFAULT 0,
-          changed_count INTEGER NOT NULL DEFAULT 0,
-          new_variant_count INTEGER NOT NULL DEFAULT 0,
-          missing_variant_count INTEGER NOT NULL DEFAULT 0,
-          error_count INTEGER NOT NULL DEFAULT 0
-        );
-        CREATE TABLE review_items (
-          id TEXT PRIMARY KEY, run_id TEXT, issue_type TEXT NOT NULL,
-          severity TEXT NOT NULL, message TEXT NOT NULL,
-          raw_ref TEXT, entity_ref TEXT, status TEXT NOT NULL DEFAULT 'open',
-          created_at TEXT NOT NULL, resolved_at TEXT
-        );
-        CREATE TABLE institutions (
-          id TEXT PRIMARY KEY, sector TEXT NOT NULL, canonical_name TEXT NOT NULL,
-          raw_name TEXT NOT NULL, institution_code TEXT, region_sido TEXT,
-          region_sigungu TEXT, address TEXT, geo_basis TEXT,
-          availability_scope TEXT NOT NULL DEFAULT 'public', active INTEGER NOT NULL DEFAULT 1
-        );
-        CREATE TABLE products (
-          id TEXT PRIMARY KEY, institution_id TEXT NOT NULL,
-          product_type TEXT NOT NULL, name TEXT NOT NULL, raw_name TEXT NOT NULL,
-          source_product_key TEXT, availability_scope TEXT NOT NULL DEFAULT 'public'
-        );
-        CREATE TABLE product_variants (
-          id TEXT PRIMARY KEY, product_id TEXT NOT NULL, variant_key TEXT NOT NULL,
-          term_months INTEGER, interest_method TEXT, payment_method TEXT,
-          join_channel TEXT, rate_scope TEXT, amount_min TEXT, amount_max TEXT,
-          raw_terms_text TEXT, preference_status TEXT,
-          preference_tags_json TEXT
-        );
-        CREATE TABLE rate_observations (
-          id TEXT PRIMARY KEY, variant_id TEXT NOT NULL, run_id TEXT NOT NULL,
-          last_run_id TEXT, base_rate TEXT, max_rate TEXT,
-          source_effective_at TEXT, validation_status TEXT NOT NULL,
-          validation_message TEXT, raw_ref TEXT,
-          raw_preference_text TEXT, preference_status TEXT,
-          preference_tags_json TEXT
-        );
-        CREATE TABLE market_indicators (
-          id TEXT PRIMARY KEY, source_id TEXT NOT NULL, indicator_key TEXT NOT NULL,
-          value TEXT, source_effective_at TEXT, run_id TEXT
-        );
-        CREATE TABLE outlets (
-          id TEXT PRIMARY KEY, institution_id TEXT NOT NULL, name TEXT,
-          region_sido TEXT, region_sigungu TEXT, address TEXT, geo_basis TEXT
-        );
-        """
-    )
-    conn.commit()
-    conn.close()
+def test_kst_is_nine_hours_ahead() -> None:
+    assert KST.utcoffset(None).total_seconds() == 9 * 3600
+
+
+def _make_schema(db: Path) -> None:
+    from rate_monitor.db.models import Base
+    from rate_monitor.db.session import create_db_engine
+
+    engine = create_db_engine(db)
+    Base.metadata.create_all(engine)
+    engine.dispose()
