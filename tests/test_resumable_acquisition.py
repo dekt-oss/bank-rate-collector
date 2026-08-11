@@ -7,8 +7,10 @@ import pytest
 
 from rate_monitor.domain.schemas import RawArtifactData
 from rate_monitor.services.resumable_acquisition import (
+    AcquisitionManifest,
     AcquisitionSessionIdentity,
     CheckpointArtifact,
+    CheckpointChunkRef,
     CheckpointCorruptError,
     CheckpointIncompatibleError,
     CheckpointRepository,
@@ -222,7 +224,11 @@ def test_recovery_decision_is_true_only_with_durable_recoverable_progress(tmp_pa
     assert empty.reason_code == "NO_DURABLE_PROGRESS"
 
     manifest = service.flush(manifest, [_artifact(1)])
-    collecting = decide_recovery(store, _identity())
+    live_looking = decide_recovery(store, _identity())
+    assert live_looking.eligible is False
+    assert live_looking.reason_code == "CALLER_FAILURE_NOT_CONFIRMED"
+
+    collecting = decide_recovery(store, _identity(), attempt_failed=True)
     assert collecting.eligible is True
     assert collecting.reason_code == "RECOVERABLE_ABNORMAL_EXIT"
 
@@ -273,7 +279,10 @@ def test_guard_terminal_is_not_resumable(tmp_path) -> None:
     assert terminal.guard_state == {"longest_run": 41}
     decision = decide_recovery(store, _identity())
     assert decision.eligible is False
-    assert decision.reason_code == "NO_VALID_CHECKPOINT"
+    assert decision.reason_code == "GUARD_TRIPPED"
+
+    with pytest.raises(CheckpointIncompatibleError, match="operator fresh"):
+        service.open("auto")
 
 
 def test_complete_is_canonical_pending_and_replay_is_not_auto_approved(tmp_path) -> None:
@@ -316,6 +325,79 @@ def test_gc_requires_timezone_aware_now(tmp_path) -> None:
             active_session_id=None,
             now=datetime(2026, 8, 20),
         )
+
+
+def test_nh_manifest_serialization_growth_is_bounded_for_v1() -> None:
+    """9,742 NH-like work keys remain bounded under 200-item flush policy."""
+    import json
+    import math
+
+    keys = [f"nh:{index:04d}:SFDPW0163R" for index in range(9742)]
+    chunks: list[CheckpointChunkRef] = []
+    cumulative_bytes = 0
+    final_bytes = 0
+    template = AcquisitionManifest(
+        schema_version=1,
+        source_id="nh_local",
+        session_id="a" * 32,
+        cycle_date_kst="2026-08-11",
+        request_fingerprint="b" * 64,
+        checkpoint_contract_version=1,
+        acquisition_contract_version=1,
+        revision=1,
+        status="collecting",
+        work_plan_hash="c" * 64,
+        expected_work_count=9742,
+        completed_work_count=0,
+        completed_work_keys=(),
+        chunks=(),
+        guard_state=None,
+        terminal_reason_code=None,
+        terminal_reason=None,
+        created_at="2026-08-11T00:00:00Z",
+        updated_at="2026-08-11T00:00:00Z",
+    )
+    previous = 0
+    for completed in range(200, 9943, 200):
+        actual = min(completed, 9742)
+        sequence = len(chunks) + 1
+        chunks.append(
+            CheckpointChunkRef(
+                sequence=sequence,
+                object_key=(
+                    "checkpoints/v1/nh_local/2026-08-11/sessions/"
+                    + "a" * 32
+                    + f"/chunks/{sequence:06d}-"
+                    + "d" * 16
+                    + ".tar.gz"
+                ),
+                sha256="d" * 64,
+                item_count=actual - previous,
+                bytes=123456,
+                created_at="2026-08-11T00:00:00Z",
+            )
+        )
+        manifest = replace(
+            template,
+            revision=sequence + 1,
+            completed_work_count=actual,
+            completed_work_keys=tuple(keys[:actual]),
+            chunks=tuple(chunks),
+        )
+        size = len(
+            json.dumps(
+                manifest.to_dict(), ensure_ascii=False, sort_keys=True, indent=2
+            ).encode("utf-8")
+        )
+        cumulative_bytes += size
+        final_bytes = size
+        previous = actual
+        if actual == 9742:
+            break
+
+    assert len(chunks) == math.ceil(9742 / 200)
+    assert final_bytes < 512 * 1024
+    assert cumulative_bytes < 10 * 1024 * 1024
 
 
 def test_canonical_fingerprint_is_mapping_order_independent() -> None:

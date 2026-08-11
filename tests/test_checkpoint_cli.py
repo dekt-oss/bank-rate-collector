@@ -100,3 +100,54 @@ def test_recovery_decision_cli_fails_when_r2_configuration_is_missing(monkeypatc
 
     assert code == 1
     assert "R2 시크릿이 없다" in capsys.readouterr().err
+
+def test_collecting_checkpoint_cli_requires_attempt_failed_evidence(tmp_path, capsys) -> None:
+    root = tmp_path / "objects"
+    store = LocalObjectStore(root)
+    fingerprint = canonical_fingerprint({"scope": "전국"})
+    identity = AcquisitionSessionIdentity(
+        source_id="nh_local",
+        cycle_date_kst="2026-08-11",
+        request_fingerprint=fingerprint,
+    )
+    service = ResumableAcquisitionService(store, identity, now=lambda: NOW)
+    manifest = service.open()
+    service.flush(
+        manifest,
+        [
+            CheckpointArtifact(
+                work_key="nh:1:screen",
+                artifact=RawArtifactData(
+                    artifact_type="html",
+                    content=b"ok",
+                    filename="one.html",
+                    request_meta={"n": 1},
+                    schema_fingerprint="fp",
+                    source_role="primary_official",
+                    trust_level="official_direct",
+                ),
+            )
+        ],
+    )
+
+    base = [
+        "recovery-decision",
+        "--source",
+        "nh_local",
+        "--cycle-date",
+        "2026-08-11",
+        "--request-fingerprint",
+        fingerprint,
+        "--local-root",
+        str(root),
+    ]
+    assert main(base) == 0
+    without = json.loads(capsys.readouterr().out)
+    assert without["eligible"] is False
+    assert without["reason_code"] == "CALLER_FAILURE_NOT_CONFIRMED"
+
+    assert main([*base, "--attempt-failed"]) == 0
+    confirmed = json.loads(capsys.readouterr().out)
+    assert confirmed["eligible"] is True
+    assert confirmed["reason_code"] == "RECOVERABLE_ABNORMAL_EXIT"
+

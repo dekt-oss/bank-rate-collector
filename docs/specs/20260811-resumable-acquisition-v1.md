@@ -347,6 +347,9 @@ CLI/service가 독자적으로 wall-clock 날짜를 재정의하지 않는다.
 
 workflow에서 가능한 한 명시적 cycle metadata를 source command에 전달한다.
 
+구현에서는 current run API 조회를 인증된 `GITHUB_TOKEN`으로 수행한다. 익명 API
+rate limit에 checkpoint 시작 가능 여부를 맡기지 않는다.
+
 ## 6.2 Resume compatibility
 
 자동 resume는 다음이 모두 같을 때만 허용한다.
@@ -385,6 +388,7 @@ checkpoints/v1/{source_id}/{cycle_date_kst}/
 ```text
 checkpoints/v1/nh_local/2026-08-12/
   active.json
+  sealed.json   # terminal/sealed 사유 감사 pointer; resume pointer가 아님
   sessions/
     {session_id}/
       manifest-000001.json
@@ -528,12 +532,17 @@ if: ${{ steps.collect_nh_local.outcome == 'failure' }}
 
 first source command가 failure로 끝난 경우 workflow는 checkpoint/session 상태를 읽어 `RecoveryDecision`을 만든다.
 
+`continue-on-error: true`여도 step의 `outcome`은 failure로 남는다. 따라서 별도
+06:00 cron이나 다음날 scheduled run을 recovery caller로 쓰지 않고 **같은 workflow에서
+즉시 1회** 판정하고 이어받는다.
+
 권장 인터페이스 예:
 
 ```text
 rate-monitor checkpoint recovery-decision \
   --source nh_local \
   --cycle-date 2026-08-12 \
+  --attempt-failed \
   --json work/nh-recovery-decision.json
 ```
 
@@ -582,6 +591,7 @@ KFCC도 동일한 패턴을 사용한다.
 ```text
 recoverable_failed + valid compatible checkpoint
 collecting + valid compatible durable checkpoint after child-process abnormal termination
+  + caller가 first source attempt failure를 명시적으로 확인(`--attempt-failed`)
 complete + canonical process not confirmed, and re-materialization is proven idempotent/safe
 ```
 
@@ -887,6 +897,21 @@ resume skipped request 수 기록
 ```
 
 이 값은 acceptance target이며 runtime evidence에 따라 조정할 수 있다. 근거 없이 request interval을 줄여 target을 맞추지 않는다.
+
+### 19.1 Manifest serialization bound (PR A review evidence)
+
+`completed_work_keys`를 revision마다 반복 저장하는 구조는 누적 바이트가 이론상 2차식이다.
+PR A에서는 v1의 실제 최대 작업량을 synthetic serialization으로 먼저 고정한다.
+
+```text
+NH 9,742 work keys / 200-item flush
+final manifest < 512 KiB
+all manifest revisions cumulative < 10 MiB
+```
+
+현재 구현 형상의 계산값은 대략 final 271 KiB, cumulative 6.3 MiB다. 이는 R2 latency가
+아니라 JSON 크기 evidence다. 실제 PUT p95/전체 overhead가 §19 target을 넘으면
+`completed_work_keys` 외부 index/chunk 구조로 바꾸고, 넘지 않으면 v1 bounded cost로 유지한다.
 
 ---
 

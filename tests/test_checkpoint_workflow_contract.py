@@ -49,6 +49,7 @@ def test_long_running_source_steps_receive_complete_r2_configuration() -> None:
     for name in ("Collect NH local", "Collect KFCC"):
         env = _step(name).get("env") or {}
         assert set(env) >= R2_ENV_KEYS, f"{name} checkpoint R2 env 누락"
+        assert env.get("GITHUB_TOKEN") == "${{ secrets.GITHUB_TOKEN }}"
         assert env.get("SCOPE") is not None
 
 

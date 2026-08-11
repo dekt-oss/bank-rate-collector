@@ -45,10 +45,4 @@ target-version = "py312"
 extend-exclude = ["src/rate_monitor/db/migrations/versions"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP", "B", "SIM"]
-
-[tool.ruff.lint.per-file-ignores]
-# checkpoint core의 두 forward-reference 표기는 dataclass classmethod 반환형을
-# 가까이 읽기 위한 것이고, tar open은 바로 다음 `with archive:`에서 닫힌다.
-# E501 한 건은 예외 chain 문장이며 동작과 무관하다. PR 후속 정리 때 좁힌다.
-"src/rate_monitor/services/resumable_acquisition.py" = ["UP037", "SIM115", "E501"]
+select = ["E", "F", "I", "UP", "B", "SIM", "W"]

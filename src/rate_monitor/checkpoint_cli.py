@@ -39,7 +39,9 @@ def _recovery_decision(args: argparse.Namespace) -> int:
         checkpoint_contract_version=args.checkpoint_contract_version,
         acquisition_contract_version=args.acquisition_contract_version,
     )
-    decision = decide_recovery(_store(args.local_root), identity)
+    decision = decide_recovery(
+        _store(args.local_root), identity, attempt_failed=args.attempt_failed
+    )
     body = decision.to_json() + "\n"
     if args.json:
         path = Path(args.json)
@@ -68,6 +70,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--checkpoint-contract-version", type=int, default=CHECKPOINT_CONTRACT_VERSION
     )
     recovery.add_argument("--acquisition-contract-version", type=int, default=1)
+    recovery.add_argument(
+        "--attempt-failed",
+        action="store_true",
+        help="first source attempt가 이미 failure로 끝났음을 caller가 확인했다",
+    )
     recovery.add_argument("--json", default=None, help="동일 JSON을 저장할 경로")
     recovery.add_argument(
         "--local-root",

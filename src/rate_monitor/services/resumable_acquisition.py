@@ -7,6 +7,10 @@ immutable, content-addressed chunks plus immutable manifest revisions. Only
 written and verified.
 
 Checkpoint state is staging/evidence. It is never canonical rate data.
+
+A ``collecting`` manifest alone never proves that its collector died. The
+recovery caller must separately prove the source attempt finished with failure;
+the production workflow also keeps a single-writer concurrency contract.
 """
 
 from __future__ import annotations
@@ -109,7 +113,7 @@ class AcquisitionManifest:
         return data
 
     @classmethod
-    def from_dict(cls, data: Mapping[str, Any]) -> "AcquisitionManifest":
+    def from_dict(cls, data: Mapping[str, Any]) -> AcquisitionManifest:
         try:
             manifest = cls(
                 schema_version=int(data["schema_version"]),
@@ -166,7 +170,7 @@ class ActiveCheckpointRef:
         return dataclasses.asdict(self)
 
     @classmethod
-    def from_dict(cls, data: Mapping[str, Any]) -> "ActiveCheckpointRef":
+    def from_dict(cls, data: Mapping[str, Any]) -> ActiveCheckpointRef:
         try:
             ref = cls(
                 schema_version=int(data["schema_version"]),
@@ -317,6 +321,11 @@ def active_key(source_id: str, cycle_date_kst: str) -> str:
     return f"{CHECKPOINT_PREFIX}/{source_id}/{cycle_date_kst}/active.json"
 
 
+def sealed_key(source_id: str, cycle_date_kst: str) -> str:
+    """Audit pointer to the latest terminal/sealed manifest for a cycle."""
+    return f"{CHECKPOINT_PREFIX}/{source_id}/{cycle_date_kst}/sealed.json"
+
+
 def _manifest_object_key(manifest: AcquisitionManifest, digest: str) -> str:
     return (
         f"{_session_prefix(manifest.source_id, manifest.cycle_date_kst, manifest.session_id)}/"
@@ -392,6 +401,32 @@ class CheckpointRepository:
             raise CheckpointCorruptError("active.json과 manifest의 session_id가 다르다")
         return manifest
 
+    def load_sealed(self, source_id: str, cycle_date_kst: str) -> ActiveCheckpointRef | None:
+        key = sealed_key(source_id, cycle_date_kst)
+        if not self.store.exists(key):
+            return None
+        try:
+            payload = json.loads(self.store.get(key))
+        except (json.JSONDecodeError, TypeError) as exc:
+            raise CheckpointCorruptError(f"sealed.json을 읽을 수 없다: {key}") from exc
+        ref = ActiveCheckpointRef.from_dict(payload)
+        if ref.source_id != source_id or ref.cycle_date_kst != cycle_date_kst:
+            raise CheckpointCorruptError("sealed.json의 source/cycle identity가 경로와 다르다")
+        return ref
+
+    def load_sealed_manifest(
+        self, source_id: str, cycle_date_kst: str
+    ) -> AcquisitionManifest | None:
+        ref = self.load_sealed(source_id, cycle_date_kst)
+        if ref is None:
+            return None
+        manifest = self.load_manifest(ref.manifest_key, ref.manifest_sha256)
+        if manifest.session_id != ref.session_id:
+            raise CheckpointCorruptError("sealed.json과 manifest의 session_id가 다르다")
+        if manifest.status not in TERMINAL_STATUSES:
+            raise CheckpointCorruptError("sealed.json이 terminal manifest를 가리키지 않는다")
+        return manifest
+
     def write_manifest(self, manifest: AcquisitionManifest) -> tuple[str, str]:
         _validate_manifest(manifest)
         raw = _pretty_json_bytes(manifest.to_dict())
@@ -428,6 +463,28 @@ class CheckpointRepository:
 
     def delete_active(self, source_id: str, cycle_date_kst: str) -> None:
         self.store.delete(active_key(source_id, cycle_date_kst))
+
+    def record_sealed(self, manifest: AcquisitionManifest) -> None:
+        if manifest.status not in TERMINAL_STATUSES:
+            raise CheckpointError("terminal manifest만 sealed pointer로 기록할 수 있다")
+        raw_manifest = _pretty_json_bytes(manifest.to_dict())
+        digest = _sha256(raw_manifest)
+        manifest_object = _manifest_object_key(manifest, digest)
+        if not self.store.exists(manifest_object):
+            raise CheckpointError(f"sealed가 가리킬 manifest가 없다: {manifest_object}")
+        ref = ActiveCheckpointRef(
+            schema_version=ACTIVE_SCHEMA_VERSION,
+            source_id=manifest.source_id,
+            cycle_date_kst=manifest.cycle_date_kst,
+            session_id=manifest.session_id,
+            manifest_key=manifest_object,
+            manifest_sha256=digest,
+            updated_at=manifest.updated_at,
+        )
+        pointer_key = sealed_key(manifest.source_id, manifest.cycle_date_kst)
+        self.store.put(pointer_key, _pretty_json_bytes(ref.to_dict()))
+        if self.load_sealed(manifest.source_id, manifest.cycle_date_kst) != ref:
+            raise CheckpointCorruptError(f"sealed.json 업로드 검증 실패: {pointer_key}")
 
     def write_chunk(
         self,
@@ -541,10 +598,18 @@ class ResumableAcquisitionService:
                     terminal_reason="operator requested fresh acquisition",
                 )
                 self.repo.commit_manifest(abandoned)
+                self.repo.record_sealed(abandoned)
                 self.repo.delete_active(active.source_id, active.cycle_date_kst)
             return self._create_session()
 
         if active is None:
+            sealed = self.repo.load_sealed_manifest(
+                self.identity.source_id, self.identity.cycle_date_kst
+            )
+            if sealed is not None:
+                raise CheckpointIncompatibleError(
+                    f"same-cycle terminal status={sealed.status!r}; operator fresh가 필요하다"
+                )
             return self._create_session()
         self._ensure_compatible(active)
         if active.status not in RESUMABLE_STATUSES:
@@ -682,6 +747,7 @@ class ResumableAcquisitionService:
             terminal_reason=reason,
         )
         self.repo.commit_manifest(updated)
+        self.repo.record_sealed(updated)
         self.repo.delete_active(updated.source_id, updated.cycle_date_kst)
         return updated
 
@@ -691,6 +757,7 @@ class ResumableAcquisitionService:
             raise CheckpointError("complete session만 canonical_committed로 바꿀 수 있다")
         updated = self._next_manifest(manifest, status="canonical_committed")
         self.repo.commit_manifest(updated)
+        self.repo.record_sealed(updated)
         self.repo.delete_active(updated.source_id, updated.cycle_date_kst)
         return updated
 
@@ -762,11 +829,24 @@ class ResumableAcquisitionService:
         return updated
 
 
-def decide_recovery(store: ObjectStore, identity: AcquisitionSessionIdentity) -> RecoveryDecision:
-    """Return a fail-closed, machine-readable same-cycle recovery decision."""
+def decide_recovery(
+    store: ObjectStore,
+    identity: AcquisitionSessionIdentity,
+    *,
+    attempt_failed: bool = False,
+) -> RecoveryDecision:
+    """Return a fail-closed, machine-readable same-cycle recovery decision.
+
+    ``attempt_failed`` is caller evidence. It is required before a plain
+    ``collecting`` manifest can be interpreted as an abnormal child exit.
+    """
     repo = CheckpointRepository(store)
     try:
         manifest = repo.load_active_manifest(identity.source_id, identity.cycle_date_kst)
+        if manifest is None:
+            manifest = repo.load_sealed_manifest(
+                identity.source_id, identity.cycle_date_kst
+            )
     except CheckpointCorruptError:
         return RecoveryDecision(
             False,
@@ -815,10 +895,30 @@ def decide_recovery(store: ObjectStore, identity: AcquisitionSessionIdentity) ->
             manifest.completed_work_count,
         )
     if manifest.status == "collecting":
-        eligible = manifest.completed_work_count > 0
+        if manifest.completed_work_count <= 0:
+            return RecoveryDecision(
+                False,
+                "NO_DURABLE_PROGRESS",
+                identity.source_id,
+                identity.cycle_date_kst,
+                manifest.session_id,
+                manifest.status,
+                manifest.completed_work_count,
+            )
+        if not attempt_failed:
+            return RecoveryDecision(
+                False,
+                "CALLER_FAILURE_NOT_CONFIRMED",
+                identity.source_id,
+                identity.cycle_date_kst,
+                manifest.session_id,
+                manifest.status,
+                manifest.completed_work_count,
+            )
+        eligible = True
         return RecoveryDecision(
             eligible,
-            "RECOVERABLE_ABNORMAL_EXIT" if eligible else "NO_DURABLE_PROGRESS",
+            "RECOVERABLE_ABNORMAL_EXIT",
             identity.source_id,
             identity.cycle_date_kst,
             manifest.session_id,
@@ -933,7 +1033,7 @@ def _tar_add_bytes(archive: tarfile.TarFile, name: str, data: bytes) -> None:
 
 def _decode_chunk(raw: bytes) -> list[CheckpointArtifact]:
     try:
-        archive = tarfile.open(fileobj=io.BytesIO(raw), mode="r:gz")
+        archive = tarfile.open(fileobj=io.BytesIO(raw), mode="r:gz")  # noqa: SIM115
     except (tarfile.TarError, OSError, EOFError) as exc:
         raise CheckpointCorruptError("checkpoint chunk tar.gz를 열 수 없다") from exc
     with archive:
@@ -992,7 +1092,9 @@ def _decode_chunk(raw: bytes) -> list[CheckpointArtifact]:
                     trust_level=str(meta["trust_level"]),
                 )
             except (KeyError, TypeError, ValueError) as exc:
-                raise CheckpointCorruptError("checkpoint item artifact metadata가 잘못됐다") from exc
+                raise CheckpointCorruptError(
+                    "checkpoint item artifact metadata가 잘못됐다"
+                ) from exc
             decoded.append(
                 CheckpointArtifact(
                     work_key=work_key,
