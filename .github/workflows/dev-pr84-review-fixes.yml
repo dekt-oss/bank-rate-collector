@@ -45,11 +45,14 @@ jobs:
           RATE_MONITOR_DB_URL: sqlite+pysqlite:///${{ runner.temp }}/pr84-review.sqlite3
         run: uv run alembic upgrade head
 
-      - name: Commit review fixes and remove helper files
+      - name: Commit non-workflow review fixes
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git rm .github/workflows/dev-pr84-review-fixes.yml
+          # GitHub Actions token cannot update workflow files. The production workflow
+          # token wiring and this temporary helper's deletion are committed by the
+          # repository connector immediately after this push.
+          git checkout HEAD -- .github/workflows/collect.yml
           git rm .github/dev/pr84_review_fixes.py .github/dev/pr84_postfix.py
           git add -A
           git commit -m "fix: address checkpoint review findings"
