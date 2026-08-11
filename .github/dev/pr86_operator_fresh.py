@@ -9,18 +9,17 @@ def replace_once(path: str, old: str, new: str) -> None:
     p.write_text(text.replace(old, new, 1), encoding="utf-8")
 
 
-# A same-day complete/terminal checkpoint intentionally blocks auto resume. Give a
-# workflow_dispatch operator an explicit fresh escape hatch without weakening schedule.
-replace_once(
-    ".github/workflows/collect.yml",
-    '''      nh_local_scope:
+workflow = Path(".github/workflows/collect.yml")
+text = workflow.read_text(encoding="utf-8")
+
+old_input = '''      nh_local_scope:
         description: "농·축협 수집 범위. 전국은 실측 3시간 37분입니다"
         type: choice
         required: false
         default: "전국"
         options: ["전국", "수도권", "부산"]
-''',
-    '''      nh_local_scope:
+'''
+new_input = '''      nh_local_scope:
         description: "농·축협 수집 범위. 전국은 실측 3시간 37분입니다"
         type: choice
         required: false
@@ -32,35 +31,41 @@ replace_once(
         required: false
         default: "auto"
         options: ["auto", "fresh"]
-''',
-)
-replace_once(
-    ".github/workflows/collect.yml",
-    '''        env:
+'''
+if text.count(old_input) != 1:
+    raise SystemExit("workflow input marker mismatch")
+text = text.replace(old_input, new_input, 1)
+
+start = text.find("      - name: Collect NH local\n")
+end = text.find("      - name: Decide NH recovery\n", start)
+if start < 0 or end < 0:
+    raise SystemExit("first NH attempt block markers missing")
+segment = text[start:end]
+old_env = '''        env:
           SCOPE: ${{ inputs.nh_local_scope }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-''',
-    '''        env:
+'''
+new_env = '''        env:
           SCOPE: ${{ inputs.nh_local_scope }}
           RESUME_MODE: ${{ inputs.nh_resume_mode || 'auto' }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-''',
-)
-replace_once(
-    ".github/workflows/collect.yml",
-    '''          uv run rate-monitor collect \\
+'''
+if segment.count(old_env) != 1:
+    raise SystemExit("first NH env marker mismatch")
+segment = segment.replace(old_env, new_env, 1)
+old_command = '''          uv run rate-monitor collect \\
             --source nh_local \\
             --resume auto \\
-            --cycle-date "${{ steps.nh_checkpoint.outputs.cycle_date }}" \\
-''',
-    '''          uv run rate-monitor collect \\
+'''
+new_command = '''          uv run rate-monitor collect \\
             --source nh_local \\
             --resume "$RESUME_MODE" \\
-            --cycle-date "${{ steps.nh_checkpoint.outputs.cycle_date }}" \\
-''',
-)
+'''
+if segment.count(old_command) != 1:
+    raise SystemExit("first NH command marker mismatch")
+segment = segment.replace(old_command, new_command, 1)
+text = text[:start] + segment + text[end:]
+workflow.write_text(text, encoding="utf-8")
 
 # Keep recovery hard-coded auto. A fresh first attempt that failed with durable progress
 # must resume that new session; running fresh again would abandon the progress.
