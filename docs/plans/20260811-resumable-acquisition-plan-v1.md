@@ -15,6 +15,7 @@ related_prs:
   - 80  # 08:00 KST collection SLA
 review_resolution:
   - automatic_resume_trigger_defined
+  - recovery_eligibility_is_machine_readable_and_fail_closed
   - repeat_guard_terminal_semantics_defined
   - memory_reduction_explicitly_out_of_scope
   - workflow_r2_credentials_moved_before_source_integration
@@ -36,7 +37,7 @@ Resumable Acquisition v1의 목표는 이 acquisition 단계에 **R2 durable che
 핵심은 다음 네 가지다.
 
 1. checkpoint는 **staging evidence**이며 canonical 금리 데이터가 아니다.
-2. 일반적인 transport/server 실패는 같은 workflow 안에서 **즉시 1회 자동 recovery**한다.
+2. 일반적인 transport/server 실패는 같은 workflow 안에서 **즉시 1회 자동 recovery**한다. 단, 단순 `step failure`만 보고 재시도하지 않고 checkpoint의 machine-readable terminal state가 recovery 가능함을 증명해야 한다.
 3. `RepeatGuard` trip은 transport 실패가 아니라 기존 계약상 **의도된 partial terminal**이므로 resume하지 않는다.
 4. v1은 durability 기능이다. `fetch() -> list[RawArtifactData]` 외부 계약을 유지하므로 **peak memory 감소는 목표가 아니다.**
 
@@ -92,6 +93,12 @@ gmgoCd + gubuncode
 
 따라서 checkpoint만 추가하고 recovery caller를 만들지 않으면 NH checkpoint는 다음 날 자동으로 사용되지 못한다. v1은 이 결함을 workflow-level recovery step으로 해결한다.
 
+### 1.6 단순 failure 조건만으로도 부족하다
+
+현재 CLI는 `blocked`, `schema_changed`, 일반 failed를 모두 exit code 1로 표현한다. 따라서 workflow가 단순히 `steps.collect.outcome == 'failure'`만 보고 recovery하면 **차단/계약 오류까지 다시 요청하는 오동작**이 생긴다.
+
+v1은 checkpoint/session 상태를 읽는 machine-readable recovery decision을 별도로 만들고, `failure && recovery_eligible`일 때만 두 번째 source command를 실행한다.
+
 ---
 
 ## 2. 목표 구조
@@ -118,7 +125,9 @@ acquisition terminal result
       │
       ├─ complete ───────► materialize artifacts ─► existing _process()
       ├─ guard_tripped ──► materialize partial artifacts ─► existing PARTIAL path
-      └─ recoverable_fail ► workflow recovery step 1회 ─► same-cycle resume
+      └─ recoverable_fail ► recovery decision=eligible
+                               └─ workflow recovery step 1회
+                                    └─ same-cycle resume
 ```
 
 canonical DB에는 acquisition이 정상 완료되거나 기존 `RepeatGuard` 계약에 따라 partial terminal로 종료된 뒤에만 들어간다.
@@ -131,33 +140,53 @@ canonical DB에는 acquisition이 정상 완료되거나 기존 `RepeatGuard` �
 
 v1은 **같은 workflow 안에서 source별 즉시 recovery step을 최대 1회** 둔다.
 
-개념:
+다만 trigger는 단순 step failure가 아니다.
 
 ```text
 Collect NH local
-  outcome=success  ─► 다음 단계
-  outcome=failure  ─► Recover NH local once
-                        └─ same cycle checkpoint auto resume
-
-Collect KFCC
-  outcome=success  ─► 다음 단계
-  outcome=failure  ─► Recover KFCC once
-                        └─ same cycle checkpoint auto resume
+  │
+  ├─ success/partial ─────────────────────► 다음 단계
+  │
+  └─ failure
+       ↓
+  Inspect NH checkpoint/recovery state
+       │
+       ├─ eligible=false ─────────────────► recovery 금지
+       │     blocked / guard / schema / corrupt / incompatible / no checkpoint
+       │
+       └─ eligible=true
+             ↓
+        Recover NH local once
+             └─ same cycle checkpoint auto resume
 ```
+
+KFCC도 동일하다.
+
+recovery eligibility는 stdout 문구 parsing이 아니라 JSON 또는 명시적 CLI output처럼 **테스트 가능한 machine-readable contract**로 제공한다.
 
 첫 시도와 recovery 모두 실패하면 기존 stale canonical data를 유지하고 pipeline은 degraded로 남는다. 무한 recovery는 하지 않는다.
 
-### 3.2 왜 고정 06:00 recovery cron을 v1에 넣지 않는가
+### 3.2 fail-closed 원칙
+
+recovery decision을 읽지 못하거나 checkpoint가 손상됐거나 상태가 모호하면 자동 재시도하지 않는다.
+
+```text
+unknown != recoverable
+```
+
+특히 source block을 일반 network error로 추정해 다시 요청하지 않는다.
+
+### 3.3 왜 고정 06:00 recovery cron을 v1에 넣지 않는가
 
 현재 workflow는 `rate-data-writer` single-writer로 직렬화되고 KFCC-only scheduled run도 04:17 KST에 있다. 별도 06:00 NH recovery run을 추가하면 KFCC와 queue 순서를 공유하게 되고, 실제 queue delay에 따라 08:00 SLA 마진을 오히려 예측하기 어려워진다.
 
 따라서 source/transport 실패는 **실패 직후 같은 workflow에서 즉시** 복구한다.
 
-### 3.3 runner 전체 종료는 별도 실패 모드
+### 3.4 runner 전체 종료는 별도 실패 모드
 
 GitHub runner 자체가 종료되면 같은 workflow의 recovery step도 실행되지 못한다. v1 checkpoint는 이 경우에도 같은 KST 날짜 안의 `workflow_dispatch --resume auto`로 재작업 시간을 줄인다.
 
-runner-level crash를 위한 별도 scheduled recovery watchdog은 v1 운영 증거가 쌓인 뒤 필요성을 판단한다. 따라서 v1의 자동 복구 보장은 **source command가 실패를 반환하고 workflow가 계속 살아 있는 경우**에 한정한다.
+runner-level crash를 위한 별도 scheduled recovery watchdog은 v1 운영 증거가 쌓인 뒤 필요성을 판단한다. 따라서 v1의 자동 복구 보장은 **source command가 실패를 반환하고 workflow가 recovery eligibility를 판정할 수 있는 경우**에 한정한다.
 
 ---
 
@@ -192,7 +221,7 @@ guard trip
 → checkpoint를 terminal partial로 seal
 → 지금까지 받은 artifacts만 materialize
 → 기존 _process()의 fetch_alert / PARTIAL 경로 사용
-→ recovery step 실행 금지
+→ recovery_eligible=false
 ```
 
 ### 4.3 atomicity invariant의 정확한 범위
@@ -352,7 +381,7 @@ peak RSS가 runner 안정성을 위협하면 v1 rollout을 멈추고 `materializ
 
 - 기존 repository Secrets/Variables를 재사용
 - secret 값 로그 출력 금지
-- checkpoint가 켜진 source step과 recovery step에만 필요한 env 전달
+- checkpoint가 켜진 source step, recovery decision step, recovery source step에만 필요한 env 전달
 - R2 설정 일부 누락은 fail-closed
 - credential을 새 public artifact에 넣지 않음
 
@@ -368,7 +397,7 @@ KFCC `_get`은 현재 NH #79와 같은 transient retry가 없다. 04:17 KST KFCC
 
 ```text
 PR 0  KFCC bounded transient retry  ← Resumable Acquisition 바깥의 선행 작업
-PR A  Common checkpoint infrastructure + R2 env wiring
+PR A  Common checkpoint infrastructure + R2 env/recovery-decision wiring
 PR B  NH integration + immediate one-shot recovery
 PR C  KFCC integration + immediate one-shot recovery
 PR D  observability / GC / runtime rollout evidence
@@ -413,6 +442,7 @@ NH
 canonical data       : 2026-08-10 success
 오늘 attempt         : failed
 checkpoint progress  : 7,800 / 9,743
+recovery eligible    : true
 recovery             : pending / running / failed / success
 ```
 
@@ -426,7 +456,8 @@ checkpoint 7,800건이 있다는 이유로 오늘 금리가 7,800건 갱신된 �
 
 - NH 정상 full run 결과가 checkpoint OFF와 의미상 동일
 - KFCC 정상 full run 결과가 checkpoint OFF와 의미상 동일
-- 중간 transport failure 후 즉시 recovery step이 same-cycle checkpoint부터 이어감
+- 중간 transport failure 후 recovery decision이 eligible=true이고 즉시 recovery step이 same-cycle checkpoint부터 이어감
+- blocked/schema/guard/corrupt/incompatible 상태는 recovery_eligible=false
 - recovery 성공 시 최종 canonical 결과가 fresh full run과 동일
 - first attempt + recovery 모두 실패하면 기존 canonical data 유지
 - RepeatGuard trip은 recovery하지 않고 기존 PARTIAL 의미 유지
