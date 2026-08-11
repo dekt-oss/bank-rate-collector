@@ -21,6 +21,9 @@ def test_traffic_light_has_text_as_well_as_color() -> None:
         assert f".health-dot.{signal}" in SITE
     for label in ("정상", "확인 필요", "실패·지연", "진행 중", "대상 아님"):
         assert label in SITE
+    assert 'id="health-head-dot"' in SITE
+    assert 'id="health-head-label"' in SITE
+    assert '$("health-head-dot").className' in SITE
 
 
 def test_health_api_is_read_only_and_sanitized() -> None:

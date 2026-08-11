@@ -1,7 +1,7 @@
 [project]
 name = "rate-monitor"
 version = "0.1.0"
-description = "2금융권 수신금리 통합 모니터 — 부산 16개 구·군"
+description = "전국 예·적금 공시금리 통합 조회·비교"
 requires-python = ">=3.12"
 dependencies = [
     "httpx>=0.27",
