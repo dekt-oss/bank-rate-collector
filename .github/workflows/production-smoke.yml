@@ -1,0 +1,61 @@
+name: Production smoke
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "scripts/production_smoke.py"
+      - "tests/test_production_smoke.py"
+      - ".github/workflows/production-smoke.yml"
+  workflow_run:
+    workflows: ["Collect rates"]
+    types: [completed]
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    # Failed collection/publish runs already have their own failure evidence.  Only
+    # verify production after a successful pipeline, while PR/manual runs always
+    # exercise the checker against the currently published site.
+    if: >-
+      ${{ github.event_name != 'workflow_run' ||
+          github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check out canonical rate-data payload
+        uses: actions/checkout@v4
+        with:
+          ref: rate-data
+          path: published
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Verify production root, freshness and health endpoint
+        env:
+          PRODUCTION_URL: https://bank-rate-collector.vercel.app
+        run: |
+          set -o pipefail
+          python scripts/production_smoke.py \
+            --base-url "$PRODUCTION_URL" \
+            --expected-manifest published/site-public/site-manifest.json \
+            --attempts 20 \
+            --interval 15 \
+            --timeout 20 \
+            2>&1 | tee production-smoke.txt
+
+      - name: Upload smoke evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-smoke-${{ github.run_id }}
+          path: production-smoke.txt
+          retention-days: 30
+          if-no-files-found: warn
