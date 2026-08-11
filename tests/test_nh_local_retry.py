@@ -11,6 +11,7 @@ from rate_monitor.collectors.nh_local.adapter import (
     MAX_TOTAL_RETRIES,
     NhLocalAdapter,
     NhRequestFailure,
+    _failure_code,
 )
 
 
@@ -75,6 +76,8 @@ def test_preflight_connect_timeout_exhausts_four_attempts() -> None:
     assert calls == 4
     assert sleep.delays == [6.0, 21.0, 61.0]
     assert adapter._retry_count == 3
+    assert caught.value.failure_reasons == {"NETWORK_TIMEOUT": 4}
+    assert "failures=NETWORK_TIMEOUT 4" in str(caught.value)
 
 
 def test_preflight_503_retries_then_succeeds() -> None:
@@ -111,6 +114,39 @@ def test_detail_read_timeout_uses_shorter_retry_policy() -> None:
     assert calls == 2
     assert sleep.delays == [4.0]  # 정상 간격 1초 + detail backoff 3초
     assert adapter._retry_reasons == {"NETWORK_TIMEOUT": 1}
+
+
+@pytest.mark.parametrize(
+    ("error_type", "expected_code"),
+    [
+        (httpx.ReadError, "NETWORK_IO"),
+        (httpx.WriteError, "NETWORK_IO"),
+        (httpx.WriteTimeout, "NETWORK_TIMEOUT"),
+        (httpx.PoolTimeout, "NETWORK_TIMEOUT"),
+    ],
+)
+def test_additional_transport_failures_retry_then_succeed(
+    error_type: type[httpx.RequestError], expected_code: str
+) -> None:
+    calls = 0
+    sleep = SleepRecorder()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise error_type("temporary transport failure", request=request)
+        return httpx.Response(200, content=b"detail", request=request)
+
+    adapter = NhLocalAdapter(sleep=sleep)
+    assert _run_get(adapter, handler, phase="detail") == b"detail"
+    assert calls == 2
+    assert sleep.delays == [4.0]
+    assert adapter._retry_reasons == {expected_code: 1}
+
+
+def test_unknown_failure_taxonomy_does_not_mislabel_as_protocol() -> None:
+    assert _failure_code(RuntimeError("unexpected")) == "NETWORK_UNKNOWN"
 
 
 @pytest.mark.parametrize("status", [403, 429])

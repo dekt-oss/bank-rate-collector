@@ -98,6 +98,7 @@ class NhRequestFailure(RuntimeError):
         max_attempts: int,
         cause: Exception,
         retry_count: int,
+        failure_reasons: dict[str, int] | None = None,
     ) -> None:
         self.code = code
         self.phase = phase
@@ -106,9 +107,14 @@ class NhRequestFailure(RuntimeError):
         self.max_attempts = max_attempts
         self.cause = cause
         self.retry_count = retry_count
+        self.failure_reasons = dict(failure_reasons or {})
+        reasons = ", ".join(
+            f"{reason} {count}" for reason, count in sorted(self.failure_reasons.items())
+        ) or "none"
         super().__init__(
             f"{code}: phase={phase} screen={screen} attempt={attempt}/{max_attempts} "
-            f"retries={retry_count} cause={type(cause).__name__}: {cause}"
+            f"retries={retry_count} failures={reasons} "
+            f"cause={type(cause).__name__}: {cause}"
         )
 
 
@@ -116,8 +122,13 @@ def _failure_code(exc: Exception) -> str:
     """실제로 구별할 수 있는 네트워크 실패만 분류한다."""
     if isinstance(exc, httpx.ConnectError):
         return "NETWORK_CONNECT"
-    if isinstance(exc, (httpx.ConnectTimeout, httpx.ReadTimeout)):
+    if isinstance(
+        exc,
+        (httpx.ConnectTimeout, httpx.ReadTimeout, httpx.WriteTimeout, httpx.PoolTimeout),
+    ):
         return "NETWORK_TIMEOUT"
+    if isinstance(exc, (httpx.ReadError, httpx.WriteError)):
+        return "NETWORK_IO"
     if isinstance(exc, httpx.RemoteProtocolError):
         return "NETWORK_PROTOCOL"
     if (
@@ -125,7 +136,7 @@ def _failure_code(exc: Exception) -> str:
         and exc.response.status_code in RETRYABLE_STATUS_CODES
     ):
         return "HTTP_SERVER_ERROR"
-    return "NETWORK_PROTOCOL"
+    return "NETWORK_UNKNOWN"
 
 
 class NhLocalAdapter:
@@ -190,6 +201,11 @@ class NhLocalAdapter:
         )
         return f"재시도 {self._retry_count}회 ({reasons})"
 
+    def _failure_reasons_with(self, code: str) -> dict[str, int]:
+        reasons = Counter(self._retry_reasons)
+        reasons[code] += 1
+        return dict(sorted(reasons.items()))
+
     def _reserve_retry(
         self,
         *,
@@ -209,6 +225,7 @@ class NhLocalAdapter:
                 max_attempts=max_attempts,
                 cause=cause,
                 retry_count=self._retry_count,
+                failure_reasons=self._failure_reasons_with(code),
             ) from cause
         self._retry_count += 1
         self._retry_reasons[code] += 1
@@ -259,6 +276,10 @@ class NhLocalAdapter:
                 httpx.ConnectError,
                 httpx.ConnectTimeout,
                 httpx.ReadTimeout,
+                httpx.WriteTimeout,
+                httpx.PoolTimeout,
+                httpx.ReadError,
+                httpx.WriteError,
                 httpx.RemoteProtocolError,
             ) as exc:
                 failure = exc
@@ -274,6 +295,7 @@ class NhLocalAdapter:
                     max_attempts=max_attempts,
                     cause=failure,
                     retry_count=self._retry_count,
+                    failure_reasons=self._failure_reasons_with(code),
                 ) from failure
 
             self._reserve_retry(
