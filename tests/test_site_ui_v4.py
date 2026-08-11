@@ -118,6 +118,24 @@ def test_the_head_office_notice_is_still_there() -> None:
     assert "저축은행 공시금리 — 전국 본점 기준 참고값" in SOURCE
 
 
+def test_rate_finder_brand_is_broad_and_the_page_is_light_only() -> None:
+    assert "RATE FINDER · 전국 예·적금 금리 비교" in SOURCE
+    assert '<span class="brand-en">RATE FINDER</span>' in SOURCE
+    assert '<span class="brand-ko">전국 예·적금 금리 비교</span>' in SOURCE
+    assert 'id="theme"' not in SOURCE
+    assert 'id="copylink"' not in SOURCE
+    assert "prefers-color-scheme: dark" not in SOURCE
+    assert "data-theme" not in SOURCE
+
+
+def test_source_caveat_is_small_and_below_the_result_table() -> None:
+    table = SOURCE.index('<div class="scroll">')
+    caveat = SOURCE.index('<p class="source-caveat">')
+    footer = SOURCE.index('<footer id="foot">')
+    assert table < caveat < footer
+    assert ".source-caveat" in SOURCE
+
+
 # ── 업권 ────────────────────────────────────────────────────────────────
 
 
@@ -502,18 +520,14 @@ def test_the_charts_draw_without_any_library() -> None:
 
 
 def test_chart_colours_come_from_css_variables_not_literals() -> None:
-    """SVG에 색을 박으면 다크모드에서 안 따라온다.
-
-    토글 뒤 차트만 밝은 색으로 남으면 «왜 여기만 안 바뀌나»가 된다.
-    """
+    """SVG 색은 밝은 화면의 공통 CSS 토큰을 따라야 한다."""
     assert 'getComputedStyle(document.documentElement)' in SOURCE
     # 차트를 그리는 코드에 16진 색이 있으면 안 된다. 흰 글자(#fff)는
     # 색 배지 위에 얹는 것이라 변수로 둘 수 없다 — 그것만 예외다.
     chart_src = SOURCE[SOURCE.index("── 차트 1"):SOURCE.index("── 조건을 주소에 담는다")]
     literals = [w for w in re.findall(r"#[0-9a-fA-F]{3,6}", chart_src) if w != "#fff"]
     assert not literals, f"차트에 박힌 색: {literals}"
-    # 테마를 바꾸면 다시 그린다. 안 그리면 옛 색이 그대로 남는다.
-    assert SOURCE.index("applyTheme(next)") < SOURCE.index("drawCharts();\n  });")
+    assert "applyTheme" not in SOURCE
 
 
 def test_every_chart_says_what_it_counted() -> None:
@@ -832,7 +846,37 @@ def test_a_preset_only_ticks_the_boxes_that_are_already_there() -> None:
         assert code in body and code in {t.value for t in ProductType}
     for code in ("savings_bank", "nh_local", "cu", "kfcc"):
         assert code in body and code in {x.value for x in Sector}
-    assert "if (on) state.picked[k].delete(v); else state.picked[k].add(v);" in SOURCE
+    assert "state.picked[k].clear();" in SOURCE
+    assert "if (on && g) applyDefaultGroup(g);" in SOURCE
+    assert "else vs.forEach((v) => state.picked[k].add(v));" in SOURCE
+
+
+def test_default_filters_match_the_basic_mode_contract() -> None:
+    assert 'const DEFAULT_TERMS = ["4-6", "7-12", "13-24"];' in SOURCE
+    assert 'const DEFAULT_REGIONS = ["서울", "경기", BUSAN_SIDO];' in SOURCE
+    assert 'dfrom: latestAsOf ? shiftDays(latestAsOf, 7) : null' in SOURCE
+    assert 'if (!hasUrlFilters) applyDefaultFilters();' in SOURCE
+    assert '$("groups-basic").innerHTML' in SOURCE
+    assert '$("groups-advanced").innerHTML' in SOURCE
+    assert 'id="advanced-filters" hidden' in SOURCE
+    assert 'id="filter-toggle"' in SOURCE
+
+
+def test_all_means_every_checkbox_is_actually_selected() -> None:
+    assert 'data-all="${esc(g.key)}"' in SOURCE
+    assert "const selectAllGroup = (key) =>" in SOURCE
+    assert "groupValues(g).forEach((v) => state.picked[key].add(v));" in SOURCE
+    assert 'e.target.closest("[data-all]")' in SOURCE
+    assert "if (!set.size) selectAllGroup(box.dataset.group);" in SOURCE
+    assert 'p.set("date", "all")' in SOURCE
+    assert 'GROUPS.filter((g) => !urlSetKeys.has(g.key)).forEach(applyDefaultGroup);' in SOURCE
+
+
+def test_our_company_median_line_is_red_and_dashed() -> None:
+    ours = SOURCE[SOURCE.index('x1="${sx(ours)}"'):]
+    ours = ours[:ours.index("const text =")]
+    assert 'stroke="${css("--crit")}"' in ours
+    assert 'stroke-dasharray="6 4"' in ours
 
 
 def test_the_preset_count_matches_what_clicking_it_gives() -> None:
@@ -1273,7 +1317,8 @@ def test_resetting_the_conditions_clears_the_zero_filter() -> None:
     """«조건 초기화»가 안 지우는 조건이 하나 있으면 그것부터 의심하게 된다."""
     reset = SOURCE[SOURCE.index('$("reset").addEventListener'):]
     reset = reset[:reset.index("renderGroups();")]
-    assert "hideZero: false" in reset
+    assert "applyDefaultFilters();" in reset
+    assert "hideZero: false" in SOURCE[SOURCE.index("const applyDefaultFilters"):]
     assert '$("hide-zero").checked = false' in reset
 
 
