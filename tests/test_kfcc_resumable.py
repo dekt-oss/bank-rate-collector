@@ -306,7 +306,7 @@ def test_list_schema_change_is_terminal_and_raw_evidence_is_sealed(
     )
 
     async def list_only(client, url, params):  # noqa: ANN001
-        return b"LIST:부산"
+        return "LIST:부산".encode()
 
     monkeypatch.setattr(adapter, "_get", list_only)
     monkeypatch.setattr(
