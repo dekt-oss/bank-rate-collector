@@ -343,7 +343,7 @@ def test_the_busan_districts_open_inside_the_region_filter() -> None:
 
 def test_unchecking_busan_also_clears_the_districts() -> None:
     """안 보이는 조건이 살아남으면 왜 적게 나오는지 알 수 없다."""
-    assert "if (!busanOn()) state.gu.clear();" in SOURCE
+    assert 'state.gu.clear(); state.detailOpen.delete("gu");' in SOURCE
 
 
 def test_busan_leads_the_region_list() -> None:
@@ -373,12 +373,13 @@ def test_the_disclosure_date_takes_a_range() -> None:
     assert "state.dto != null && !(r.asOf && r.asOf <= state.dto)" in SOURCE
 
 
-def test_the_rate_basis_moves_both_the_filter_and_the_sort() -> None:
-    """한쪽만 옮기면 최고금리로 걸러 놓고 기본금리로 정렬된다."""
-    assert 'const rateOf = (r) => (state.basis === "max" ? r.max : r.base);' in SOURCE
+def test_the_rate_basis_is_always_the_max_rate() -> None:
+    """비교·정렬·하한·차트가 한 기준을 써야 조건마다 답이 흔들리지 않는다."""
+    assert 'const rateOf = (r) => r.max;' in SOURCE
     assert "if (state.rmin != null && !(rateOf(r) >= state.rmin)) return false;" in SOURCE
-    assert 'if (state.sort === "base" || state.sort === "max") state.sort = state.basis;' \
-        in SOURCE
+    assert 'sort: "max", dir: -1' in SOURCE
+    assert 'name="basis"' not in SOURCE
+    assert "최고금리(우대 포함)" in SOURCE
 
 
 def test_the_average_never_hides_its_denominator() -> None:
@@ -393,7 +394,8 @@ def test_the_average_never_hides_its_denominator() -> None:
 
 def test_the_average_is_computed_over_the_filtered_set_not_the_page() -> None:
     """보이는 100건으로 내면 정렬을 바꿀 때마다 평균이 움직인다."""
-    assert "const base = average(current, (r) => r.base);" in SOURCE
+    assert "const max = average(current, rateOf);" in SOURCE
+    assert "최고금리 중앙값" in SOURCE
     assert "average(ALL" not in SOURCE
 
 
@@ -544,19 +546,21 @@ def test_every_chart_says_what_it_counted() -> None:
     assert '<span class="badge live" id="hist-badge">조회 조건 반영</span>' in SOURCE
     assert '<span class="badge live" id="terms-badge">조회 조건 반영</span>' in SOURCE
     assert "조회 조건 반영 (지역 제외)" in SOURCE
-    # 표를 받기 전에는 발행 집계로 그린다. 그때는 «전체 기준»이라 적는다.
-    assert '<span class="badge">전체 기준</span>' in SOURCE
+    # 인라인 집계는 기본금리뿐이므로 최고금리 표를 받기 전에는 그리지 않는다.
+    assert "const termRowsFromSummary = () => [];" in SOURCE
+    assert "const regionRowsFromSummary = () => [];" in SOURCE
+    assert "최고금리 표를 받는 중입니다" in SOURCE
 
 
 def test_the_representative_value_is_never_the_maximum() -> None:
     """우대 상품 한 건이 권역 전체를 대표하면 안 된다.
 
-    권역 차트는 `base_p50`만 읽는다. `base_max`를 읽는 순간 강서구가
-    직장금고 하나 때문에 10.00%로 선다.
+    최고금리를 쓰되 대표값은 그 최고금리들의 중앙값이어야 한다.
     """
     chart = SOURCE[SOURCE.index("── 차트 3"):SOURCE.index("const drawCharts")]
-    assert "base_p50" in chart
-    assert "base_max" not in chart
+    assert "const v = rateOf(r);" in chart
+    assert "v: median(b.vals)" in chart
+    assert "base_p50" not in chart
 
 
 def test_a_thin_sample_is_named_not_drawn() -> None:
@@ -705,18 +709,10 @@ def test_the_region_chart_names_what_it_actually_counted() -> None:
     저축은행만 켰는데 제목이 «2금융권»이면 화면이 거짓을 말한다. 그래서
     고른 업권을 제목이 그대로 적는다.
     """
-    from rate_monitor.services.dashboard_service import (
-        BENCHMARK_SECOND_TIER,
-        SECOND_TIER_SECTOR,
-    )
-
-    # 표를 받기 전 경로는 여전히 발행된 2금융권 합산을 쓴다.
-    assert f'const REG_SECTOR = "{SECOND_TIER_SECTOR}"' in SOURCE
     assert "const picked = [...state.picked.sector].map((s) => SECTOR_KO[s] || s);" in SOURCE
-    assert 'const who = !live ? "2금융권"' in SOURCE
+    assert 'const who = !live ? "최고금리"' in SOURCE
+    assert "const regionRowsFromSummary = () => [];" in SOURCE
     assert "저축은행 기본금리 중앙값" not in SOURCE
-    # 합산 이름이 실제 업권 코드와 겹치면 목록에 나란히 선다.
-    assert SECOND_TIER_SECTOR not in BENCHMARK_SECOND_TIER
 
 
 def test_the_pinned_row_can_expand_its_preference_text() -> None:
@@ -853,9 +849,14 @@ def test_a_preset_only_ticks_the_boxes_that_are_already_there() -> None:
 
 
 def test_default_filters_match_the_basic_mode_contract() -> None:
-    assert 'const DEFAULT_TERMS = ["4-6", "7-12", "13-24"];' in SOURCE
+    assert "const DEFAULT_TERMS" not in SOURCE
+    assert 'else selectAllGroup(g.key);' in SOURCE, "가입기간도 전체 선택을 사용한다"
     assert 'const DEFAULT_REGIONS = ["서울", "경기", BUSAN_SIDO];' in SOURCE
-    assert 'dfrom: latestAsOf ? shiftDays(latestAsOf, 7) : null' in SOURCE
+    assert 'if (busanOn()) selectAllBusanDistricts();' in SOURCE
+    assert "selectAllPreferenceTags();" in SOURCE
+    assert 'dfrom: latestAsOf ? shiftDays(latestAsOf, 30) : null' in SOURCE
+    assert 'state.dfrom = latestAsOf ? shiftDays(latestAsOf, 30) : null' in SOURCE
+    assert 'const date = thirtyDays ? "공시일 최근 30일"' in SOURCE
     assert 'if (!hasUrlFilters) applyDefaultFilters();' in SOURCE
     assert '$("groups-basic").innerHTML' in SOURCE
     assert '$("groups-advanced").innerHTML' in SOURCE
@@ -895,7 +896,7 @@ def test_the_preset_count_matches_what_clicking_it_gives() -> None:
 
 def test_turning_a_preset_off_also_drops_what_hung_under_it() -> None:
     """부산을 껐는데 구·군만 남으면 아무것도 안 걸린 것처럼 보인다."""
-    assert "if (!busanOn()) state.gu.clear();" in SOURCE
+    assert 'state.gu.clear(); state.detailOpen.delete("gu");' in SOURCE
 
 
 def test_the_histogram_says_how_many_rows_a_bar_holds() -> None:
@@ -1200,23 +1201,39 @@ def test_the_detail_conditions_open_only_under_present() -> None:
     켜 둔 채로 두면 조건을 걸수록 결과가 비는 것처럼 보인다.
     """
     assert 'if (!state.picked.prefStatus.has("present")) return "";' in SOURCE
-    assert 'if (!state.picked.prefStatus.has("present")) state.prefTags.clear();' in SOURCE
+    assert 'state.prefTags.clear(); state.detailOpen.delete("pref");' in SOURCE
 
 
-def test_the_top_conditions_lead_but_nothing_starts_checked() -> None:
-    """상위 분류를 앞에 세우되 기본 체크는 비운다.
-
-    처음부터 켜 두면 첫 화면이 이미 걸러진 상태가 되고, 그걸 전체 목록으로
-    오해한다. 순서는 실측 상위이고 «기타»는 언제나 맨 끝이다.
-    """
+def test_the_top_conditions_lead_and_all_start_checked_without_filtering() -> None:
+    """전체 체크는 보이는 상태와 일치하되 추가 제한으로 해석하지 않는다."""
     assert "const PREF_TOP = [" in SOURCE
     assert 'counts.has("OTHER") ? ["OTHER"] : []' in SOURCE
     assert "prefTags: new Set()," in SOURCE
+    assert "const selectAllPreferenceTags = () =>" in SOURCE
+    assert "PREF_TAG_CODES.forEach((code) => state.prefTags.add(code));" in SOURCE
+    assert "state.prefTags.size < PREF_TAG_CODES.length" in SOURCE
 
 
 def test_the_detail_filter_is_an_or_not_an_and() -> None:
     """조건은 여러 개가 함께 붙는다. 전부 만족을 요구하면 거의 안 남는다."""
     assert "if (r.prefTags.has(code)) hit = true;" in SOURCE
+
+
+def test_nested_filters_are_collapsed_until_detail_view_is_requested() -> None:
+    assert 'data-detail="gu"' in SOURCE
+    assert 'data-detail="pref"' in SOURCE
+    assert 'state.detailOpen.has("gu")' in SOURCE
+    assert 'state.detailOpen.has("pref")' in SOURCE
+    assert '${open ? "세부 접기" : "세부 보기"}' in SOURCE
+
+
+def test_selecting_all_nested_options_is_not_an_extra_filter() -> None:
+    """전체를 눌러 고려저축은행처럼 분류 태그가 없는 행이 사라지면 안 된다."""
+    assert 'const prefNarrowed = state.prefTags.size' in SOURCE
+    assert "if (prefNarrowed)" in SOURCE
+    assert 'const guNarrowed = state.gu.size' in SOURCE
+    assert "state.gu.size < BUSAN.length" in SOURCE
+    assert 'r.region === BUSAN_SIDO' in SOURCE
 
 
 # ── 참고카드: 2금융권 (2026-08-07) ──────────────────────────────────────
