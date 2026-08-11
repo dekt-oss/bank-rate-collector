@@ -77,10 +77,11 @@ def validate_manifest(actual: dict[str, Any], expected: dict[str, Any]) -> None:
         if key not in expected:
             raise SmokeFailure("content-mismatch", f"expected manifest missing {key}")
         if actual[key] != expected[key]:
-            raise SmokeFailure(
-                "content-mismatch",
-                f"production manifest stale for {key}: expected={expected[key]!r} actual={actual[key]!r}",
+            detail = (
+                f"production manifest stale for {key}: "
+                f"expected={expected[key]!r} actual={actual[key]!r}"
             )
+            raise SmokeFailure("content-mismatch", detail)
 
 
 def validate_health(payload: dict[str, Any]) -> None:
