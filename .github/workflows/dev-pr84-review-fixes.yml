@@ -28,18 +28,18 @@ jobs:
           python - <<'PY'
           from pathlib import Path
           p = Path('.github/workflows/collect.yml')
-          text = p.read_text(encoding='utf-8')
-          for scope_name in ('kfcc_scope', 'nh_local_scope'):
-              old = f'          SCOPE: ${{{{ inputs.{scope_name} }}}}\n          R2_ACCESS_KEY_ID:'
-              new = (
-                  f'          SCOPE: ${{{{ inputs.{scope_name} }}}}\n'
-                  '          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}\n'
-                  '          R2_ACCESS_KEY_ID:'
-              )
-              if text.count(old) != 1:
-                  raise SystemExit(f'insertion mismatch: {scope_name}')
-              text = text.replace(old, new, 1)
-          p.write_text(text, encoding='utf-8')
+          lines = p.read_text(encoding='utf-8').splitlines()
+          out = []
+          inserted = 0
+          token_expr = '$' + '{{ secrets.GITHUB_TOKEN }}'
+          for line in lines:
+              out.append(line)
+              if line.startswith('          SCOPE: '):
+                  out.append('          GITHUB_TOKEN: ' + token_expr)
+                  inserted += 1
+          if inserted != 2:
+              raise SystemExit(f'expected 2 SCOPE env lines, got {inserted}')
+          p.write_text('\n'.join(out) + '\n', encoding='utf-8')
           PY
 
       - name: Verify workflow contract
@@ -56,6 +56,4 @@ jobs:
           git add -A
           git commit -m "fix: authenticate checkpoint workflow context"
           echo "FINAL_COMMIT=$(git rev-parse HEAD)"
-          # Expected to be rejected because GITHUB_TOKEN cannot update workflow files.
-          # The repository connector will advance the branch to this uploaded commit.
           git push origin HEAD:agent/resumable-acquisition-common-v1
