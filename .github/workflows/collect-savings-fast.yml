@@ -1,8 +1,8 @@
-name: Collect savings bank fast
+name: Collect bank rates fast
 
-# 저축은행은 하루 중에도 공시금리가 바뀔 수 있다. 전국 지역 수집(CU/NH/KFCC)과
-# 묶으면 다음 확인까지 너무 오래 걸리므로 FINLIFE 저축은행 + 저축은행중앙회만
-# 짧게 다시 확인한다. 기존 00:17/04:17 전체 수집은 건드리지 않는다.
+# 시중은행·저축은행 공시금리는 하루 중에도 바뀔 수 있다. 전국 지역 수집(CU/NH/KFCC)과
+# 묶으면 다음 확인까지 너무 오래 걸리므로 FINLIFE 시중은행·저축은행 + 저축은행중앙회만
+# 짧게 다시 확인한다. 기존 전체 수집은 건드리지 않는다.
 on:
   schedule:
     # 평일 10:00 / 15:00 / 18:00 KST. 이 시간대는 UTC와 날짜가 같아 1-5 그대로다.
@@ -92,6 +92,16 @@ jobs:
           RATE_MONITOR_DB_URL: sqlite+pysqlite:///${{ github.workspace }}/work/rate_monitor.sqlite3
         run: uv run alembic upgrade head
 
+      - name: Collect finlife bank
+        env:
+          FINLIFE_API_KEY: ${{ secrets.FINLIFE_API_KEY }}
+        run: |
+          uv run rate-monitor collect \
+            --source finlife_bank \
+            --db work/rate_monitor.sqlite3 \
+            --raw-root data/raw \
+            --groups 020000
+
       - name: Collect finlife savings bank
         env:
           FINLIFE_API_KEY: ${{ secrets.FINLIFE_API_KEY }}
@@ -180,7 +190,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: savings-fast-${{ github.run_id }}
+          name: bank-rates-fast-${{ github.run_id }}
           retention-days: 90
           path: |
             data/raw/
@@ -227,7 +237,7 @@ jobs:
             cp stage/vercel.json .
 
             git add -f latest site-public vercel.json api
-            git commit -q -m "data: 저축은행 경량 수집 갱신 (run ${{ github.run_id }})"
+            git commit -q -m "data: 은행권 경량 수집 갱신 (run ${{ github.run_id }})"
 
             if [ -n "$BEFORE" ]; then
               PUSH="git push --force-with-lease=rate-data:$BEFORE origin HEAD:rate-data"
