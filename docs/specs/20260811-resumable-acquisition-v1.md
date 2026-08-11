@@ -2,7 +2,7 @@
 
 ```yaml
 document_type: implementation_spec
-status: proposal_for_review
+status: reviewed_for_merge
 implementation_hold: true
 date: 2026-08-11
 target_repository: dekt-oss/bank-rate-collector
@@ -15,66 +15,60 @@ related:
   merged_prs:
     - 79
     - 80
+prerequisite_before_pr_a:
+  - kfcc_bounded_transient_retry
 ```
 
-> **이 문서는 구현 전 리뷰용이다.**
->
-> 이 branch/PR에서는 코드, workflow, DB schema를 변경하지 않는다. 사용자 리뷰 후 승인 시 최신 `main`을 다시 확인하고 구현 PR을 별도로 연다.
+> **Implementation hold.** 이 문서는 구현 전 기준을 확정하기 위한 문서다. 이 docs PR을 머지해도 코드·workflow·DB·R2 object는 바뀌지 않는다. 실제 구현 시작 직전에 최신 `main`, workflow, adapters, storage contract를 다시 확인한다.
 
 ---
 
 # 0. Task Boundary
 
-## 0.1 이번 기능이 해결하는 문제
+## 0.1 해결할 문제
 
-NH와 KFCC는 장시간 전국 수집 중 후반부에 장애가 발생하면 그 실행에서 이미 받아 둔 원본을 다음 실행에 이어서 사용할 수 없다.
+NH와 KFCC는 장시간 전국 수집 중 후반부에 transport/server 장애 또는 workflow-level 중단이 발생하면 이미 받은 원본을 다음 시도에서 이어서 사용할 수 없다.
 
-현재 공통 실행 경로는:
+현재 실행 경계:
 
 ```text
 adapter.fetch()
   └─ 모든 RawArtifactData를 메모리에 누적
        ↓
-fetch 전체 성공
+fetch 전체 성공 또는 기존 partial terminal
        ↓
 collection_service._process()
        ↓
 raw save / parse / canonical observation
 ```
 
-이다.
+v1은 fetch/acquisition 단계에 R2 durable staging을 넣는다.
 
-따라서 `fetch()`가 마지막 구간에서 실패하면 `_process()` 자체에 들어가지 못한다.
-
-v1 목표는 이 acquisition 단계에 **R2 durable staging + resume**를 넣는 것이다.
-
-## 0.2 이번 기능이 하지 않는 것
+## 0.2 비목표
 
 - 수집원 병렬화
 - request interval 단축
-- multi-runner distributed locking
+- multi-runner distributed execution
 - canonical DB schema migration
-- 새 queue/database 도입
-- partial publish
+- partial transport-failure data의 canonical 승격
 - 전날 checkpoint 자동 재사용
 - source block 우회
-- 무한 자동 복구
+- 무한 자동 recovery
+- peak memory 감소 보장
+- `fetch() -> list[RawArtifactData]` 외부 계약 변경
+- RepeatGuard 내부 자료구조 최적화
+
+메모리 절감은 명시적 비목표다. v1은 durability/resume 기능이며 peak RSS는 별도 검증한다.
 
 ---
 
 # 1. Current State Evidence
 
-## 1.1 저장소
+## 1.1 Storage
 
-현재 `config/storage.yaml`은:
+`config/storage.yaml`의 현재 backend는 `r2`다.
 
-```yaml
-backend: r2
-```
-
-이며 R2가 authoritative state store다.
-
-기존 `storage_service.ObjectStore` 계약:
+기존 `storage_service.ObjectStore`:
 
 ```python
 put(key: str, data: bytes) -> None
@@ -89,126 +83,172 @@ delete(key: str) -> None
 - `R2ObjectStore`
 - `LocalObjectStore`
 
-따라서 checkpoint를 위해 새 저장 시스템을 추가할 필요는 없다.
+checkpoint는 이 계약을 재사용한다.
 
-## 1.2 Canonical DB 계약
+## 1.2 Canonical fail-safe
 
-`collection_service.collect_source()`는 먼저 `CollectionRun`을 만든 뒤 `adapter.fetch()`를 호출한다.
+`collect_source()`는 adapter fetch 실패 시 run 상태만 기록하고 observations를 쓰지 않는다. 직전 정상값은 유지된다.
 
-`fetch()` 실패 시:
+fetch가 artifacts를 반환하면 `_process()`가 raw save / parse / persist를 수행한다.
 
-- run status만 failed/blocked/schema_changed로 기록
-- observations는 쓰지 않음
-- 직전 정상값 유지
-
-`fetch()`가 완전한 `RawArtifactData[]`를 반환한 뒤에만 `_process()`가 raw 저장·parse·관측 저장을 수행한다.
-
-이 fail-safe 경계를 v1에서도 유지한다.
+이 경계를 v1에서도 유지한다.
 
 ## 1.3 NH
 
-현재 acquisition key로 사용할 수 있는 source-native identity가 있다.
+전국 기본 workload:
 
 ```text
-outlet.brc + parser screen
+명부 1 + 약 4,871점포 × 화면 2 = 약 9,743 HTTP 요청
 ```
 
-현재 대상 product는 term deposit / installment savings이며 상세 screen은 product에 따라 결정된다.
+현재 source-native work identity:
 
-PR #79의 bounded retry는 유지한다.
+```text
+brc + screen
+```
+
+PR #79의 bounded retry는 유지한다. retry 대상/금지 대상은 checkpoint layer가 재정의하지 않는다.
 
 ## 1.4 KFCC
 
-현재 source-native identity:
+전국 기본 workload:
+
+```text
+지역 목록 약 17 + 약 1,260금고 × 상품군 2 = 약 2,537 HTTP 요청
+```
+
+source-native work identity:
 
 ```text
 gmgoCd + gubuncode
 ```
 
-금리 페이지에는 이름/주소 정보가 충분하지 않아 region list에서 만든 `row`와 `outlet_directory` metadata가 parsing에 필요하다.
+금리 페이지만으로 institution/address를 복원할 수 없으므로 list-derived metadata 전체를 artifact metadata에 포함한다.
 
-따라서 checkpoint는 raw body만 저장하면 안 되고 **artifact request metadata 전체를 보존**해야 한다.
+## 1.5 Workflow
 
----
+현재 `Collect NH local`, `Collect KFCC` step은 모두 `continue-on-error: true`다.
 
-# 2. Target Architecture
+따라서 source command 실패 후 pipeline은 계속되지만 별도 recovery run은 자동으로 생성되지 않는다. v1은 source별 workflow recovery step을 명시적으로 추가해야 한다.
 
-```text
-                     ┌───────────────────────┐
-                     │  Acquisition Adapter  │
-                     │ NH / KFCC             │
-                     └───────────┬───────────┘
-                                 │ work item
-                                 ▼
-                     ┌───────────────────────┐
-                     │ ResumableAcquisition  │
-                     │ Service               │
-                     ├───────────────────────┤
-                     │ plan/session identity │
-                     │ completed key set     │
-                     │ chunk flush           │
-                     │ manifest pointer      │
-                     │ resume validation     │
-                     └───────────┬───────────┘
-                                 │
-                                 ▼
-                         R2 checkpoint/*
-                                 │
-                     acquisition complete
-                                 │
-                                 ▼
-                     RawArtifactData[] rebuild
-                                 │
-                                 ▼
-                     existing _process()
-                                 │
-               parse / DB / validate / R2 state
-```
+## 1.6 R2 credential wiring
 
-### 핵심 invariant
+현재 NH/KFCC collection step의 env에는 `SCOPE`만 있고 R2 credential이 없다. R2 credential은 restore/upload 단계에만 있다.
 
-```text
-checkpoint_complete != canonical_commit
-```
-
-checkpoint는 acquisition evidence이고 사용자-visible state가 아니다.
+따라서 checkpoint common layer가 source step에서 R2를 사용하려면 **source integration보다 먼저 workflow env wiring을 추가**해야 한다.
 
 ---
 
-# 3. 제안 파일 구조
+# 2. Core Invariants
 
-구현 시 기본 파일 경계를 다음으로 제안한다.
+## I1. Checkpoint는 canonical data가 아니다
 
 ```text
-src/rate_monitor/services/
-  resumable_acquisition.py
-
-src/rate_monitor/collectors/nh_local/
-  adapter.py
-
-src/rate_monitor/collectors/kfcc/
-  adapter.py
-
-tests/
-  test_resumable_acquisition.py
-  test_nh_local_resume.py
-  test_kfcc_resume.py
-  test_checkpoint_storage.py
+checkpoint progress != published latest data
 ```
 
-기존 `storage_service.py`의 ObjectStore/R2ObjectStore/LocalObjectStore를 재사용한다.
+checkpoint는 acquisition staging/evidence다.
 
-### 원칙
+## I2. Recoverable interruption은 full acquisition 전 canonical 승격 금지
 
-`resumable_acquisition.py`는 NH/KFCC의 URL·brc·gmgoCd 의미를 알지 않는다.
+transport/server interruption으로 work plan이 미완료이면 `_process()`를 호출하지 않는다.
 
-adapter는 R2 key layout이나 manifest revision 규칙을 알지 않는다.
+예:
+
+```text
+expected=9,742
+completed=9,741
+recoverable_failed=true
+```
+
+이면 canonical commit 금지다.
+
+## I3. RepeatGuard terminal은 I2와 다른 계약이다
+
+`RepeatGuard.tripped`는 기존 시스템에서 예외가 아니라 의도된 partial terminal이다. 그 시점까지 받은 artifacts를 반환하고 `_process()`가 `PARTIAL`로 기록한다.
+
+따라서 guard trip은 resume 대상이 아니다.
+
+## I4. 다른 KST cycle 자동 혼합 금지
+
+어제 incomplete checkpoint를 오늘 scheduled collection에 자동 합치지 않는다.
+
+## I5. Canonical R2 commit 전 cleanup 금지
+
+acquisition complete 뒤 `_process()`와 최종 state snapshot/R2 commit이 끝나기 전에 checkpoint를 삭제하지 않는다.
+
+## I6. Request pacing 유지
+
+checkpoint 도입 때문에 원천 요청 간격을 줄이거나 concurrency를 늘리지 않는다.
+
+## I7. Recovery는 bounded
+
+같은 workflow에서 source failure당 자동 recovery는 최대 1회다.
 
 ---
 
-# 4. Domain Types
+# 3. Target Architecture
 
-구현 시 아래 수준의 명시적 타입을 권장한다. 실제 이름은 리뷰 후 조정 가능하나 역할 분리는 유지한다.
+```text
+Adapter-specific planner / fetcher
+             │
+             ▼
+ResumableAcquisitionService
+             │
+             ├─ session identity
+             ├─ work plan
+             ├─ completed work set
+             ├─ chunk buffer
+             ├─ manifest commit
+             ├─ resume validation
+             └─ terminal classification
+             │
+             ▼
+R2 checkpoints/v1/...
+             │
+             ├─ complete
+             │    └─ materialize_all() ─► existing _process()
+             │
+             ├─ guard_tripped
+             │    └─ materialize_partial() ─► existing PARTIAL path
+             │
+             └─ recoverable_failed
+                  └─ workflow recovery step once
+                       └─ auto resume same cycle
+```
+
+---
+
+# 4. Proposed Module Boundary
+
+구현 시 기본 경계:
+
+```text
+src/rate_monitor/services/resumable_acquisition.py
+src/rate_monitor/collectors/nh_local/adapter.py
+src/rate_monitor/collectors/kfcc/adapter.py
+src/rate_monitor/cli.py
+.github/workflows/collect.yml
+
+tests/test_resumable_acquisition.py
+tests/test_nh_local_resume.py
+tests/test_kfcc_resume.py
+tests/test_checkpoint_storage.py
+tests/test_collection_recovery_workflow_contract.py
+```
+
+원칙:
+
+- common service는 NH `brc`나 KFCC `gmgoCd` 의미를 모른다.
+- adapter는 R2 manifest revision protocol을 모른다.
+- workflow는 artifact 내부 구조를 모른다.
+- `_process()` canonical contract는 최대한 그대로 둔다.
+
+---
+
+# 5. Domain Types
+
+실제 이름은 구현 시 조정할 수 있으나 역할 분리는 유지한다.
 
 ```python
 @dataclass(frozen=True)
@@ -228,17 +268,13 @@ class AcquisitionWorkItem:
 
 
 @dataclass(frozen=True)
-class CheckpointArtifact:
-    work_key: str
-    artifact: RawArtifactData
-
-
-@dataclass(frozen=True)
 class CheckpointChunkRef:
     sequence: int
     object_key: str
     sha256: str
     item_count: int
+    bytes: int
+    created_at: str
 
 
 @dataclass(frozen=True)
@@ -248,939 +284,859 @@ class AcquisitionManifest:
     session_id: str
     cycle_date_kst: str
     request_fingerprint: str
+    acquisition_contract_version: int
     status: str
     work_plan_hash: str | None
     expected_work_count: int | None
+    completed_work_count: int
     completed_work_keys: list[str]
     chunks: list[CheckpointChunkRef]
+    guard_state: dict[str, Any] | None
+    terminal_reason: str | None
     created_at: str
     updated_at: str
 ```
 
-`completed_work_keys`가 지나치게 커질 경우 chunk manifest의 item key에서 계산할 수 있으므로 저장 중복 여부는 구현 전에 benchmark한다. v1의 1만 key 수준은 JSON으로도 관리 가능한 크기다.
+가능한 status:
+
+```text
+collecting
+recoverable_failed
+complete
+guard_tripped
+blocked
+contract_failed
+abandoned
+canonical_committed
+```
 
 ---
 
-# 5. Checkpoint Namespace Contract
+# 6. Cycle Identity
 
-R2 canonical state와 절대 섞이지 않는 별도 prefix를 사용한다.
+## 6.1 정의
 
-```text
-checkpoints/v1/{source_id}/{cycle_date_kst}/{session_id}/
-```
+`cycle_date_kst`는 PR #80의 health contract와 동일하게 **GitHub workflow `run_started_at`을 KST로 변환한 달력일**이다.
 
-예:
+CLI/service가 독자적으로 wall-clock 날짜를 재정의하지 않는다.
 
-```text
-checkpoints/v1/nh_local/2026-08-12/abc123/
-checkpoints/v1/kfcc/2026-08-12/def456/
-```
+workflow에서 가능한 한 명시적 cycle metadata를 source command에 전달한다.
 
-하위 구조:
+## 6.2 Resume compatibility
+
+자동 resume는 다음이 모두 같을 때만 허용한다.
 
 ```text
-current.json
-manifests/
-  000001-<sha256>.json
-  000002-<sha256>.json
-chunks/
-  000001-<sha256>.tar.gz
-  000002-<sha256>.tar.gz
+source_id
+cycle_date_kst
+scope
+product/group set
+request_fingerprint
+checkpoint_contract_version
+acquisition_contract_version
+frozen directory/work-plan identity
 ```
 
-### 금지
+불일치하면 기존 session을 자동 사용하지 않는다.
 
-- `state/` 아래에 checkpoint를 넣지 않는다.
-- `raw/` 장기보관 prefix를 active checkpoint로 재사용하지 않는다.
-- `rate-data` branch에 checkpoint를 넣지 않는다.
+## 6.3 날짜 경계
+
+다음 KST 날짜의 scheduled run은 전날 incomplete session을 자동 resume하지 않는다.
+
+전날 session은 retention/감사 대상으로만 남는다.
 
 ---
 
-# 6. Manifest Commit Protocol
+# 7. Namespace Contract
 
-ObjectStore는 DB transaction이 없으므로 순서 자체가 안전장치다.
-
-## 6.1 Chunk flush
+canonical state prefix와 분리한다.
 
 ```text
-1. local chunk 생성
-2. local SHA256 계산
-3. store.put(chunk_key, bytes)
-4. 필요 시 store.get으로 round-trip 검증
-5. 새 immutable manifest 생성
-6. store.put(manifest_key, json)
-7. store.put(current.json, pointer)
+checkpoints/v1/{source_id}/{cycle_date_kst}/
 ```
 
-### Crash semantics
+권장 구조:
 
-- 3 이후 5 이전 crash: orphan chunk. resume에서 무시
-- 6 이후 7 이전 crash: 새 manifest가 orphan. 이전 current 사용
-- 7 성공: 새 checkpoint durable
+```text
+checkpoints/v1/nh_local/2026-08-12/
+  active.json
+  sessions/
+    {session_id}/
+      manifest-000001.json
+      manifest-000002.json
+      chunks/
+        000001.tar.gz
+        000002.tar.gz
 
-오래된 orphan은 GC에서 삭제한다.
+checkpoints/v1/kfcc/2026-08-12/
+  active.json
+  sessions/{session_id}/...
+```
 
-## 6.2 current.json
+### `active.json`
+
+source/day에서 자동 resume 대상으로 인정할 session 하나를 가리킨다.
 
 예:
 
 ```json
 {
   "schema_version": 1,
-  "manifest_key": "checkpoints/v1/.../manifests/000051-abc.json",
+  "source_id": "nh_local",
+  "cycle_date_kst": "2026-08-12",
+  "session_id": "...",
+  "manifest_key": ".../manifest-000012.json",
   "manifest_sha256": "...",
-  "updated_at": "2026-08-12T03:10:00+09:00"
+  "updated_at": "..."
 }
 ```
 
-Resume는 `current.json`을 신뢰하기 전에:
-
-1. referenced manifest exists
-2. manifest hash 일치
-3. referenced chunk exists
-4. chunk hash 일치
-
-를 확인한다.
-
-하나라도 어긋나면 silently fresh-start하지 않고 **checkpoint corruption으로 fail closed**한다.
+각 historical session 내부에 예전 manifest pointer가 남아 있어도 GC 보호 여부는 `active.json`과 terminal state로 판단한다.
 
 ---
 
-# 7. Chunk Format
+# 8. Chunk Format
 
-v1 기본 포맷:
-
-```text
-tar.gz
-```
+v1 기본 포맷은 `tar.gz`를 사용한다.
 
 이유:
 
-- Python 표준 라이브러리 사용 가능
-- HTML 압축 효율
-- base64 JSON 팽창 회피
-- 여러 artifact를 object 하나로 묶어 R2 PUT 수 감소
+- Python 표준 라이브러리 지원
+- raw bytes를 base64로 팽창시키지 않음
+- metadata JSON과 body 파일을 한 immutable object로 묶기 쉬움
+- R2 object 수를 work item 수만큼 늘리지 않음
 
-Chunk 내부:
+chunk 내부 예:
 
 ```text
-chunk.json
-raw/<safe_name_1>.html
-raw/<safe_name_2>.html
-...
+manifest.json
+items/
+  000001/meta.json
+  000001/body.bin
+  000002/meta.json
+  000002/body.bin
 ```
 
-`chunk.json` 예시:
+각 item meta에는 최소 다음을 저장한다.
 
-```json
-{
-  "schema_version": 1,
-  "source_id": "nh_local",
-  "session_id": "abc123",
-  "sequence": 51,
-  "items": [
-    {
-      "work_key": "123456:SFDPW0163R",
-      "filename": "rate_123456_SFDPW0163R.html",
-      "artifact_type": "html",
-      "content_file": "raw/000001.html",
-      "content_sha256": "...",
-      "content_length": 12345,
-      "request_meta": {},
-      "schema_fingerprint": "...",
-      "source_role": "secondary_official",
-      "trust_level": "official_direct"
-    }
-  ]
-}
+```text
+work_key
+filename
+artifact_type
+encoding
+request_meta_json
+captured_at
+schema_fingerprint
+body_sha256
 ```
 
-### Path safety
-
-work key를 raw path로 그대로 쓰지 않는다.
-
-- tar path traversal 금지
-- `/`, `..`, drive prefix 금지
-- chunk 내부 filename은 sequence 기반 safe path 사용
-- 실제 source filename은 metadata에 보존
+secret/query credential이 있다면 기존 raw artifact masking 규칙을 그대로 적용한다.
 
 ---
 
-# 8. Session Discovery and Compatibility
+# 9. Manifest Commit Protocol
 
-## 8.1 Request fingerprint
+chunk와 manifest는 immutable revision으로 저장한다.
 
-Canonical JSON을 만들어 SHA256한다.
-
-NH 예:
-
-```json
-{
-  "source_id": "nh_local",
-  "cycle_date_kst": "2026-08-12",
-  "scope": "전국",
-  "products": ["installment_savings", "term_deposit"],
-  "checkpoint_contract_version": 1,
-  "acquisition_contract_version": 1
-}
-```
-
-KFCC 예:
-
-```json
-{
-  "source_id": "kfcc",
-  "cycle_date_kst": "2026-08-12",
-  "regions": ["..."],
-  "groups": ["13", "14"],
-  "checkpoint_contract_version": 1,
-  "acquisition_contract_version": 1
-}
-```
-
-정렬 규칙을 고정해 입력 순서 차이 때문에 다른 fingerprint가 생기지 않게 한다.
-
-## 8.2 Auto resume
-
-기본:
+flush 순서:
 
 ```text
-same source
-+ same cycle_date_kst
-+ same request fingerprint
-+ compatible schema/version
-+ status collecting/acquisition_complete
-→ resume candidate
+1. chunk bytes 생성
+2. chunk sha256 계산
+3. R2 put(chunk)
+4. 필요 시 get/hash로 검증
+5. 새 manifest revision 생성
+6. put(manifest revision)
+7. manifest hash 계산/검증
+8. active.json을 새 manifest로 교체
 ```
 
-여러 candidate가 있으면 임의 선택하지 않는다.
+`active.json` 교체가 마지막 commit point다.
 
-- 하나: 사용
-- 0개: 새 session
-- 2개 이상: fail closed 또는 명시적 session 선택 요구
+중간 실패 시:
 
-## 8.3 Fresh override
-
-운영자가 같은 날에도 새 원천 snapshot을 다시 받고 싶을 수 있으므로:
-
-```text
-resume_mode=auto | fresh
-```
-
-최소 두 모드를 제공한다.
-
-`fresh`는 이전 session을 삭제하지 않고 `abandoned` 처리 후 새 session을 만든다.
+- active pointer가 이전 revision을 계속 가리키면 이전 durable checkpoint가 유효
+- 새 chunk가 orphan으로 남을 수 있음
+- orphan은 GC가 정리
 
 ---
 
-# 9. Directory Freeze Contract
+# 10. Flush Policy
 
-## 9.1 NH
+## 10.1 기본값
 
-첫 source directory:
-
-```text
-outlet_list.html
-```
-
-session에서 이 명부를 immutable artifact로 보존한다.
-
-명부 parse 결과로 work plan을 만든 뒤:
+시간 기준 손실 상한을 두 source에서 비슷하게 맞춘다.
 
 ```text
-work_plan_hash = SHA256(canonical sorted work item list)
+NH    : 200 items 또는 5분 중 먼저 도달
+KFCC  : 100 items 또는 5분 중 먼저 도달
 ```
 
-를 manifest에 기록한다.
+초기 실측 기준 약 4~5분마다 durable checkpoint를 기대한다.
 
-Resume에서는 새 명부를 다시 받아 섞지 않고 **session에 저장된 명부**로 work plan을 재구성한다.
+## 10.2 강제 flush 시점
 
-기본 same-cycle resume 동안 source directory가 바뀌더라도 한 session 안에서 기준 목록을 바꾸지 않는다.
+- 정상 acquisition 완료 직전
+- recoverable exception 전달 직전
+- graceful cancellation 처리 직전
+- RepeatGuard trip 직후 terminal partial seal
 
-## 9.2 KFCC
+## 10.3 보장하지 못하는 경우
 
-directory phase도 checkpoint 대상이다.
-
-Work keys:
-
-```text
-list:<region>
-```
-
-각 region list artifact를 저장한다.
-
-모든 directory item 완료 후:
-
-- `outlets`
-- `directory`
-- `gmgoCd` dedupe
-
-를 deterministic하게 재구성하고 rate work plan을 freeze한다.
-
-Rate work keys:
-
-```text
-rate:<gmgoCd>:<group>
-```
-
-`outlet` 및 `outlet_directory` metadata는 artifact에 보존한다.
+SIGKILL/OOM/runner hard termination에서는 finally가 보장되지 않는다. 이 경우 마지막 durable revision 이후 batch만 손실될 수 있다.
 
 ---
 
-# 10. Work Item Key Contract
+# 11. Automatic Recovery Trigger
 
-Work key는 session 안에서 유일해야 한다.
+## 11.1 Workflow contract
 
-## NH
+각 source step에 `id`를 부여하고 실패 시 바로 recovery step을 한 번 실행한다.
 
-```text
-list:all
-rate:<brc>:<screen>
-```
-
-예:
-
-```text
-list:all
-rate:123456:SFDPW0163R
-rate:123456:SFDPW0164R
-```
-
-## KFCC
-
-```text
-list:<region>
-rate:<gmgoCd>:<group>
-```
-
-예:
-
-```text
-list:부산
-rate:001234:13
-rate:001234:14
-```
-
-중복 key 생성은 구조 변경 또는 plan bug로 보고 fail closed한다.
-
----
-
-# 11. Flush Policy
-
-초기 기본값:
-
-```python
-CHECKPOINT_MAX_ITEMS = 100
-CHECKPOINT_MAX_AGE_SECONDS = 300
-```
-
-flush 조건:
-
-```text
-pending item >= 100
-OR
-마지막 durable checkpoint 후 >= 5분
-OR
-정상 fetch 종료
-OR
-잡을 수 있는 terminal exception 직전
-```
-
-강제 kill에서는 마지막 조건을 실행할 수 없으므로 마지막 durable manifest 이후 응답은 재수집될 수 있다.
-
-### Performance acceptance
-
-정상 수집 시간이 checkpoint I/O 때문에 의미 있게 악화되면 batch를 조정한다.
-
-초기 허용 목표:
-
-```text
-checkpoint overhead <= 정상 전체 수집시간의 5%
-```
-
-이 값은 구현 후 small-scope + 실제 scheduled run에서 검증하고, 검증 전 보장값으로 주장하지 않는다.
-
----
-
-# 12. Adapter Integration Contract
-
-기존 `fetch(request) -> list[RawArtifactData]` 외부 프로토콜은 v1에서 유지한다.
-
-Adapter 내부에서 resumable service를 사용해 마지막에는 기존처럼 완전한 artifact list를 반환한다.
-
-즉 `collection_service` 및 parser consumer를 최소 변경한다.
-
-권장 adapter 흐름:
-
-```python
-async def fetch(self, request):
-    session = resumable.open_or_create(...)
-    plan = self._build_or_restore_plan(session, request)
-
-    self._rehydrate_guards(session)
-
-    for item in plan.pending_items:
-        artifact = await self._fetch_work_item(item)
-        resumable.stage(item.key, artifact)
-
-    resumable.mark_acquisition_complete()
-    artifacts = resumable.materialize_all()
-    return artifacts
-```
-
-실제 구현은 adapter 공통 protocol을 도입할 수 있으나, 다른 small source까지 강제로 리팩터링하지 않는다.
-
----
-
-# 13. RepeatGuard Resume Contract
-
-현재 NH/KFCC의 repeated-response 감지는 데이터 무결성 기능이다.
-
-Resume 때문에 guard가 초기화돼서는 안 된다.
-
-## v1 권장 방식
-
-Checkpoint에 저장된 artifact를 source-defined deterministic order로 읽어:
-
-```python
-guard = RepeatGuard()
-for artifact in completed_artifacts:
-    guard.observe(...)
-```
-
-로 재생한다.
-
-그 후 새 work item을 이어간다.
-
-### NH order
-
-- list 먼저
-- rate는 frozen work plan 순서
-
-### KFCC order
-
-- region list 순서
-- rate는 frozen gmgoCd/group work plan 순서
-
-테스트는 uninterrupted run과 interrupted+resume run의 `guard.summary()` 및 `guard.tripped` 결과가 같음을 검증한다.
-
----
-
-# 14. NH Retry Interaction
-
-PR #79의 request-level retry 계약을 유지한다.
-
-- checkpoint는 `_get()` retry 내부에 들어가지 않는다.
-- 하나의 work item이 성공한 뒤에만 stage한다.
-- failed HTTP response/body는 completed work로 표시하지 않는다.
-- execution attempt의 `MAX_TOTAL_RETRIES=50`은 그대로 유지한다.
-
-Resume가 새 process attempt에서 시작되면 retry budget은 다시 0부터 시작한다.
-
-단, manifest telemetry에는:
-
-```text
-attempt_count
-last_interruption_at
-last_interruption_reason
-```
-
-등을 남겨 같은 session에서 반복 장애가 있었는지 확인 가능하게 한다.
-
----
-
-# 15. Canonical Commit Contract
-
-`mark_acquisition_complete()`는 DB commit이 아니다.
-
-반드시 기존 경로를 거친다.
-
-```text
-materialize_all()
-↓
-collection_service._process()
-↓
-CollectionRun success/partial/schema_changed
-↓
-workflow validation/gates
-↓
-Upload state to R2
-↓
-R2 snapshot round-trip verification
-↓
-state/current.json update
-```
-
-Checkpoint cleanup은 **authoritative R2 state commit 이후**만 허용한다.
-
-### 왜 필요한가
-
-`_process()`가 local runner DB에는 성공했는데 R2 state upload 전에 job이 죽으면, 다음 실행이 restore하는 DB에는 그 run이 없다.
-
-checkpoint가 남아 있으면 같은 complete acquisition을 다시 materialize해 복구 가능하다.
-
----
-
-# 16. Workflow Integration
-
-현재 `collect.yml`의 single writer:
+개념 예:
 
 ```yaml
-concurrency:
-  group: rate-data-writer
-  cancel-in-progress: false
+- name: Collect NH local
+  id: collect_nh_local
+  continue-on-error: true
+  ...
+
+- name: Recover NH local
+  if: ${{ steps.collect_nh_local.outcome == 'failure' }}
+  continue-on-error: true
+  ... --resume auto
 ```
 
-를 유지한다.
+KFCC도 동일한 패턴을 사용한다.
 
-v1은 이 직렬 실행을 concurrency safety 전제로 사용한다.
+실제 YAML/CLI 인자 이름은 구현 시 테스트 가능한 최소 계약으로 확정한다.
 
-## 16.1 Environment
+## 11.2 Recovery eligibility
 
-NH/KFCC checkpoint가 R2를 쓰기 위해 collection step에도 기존 R2 credential env가 필요할 수 있다.
+workflow step failure가 모두 resume 가능한 것은 아니다.
 
-현재 credential 전달 범위를 확인하고 최소 단계에만 추가한다.
-
-시크릿을 manifest/request metadata/log에 기록하지 않는다.
-
-## 16.2 Commit cleanup step
-
-권장:
-
-R2 state upload가 성공한 뒤 source collection이 checkpoint session을 사용했다면:
+자동 recovery 허용:
 
 ```text
-checkpoint mark-committed / cleanup
+recoverable transport/server acquisition failure
+checkpoint storage의 일시적 recoverable failure 중 안전하게 재시도 가능하다고 분류된 경우
 ```
 
-을 수행한다.
+자동 recovery 금지:
 
-cleanup 실패는 canonical state를 rollback하지 않는다.
-
-대신 warning/후속 GC 대상으로 남긴다.
-
-## 16.3 Manual recovery
-
-초기 UI를 늘리지 않고 workflow_dispatch input을 필요 최소로 추가하는 방안을 검토한다.
-
-후보:
-
-```yaml
-resume_mode:
-  auto
-  fresh
+```text
+SourceBlockedError / block marker
+403 / 429 policy block
+RepeatGuard trip
+schema/contract incompatibility
+corrupt checkpoint
+request fingerprint mismatch
+operator fresh request
 ```
 
-기본 `auto`.
+## 11.3 Recovery count
 
-실제 input 추가는 implementation PR에서 기존 workflow UX와 함께 다시 확인한다.
+source/cycle/workflow당 자동 recovery 1회만 허용한다.
+
+두 번째 실패 후에는 계속 반복하지 않는다.
+
+## 11.4 Whole-runner crash
+
+runner 자체가 죽으면 recovery step도 실행되지 않는다. 이 경우 같은 날짜의 manual `workflow_dispatch`가 `--resume auto`로 이어갈 수 있어야 한다.
+
+v1에는 고정 시각 scheduled watchdog을 넣지 않는다. 필요성은 runtime evidence 후 판단한다.
 
 ---
 
-# 17. CollectionRun / Observability
+# 12. `auto` / `fresh`
 
-v1에서 DB migration은 하지 않는다.
+## `auto`
 
-가능하면 기존 fields를 사용한다.
+같은 source + cycle에서 compatible `active.json` session이 있으면 resume한다. 없으면 새 session을 만든다.
 
-### Failed run message
+## `fresh`
 
-예:
+기존 active session을 resume하지 않는다.
 
-```text
-NhRequestFailure: ...
-checkpoint_session=abc123
-checkpoint_progress=5100/9742
-checkpoint_resume=available
-```
-
-### Successful resumed run message
-
-예:
+절차:
 
 ```text
-9743개 원본에서 ...
-checkpoint resumed 5100/9742, newly fetched 4642
+기존 session manifest status -> abandoned
+source/day active.json -> 새 session으로 교체
+새 acquisition 시작
 ```
 
-`query_context_json`에 비민감 checkpoint metadata를 추가할 수 있다.
-
-후보:
-
-```json
-{
-  "checkpoint_session_id": "abc123",
-  "checkpoint_resume_mode": "auto",
-  "checkpoint_resumed": true
-}
-```
-
-다만 session id를 DB에 반드시 넣어야 하는지 구현 전 consumer를 다시 확인한다.
+abandoned session은 historical manifest pointer를 갖고 있어도 active protection을 받지 않는다.
 
 ---
 
-# 18. Corruption / Incompatibility Policy
+# 13. RepeatGuard Contract
 
-### Fail closed 대상
+## 13.1 기존 의미 유지
 
-- current pointer가 없는 manifest를 가리킴
-- manifest hash mismatch
-- chunk 없음
-- chunk hash mismatch
-- chunk 내부 content hash mismatch
-- duplicate work key
-- expected count와 work plan 불일치
-- source mismatch
-- cycle date mismatch
-- checkpoint/acquisition version mismatch
-- directory/work-plan hash mismatch
+`RepeatGuard`는 한도 초과 시 예외를 던지지 않는다.
 
-이 경우:
+현재 의미:
 
 ```text
-checkpoint를 조용히 버리고 처음부터 시작하지 않는다.
+source가 서로 다른 조회 인자에 같은 응답을 비정상적으로 연속 반환
+→ 더 요청하지 않음
+→ 그때까지 받은 artifacts 반환
+→ fetch_alert 기록
+→ run PARTIAL
 ```
 
-운영자가 `fresh`를 명시적으로 선택해야 새 acquisition을 시작한다.
+v1은 이 동작을 변경하지 않는다.
 
-이유는 corrupted checkpoint를 자동 무시하면 실제 저장소 장애를 숨길 수 있기 때문이다.
+## 13.2 Resume 금지
 
----
+`guard_tripped`는 `recoverable_failed`가 아니다.
 
-# 19. Retention / GC
+남은 work item을 다음 recovery에서 요청하지 않는다.
 
-초기 제안:
+이유:
+
+source가 이미 조회 인자를 무시한다고 판단한 상태에서 같은 query를 계속 보내는 것은 원천 부하만 늘리고 데이터 신뢰성을 높이지 않는다.
+
+## 13.3 Checkpoint terminal 처리
+
+trip 직후:
 
 ```text
-collecting/incomplete   72시간
-acquisition_complete    R2 state commit까지 유지
-committed               즉시 chunk 삭제 가능
-abandoned               7일
-orphan chunk/manifest   7일
+현재 buffer flush
+manifest.status = guard_tripped
+terminal_reason 기록
+남은 expected work는 intentionally_unrequested로 남김
+active resume eligibility 제거
+partial artifacts materialize
+기존 adapter.fetch_alert / _process() 경로 사용
 ```
 
-GC는 source active session을 삭제하지 않는다.
+## 13.4 Guard state rehydrate
 
-`current.json`이 가리키는 manifest/chunk는 절대 GC하지 않는다.
+일반 resume에서는 guard 판단 연속성이 깨지면 안 된다.
 
-Retention 수치는 리뷰 후 확정한다.
+v1 구현 선택지는 두 가지다.
 
----
+1. manifest에 guard state를 명시적으로 저장/복원
+2. durable checkpoint artifacts를 순서대로 replay해 guard state 재구성
 
-# 20. Security / Privacy
+우선순위는 **정확성 > 속도**다. 기존 guard 의미와 완전히 같음을 테스트할 수 있는 쪽을 선택한다.
 
-현재 NH/KFCC는 인증키 없이 공개 endpoint를 사용하지만 framework는 일반 raw staging 계층이므로 안전 규칙을 둔다.
-
-- Authorization/Cookie/token 저장 금지
-- request metadata는 기존 masking 규율 준수
-- R2 credential을 log/manifest에 기록 금지
-- checkpoint object는 public site/rate-data에 publish 금지
-- tar extraction path traversal 방어
-- source response를 실행 가능한 파일로 취급하지 않음
+단, v1에서 `RepeatGuard._seen`의 bytes 저장 방식을 hash set으로 바꾸는 것은 별도 메모리 최적화 작업으로 분리한다.
 
 ---
 
-# 21. Test Matrix
+# 14. Source-specific Planning
 
-## 21.1 Common service
+## 14.1 NH
 
-| Case | 기대 결과 |
-|---|---|
-| 100개 plan, 40개 완료 후 process crash | resume 시 41~100만 pending |
-| chunk put 후 manifest 전 crash | chunk orphan, completed 증가 안 함 |
-| manifest put 후 current 전 crash | 이전 current 기준 resume |
-| current pointer 정상 | latest durable manifest 사용 |
-| missing chunk | fail closed |
-| bad chunk hash | fail closed |
-| bad body hash | fail closed |
-| duplicate work key | fail closed |
-| scope 변경 | incompatible, auto resume 안 함 |
-| version 변경 | incompatible |
-| same date / same plan | resume |
-| 다음 날짜 | 자동 resume 안 함 |
-| fresh mode | 새 session |
+### Phase A — directory
 
-## 21.2 NH
+명부 응답을 session의 immutable directory artifact로 저장한다.
 
-- list checkpoint 생성
-- detail 100번째에서 synthetic interruption
-- resume 후 이전 99개 HTTP call 재실행 없음
-- retry 후 성공한 item만 completed 처리
-- terminal retry failure item은 incomplete
-- uninterrupted vs resume final artifact set 동일
-- RepeatGuard 결과 동일
-- parser/observation 결과 동일
+resume에서는 같은 session의 directory를 사용한다. 재접속할 때마다 새 명부로 work plan을 다시 만들지 않는다.
 
-## 21.3 KFCC
+### Phase B — rate work
 
-- region list 17개 중 중간 interruption
-- directory phase resume
-- rate phase interruption/resume
-- gmgoCd dedupe 결과 동일
-- outlet_directory metadata 동일
-- already completed gmgoCd/group HTTP 재실행 없음
-- RepeatGuard 동일
-- final parsed rows 동일
-
-## 21.4 Workflow / Storage
-
-- LocalObjectStore round trip
-- R2 synthetic checkpoint prefix round trip
-- cleanup 후 current/checkpoint object 없음 확인
-- cleanup 실패가 canonical R2 state commit을 실패로 되돌리지 않음
-- secret/log sanitization
-
----
-
-# 22. Runtime Verification Plan
-
-대규모 원천을 고의로 장애 내지 않는다.
-
-## Stage 1 — offline
-
-- fixture
-- MockTransport
-- LocalObjectStore
-- process restart simulation
-- corrupted checkpoint fixtures
-
-## Stage 2 — R2 synthetic
-
-실제 R2 `checkpoints/_check/` 또는 isolated test prefix에서 작은 synthetic chunk로:
+work key:
 
 ```text
-put → list → get → hash verify → delete
+nh:{brc}:{screen}
 ```
 
-확인.
+work payload에 parse/build에 필요한 최소 source identity를 포함한다.
 
-## Stage 3 — small-scope live
+### Plan hash
 
-가능하면 부산 범위로:
+frozen directory + selected product/screens + scope를 canonical JSON으로 만든 뒤 hash한다.
 
-1. 일부 work item 완료
-2. 테스트용 controlled interruption
-3. 동일 cycle resume
-4. 이미 완료된 request가 재호출되지 않는지 로그 대조
-5. final canonical 결과를 fresh uninterrupted baseline과 대조
+## 14.2 KFCC
 
-원천에 불필요한 반복 부하를 만들지 않는 범위에서만 수행한다.
+### Phase A — regional directory
 
-## Stage 4 — production scheduled observation
+각 `r1` list 응답을 저장하고 최종 directory를 freeze한다.
 
-merge 후 실제 전국 수집에서:
+### Phase B — rates
 
-- checkpoint chunk 수
-- overhead
-- cleanup
-- 08:00 SLA 영향
-- R2 object leak
+work key:
 
-을 관찰한다.
+```text
+kfcc:{gmgoCd}:{gubuncode}
+```
 
-실제 장애가 없었다면 **resume production path는 아직 실장애 미검증**으로 명시한다.
+artifact metadata에 반드시 포함:
+
+```text
+gmgoCd
+gubuncode
+r1
+r2
+outlet
+outlet_directory
+```
+
+resume에서 이 metadata를 원본과 동일하게 복원할 수 있어야 한다.
 
 ---
 
-# 23. PR 분리 계획
+# 15. Memory Contract
 
-## PR A — Common Resumable Acquisition Foundation
+## 15.1 명시적 비목표
 
-변경 예상:
+v1은 `fetch() -> list[RawArtifactData]` 계약을 유지하고 완료 시 artifacts 전체를 다시 materialize한다.
+
+따라서 checkpoint가 생겨도 peak RSS가 낮아진다고 주장하지 않는다.
+
+## 15.2 가능한 peak 구성
+
+구현이 잘못되면 동시에 다음이 존재할 수 있다.
 
 ```text
-src/rate_monitor/services/resumable_acquisition.py
-tests/test_resumable_acquisition.py
-tests/test_checkpoint_storage.py
+chunk staging buffer
+materialized full artifact list
+RepeatGuard._seen bytes
+RepeatGuard._last bytes
 ```
 
-범위:
+## 15.3 구현 규칙
 
-- manifest/chunk
-- pointer commit protocol
-- compatibility
-- LocalObjectStore tests
-- GC primitive
+- durable flush가 끝난 batch body는 필요하지 않다면 staging buffer에서 해제
+- final materialize 직전 불필요한 temporary buffer 해제
+- 중복 copy를 피하도록 tar decode/materialize 경로 설계
+- 단, 정확성을 위해 RepeatGuard 현재 계약은 임의 변경하지 않음
 
-Adapter 적용 없음.
+## 15.4 Runtime verification
+
+반드시 기록:
+
+```text
+NH checkpoint OFF peak RSS
+NH checkpoint ON peak RSS
+KFCC checkpoint OFF peak RSS
+KFCC checkpoint ON peak RSS
+```
+
+OOM 또는 runner memory pressure가 보이면 rollout을 중단한다.
+
+이 경우 streaming `_process()` 또는 guard hash-state는 별도 후속 설계다.
+
+---
+
+# 16. R2 Credential Wiring
+
+## 16.1 확정된 현재 상태
+
+NH/KFCC collect step에는 R2 env가 없다.
+
+따라서 PR A에서 다음을 먼저 한다.
+
+- `R2_ACCESS_KEY_ID`
+- `R2_SECRET_ACCESS_KEY`
+- `R2_ACCOUNT_ID`
+- `R2_BUCKET`
+- `R2_ENDPOINT`
+- `R2_REGION`
+
+을 checkpoint를 사용하는 source step/recovery step에 전달한다.
+
+기존 restore/upload 단계와 같은 repository Secret/Variable을 재사용한다.
+
+## 16.2 Fail-closed
+
+checkpoint mode를 켰는데 R2 설정이 일부만 있으면 source를 fresh non-checkpoint mode로 조용히 downgrade하지 않는다.
+
+오류를 명확히 남기고 실패한다.
+
+---
+
+# 17. Error Classification
+
+common layer는 최소 다음을 구분한다.
+
+```text
+RECOVERABLE_NETWORK
+RECOVERABLE_HTTP_SERVER
+CHECKPOINT_STORAGE_TRANSIENT
+SOURCE_BLOCKED
+GUARD_TRIPPED
+CHECKPOINT_CORRUPT
+CHECKPOINT_INCOMPATIBLE
+SOURCE_SCHEMA_CHANGED
+ACQUISITION_CONTRACT_CHANGED
+OPERATOR_FRESH
+UNKNOWN_FATAL
+```
+
+실제 exception mapping은 source별 기존 retry/block taxonomy를 재사용한다.
+
+checkpoint layer가 `403/429/block`을 generic network failure로 바꾸지 않는다.
+
+---
+
+# 18. Performance Metrics
+
+`전체 overhead <= 5%` 외에 직접 지표를 측정한다.
+
+초기 target:
+
+```text
+checkpoint PUT p95 <= 3s
+single PUT > 5s -> warning evidence
+manifest commit latency 기록
+checkpoint bytes 총량 기록
+checkpoint flush 횟수 기록
+resume skipped request 수 기록
+전체 source elapsed overhead <= 5%
+```
+
+이 값은 acceptance target이며 runtime evidence에 따라 조정할 수 있다. 근거 없이 request interval을 줄여 target을 맞추지 않는다.
+
+---
+
+# 19. GC / Retention
+
+기본값:
+
+```text
+active/incomplete : 72h
+abandoned/orphan  : 7d
+```
+
+삭제 금지:
+
+- source/day `active.json`이 가리키는 session
+- `complete` 후 canonical R2 state commit 전 session
+- 현재 recovery가 사용 중인 session을 명시적으로 표시했다면 그 session
+
+삭제 가능:
+
+- `fresh`로 abandoned 처리되어 active pointer에서 빠진 session: 7일 후
+- pointer가 참조하지 않는 orphan chunk/manifest: 7일 후
+- canonical commit이 확인된 completed session: 운영정책에 따라 즉시 또는 짧은 audit retention 후
+
+중요:
+
+**historical session 내부에 `manifest-current` 성격의 pointer가 남아 있다는 이유만으로 영구 보호하지 않는다.** 보호 여부는 source/day active pointer와 terminal state로 판단한다.
+
+---
+
+# 20. Canonical Commit / Cleanup Ordering
+
+정상 complete:
+
+```text
+acquisition complete
+→ artifacts materialize
+→ existing _process()
+→ validations / snapshot / publish pipeline
+→ authoritative R2 state upload + verification
+→ canonical commit confirmed
+→ checkpoint session canonical_committed 표시
+→ cleanup eligibility
+```
+
+중간 단계가 실패하면 checkpoint를 보존한다.
+
+특히 `_process()`가 성공했더라도 authoritative R2 state upload 전에 checkpoint를 지우지 않는다.
+
+---
+
+# 21. CLI / Operator Contract
+
+최소 제안:
+
+```text
+--resume auto    # default for enabled resumable source
+--resume fresh   # 같은 cycle checkpoint 무시하고 새 session
+```
+
+추가 debug/admin command는 실제 필요성이 확인되면 별도 추가한다.
+
+운영 로그에는 secret 없이 다음을 남긴다.
+
+```text
+source_id
+cycle_date_kst
+session_id
+resume_mode
+resumed true/false
+completed/expected
+checkpoint revision
+checkpoint flush count
+skipped completed work count
+recovery attempt number
+terminal status/reason
+```
+
+---
+
+# 22. KFCC Retry Prerequisite
+
+Resumable Acquisition 구현 전에 별도 작은 PR로 KFCC transient retry를 먼저 적용한다.
+
+이유:
+
+- KFCC에는 현재 NH #79와 같은 bounded transient retry가 없음
+- KFCC-only 04:17 run은 08:00 deadline에 가까움
+- checkpoint framework보다 구현 범위가 작고 SLA 위험을 직접 낮춤
+
+정책 원칙:
+
+```text
+GET only
+transient connect/read/write/timeout/protocol + selected 5xx only retry
+403/429/block marker no retry
+bounded attempts/backoff
+request pacing 유지
+retry telemetry 기록
+```
+
+세부 exception tuple은 최신 KFCC adapter/httpx 버전을 다시 확인하고 확정한다.
+
+---
+
+# 23. PR Sequence / Dependency
+
+## PR 0 — KFCC bounded transient retry
+
+Resumable Acquisition 바깥의 선행 작업.
+
+## PR A — Common infrastructure + workflow credential wiring
+
+- resumable domain types
+- LocalObjectStore-based tests
+- R2 namespace/manifest/chunk service
+- hash/corruption validation
+- `auto/fresh` session policy
+- GC primitives
+- CLI plumbing
+- **NH/KFCC collect/recovery step용 R2 env wiring**
+- 기능 flag/default OFF 가능
+
+PR A는 adapter behavior를 바꾸지 않는다.
 
 ## PR B — NH integration
 
-변경 예상:
+의존: PR A
 
-```text
-src/rate_monitor/collectors/nh_local/adapter.py
-tests/test_nh_local_resume.py
-existing NH tests as needed
-```
-
-범위:
-
-- directory freeze
-- work plan
-- resumable fetch
-- RepeatGuard rehydrate
-- #79 retry interaction
+- frozen NH directory/work plan
+- NH work key
+- checkpoint flush
+- same-workflow immediate recovery 1회
+- #79 retry와 통합
+- guard terminal semantics 유지
+- baseline/resume result equivalence tests
 
 ## PR C — KFCC integration
 
-변경 예상:
+의존: PR A + PR 0
+
+- frozen regional directory
+- KFCC work key
+- full artifact metadata reconstruction
+- same-workflow immediate recovery 1회
+- KFCC retry와 통합
+- RepeatGuard terminal semantics 유지
+
+## PR D — Observability / GC / rollout
+
+의존: PR B + PR C
+
+- checkpoint progress/operator visibility
+- cleanup schedule/path
+- runtime metrics
+- rollout evidence
+- docs status update
+
+의존성:
 
 ```text
-src/rate_monitor/collectors/kfcc/adapter.py
-tests/test_kfcc_resume.py
-existing KFCC tests as needed
+PR 0 ─────────► PR C
+PR A ─► PR B ─┐
+   └──► PR C ─┼─► PR D
 ```
-
-범위:
-
-- region directory resumable phase
-- gmgoCd/group work plan
-- outlet metadata freeze
-- RepeatGuard rehydrate
-
-## PR D — Workflow + Cleanup + Operations
-
-변경 예상:
-
-```text
-.github/workflows/collect.yml
-CLI/request options if required
-operational docs/tests
-```
-
-범위:
-
-- R2 checkpoint env wiring
-- auto/fresh control
-- authoritative state commit 이후 cleanup
-- stale checkpoint GC
-- operator runbook
-
-### Dependency
-
-```text
-A → B
-A → C
-B + C → D
-```
-
-B/C는 가능하면 A merge 후 main에서 각각 분기한다.
 
 ---
 
-# 24. CI / Verification Gate
+# 24. Tests
 
-각 구현 PR은 최소:
+## 24.1 Common service
 
-```text
-uv run ruff check src tests scripts
-uv run pytest -q
-uv run alembic upgrade head
-DB tables ↔ model match
-```
+- new session create
+- chunk immutable upload
+- manifest revision commit
+- active pointer last-write
+- crash before pointer update -> previous manifest valid
+- corrupt chunk hash -> fail closed
+- corrupt manifest -> fail closed
+- incompatible fingerprint -> no auto resume
+- next KST date -> no auto resume
+- fresh -> previous session abandoned + new active session
+- GC never deletes active/canonical-pending session
+- abandoned session becomes GC eligible
 
-를 통과한다.
+## 24.2 NH
 
-DB migration이 없는 것이 목표지만, accidental model/schema 변경을 CI로 계속 감지한다.
+- first 400 items checkpoint, process crash, resume -> first 400 not refetched
+- resumed final artifact set == fresh full artifact set
+- transient request retry from #79 still works
+- source failure after checkpoint -> first command exit 1
+- recovery command resumes same session
+- second failure -> no third auto recovery
+- RepeatGuard trip -> partial terminal, no resume
 
-추가 targeted gate:
+## 24.3 KFCC
 
-```text
-pytest tests/test_resumable_acquisition.py
-pytest tests/test_nh_local_resume.py
-pytest tests/test_kfcc_resume.py
-```
+- directory freeze survives resume
+- `outlet_directory` reconstructs exactly
+- resumed artifacts parse identically to fresh run
+- transient retry prerequisite works
+- RepeatGuard trip -> partial terminal, no recovery
 
-실제 구현 파일명은 PR A에서 확정한다.
+## 24.4 Workflow contract
+
+static tests should verify:
+
+- source step IDs exist
+- recovery condition uses first step `outcome == failure`
+- recovery max 1 step per source
+- NH recovery excluded from KFCC-only cycle
+- source/recovery steps receive required R2 env
+- existing single-writer concurrency unchanged
+- schedule cron unchanged by this feature unless separately approved
+
+## 24.5 Memory/performance
+
+- production-sized fixture or real controlled run peak RSS measured
+- checkpoint PUT latency recorded
+- checkpoint overhead recorded
+- no request interval regression
 
 ---
 
-# 25. Adversarial Review Checklist
+# 25. Runtime Verification Matrix
 
-구현자는 "내 resume 구현이 데이터를 섞는다"고 가정하고 다음을 확인한다.
-
-- 어제 checkpoint를 오늘 자동으로 읽지 않는가
-- 전국 checkpoint를 부산 run에 섞지 않는가
-- 상품군 변경 후 예전 chunk를 쓰지 않는가
-- parser metadata가 누락되지 않는가
-- KFCC outlet_directory가 이전/새 session에서 섞이지 않는가
-- resumed work item이 이중 요청/이중 artifact가 되지 않는가
-- RepeatGuard가 interruption 경계에서 초기화되지 않는가
-- checkpoint complete를 canonical success로 오해하지 않는가
-- local DB 반영 후 R2 commit 실패 시 checkpoint를 너무 일찍 지우지 않는가
-- corrupted checkpoint를 조용히 fresh-start하지 않는가
-- cleanup이 active session을 지우지 않는가
-- R2 checkpoint I/O가 source request pacing을 공격적으로 바꾸지 않는가
-- checkpoint metadata에 secret이 들어가지 않는가
-
-P0/P1 발견 시 수정 후 전체 검증을 다시 수행한다.
+| Scenario | Expected |
+|---|---|
+| normal NH | checkpoint flushes, complete, canonical same as baseline |
+| normal KFCC | same |
+| NH transient failure recovered by request retry | source command continues, workflow recovery unnecessary |
+| NH terminal recoverable failure after progress | first step failure, immediate recovery resumes |
+| recovery succeeds | final canonical success |
+| recovery also fails | stale prior canonical kept, degraded |
+| KFCC same | same semantics |
+| RepeatGuard trip | terminal PARTIAL, no recovery request to remaining work |
+| source blocked | no recovery loop |
+| corrupt checkpoint | fail closed, do not mix/fresh silently |
+| next-day scheduled run | previous checkpoint not auto resumed |
+| fresh operator run | old session abandoned, new session |
+| runner hard crash | durable checkpoint remains; same-day manual resume possible |
 
 ---
 
 # 26. Rollback
 
-Rollback은 canonical DB migration이 없으므로 단순해야 한다.
+v1은 canonical DB migration이 없으므로 rollback은 checkpoint feature path를 끄고 기존 direct fetch로 돌아가는 것이 기본이다.
 
-### 코드 rollback
+rollback 원칙:
 
-- adapter checkpoint integration revert
-- 기존 all-or-nothing `fetch()` 경로로 복귀
+- checkpoint objects를 즉시 삭제하지 않음
+- canonical state는 기존 R2 snapshot이 authoritative
+- partial checkpoint를 canonical로 승격하지 않음
+- workflow recovery step을 제거/disable해도 기존 source command는 기존 방식으로 실행 가능해야 함
 
-### 데이터 rollback
+feature flag를 도입할 경우 default/rollback path는 명시적으로 테스트한다.
 
-Checkpoint는 canonical state와 분리되어 있으므로 삭제해도 기존 운영 DB는 영향이 없어야 한다.
+---
+
+# 27. Adversarial Self-Review Checklist
+
+구현 완료 전에 다음을 반대로 가정하고 공격한다.
+
+- resume가 완료 item을 다시 요청하고 있지 않은가
+- request fingerprint collision/누락으로 다른 scope를 섞지 않는가
+- cycle_date 정의가 health와 갈라지지 않는가
+- RepeatGuard trip을 recoverable failure로 오분류하지 않는가
+- checkpoint corruption에서 fresh로 조용히 떨어지지 않는가
+- R2 credential 일부 누락을 무시하지 않는가
+- `fresh` old session이 GC 불가 상태로 영구 잔존하지 않는가
+- canonical commit 전에 checkpoint를 지우지 않는가
+- memory copy가 2배 이상 급증하지 않는가
+- checkpoint PUT 지연이 08:00 SLA를 갉아먹지 않는가
+- runner crash 시 마지막 durable manifest가 실제로 복원 가능한가
+- workflow recovery가 무한 loop하지 않는가
+- blocked source에 recovery가 재요청하지 않는가
+
+---
+
+# 28. 결정표
+
+| 항목 | 결정 |
+|---|---|
+| 적용 source | NH + KFCC |
+| checkpoint store | 기존 R2 ObjectStore |
+| canonical DB migration | 없음 |
+| automatic recovery caller | 같은 workflow의 source별 즉시 recovery step 1회 |
+| runner hard-crash recovery | same-day manual resume, scheduled watchdog은 v1 제외 |
+| RepeatGuard trip | terminal PARTIAL, resume 금지 |
+| memory reduction | v1 비목표, peak RSS 측정 필수 |
+| cycle_date_kst | GitHub workflow `run_started_at`의 KST 달력일, PR #80과 동일 |
+| flush | NH 200 / KFCC 100 또는 5분 중 먼저 |
+| chunk | tar.gz |
+| same-day resume | auto |
+| next-day auto resume | 금지 |
+| fresh | 기존 active session abandoned 후 새 session |
+| incomplete retention | 72h |
+| abandoned/orphan retention | 7d |
+| GC pointer protection | source/day active pointer + canonical-pending terminal만 보호 |
+| R2 env wiring | PR A에서 source integration보다 먼저 |
+| KFCC retry | Resumable Acquisition 전 별도 PR 0으로 선행 |
+| parallel collection | v1 비목표 |
+| request pacing | 기존 유지 |
+| automatic recovery count | source/workflow당 1회 |
+| PUT target | p95 <= 3s 목표, >5s warning evidence |
+
+---
+
+# 29. Acceptance Criteria
+
+구현 완료라고 판정하려면 최소 다음이 필요하다.
+
+1. PR 0 KFCC retry merge 및 회귀검증
+2. common checkpoint storage tests green
+3. NH/KFCC resume integration tests green
+4. corrupted/incompatible checkpoint fail-closed
+5. same-workflow automatic recovery 실제 경로 검증
+6. RepeatGuard trip의 기존 PARTIAL 의미 회귀 없음
+7. next-day checkpoint 자동 혼합 없음
+8. `fresh`/GC 계약 검증
+9. source/recovery step R2 env wiring 검증
+10. checkpoint OFF/ON result equivalence
+11. peak RSS baseline/with-checkpoint 측정
+12. checkpoint PUT p95/overhead 측정
+13. 08:00 SLA에 미치는 영향 기록
+14. request pacing/block policy 변화 없음
+15. adversarial self-review 완료
+16. production rollout 전 controlled/manual evidence 확보
+
+PR/CI green만으로 runtime 완료라고 판정하지 않는다.
+
+---
+
+# 30. Implementation Start Gate
+
+이 문서를 머지한 뒤 실제 구현에 착수할 때는 다음 순서로 다시 확인한다.
 
 ```text
-checkpoints/v1/<source>/...
+latest main HEAD
+→ current AGENTS/CLAUDE/README/CI
+→ collect.yml source/recovery execution path
+→ latest NH/KFCC adapters
+→ storage_service ObjectStore/R2 contract
+→ current runtime scheduled evidence
+→ PR 0 KFCC retry
+→ PR A 시작
 ```
 
-만 정리한다.
-
-### 금지
-
-문제가 있다고 `state/current.json` 또는 정상 canonical snapshot을 지우지 않는다.
-
----
-
-# 27. Acceptance Criteria
-
-구현 완료 판정은 다음을 모두 요구한다.
-
-1. NH/KFCC 모두 공통 framework를 사용한다.
-2. synthetic interruption 후 resume가 완료 item을 재요청하지 않는다.
-3. same-cycle/incompatible-cycle 판정이 테스트된다.
-4. incomplete checkpoint가 canonical observations를 만들지 않는다.
-5. final uninterrupted 결과와 resumed 결과가 artifact/parsed-row 기준으로 동등하다.
-6. RepeatGuard 결과가 interruption 유무와 무관하게 동일하다.
-7. R2 corrupt/missing object는 fail closed한다.
-8. canonical R2 state commit 전 checkpoint를 삭제하지 않는다.
-9. 정상 request interval과 single-writer 구조를 유지한다.
-10. full CI green.
-11. small-scope live resume 검증 또는 불가능한 경우 명확한 미검증 표시.
-12. merge 후 전국 scheduled run에서 checkpoint overhead와 cleanup을 확인한다.
-13. 08:00 SLA에 유의미한 악영향이 없는지 실측한다.
-
----
-
-# 28. 리뷰 시 확정할 결정
-
-다음은 현재 **제안값**이며 사용자 리뷰 후 고정한다.
-
-| 항목 | 제안 |
-|---|---|
-| 대상 source | NH + KFCC |
-| checkpoint backend | R2 ObjectStore |
-| chunk format | tar.gz |
-| flush | 100 items 또는 5분 |
-| auto resume 범위 | same KST cycle only |
-| default resume mode | auto |
-| operator override | fresh |
-| incomplete retention | 72시간 |
-| abandoned/orphan retention | 7일 |
-| canonical DB migration | 없음 |
-| concurrency | 기존 single writer 유지 |
-| parallel fetch | v1 제외 |
-| KFCC retry 추가 | 별도 결정 |
-
-리뷰에서 이 표가 확정된 뒤 구현을 시작한다.
+문서가 머지됐다는 사실은 implementation approval 또는 runtime validation을 뜻하지 않는다.
