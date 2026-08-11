@@ -1,0 +1,32 @@
+name: Temporary — apply PR 80 review follow-up
+
+on:
+  push:
+    branches: [agent/collection-sla-schedule]
+    paths:
+      - .github/workflows/dev-pr80-review-followup.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/collection-sla-schedule
+      - name: Apply review follow-up
+        run: python scripts/dev_review_followup_80.py
+      - name: Check diff
+        run: |
+          git diff --check
+          git diff --exit-code -- scripts/dev_review_followup_80.py .github/workflows/dev-pr80-review-followup.yml
+          git status --short
+      - name: Commit follow-up
+        run: |
+          git config user.name "dekt-oss"
+          git config user.email "degackt@gmail.com"
+          git add web/api/health.js web/templates/site.html src/rate_monitor/services/source_health_service.py tests/test_collection_health.py tests/test_collection_health_ui.py tests/test_collection_sla_api.py
+          git commit -m "fix: harden collection SLA health evidence"
+          git push origin HEAD:agent/collection-sla-schedule
