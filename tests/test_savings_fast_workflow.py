@@ -1,7 +1,7 @@
-"""저축은행 경량 수집 lane의 실행 계약.
+"""은행권 경량 수집 lane의 실행 계약.
 
-긴 전국 수집과 분리한 목적은 FINLIFE 저축은행과 저축은행중앙회만 하루 중
-세 번 다시 확인하는 것이다. 크론 시간이나 수집원 범위가 조용히 넓어지면
+긴 전국 수집과 분리한 목적은 FINLIFE 시중은행·저축은행과 저축은행중앙회만
+하루 중 세 번 다시 확인하는 것이다. 크론 시간이나 수집원 범위가 조용히 넓어지면
 비용·원천 부하·최신성 계약이 모두 달라지므로 정적으로 고정한다.
 """
 
@@ -52,22 +52,28 @@ def test_fast_lane_serializes_with_the_existing_rate_data_writer() -> None:
     assert concurrency["cancel-in-progress"] is False
 
 
-def test_fast_lane_collects_only_the_two_savings_bank_sources() -> None:
+def test_fast_lane_collects_only_bank_and_savings_sources() -> None:
     steps = _workflow()["jobs"]["collect-savings"]["steps"]
     collectors = [
         step for step in steps if str(step.get("name", "")).startswith("Collect ")
     ]
     assert [step["name"] for step in collectors] == [
+        "Collect finlife bank",
         "Collect finlife savings bank",
         "Collect FSB",
     ]
 
-    finlife = collectors[0]
-    assert "--source finlife_savings_bank" in finlife["run"]
-    assert "--groups 030300" in finlife["run"]
-    assert "secrets.FINLIFE_API_KEY" in str(finlife["env"])
+    bank = collectors[0]
+    assert "--source finlife_bank" in bank["run"]
+    assert "--groups 020000" in bank["run"]
+    assert "secrets.FINLIFE_API_KEY" in str(bank["env"])
 
-    fsb = collectors[1]
+    savings = collectors[1]
+    assert "--source finlife_savings_bank" in savings["run"]
+    assert "--groups 030300" in savings["run"]
+    assert "secrets.FINLIFE_API_KEY" in str(savings["env"])
+
+    fsb = collectors[2]
     assert "--source fsb" in fsb["run"]
 
 
