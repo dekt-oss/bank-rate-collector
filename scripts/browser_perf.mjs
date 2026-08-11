@@ -93,7 +93,7 @@ async function runScenario(browser, scenario) {
     const started = performance.now();
     const value = JSON.parse(text);
     const elapsed = performance.now() - started;
-    return { ms: elapsed, rows: Array.isArray(value) ? value.length : value.table?.length ?? null };
+    return { ms: elapsed, rows: Array.isArray(value) ? value.length : value.rows?.length ?? null };
   });
   const heapAfterParse = await heapBytes(page);
 
