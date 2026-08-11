@@ -38,7 +38,6 @@ def test_health_api_never_requires_or_returns_the_collect_password() -> None:
     assert "password" not in API.lower()
 
 
-
 def test_live_pipeline_includes_the_publish_gates() -> None:
     """수집만 성공하고 gate가 실패한 작업을 전체 정상으로 보이면 안 된다."""
     assert '"Verify P1-A gate": "p1a_gate"' in API
@@ -47,13 +46,21 @@ def test_live_pipeline_includes_the_publish_gates() -> None:
     assert '"Publish to rate-data branch": "publish"' in API
 
 
-
 def test_live_health_exposes_eight_am_cycle_sla() -> None:
     assert "export const cycleSla" in API
     assert "normal_target_at: normalTargetAt" in API
     assert "sla_deadline_at: deadlineAt" in API
     assert "latest_publish_completed_at: publishCompletedAt || null" in API
-    assert 'collections.find((run) => run.event === "schedule")' in API
-    assert "scheduled.pipelineSteps.publish" in API
+    assert 'collections.filter((run) => run.event === "schedule")' in API
+    assert "finisher?.pipelineSteps.publish" in API
     assert "08:00 SLA" in SITE
     assert 'body.sla ? "<br>" + slaLine(body.sla)' in SITE
+
+
+def test_cycle_sla_does_not_hide_failed_sources() -> None:
+    assert "cycleSourceState" in API
+    assert 'status = "failed"' in API
+    assert 'status = "degraded"' in API
+    assert "failed_sources" in API
+    assert "missing_sources" in API
+    assert "일부 원천 실패" in SITE
