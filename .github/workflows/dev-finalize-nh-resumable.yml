@@ -1,0 +1,40 @@
+name: Finalize NH resumable integration
+
+on:
+  push:
+    branches:
+      - agent/nh-resumable-acquisition-v1
+
+permissions:
+  contents: write
+
+jobs:
+  integrate:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/nh-resumable-acquisition-v1
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v5
+      - name: Set up Python
+        run: uv python install 3.12
+      - name: Merge reviewed dependencies
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin agent/resumable-acquisition-common-v1 agent/retry-wall-clock-budget
+          git merge --no-edit origin/agent/resumable-acquisition-common-v1
+          git merge --no-edit origin/agent/retry-wall-clock-budget
+      - name: Verify integrated tree
+        run: |
+          set -euo pipefail
+          uv sync --locked
+          uv run ruff check src tests scripts
+          uv run pytest -q
+          rm .github/workflows/dev-finalize-nh-resumable.yml
+          git add -A
+          git commit -m "merge: finalize NH resumable integration dependencies"
+          git push origin HEAD:agent/nh-resumable-acquisition-v1
