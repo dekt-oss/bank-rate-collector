@@ -35,7 +35,15 @@ jobs:
           t = Path('tests/test_checkpoint_workflow_contract.py')
           text = t.read_text(encoding='utf-8')
           marker = 'def test_checkpoint_pr_keeps_the_approved_schedule_and_single_writer() -> None:\n'
-          test = '''def test_checkpoint_workflow_can_read_its_authenticated_run_metadata() -> None:\n    workflow = _workflow()\n    assert workflow["permissions"]["actions"] == "read"\n    for name in ("Collect NH local", "Collect KFCC"):\n        env = _step(name).get("env") or {{}}\n        assert env.get("GITHUB_TOKEN") == "${{{{ secrets.GITHUB_TOKEN }}}}"\n\n\n'''
+          token_expr = '$' + '{{ secrets.GITHUB_TOKEN }}'
+          test = (
+              'def test_checkpoint_workflow_can_read_its_authenticated_run_metadata() -> None:\n'
+              '    workflow = _workflow()\n'
+              '    assert workflow["permissions"]["actions"] == "read"\n'
+              '    for name in ("Collect NH local", "Collect KFCC"):\n'
+              '        env = _step(name).get("env") or {}\n'
+              f'        assert env.get("GITHUB_TOKEN") == "{token_expr}"\n\n\n'
+          )
           if marker not in text:
               raise SystemExit('test insertion marker mismatch')
           t.write_text(text.replace(marker, test + marker, 1), encoding='utf-8')
