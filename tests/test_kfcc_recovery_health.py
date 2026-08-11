@@ -62,16 +62,28 @@ def test_kfcc_recovery_success_supersedes_first_failure() -> None:
       globalThis.fetch = async (url) => {{
         const value = String(url);
         if (value.includes('/runs?event=schedule&per_page=20')) {{
-          return {{ ok: true, status: 200, json: async () => ({{ workflow_runs: [kfcc, core] }}) }};
+          return {{
+            ok: true, status: 200,
+            json: async () => ({{ workflow_runs: [kfcc, core] }}),
+          }};
         }}
         if (value.includes('/runs?per_page=30')) {{
-          return {{ ok: true, status: 200, json: async () => ({{ workflow_runs: [kfcc, core] }}) }};
+          return {{
+            ok: true, status: 200,
+            json: async () => ({{ workflow_runs: [kfcc, core] }}),
+          }};
         }}
         if (value.includes('/actions/runs/801/jobs?per_page=20')) {{
-          return {{ ok: true, status: 200, json: async () => ({{ jobs: [{{ steps: coreSteps }}] }}) }};
+          return {{
+            ok: true, status: 200,
+            json: async () => ({{ jobs: [{{ steps: coreSteps }}] }}),
+          }};
         }}
         if (value.includes('/actions/runs/802/jobs?per_page=20')) {{
-          return {{ ok: true, status: 200, json: async () => ({{ jobs: [{{ steps: kfccSteps }}] }}) }};
+          return {{
+            ok: true, status: 200,
+            json: async () => ({{ jobs: [{{ steps: kfccSteps }}] }}),
+          }};
         }}
         throw new Error(`unexpected URL: ${{value}}`);
       }};
