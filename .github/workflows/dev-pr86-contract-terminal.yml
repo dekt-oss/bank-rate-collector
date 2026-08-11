@@ -22,121 +22,7 @@ jobs:
         run: uv python install 3.12
       - name: Apply adversarial review fix
         run: |
-          python - <<'PY'
-          from pathlib import Path
-
-          p = Path('src/rate_monitor/collectors/nh_local/resumable.py')
-          text = p.read_text(encoding='utf-8')
-          old = '''        guard = self._guard_factory()
-        self._replay_guard(guard, artifacts)
-        if guard.tripped:
-'''
-          new = '''        guard = self._guard_factory()
-        try:
-            self._replay_guard(guard, artifacts)
-        except CheckpointIncompatibleError as exc:
-            self._seal_contract_failure(service, manifest, exc)
-            raise
-        if guard.tripped:
-'''
-          if text.count(old) != 1:
-              raise SystemExit('replay marker mismatch')
-          text = text.replace(old, new, 1)
-
-          old = '''        except SourceBlockedError as exc:
-            if buffer:
-                manifest = service.flush(
-                    manifest,
-                    buffer,
-                    guard_state=self._checkpoint_state(),
-                )
-            service.mark_terminal(
-                manifest,
-                status="blocked",
-                reason_code="SOURCE_BLOCKED",
-                reason=str(exc),
-                guard_state=self._checkpoint_state(),
-            )
-            raise
-        except SchemaChangedError as exc:
-'''
-          new = '''        except SourceBlockedError as exc:
-            if buffer:
-                manifest = service.flush(
-                    manifest,
-                    buffer,
-                    guard_state=self._checkpoint_state(),
-                )
-            service.mark_terminal(
-                manifest,
-                status="blocked",
-                reason_code="SOURCE_BLOCKED",
-                reason=str(exc),
-                guard_state=self._checkpoint_state(),
-            )
-            raise
-        except CheckpointIncompatibleError as exc:
-            self._seal_contract_failure(service, manifest, exc)
-            raise
-        except SchemaChangedError as exc:
-'''
-          if text.count(old) != 1:
-              raise SystemExit('exception marker mismatch')
-          text = text.replace(old, new, 1)
-
-          marker = '''    def _build_plan(
-        self,
-        outlets,
-        products: tuple[ProductType, ...],
-'''
-          helper = '''    def _seal_contract_failure(
-        self,
-        service: ResumableAcquisitionService,
-        manifest: AcquisitionManifest,
-        exc: CheckpointIncompatibleError,
-    ) -> None:
-        """Seal same-session contract drift so workflow recovery cannot loop it."""
-        try:
-            service.mark_terminal(
-                manifest,
-                status="contract_failed",
-                reason_code="ACQUISITION_CONTRACT_CHANGED",
-                reason=str(exc),
-                guard_state=self._checkpoint_state(),
-            )
-        except CheckpointIncompatibleError:
-            # Identity-level incompatibility can mean this manifest is not the active
-            # session. In that case the common recovery decision itself fails closed.
-            return
-
-'''
-          if marker not in text:
-              raise SystemExit('helper insertion marker mismatch')
-          text = text.replace(marker, helper + marker, 1)
-          p.write_text(text, encoding='utf-8')
-
-          t = Path('tests/test_nh_local_resumable.py')
-          text = t.read_text(encoding='utf-8')
-          old = '''    monkeypatch.setattr(resumed, "_get", must_not_fetch_directory)
-    with pytest.raises(CheckpointIncompatibleError, match="work_plan_hash"):
-        _run(resumed, request)
-
-
-def test_blocked_source_is_terminal_and_not_recoverable'''
-          new = '''    monkeypatch.setattr(resumed, "_get", must_not_fetch_directory)
-    with pytest.raises(CheckpointIncompatibleError, match="work_plan_hash"):
-        _run(resumed, request)
-
-    decision = decide_recovery(store, _identity(request), attempt_failed=True)
-    assert decision.eligible is False
-    assert decision.reason_code == "ACQUISITION_CONTRACT_CHANGED"
-
-
-def test_blocked_source_is_terminal_and_not_recoverable'''
-          if text.count(old) != 1:
-              raise SystemExit('plan mismatch test marker mismatch')
-          t.write_text(text.replace(old, new, 1), encoding='utf-8')
-          PY
+          python .github/dev/pr86_contract_patch.py
           uv sync --locked
           uv run ruff check src tests scripts
           uv run pytest -q tests/test_nh_local_resumable.py tests/test_checkpoint_workflow_contract.py
@@ -144,6 +30,7 @@ def test_blocked_source_is_terminal_and_not_recoverable'''
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/dev/pr86_contract_patch.py
           git add src/rate_monitor/collectors/nh_local/resumable.py tests/test_nh_local_resumable.py
           git commit -m "fix: seal NH checkpoint contract drift"
           git push origin HEAD:agent/nh-resumable-acquisition-v1
