@@ -38,6 +38,12 @@ on:
         required: false
         default: "전국"
         options: ["전국", "수도권", "부산"]
+      nh_resume_mode:
+        description: "농·축협 checkpoint. 보통 auto, 같은 날 새로 받으려면 fresh"
+        type: choice
+        required: false
+        default: "auto"
+        options: ["auto", "fresh"]
       skip_finlife_bank:
         description: "시중은행(참고지표) 수집을 건너뛴다"
         type: boolean
@@ -431,13 +437,33 @@ jobs:
       #
       # 입출금식 화면(SFDPW0162R)은 아직 안 받는다. 실물을 본 적이 없다.
       #
-      - name: Collect NH local
-        if: ${{ inputs.skip_nh_local != true && env.PUBLISH_ONLY != 'true'
-          && env.KFCC_ONLY != 'true' }}
-        continue-on-error: true
+      - name: Prepare NH checkpoint context
+        id: nh_checkpoint
+        if: ${{ inputs.skip_nh_local != true && env.PUBLISH_ONLY != 'true' && env.KFCC_ONLY != 'true' }}
         env:
           SCOPE: ${{ inputs.nh_local_scope }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p work
+          uv run rate-monitor-checkpoint prepare-context \
+            --source nh_local \
+            ${SCOPE:+--scope "$SCOPE"} \
+            --json work/nh-checkpoint-context.json >/dev/null
+          CYCLE_DATE=$(python -c "import json; print(json.load(open('work/nh-checkpoint-context.json'))['cycle_date_kst'])")
+          FINGERPRINT=$(python -c "import json; print(json.load(open('work/nh-checkpoint-context.json'))['request_fingerprint'])")
+          CONTRACT=$(python -c "import json; print(json.load(open('work/nh-checkpoint-context.json'))['acquisition_contract_version'])")
+          echo "cycle_date=$CYCLE_DATE" >> "$GITHUB_OUTPUT"
+          echo "fingerprint=$FINGERPRINT" >> "$GITHUB_OUTPUT"
+          echo "contract_version=$CONTRACT" >> "$GITHUB_OUTPUT"
+
+      - name: Collect NH local
+        id: collect_nh_local
+        if: ${{ inputs.skip_nh_local != true && env.PUBLISH_ONLY != 'true' && env.KFCC_ONLY != 'true' }}
+        continue-on-error: true
+        env:
+          SCOPE: ${{ inputs.nh_local_scope }}
+          RESUME_MODE: ${{ inputs.nh_resume_mode || 'auto' }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
@@ -447,6 +473,55 @@ jobs:
         run: |
           uv run rate-monitor collect \
             --source nh_local \
+            --resume "$RESUME_MODE" \
+            --cycle-date "${{ steps.nh_checkpoint.outputs.cycle_date }}" \
+            --db work/rate_monitor.sqlite3 \
+            --raw-root data/raw \
+            ${SCOPE:+--scope "$SCOPE"}
+
+      - name: Decide NH recovery
+        id: decide_nh_recovery
+        if: ${{ steps.collect_nh_local.outcome == 'failure' }}
+        continue-on-error: true
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+          R2_REGION: ${{ vars.R2_REGION }}
+        run: |
+          set -euo pipefail
+          uv run rate-monitor-checkpoint recovery-decision \
+            --source nh_local \
+            --cycle-date "${{ steps.nh_checkpoint.outputs.cycle_date }}" \
+            --request-fingerprint "${{ steps.nh_checkpoint.outputs.fingerprint }}" \
+            --acquisition-contract-version "${{ steps.nh_checkpoint.outputs.contract_version }}" \
+            --attempt-failed \
+            --json work/nh-recovery-decision.json >/dev/null
+          ELIGIBLE=$(python -c "import json; print(str(json.load(open('work/nh-recovery-decision.json'))['eligible']).lower())")
+          REASON=$(python -c "import json; print(json.load(open('work/nh-recovery-decision.json'))['reason_code'])")
+          echo "eligible=$ELIGIBLE" >> "$GITHUB_OUTPUT"
+          echo "reason=$REASON" >> "$GITHUB_OUTPUT"
+          echo "NH recovery eligible=$ELIGIBLE reason=$REASON"
+
+      - name: Recover NH local
+        id: recover_nh_local
+        if: ${{ steps.collect_nh_local.outcome == 'failure' && steps.decide_nh_recovery.outcome == 'success' && steps.decide_nh_recovery.outputs.eligible == 'true' }}
+        continue-on-error: true
+        env:
+          SCOPE: ${{ inputs.nh_local_scope }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+          R2_REGION: ${{ vars.R2_REGION }}
+        run: |
+          uv run rate-monitor collect \
+            --source nh_local \
+            --resume auto \
+            --cycle-date "${{ steps.nh_checkpoint.outputs.cycle_date }}" \
             --db work/rate_monitor.sqlite3 \
             --raw-root data/raw \
             ${SCOPE:+--scope "$SCOPE"}

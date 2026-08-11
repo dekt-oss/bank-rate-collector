@@ -227,8 +227,10 @@ def test_publish_only_skips_every_collector_but_still_publishes() -> None:
     """
     steps = _workflow()["jobs"]["collect"]["steps"]
     skipped = {
-        s["name"] for s in steps
-        if "PUBLISH_ONLY != 'true'" in str(s.get("if") or "")
+        s["name"]
+        for s in steps
+        if str(s.get("name", "")).startswith("Collect ")
+        and "PUBLISH_ONLY != 'true'" in str(s.get("if") or "")
     }
     collectors = {s["name"] for s in steps if str(s.get("name", "")).startswith("Collect ")}
     assert collectors, "수집 단계를 찾지 못했다"

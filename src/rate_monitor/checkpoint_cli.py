@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
+from rate_monitor.collectors.nh_local.resumable import build_nh_checkpoint_context
+from rate_monitor.domain.schemas import CollectionRequest
 from rate_monitor.services.resumable_acquisition import (
     CHECKPOINT_CONTRACT_VERSION,
     AcquisitionSessionIdentity,
@@ -17,6 +20,7 @@ from rate_monitor.services.storage_service import (
     StorageError,
     open_store,
 )
+from rate_monitor.services.workflow_context import resolve_cycle_date_kst
 
 
 def _store(local_root: str | None):
@@ -29,6 +33,22 @@ def _store(local_root: str | None):
             f"{', '.join(R2Config.ENV_KEYS)}가 필요하고, 시험은 --local-root를 쓴다"
         )
     return open_store(config)
+
+
+def _prepare_context(args: argparse.Namespace) -> int:
+    if args.source != "nh_local":
+        raise ValueError("prepare-context는 현재 nh_local만 지원한다")
+    cycle_date = args.cycle_date or resolve_cycle_date_kst()
+    options = {"scope": args.scope} if args.scope else {}
+    request = CollectionRequest(source_id="nh_local", options=options)
+    context = build_nh_checkpoint_context(request, cycle_date_kst=cycle_date)
+    body = json.dumps(context.to_dict(), ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+    if args.json:
+        path = Path(args.json)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(body, encoding="utf-8")
+    sys.stdout.write(body)
+    return 0
 
 
 def _recovery_decision(args: argparse.Namespace) -> int:
@@ -54,6 +74,19 @@ def _recovery_decision(args: argparse.Namespace) -> int:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="rate-monitor-checkpoint")
     sub = parser.add_subparsers(dest="action", required=True)
+
+    prepare = sub.add_parser(
+        "prepare-context",
+        help="NH checkpoint source command와 recovery decision이 공유할 identity를 만든다",
+    )
+    prepare.add_argument("--source", required=True, choices=["nh_local"])
+    prepare.add_argument("--scope", default=None)
+    prepare.add_argument(
+        "--cycle-date", default=None,
+        help="생략하면 GitHub current run의 run_started_at을 KST 날짜로 변환",
+    )
+    prepare.add_argument("--json", default=None)
+    prepare.set_defaults(func=_prepare_context)
 
     recovery = sub.add_parser(
         "recovery-decision",

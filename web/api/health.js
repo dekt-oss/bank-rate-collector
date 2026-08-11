@@ -91,6 +91,7 @@ const SOURCE_STEPS = {
   "Collect CU": "cu",
   "Collect KFCC": "kfcc",
   "Collect NH local": "nh_local",
+  "Recover NH local": "nh_local",
 };
 
 const PIPELINE_STEPS = {
@@ -146,7 +147,15 @@ const loadRunSteps = async (token, slug, run) => {
   const jobs = (await jobsRes.json()).jobs || [];
   for (const job of jobs) {
     for (const step of job.steps || []) {
-      if (SOURCE_STEPS[step.name]) sourceSteps[SOURCE_STEPS[step.name]] = stepView(step);
+      if (SOURCE_STEPS[step.name]) {
+        const sourceId = SOURCE_STEPS[step.name];
+        const view = stepView(step);
+        // Source steps are ordered. Recovery should supersede a failed first
+        // attempt only when it actually ran; a skipped recovery preserves it.
+        if (view.conclusion !== "skipped" || !sourceSteps[sourceId]) {
+          sourceSteps[sourceId] = view;
+        }
+      }
       if (PIPELINE_STEPS[step.name]) pipelineSteps[PIPELINE_STEPS[step.name]] = stepView(step);
     }
   }
