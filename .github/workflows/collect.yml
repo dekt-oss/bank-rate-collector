@@ -396,6 +396,12 @@ jobs:
         continue-on-error: true
         env:
           SCOPE: ${{ inputs.kfcc_scope }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+          R2_REGION: ${{ vars.R2_REGION }}
         run: |
           uv run rate-monitor collect \
             --source kfcc \
@@ -429,6 +435,12 @@ jobs:
         continue-on-error: true
         env:
           SCOPE: ${{ inputs.nh_local_scope }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+          R2_REGION: ${{ vars.R2_REGION }}
         run: |
           uv run rate-monitor collect \
             --source nh_local \
