@@ -2,7 +2,7 @@
 
 이 저장소가 다루는 것은 한국 금융기관의 공시금리이고 읽는 사람도 한국에
 있다. 그런데 GitHub Actions는 UTC로 돌고, DB에도 UTC가 적힌다. 경계에서
-바꾸는 것을 잊으면 07:00에 도는 정기 수집이 화면에 22:00으로 뜬다.
+바꾸는 것을 잊으면 정기 수집 시각과 날짜가 하루씩 어긋나 보일 수 있다.
 """
 
 import sqlite3
@@ -15,25 +15,22 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_the_scheduled_run_lands_on_the_right_korean_day() -> None:
-    """정기 수집은 22:00 UTC에 돈다. 그때 한국은 이미 다음 날 07:00이다.
+    """core 정기 수집은 전날 15:17 UTC, 한국에서는 다음 날 00:17이다.
 
     UTC 날짜로 파일 이름과 원본 디렉터리를 만들면 하루 전 날짜가 붙는다.
     """
-    scheduled = datetime(2026, 8, 5, 22, 0, tzinfo=UTC)
-    assert to_kst(scheduled).strftime("%Y-%m-%d %H:%M") == "2026-08-06 07:00"
+    scheduled = datetime(2026, 8, 5, 15, 17, tzinfo=UTC)
+    assert to_kst(scheduled).strftime("%Y-%m-%d %H:%M") == "2026-08-06 00:17"
     assert kst_date_stamp(scheduled) == "20260806"
     assert kst_path_stamp(scheduled) == "2026/08/06"
 
 
-def test_the_cron_matches_two_in_the_morning_korea_time() -> None:
-    """워크플로우의 cron이 실제로 한국시간 02:00인지.
+def test_the_core_cron_matches_twelve_seventeen_korea_time() -> None:
+    """워크플로우의 첫 cron이 실제로 한국시간 00:17인지 값에서 확인한다.
 
-    주석과 값이 어긋나도 아무도 모른다. 값에서 되짚어 확인한다.
-
-    2026-08-06에 평일 07:00에서 월·수·금 02:00으로,
-    2026-08-07에 평일 02:00으로 바꿨다. **요일이 하루
-    밀린다** — 02:00 KST는 전날 17:00 UTC라 월·수·금 새벽은 일·화·목 UTC다.
-    요일까지 보는 것은 `test_gate_contract`가 맡는다.
+    08:00 hard deadline에 여유를 두기 위해 core를 00:17 KST로 앞당겼다.
+    00:17 KST는 전날 15:17 UTC다. 요일 이동과 두 번째 KFCC cron까지의
+    계약은 `test_gate_contract`가 별도로 검증한다.
     """
     import re
 
@@ -42,7 +39,7 @@ def test_the_cron_matches_two_in_the_morning_korea_time() -> None:
     assert match, "cron을 찾지 못했다"
     minute, hour = int(match.group(1)), int(match.group(2))
     utc = datetime(2026, 8, 5, hour, minute, tzinfo=UTC)
-    assert to_kst(utc).strftime("%H:%M") == "02:00"
+    assert to_kst(utc).strftime("%H:%M") == "00:17"
 
 
 def test_the_page_carries_korean_time(tmp_path: Path) -> None:

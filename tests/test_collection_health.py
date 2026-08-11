@@ -1,7 +1,7 @@
 """Source freshness / run health / warning taxonomy 회귀 테스트."""
 
 import sqlite3
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 
 from rate_monitor.db import models as m
@@ -12,6 +12,7 @@ from rate_monitor.services.source_health_service import (
     _review_reason,
     _row_warning_reason,
     build_collection_health,
+    expected_collection_date,
 )
 
 
@@ -118,16 +119,33 @@ def test_business_day_freshness_handles_weekend_and_missed_cycles(tmp_path) -> N
         _source(s)
         # 8/7 00:00 UTC = 금요일 09:00 KST
         _run(s, started=datetime(2026, 8, 7, 0, 0))
-    # 월요일 06:30 KST: core cutoff(07시) 전이므로 금요일이 기대일 → 정상
-    before = _health(path, datetime(2026, 8, 10, 6, 30, tzinfo=KST))["sources"][0]
+    # core source의 기존 07:00 cutoff는 유지한다.
+    before = _health(path, datetime(2026, 8, 10, 6, 45, tzinfo=KST))["sources"][0]
     assert before["freshness"]["signal"] == "green"
-    # 월요일 밤: 월요일 수집 1회를 놓침 → yellow
-    after = _health(path, datetime(2026, 8, 10, 22, 0, tzinfo=KST))["sources"][0]
+    # 월요일 07:05: 월요일 수집 1회를 놓침 → yellow
+    after = _health(path, datetime(2026, 8, 10, 7, 5, tzinfo=KST))["sources"][0]
     assert after["freshness"]["signal"] == "yellow"
-    # 화요일 밤까지 못 받음 → 2회 지연 red
-    late = _health(path, datetime(2026, 8, 11, 22, 0, tzinfo=KST))["sources"][0]
+    # 화요일 07:05까지 못 받음 → 2회 지연 red
+    late = _health(path, datetime(2026, 8, 11, 7, 5, tzinfo=KST))["sources"][0]
     assert late["freshness"]["signal"] == "red"
     engine.dispose()
+
+
+def test_kfcc_freshness_cutoff_is_eight_but_core_stays_seven() -> None:
+    friday = date(2026, 8, 7)
+    monday = date(2026, 8, 10)
+    assert expected_collection_date(
+        "nh_local", datetime(2026, 8, 10, 6, 59, tzinfo=KST)
+    ) == friday
+    assert expected_collection_date(
+        "nh_local", datetime(2026, 8, 10, 7, 0, tzinfo=KST)
+    ) == monday
+    assert expected_collection_date(
+        "kfcc", datetime(2026, 8, 10, 7, 59, tzinfo=KST)
+    ) == friday
+    assert expected_collection_date(
+        "kfcc", datetime(2026, 8, 10, 8, 0, tzinfo=KST)
+    ) == monday
 
 
 def test_disabled_source_is_gray(tmp_path) -> None:

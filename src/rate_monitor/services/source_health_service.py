@@ -25,11 +25,11 @@ NORMAL_STATUSES = ("success", "no_change")
 DISPLAY_STATUSES = ("success", "partial", "no_change")
 FAIL_STATUSES = ("failed", "blocked", "schema_changed")
 
-# 정기수집 완료를 기대하는 한국시간. UI에 24시간 같은 숫자를 박지 않고,
-# 실제 workflow의 split schedule(02시 core / 06시 KFCC)을 기준으로 둔다.
-# core 전국수집은 약 4시간, KFCC는 약 2시간이므로 완료 여유를 포함한다.
-EXPECTED_BY_HOUR_KST = {
-    "kfcc": 9,
+# 개별 source freshness와 전체 cycle SLA를 분리한다. core source의 기존
+# 07:00 freshness cutoff는 느슨하게 만들지 않고, KFCC만 09:00 -> 08:00으로
+# 조인다. 전체 cycle의 hard deadline 08:00은 /api/health에서 별도 계산한다.
+EXPECTED_BY_HOUR_KST: dict[str, int] = {
+    "kfcc": 8,
 }
 DEFAULT_EXPECTED_BY_HOUR_KST = 7
 
