@@ -118,10 +118,11 @@ def test_the_head_office_notice_is_still_there() -> None:
     assert "저축은행 공시금리 — 전국 본점 기준 참고값" in SOURCE
 
 
-def test_rate_finder_brand_is_broad_and_the_page_is_light_only() -> None:
-    assert "RATE FINDER · 전국 예·적금 금리 비교" in SOURCE
-    assert '<span class="brand-en">RATE FINDER</span>' in SOURCE
-    assert '<span class="brand-ko">전국 예·적금 금리 비교</span>' in SOURCE
+def test_korean_brand_is_broad_and_the_page_is_light_only() -> None:
+    assert "RATE FINDER" not in SOURCE
+    assert "DEPOSIT RATE INTELLIGENCE" not in SOURCE
+    assert "<title>전국 예·적금 금리 비교</title>" in SOURCE
+    assert '<h1 class="brand-title">전국 예·적금 금리 비교</h1>' in SOURCE
     assert 'id="theme"' not in SOURCE
     assert 'id="copylink"' not in SOURCE
     assert "prefers-color-scheme: dark" not in SOURCE
