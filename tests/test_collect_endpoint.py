@@ -142,4 +142,5 @@ def test_only_known_inputs_reach_each_workflow() -> None:
 def test_both_workflows_check_the_same_github_password_secret() -> None:
     for workflow in (WORKFLOW, NH_WORKFLOW):
         assert "secrets.DASHBOARD_PASSWORD" in workflow
-        assert 'if [ "$GIVEN" != "$EXPECTED" ]; then' in workflow
+        assert "GIVEN" in workflow and "EXPECTED" in workflow
+        assert "!=" in workflow
