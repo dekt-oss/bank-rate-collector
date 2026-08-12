@@ -10,8 +10,11 @@ on:
 
 # 부모 Collect rates, KFCC-only run, 은행권 경량 수집과 모두 같은 canonical DB/R2와
 # rate-data 브랜치를 쓴다. fresh-runner retry도 단일 writer 계약 밖으로 나가지 않는다.
+# queue:max는 이 새 workflow가 늦게 도착했을 때 이미 pending인 KFCC/다른 writer를
+# 교체 취소하지 않게 한다. cancel-in-progress:false만으로는 pending 여러 개를 보존하지 못한다.
 concurrency:
   group: rate-data-writer
+  queue: max
   cancel-in-progress: false
 
 permissions:
