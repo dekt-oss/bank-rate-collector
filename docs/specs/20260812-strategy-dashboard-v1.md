@@ -182,7 +182,8 @@ B 또는 S를 입력하지 않으면 금액 결과를 표시하지 않고 `가�
 
 ## 10. 기존 화면 보존
 
-`site.html`에는 전략 화면으로 이동하는 작은 메뉴 링크만 추가한다.
+공식 사이트의 기본 빌드에서는 전략 화면을 공개하지 않는다. 공개 gate가 켜진
+빌드에서만 `site.html`에 전략 화면으로 이동하는 작은 메뉴 링크를 추가한다.
 
 금지:
 
@@ -193,9 +194,38 @@ B 또는 S를 입력하지 않으면 금액 결과를 표시하지 않고 `가�
 - 별도 데이터 복제
 - 기존 `index.html`을 전략 화면으로 교체
 
-## 11. 빌드·배포
+## 11. 빌드·배포 및 공개 gate
 
-현행 `build-site`가 `site-public/`을 만드는 구조를 유지한다.
+현행 `build-site`가 `site-public/`을 만드는 구조를 유지한다. 다만 **코드 병합과
+사용자 공개를 분리**한다.
+
+### 기본값 — 공식 발행은 OFF
+
+환경변수 `RATE_MONITOR_STRATEGY_DASHBOARD`가 없으면 기존 검색·조회 산출물만
+만든다.
+
+```text
+site-public/
+  index.html
+  data/table.json
+  ...
+```
+
+이 상태에서는:
+
+- `strategy.html`을 만들지 않는다.
+- `index.html`에 전략 대시보드 링크를 넣지 않는다.
+- 같은 출력 디렉터리에 과거 `strategy.html`이 남아 있으면 삭제한다.
+
+따라서 기능 코드가 `main`에 존재하는 것만으로 전략 화면을 공개하지 않는다.
+
+### Preview / 최종 공개 — 명시적으로 ON
+
+다음 값을 명시한 빌드에서만 전략 화면을 발행한다.
+
+```text
+RATE_MONITOR_STRATEGY_DASHBOARD=1
+```
 
 ```text
 site-public/
@@ -208,15 +238,34 @@ site-public/
 두 HTML은 같은 lightweight page data와 같은 `data/table.json`을 사용한다.
 `strategy.html`에 전체 금리표를 인라인하지 않는다.
 
+### 개발 Preview
+
+`feat/strategy-dashboard-lab` 변경은 별도 workflow가 현재 canonical 운영 DB를
+**읽기 전용으로 복원**한 뒤 release gate를 ON으로 빌드한다. 결과는
+`preview/strategy-dashboard`에만 강제 갱신한다.
+
+Preview workflow는:
+
+- 외부 수집을 실행하지 않는다.
+- canonical 운영 DB를 수정하거나 업로드하지 않는다.
+- `rate-data`를 쓰지 않는다.
+- 공식 Vercel production 경로를 변경하지 않는다.
+
+최종 공개는 별도 release 변경으로 공식 publish 경로에 gate를 켠 뒤 다시
+검증하고 진행한다. 사용자 지시 없이 자동 공개하지 않는다.
+
 ## 12. v1 완료 기준
 
+- [ ] 기본 공식 빌드에서는 `strategy.html`과 전략 링크가 생성되지 않는다.
+- [ ] Preview/release gate ON 빌드에서는 `strategy.html`이 생성된다.
+- [ ] OFF 빌드는 이전 실행의 stale `strategy.html`도 제거한다.
 - [ ] 기존 `index.html` 검색·조회 기능을 그대로 유지한다.
-- [ ] `strategy.html`이 빌드 산출물에 포함된다.
-- [ ] 상단에서 두 화면을 왕복할 수 있다.
+- [ ] gate ON 상태에서 상단에서 두 화면을 왕복할 수 있다.
 - [ ] 전략 화면이 실제 `table.json`으로 경쟁사 TOP 5와 시장 순위를 계산한다.
 - [ ] 최근 30일 시장 변화 집계는 DB 변경이력에서 계산한다.
 - [ ] 수신액은 사용자 가정 없이는 숫자를 만들지 않는다.
 - [ ] `strategy.html`에도 전체 금리표가 인라인되지 않는다.
+- [ ] Preview는 canonical 운영 DB를 읽기만 하고 별도 preview branch만 쓴다.
 - [ ] 기존 site service·UI 테스트와 신규 전략 화면 테스트가 통과한다.
 - [ ] CI lint/test가 통과한다.
 
@@ -229,5 +278,6 @@ site-public/
 - 상품 승인 워크플로우
 - 로그인/권한 분리
 - 지도 GIS 정밀 구현
+- 사용자 지시 없는 공식 공개 gate 활성화
 
 이 항목들은 전략 화면의 실제 사용성을 확인한 뒤 후속 PR로 분리한다.
