@@ -256,10 +256,15 @@ const isIndirectNhAcquisitionRun = (run) => {
 };
 
 const loadRecentRepositoryRuns = async (token, slug) => {
-  const response = await gh(token, `/repos/${slug}/actions/runs?per_page=50`);
-  if (!response.ok) return { ok: false, status: response.status, runs: [] };
-  const body = await response.json();
-  return { ok: true, status: response.status, runs: body.workflow_runs || [] };
+  try {
+    const response = await gh(token, `/repos/${slug}/actions/runs?per_page=50`);
+    if (!response.ok) return { ok: false, status: response.status, runs: [] };
+    const body = await response.json();
+    return { ok: true, status: response.status, runs: body.workflow_runs || [] };
+  } catch {
+    // 이 조회는 보조 신호다. 실패해도 canonical collect/collect-nh 상태는 그대로 제공한다.
+    return { ok: false, status: 0, runs: [] };
+  }
 };
 
 export default async function handler(req, res) {
