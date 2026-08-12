@@ -4,6 +4,9 @@
 제품·화면·우선순위:
 docs/specs/20260806-rate-monitor-v4.md
 
+전략 대시보드 병렬 실험:
+docs/specs/20260812-strategy-dashboard-v1.md
+
 데이터 계약·식별체계·스냅샷·게이트:
 docs/specs/20260805-rate-monitor-v3.1.md
 
@@ -13,12 +16,19 @@ docs/specs/20260810-stabilization-v1.md
 두 기준 문서가 부딪히면:
 화면·우선순위는 v4, 나머지는 v3.1
 
+전략 대시보드 문서는 현행 검색·조회 화면을 대체하지 않고 별도 화면의
+실험 범위만 정한다.
+
 안정화 문서는 위 기준을 대체하지 않고,
 실제 확인된 오류·운영 리스크를 고치는 현재 작업 범위만 정한다.
 ```
 
 v4는 v3.1을 **폐기하지 않는다.** 아키텍처를 상속하고 제품 우선순위만
 바꾼다. v3.1을 `superseded`로 적으면 데이터 계약이 갈 곳이 없어진다.
+
+`20260812-strategy-dashboard-v1.md`는 `index.html`의 검색·조회 계약을 유지한 채
+같은 발행 데이터로 경쟁사 현황·시장 변화·신상품 시뮬레이션을 제공하는
+`strategy.html` 실험을 정의한다. 안정화 전에는 메인 진입점으로 바꾸지 않는다.
 
 `20260810-stabilization-v1.md`도 v4/v3.1을 대체하지 않는다. 기존 구조와
 계약을 유지한 채 Partial Collection Gate, 행정구역 정규화, 이자방식 의미,
@@ -30,6 +40,7 @@ warning 관측성, source freshness, 업권 용어를 안정화하는 작업 범
 
 | 문서 | 상태 | 비고 |
 |---|---|---|
+| [`20260812-strategy-dashboard-v1.md`](20260812-strategy-dashboard-v1.md) | **experimental/current-work** | 현행 검색·조회 화면 보존 + 별도 전략 대시보드/시뮬레이션 실험 |
 | [`20260810-stabilization-v1.md`](20260810-stabilization-v1.md) | **planned/current-work** | 2026-08-10 감사에서 확인된 오류·운영 리스크 안정화. P0/P1 최소 범위 |
 | [`20260806-rate-monitor-v4.md`](20260806-rate-monitor-v4.md) | **current** | 제품·화면·우선순위. 메인 4업권 + 참고지표 |
 | [`20260806-storage-prerequisite-v1.md`](20260806-storage-prerequisite-v1.md) | partially_implemented | 저장소·이력 보관. PR 1·2 완료, 3~5 미착수 |
