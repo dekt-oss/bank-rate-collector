@@ -1,3 +1,4 @@
+# ruff: noqa: E501
 """08:00 cycle SLA와 독립 NH workflow 결합을 실제 Node API로 검증한다."""
 
 import json
