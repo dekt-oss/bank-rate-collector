@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import sqlite3
 from pathlib import Path
 
 import pytest
@@ -141,9 +142,76 @@ def test_market_changes_come_from_observation_history(collected_db, tmp_path) ->
     assert changes["count"] > 0
     assert changes["up_count"] > 0
     assert changes["down_count"] == 0
+    assert changes["affected_variant_count"] >= changes["count"]
     assert changes["items"]
     assert all(item["delta"] > 0 for item in changes["items"])
     assert all(item["term_months"] == 12 for item in changes["items"])
+    assert all(item["variant_count"] >= 1 for item in changes["items"])
+
+
+def test_market_changes_collapse_identical_variant_moves_to_one_product_event(
+    tmp_path: Path,
+) -> None:
+    """같은 run에서 같은 상품의 두 variant가 같이 움직이면 화면은 한 건이다."""
+    db = tmp_path / "dedupe.sqlite3"
+    conn = sqlite3.connect(db)
+    try:
+        conn.executescript(
+            """
+            CREATE TABLE institutions (
+                id TEXT PRIMARY KEY,
+                sector TEXT NOT NULL,
+                canonical_name TEXT NOT NULL
+            );
+            CREATE TABLE products (
+                id TEXT PRIMARY KEY,
+                institution_id TEXT NOT NULL,
+                product_type TEXT NOT NULL,
+                name TEXT NOT NULL
+            );
+            CREATE TABLE product_variants (
+                id TEXT PRIMARY KEY,
+                product_id TEXT NOT NULL,
+                term_months INTEGER
+            );
+            CREATE TABLE rate_observations (
+                id TEXT PRIMARY KEY,
+                variant_id TEXT NOT NULL,
+                run_id TEXT NOT NULL,
+                valid_from TEXT NOT NULL,
+                max_rate REAL,
+                validation_status TEXT NOT NULL
+            );
+
+            INSERT INTO institutions VALUES ('i1', 'savings_bank', '테스트저축은행');
+            INSERT INTO products VALUES ('p1', 'i1', 'term_deposit', '테스트 정기예금');
+            INSERT INTO product_variants VALUES ('v1', 'p1', 12);
+            INSERT INTO product_variants VALUES ('v2', 'p1', 12);
+
+            INSERT INTO rate_observations
+                VALUES ('o1', 'v1', 'run-old', datetime('now', '-2 day'), 3.00, 'valid');
+            INSERT INTO rate_observations
+                VALUES ('o2', 'v2', 'run-old', datetime('now', '-2 day'), 3.00, 'valid');
+            INSERT INTO rate_observations
+                VALUES ('o3', 'v1', 'run-new', datetime('now', '-1 day'), 3.20, 'valid');
+            INSERT INTO rate_observations
+                VALUES ('o4', 'v2', 'run-new', datetime('now', '-1 day'), 3.20, 'valid');
+            """
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    changes = build_strategy_summary(db)["market_changes"]
+
+    assert changes["count"] == 1
+    assert changes["up_count"] == 1
+    assert changes["down_count"] == 0
+    assert changes["affected_variant_count"] == 2
+    assert len(changes["items"]) == 1
+    assert changes["items"][0]["variant_count"] == 2
+    assert changes["items"][0]["previous_max_rate"] == 3.0
+    assert changes["items"][0]["max_rate"] == 3.2
 
 
 def test_inflow_ui_requires_explicit_assumptions_and_never_claims_prediction(
