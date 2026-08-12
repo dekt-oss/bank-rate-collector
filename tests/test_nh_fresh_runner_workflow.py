@@ -65,6 +65,7 @@ def test_retry_lane_collects_only_nh_once_and_has_no_recursive_trigger() -> None
     assert "--source nh_local" in collector["run"]
     assert "--resume auto" in collector["run"]
     assert "steps.decision.outputs.cycle_date" in collector["run"]
+    assert "mkdir -p data/raw" in collector["run"]
     assert collector["continue-on-error"] is True
 
     # This workflow only listens to Collect rates, not to itself.
@@ -89,6 +90,12 @@ def test_retry_lane_requires_eligibility_for_every_state_mutating_step() -> None
     by_name = {step.get("name"): step for step in _steps()}
     for name in guarded_names:
         assert "steps.decision.outputs.eligible == 'true'" in by_name[name]["if"]
+
+
+def test_zero_raw_retry_failure_uses_no_collection_raw_gate() -> None:
+    verify = next(step for step in _steps() if step.get("name") == "Verify P1-A gate")
+    assert "steps.retry_nh.outcome" in verify["run"]
+    assert "--no-collection" in verify["run"]
 
 
 def test_retry_lane_gates_before_authoritative_r2_and_public_publish() -> None:
