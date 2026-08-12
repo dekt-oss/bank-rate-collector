@@ -69,8 +69,11 @@ checkpoint context는 cycle date를 다음 runner에 넘기기 위해 preflight 
 - preflight `READY` → DB/checkpoint state 복원 후 실제 NH collect
 - preflight 실패 → 실제 NH HTTP 수집과 DB 복원을 시작하지 않고 `retry` → 다음 fresh runner
 - collect 성공 → terminal success + canonical publish
-- collect 실패 후 checkpoint recovery가 가능하거나, 기존 zero-progress network 판정(`NETWORK_CONNECT`/`NETWORK_TIMEOUT`, raw=0, durable progress 없음)이 fresh-runner 대상이면 → 다음 attempt를 `resume auto`
-- 그 외 오류(파서/계약/비네트워크 terminal failure 등)는 무조건 fresh-runner로 숨기지 않고 terminal failure로 처리한다.
+- **durable checkpoint progress가 있고 기존 `decide_recovery()`가 eligible이면** 기존 resumable-acquisition 계약을 그대로 보존해 다음 attempt에서 `resume auto`한다. 여기에는 `recoverable_failed`뿐 아니라, 진행분이 남은 채 child가 비정상 종료한 `RECOVERABLE_ABNORMAL_EXIT`도 포함된다. NH recovery가 독립 attempt 체인으로 이동했기 때문에 이 복구도 다음 fresh runner에서 실행된다.
+- durable progress가 전혀 없는 실패는 별도 zero-progress 판정이 정확히 `NETWORK_CONNECT`/`NETWORK_TIMEOUT`, `raw=0`, `NO_DURABLE_PROGRESS`일 때만 fresh-runner retry한다.
+- checkpoint recovery도 아니고 zero-progress network recovery도 아닌 파서/계약/terminal failure는 fresh-runner retry로 숨기지 않고 즉시 terminal failure로 처리한다.
+
+즉 **기존 checkpoint 복구 의미를 보존하는 경로**와 **이번 포렌식 때문에 추가한 zero-progress network fresh-runner 경로**는 서로 다른 계약이다. 후자의 허용 실패 코드는 계속 `NETWORK_CONNECT|NETWORK_TIMEOUT`으로 제한한다.
 
 ### Attempt 3
 
