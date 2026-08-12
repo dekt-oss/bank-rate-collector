@@ -1,0 +1,141 @@
+name: Collect NH rates
+
+# NH is deliberately isolated from the core and KFCC schedules. Its nationwide
+# run is long (~3h37 measured), and the 2026-08-12 forensic matrix showed that
+# target reachability can differ by fresh GitHub-hosted runner even in one region.
+on:
+  schedule:
+    # 평일 00:37 KST = 15:37 UTC 전날 → 일~목(0-4).
+    # 00:17 core가 보통 먼저 끝나고, 늦어져도 rate-data-writer queue에서 기다린다.
+    - cron: "37 15 * * 0-4"
+  workflow_dispatch:
+    inputs:
+      password:
+        description: "수집 암호 (관리자에게 확인)"
+        required: true
+        default: ""
+      nh_local_scope:
+        description: "농·축협 수집 범위 (config/regions.yaml)"
+        type: choice
+        required: false
+        default: "전국"
+        options: ["전국", "수도권", "부산"]
+      nh_resume_mode:
+        description: "첫 attempt checkpoint. 보통 auto, 같은 날 새로 받으려면 fresh"
+        type: choice
+        required: false
+        default: "auto"
+        options: ["auto", "fresh"]
+      accept_volume_drop:
+        description: "물량 급감을 알고도 발행한다 (원천이 정말 줄었을 때만)"
+        type: boolean
+        required: false
+        default: false
+
+# Core/KFCC/은행권 경량 수집과 같은 canonical DB/R2/rate-data를 쓴다.
+# Caller가 전체 3-attempt chain 동안 lock을 잡고, reusable attempt에는 같은
+# concurrency를 중복 선언하지 않는다.
+concurrency:
+  group: rate-data-writer
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  authorize:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check collect password
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        env:
+          EXPECTED: ${{ secrets.DASHBOARD_PASSWORD }}
+          GIVEN: ${{ inputs.password }}
+        run: |
+          if [ -z "$EXPECTED" ]; then
+            echo "::error::DASHBOARD_PASSWORD 시크릿이 없다."
+            exit 1
+          fi
+          if [ "$GIVEN" != "$EXPECTED" ]; then
+            echo "::error::수집 암호가 맞지 않는다."
+            exit 1
+          fi
+          echo "암호 확인됨"
+
+  attempt_1:
+    needs: authorize
+    uses: ./.github/workflows/nh-attempt.yml
+    with:
+      attempt: 1
+      max_attempts: 3
+      scope: ${{ inputs.nh_local_scope || '' }}
+      resume_mode: ${{ inputs.nh_resume_mode || 'auto' }}
+      accept_volume_drop: ${{ inputs.accept_volume_drop || false }}
+    secrets: inherit
+
+  attempt_2:
+    needs: attempt_1
+    if: ${{ needs.attempt_1.result == 'success' && needs.attempt_1.outputs.outcome == 'retry' }}
+    uses: ./.github/workflows/nh-attempt.yml
+    with:
+      attempt: 2
+      max_attempts: 3
+      cycle_date: ${{ needs.attempt_1.outputs.cycle_date }}
+      scope: ${{ inputs.nh_local_scope || '' }}
+      resume_mode: auto
+      accept_volume_drop: ${{ inputs.accept_volume_drop || false }}
+    secrets: inherit
+
+  attempt_3:
+    needs: attempt_2
+    if: ${{ needs.attempt_2.result == 'success' && needs.attempt_2.outputs.outcome == 'retry' }}
+    uses: ./.github/workflows/nh-attempt.yml
+    with:
+      attempt: 3
+      max_attempts: 3
+      cycle_date: ${{ needs.attempt_2.outputs.cycle_date }}
+      scope: ${{ inputs.nh_local_scope || '' }}
+      resume_mode: auto
+      accept_volume_drop: ${{ inputs.accept_volume_drop || false }}
+    secrets: inherit
+
+  surface:
+    needs: [authorize, attempt_1, attempt_2, attempt_3]
+    if: always()
+    runs-on: ubuntu-latest
+    env:
+      AUTH_RESULT: ${{ needs.authorize.result }}
+      A1_RESULT: ${{ needs.attempt_1.result }}
+      A1_OUTCOME: ${{ needs.attempt_1.outputs.outcome }}
+      A2_RESULT: ${{ needs.attempt_2.result }}
+      A2_OUTCOME: ${{ needs.attempt_2.outputs.outcome }}
+      A3_RESULT: ${{ needs.attempt_3.result }}
+      A3_OUTCOME: ${{ needs.attempt_3.outputs.outcome }}
+    steps:
+      - name: Surface NH terminal result
+        run: |
+          set -euo pipefail
+          if [ "$AUTH_RESULT" != "success" ]; then
+            echo "::error::NH 실행 승인 단계가 실패했다."
+            exit 1
+          fi
+
+          for result in "$A1_RESULT" "$A2_RESULT" "$A3_RESULT"; do
+            if [ "$result" = "failure" ] || [ "$result" = "cancelled" ]; then
+              echo "::error::NH attempt workflow 자체가 실패했다. retry로 숨기지 않는다."
+              exit 1
+            fi
+          done
+
+          TERMINAL="$A1_OUTCOME"
+          [ -n "$A2_OUTCOME" ] && TERMINAL="$A2_OUTCOME"
+          [ -n "$A3_OUTCOME" ] && TERMINAL="$A3_OUTCOME"
+
+          if [ "$TERMINAL" = "success" ]; then
+            echo "NH 수집 성공: terminal_outcome=$TERMINAL"
+            exit 0
+          fi
+
+          echo "::error::NH 수집이 fresh runner 최대 3회 안에 성공하지 못했다: terminal_outcome=$TERMINAL"
+          exit 1

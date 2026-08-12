@@ -1,0 +1,451 @@
+name: NH collection attempt
+
+# One NH attempt = one GitHub-hosted runner. The caller chains at most three of
+# these jobs. There is deliberately no sleep/backoff between calls: the forensic
+# experiment showed that changing runner/egress is the useful recovery action.
+on:
+  workflow_call:
+    inputs:
+      attempt:
+        required: true
+        type: number
+      max_attempts:
+        required: true
+        type: number
+      cycle_date:
+        required: false
+        type: string
+        default: ""
+      scope:
+        required: false
+        type: string
+        default: ""
+      resume_mode:
+        required: false
+        type: string
+        default: "auto"
+      accept_volume_drop:
+        required: false
+        type: boolean
+        default: false
+    outputs:
+      outcome:
+        description: "success, retry, or failed"
+        value: ${{ jobs.attempt.outputs.outcome }}
+      cycle_date:
+        description: "KST collection cycle date shared by all attempts"
+        value: ${{ jobs.attempt.outputs.cycle_date }}
+      preflight_classification:
+        description: "READY/DNS_FAIL/TCP_CONNECT_FAIL/TLS_FAIL"
+        value: ${{ jobs.attempt.outputs.preflight_classification }}
+      failure_code:
+        description: "terminal collector network failure code when available"
+        value: ${{ jobs.attempt.outputs.failure_code }}
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  attempt:
+    runs-on: ubuntu-latest
+    outputs:
+      outcome: ${{ steps.decision.outputs.outcome }}
+      cycle_date: ${{ steps.context.outputs.cycle_date }}
+      preflight_classification: ${{ steps.preflight.outputs.classification }}
+      failure_code: ${{ steps.decision.outputs.failure_code }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Sync dependencies
+        run: uv sync --locked
+
+      # Context creation is local/lightweight. Keep it before the network gate so
+      # a rejected attempt can still hand the exact same KST cycle date to the
+      # next fresh runner without restoring the canonical database first.
+      - name: Prepare NH checkpoint context
+        id: context
+        env:
+          SCOPE: ${{ inputs.scope }}
+          CYCLE_DATE: ${{ inputs.cycle_date }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          CYCLE_ARG=()
+          if [ -n "$CYCLE_DATE" ]; then
+            CYCLE_ARG=(--cycle-date "$CYCLE_DATE")
+          fi
+          uv run rate-monitor-checkpoint prepare-context \
+            --source nh_local \
+            ${SCOPE:+--scope "$SCOPE"} \
+            "${CYCLE_ARG[@]}" \
+            --json work/nh-checkpoint-context.json >/dev/null
+          CYCLE=$(python -c "import json; print(json.load(open('work/nh-checkpoint-context.json'))['cycle_date_kst'])")
+          FINGERPRINT=$(python -c "import json; print(json.load(open('work/nh-checkpoint-context.json'))['request_fingerprint'])")
+          CONTRACT=$(python -c "import json; print(json.load(open('work/nh-checkpoint-context.json'))['acquisition_contract_version'])")
+          echo "cycle_date=$CYCLE" >> "$GITHUB_OUTPUT"
+          echo "fingerprint=$FINGERPRINT" >> "$GITHUB_OUTPUT"
+          echo "contract_version=$CONTRACT" >> "$GITHUB_OUTPUT"
+
+      - name: Probe NH network path
+        id: preflight
+        run: |
+          set -euo pipefail
+          uv run python -m rate_monitor.nh_network_preflight \
+            --attempt "${{ inputs.attempt }}" \
+            --json work/nh-network-forensics.json >/dev/null
+          ADMIT=$(python -c "import json; print(str(json.load(open('work/nh-network-forensics.json'))['admit']).lower())")
+          CLASSIFICATION=$(python -c "import json; print(json.load(open('work/nh-network-forensics.json'))['classification'])")
+          echo "admit=$ADMIT" >> "$GITHUB_OUTPUT"
+          echo "classification=$CLASSIFICATION" >> "$GITHUB_OUTPUT"
+          echo "NH preflight attempt=${{ inputs.attempt }} admit=$ADMIT classification=$CLASSIFICATION"
+
+      # Attempts 1-2 with a bad NH path stop before R2/DB restore and immediately
+      # hand control to the next fresh runner. Attempt 3 restores state even after
+      # a failed preflight so the real collector can record a terminal CollectionRun.
+      - name: Decide storage backend
+        id: storage
+        if: ${{ steps.preflight.outputs.admit == 'true' || inputs.attempt == inputs.max_attempts }}
+        env:
+          STORAGE_BACKEND: ${{ vars.STORAGE_BACKEND }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+          R2_REGION: ${{ vars.R2_REGION }}
+        run: |
+          BACKEND=$(uv run python -c "
+          from pathlib import Path
+          from rate_monitor.services.storage_service import load_backend
+          c = load_backend(Path('config/storage.yaml'))
+          print(c.backend.value)
+          import sys; print(f'backend={c.backend.value} ({c.source})', file=sys.stderr)
+          ")
+          echo "backend=$BACKEND" >> "$GITHUB_OUTPUT"
+          echo "상태 저장소: $BACKEND"
+
+      - name: Restore previous database
+        if: ${{ steps.preflight.outputs.admit == 'true' || inputs.attempt == inputs.max_attempts }}
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+          R2_REGION: ${{ vars.R2_REGION }}
+        run: |
+          set -euo pipefail
+          mkdir -p work
+
+          if [ "${{ steps.storage.outputs.backend }}" = "r2" ]; then
+            uv run rate-monitor storage restore --dest work/rate_monitor.sqlite3
+            exit 0
+          fi
+
+          if git ls-remote --exit-code --heads origin rate-data >/dev/null 2>&1; then
+            git fetch origin rate-data --depth=1
+            git checkout origin/rate-data -- latest/rate_monitor.sqlite3.gz 2>/dev/null || true
+            if [ -f latest/rate_monitor.sqlite3.gz ]; then
+              gunzip -c latest/rate_monitor.sqlite3.gz > work/rate_monitor.sqlite3
+              echo "이전 DB 복원: $(stat -c%s work/rate_monitor.sqlite3) bytes"
+            fi
+            rm -rf latest
+          else
+            echo "rate-data 브랜치 없음. 새 DB로 시작한다."
+          fi
+
+      - name: Apply migrations
+        if: ${{ steps.preflight.outputs.admit == 'true' || inputs.attempt == inputs.max_attempts }}
+        env:
+          RATE_MONITOR_DB_URL: sqlite+pysqlite:///${{ github.workspace }}/work/rate_monitor.sqlite3
+        run: uv run alembic upgrade head
+
+      # Attempts 1-2 discard a runner immediately when target TCP/TLS admission
+      # fails. Attempt 3 still enters the real collector so a final zero-progress
+      # failure becomes a normal CollectionRun and the dashboard can record it.
+      - name: Record attempt window start
+        id: window_start
+        if: ${{ steps.preflight.outputs.admit == 'true' || inputs.attempt == inputs.max_attempts }}
+        run: echo "at=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_OUTPUT"
+
+      - name: Collect NH local
+        id: collect_nh
+        if: ${{ steps.preflight.outputs.admit == 'true' || inputs.attempt == inputs.max_attempts }}
+        continue-on-error: true
+        env:
+          SCOPE: ${{ inputs.scope }}
+          RESUME_MODE: ${{ inputs.resume_mode }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+          R2_REGION: ${{ vars.R2_REGION }}
+        run: |
+          mkdir -p data/raw
+          uv run rate-monitor collect \
+            --source nh_local \
+            --resume "$RESUME_MODE" \
+            --cycle-date "${{ steps.context.outputs.cycle_date }}" \
+            --db work/rate_monitor.sqlite3 \
+            --raw-root data/raw \
+            ${SCOPE:+--scope "$SCOPE"}
+
+      - name: Record attempt window end
+        id: window_end
+        if: ${{ steps.collect_nh.outcome == 'success' || steps.collect_nh.outcome == 'failure' }}
+        run: echo "at=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_OUTPUT"
+
+      - name: Decide checkpoint recovery
+        id: checkpoint
+        if: ${{ steps.collect_nh.outcome == 'failure' }}
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+          R2_REGION: ${{ vars.R2_REGION }}
+        run: |
+          set -euo pipefail
+          uv run rate-monitor-checkpoint recovery-decision \
+            --source nh_local \
+            --cycle-date "${{ steps.context.outputs.cycle_date }}" \
+            --request-fingerprint "${{ steps.context.outputs.fingerprint }}" \
+            --acquisition-contract-version "${{ steps.context.outputs.contract_version }}" \
+            --attempt-failed \
+            --json work/nh-checkpoint-recovery.json >/dev/null
+          ELIGIBLE=$(python -c "import json; print(str(json.load(open('work/nh-checkpoint-recovery.json'))['eligible']).lower())")
+          REASON=$(python -c "import json; print(json.load(open('work/nh-checkpoint-recovery.json'))['reason_code'])")
+          echo "eligible=$ELIGIBLE" >> "$GITHUB_OUTPUT"
+          echo "reason=$REASON" >> "$GITHUB_OUTPUT"
+          echo "NH checkpoint eligible=$ELIGIBLE reason=$REASON"
+
+      - name: Decide zero-progress fresh-runner recovery
+        id: zero_progress
+        if: ${{ steps.collect_nh.outcome == 'failure' }}
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+          R2_REGION: ${{ vars.R2_REGION }}
+        run: |
+          set -euo pipefail
+          uv run python -m rate_monitor.nh_runner_retry \
+            --db work/rate_monitor.sqlite3 \
+            --parent-start "${{ steps.window_start.outputs.at }}" \
+            --parent-end "${{ steps.window_end.outputs.at }}" \
+            --json work/nh-fresh-runner-decision.json >/dev/null
+          ELIGIBLE=$(python -c "import json; print(str(json.load(open('work/nh-fresh-runner-decision.json'))['eligible']).lower())")
+          REASON=$(python -c "import json; print(json.load(open('work/nh-fresh-runner-decision.json'))['reason_code'])")
+          FAILURE_CODE=$(python -c "import json; print(json.load(open('work/nh-fresh-runner-decision.json')).get('failure_code') or '')")
+          echo "eligible=$ELIGIBLE" >> "$GITHUB_OUTPUT"
+          echo "reason=$REASON" >> "$GITHUB_OUTPUT"
+          echo "failure_code=$FAILURE_CODE" >> "$GITHUB_OUTPUT"
+          echo "NH zero-progress eligible=$ELIGIBLE reason=$REASON code=$FAILURE_CODE"
+
+      - name: Decide attempt outcome
+        id: decision
+        env:
+          ATTEMPT: ${{ inputs.attempt }}
+          MAX_ATTEMPTS: ${{ inputs.max_attempts }}
+          PREFLIGHT_ADMIT: ${{ steps.preflight.outputs.admit }}
+          COLLECT_OUTCOME: ${{ steps.collect_nh.outcome }}
+          CHECKPOINT_ELIGIBLE: ${{ steps.checkpoint.outputs.eligible }}
+          ZERO_PROGRESS_ELIGIBLE: ${{ steps.zero_progress.outputs.eligible }}
+          FAILURE_CODE: ${{ steps.zero_progress.outputs.failure_code }}
+        run: |
+          set -euo pipefail
+          OUTCOME="failed"
+          PUBLISH="false"
+          ZERO_RAW_NETWORK="false"
+
+          if [ "$COLLECT_OUTCOME" = "success" ]; then
+            OUTCOME="success"
+            PUBLISH="true"
+          elif [ "$COLLECT_OUTCOME" = "failure" ]; then
+            if [ "$ZERO_PROGRESS_ELIGIBLE" = "true" ]; then
+              ZERO_RAW_NETWORK="true"
+            fi
+            if [ "$ATTEMPT" -lt "$MAX_ATTEMPTS" ] \
+              && { [ "$CHECKPOINT_ELIGIBLE" = "true" ] || [ "$ZERO_PROGRESS_ELIGIBLE" = "true" ]; }; then
+              OUTCOME="retry"
+            else
+              OUTCOME="failed"
+              PUBLISH="true"
+            fi
+          elif [ "$PREFLIGHT_ADMIT" != "true" ] && [ "$ATTEMPT" -lt "$MAX_ATTEMPTS" ]; then
+            OUTCOME="retry"
+          fi
+
+          echo "outcome=$OUTCOME" >> "$GITHUB_OUTPUT"
+          echo "publish=$PUBLISH" >> "$GITHUB_OUTPUT"
+          echo "zero_raw_network=$ZERO_RAW_NETWORK" >> "$GITHUB_OUTPUT"
+          echo "failure_code=$FAILURE_CODE" >> "$GITHUB_OUTPUT"
+          echo "NH attempt=$ATTEMPT/$MAX_ATTEMPTS outcome=$OUTCOME publish=$PUBLISH"
+
+      - name: Snapshot
+        if: ${{ steps.decision.outputs.publish == 'true' }}
+        run: |
+          uv run rate-monitor snapshot \
+            --db work/rate_monitor.sqlite3 \
+            --publish-db publish/rate_monitor.sqlite3 \
+            --manifest publish/manifest.json
+
+      - name: Validate stored data
+        if: ${{ steps.decision.outputs.publish == 'true' }}
+        run: uv run rate-monitor validate --db publish/rate_monitor.sqlite3
+
+      - name: Build dashboard
+        if: ${{ steps.decision.outputs.publish == 'true' }}
+        run: |
+          uv run rate-monitor build-dashboard \
+            --db publish/rate_monitor.sqlite3 \
+            --template web/templates/dashboard.html \
+            --site site/index.html \
+            --summary publish/summary.json
+
+      - name: Export full dataset
+        if: ${{ steps.decision.outputs.publish == 'true' }}
+        run: |
+          uv run rate-monitor export \
+            --db publish/rate_monitor.sqlite3 \
+            --out publish/export
+
+      - name: Build public site
+        if: ${{ steps.decision.outputs.publish == 'true' }}
+        run: |
+          uv run rate-monitor build-site \
+            --db publish/rate_monitor.sqlite3 \
+            --template web/templates/site.html \
+            --out site-public \
+            --export-dir publish/export
+
+      - name: Verify P1-A gate
+        if: ${{ steps.decision.outputs.publish == 'true' }}
+        run: |
+          NO_COLLECTION=""
+          if [ "${{ steps.decision.outputs.zero_raw_network }}" = "true" ]; then
+            NO_COLLECTION="--no-collection"
+          fi
+          uv run python scripts/verify_gate.py \
+            --db publish/rate_monitor.sqlite3 \
+            --manifest publish/manifest.json \
+            --summary publish/summary.json \
+            --site site/index.html \
+            --raw-root data/raw \
+            $NO_COLLECTION
+
+      - name: Volume gate
+        if: ${{ steps.decision.outputs.publish == 'true' }}
+        run: |
+          uv run python scripts/volume_gate.py \
+            --summary publish/summary.json \
+            ${{ inputs.accept_volume_drop && '--accept' || '' }}
+
+      - name: Stage rate-data payload
+        if: ${{ steps.decision.outputs.publish == 'true' }}
+        env:
+          BACKEND: ${{ steps.storage.outputs.backend }}
+        run: |
+          set -euo pipefail
+          rm -rf stage && mkdir -p stage/latest
+
+          if [ "$BACKEND" = "r2" ]; then
+            echo "backend=r2 — 상태 DB를 rate-data에 싣지 않는다"
+          else
+            gzip -kf publish/rate_monitor.sqlite3
+            cp publish/rate_monitor.sqlite3.gz stage/latest/
+          fi
+          cp publish/manifest.json publish/summary.json stage/latest/
+          cp -r site-public stage/site-public
+          cp vercel.json stage/vercel.json
+          cp -r web/api stage/api
+
+      - name: Size gate
+        if: ${{ steps.decision.outputs.publish == 'true' }}
+        run: uv run python scripts/size_gate.py stage --backend ${{ steps.storage.outputs.backend }}
+
+      - name: Upload NH attempt evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nh-attempt-${{ inputs.attempt }}-${{ github.run_id }}
+          retention-days: 90
+          path: |
+            work/nh-network-forensics.json
+            work/nh-checkpoint-context.json
+            work/nh-checkpoint-recovery.json
+            work/nh-fresh-runner-decision.json
+            data/raw/
+            publish/manifest.json
+            publish/summary.json
+          if-no-files-found: warn
+
+      - name: Upload state to R2
+        if: ${{ steps.decision.outputs.publish == 'true' && steps.storage.outputs.backend != 'github_legacy' }}
+        continue-on-error: ${{ steps.storage.outputs.backend == 'r2_migration' }}
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+          R2_REGION: ${{ vars.R2_REGION }}
+        run: uv run rate-monitor storage upload --db publish/rate_monitor.sqlite3
+
+      - name: Publish to rate-data branch
+        if: ${{ steps.decision.outputs.publish == 'true' }}
+        run: |
+          set -euo pipefail
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git fetch origin rate-data --depth=1 2>/dev/null || true
+          BEFORE=$(git rev-parse origin/rate-data 2>/dev/null || echo "")
+
+          for push_attempt in 1 2; do
+            git checkout -q --detach 2>/dev/null || true
+            git branch -D rate-data-new 2>/dev/null || true
+            git checkout -q --orphan rate-data-new
+            git rm -rq --cached . 2>/dev/null || true
+
+            find . -maxdepth 1 -mindepth 1 \
+              -not -name .git -not -name work -not -name publish \
+              -not -name stage -not -name data -not -name site \
+              -not -name site-public -exec rm -rf {} +
+            rm -rf latest site site-public vercel.json api
+            cp -r stage/latest stage/site-public stage/api .
+            cp stage/vercel.json .
+
+            git add -f latest site-public vercel.json api
+            git commit -q -m "data: NH 독립 수집 갱신 (run ${{ github.run_id }}, attempt ${{ inputs.attempt }})"
+
+            if [ -n "$BEFORE" ]; then
+              PUSH="git push --force-with-lease=rate-data:$BEFORE origin HEAD:rate-data"
+            else
+              PUSH="git push origin HEAD:rate-data"
+            fi
+            if $PUSH; then
+              echo "push 성공 (시도 $push_attempt)"
+              exit 0
+            fi
+
+            echo "push 거부됨. 원격이 그 사이 바뀌었다. 재시도 $push_attempt"
+            git fetch origin rate-data --depth=1 2>/dev/null || true
+            BEFORE=$(git rev-parse origin/rate-data 2>/dev/null || echo "")
+          done
+          echo "push 재시도 실패" >&2
+          exit 1

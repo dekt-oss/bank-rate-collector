@@ -1,14 +1,18 @@
 // 관리자 수집 상태 조회. 읽기 전용이다.
 // GitHub token은 서버 환경에만 있고 브라우저에는 내려가지 않는다.
 
-const WORKFLOW = "collect.yml";
+const CORE_WORKFLOW = "collect.yml";
+const NH_WORKFLOW = "collect-nh.yml";
+const WORKFLOWS = [CORE_WORKFLOW, NH_WORKFLOW];
 const ACTIVE = new Set(["in_progress", "queued", "waiting", "pending"]);
 
 const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
 const SCHEDULED_SOURCES = [
   "finlife_savings_bank", "finlife_bank", "bok_ecos", "fsb", "cu", "nh_local", "kfcc",
 ];
-const FAILED_CONCLUSIONS = new Set(["failure", "cancelled", "timed_out", "action_required", "startup_failure"]);
+const FAILED_CONCLUSIONS = new Set([
+  "failure", "cancelled", "timed_out", "action_required", "startup_failure",
+]);
 
 const kstParts = (value) => {
   const shifted = new Date(new Date(value).getTime() + KST_OFFSET_MS);
@@ -22,6 +26,14 @@ const pad2 = (value) => String(value).padStart(2, "0");
 const kstIsoAt = ({ year, month, day }, hour, minute) => (
   `${year}-${pad2(month)}-${pad2(day)}T${pad2(hour)}:${pad2(minute)}:00+09:00`
 );
+const runTime = (run) => {
+  const value = Date.parse(run?.run_started_at || run?.created_at || "");
+  return Number.isFinite(value) ? value : 0;
+};
+const mergeRuns = (...groups) => groups
+  .flat()
+  .sort((a, b) => runTime(b) - runTime(a));
+
 const kstDateOfRun = (run) => {
   if (!run) return null;
   const reference = run.run_started_at || run.created_at;
@@ -92,6 +104,7 @@ const SOURCE_STEPS = {
   "Collect KFCC": "kfcc",
   "Recover KFCC": "kfcc",
   "Collect NH local": "nh_local",
+  // Historical runs before the independent fresh-runner workflow used this step.
   "Recover NH local": "nh_local",
 };
 
@@ -151,13 +164,15 @@ const loadRunSteps = async (token, slug, run) => {
       if (SOURCE_STEPS[step.name]) {
         const sourceId = SOURCE_STEPS[step.name];
         const view = stepView(step);
-        // Source steps are ordered. Recovery should supersede a failed first
-        // attempt only when it actually ran; a skipped recovery preserves it.
+        // Reusable NH attempts are ordered. A later real attempt supersedes an
+        // earlier skipped collector step, just as the old recovery step did.
         if (view.conclusion !== "skipped" || !sourceSteps[sourceId]) {
           sourceSteps[sourceId] = view;
         }
       }
-      if (PIPELINE_STEPS[step.name]) pipelineSteps[PIPELINE_STEPS[step.name]] = stepView(step);
+      if (PIPELINE_STEPS[step.name]) {
+        pipelineSteps[PIPELINE_STEPS[step.name]] = stepView(step);
+      }
     }
   }
   return { sourceSteps, pipelineSteps, evidenceAvailable: true };
@@ -213,6 +228,19 @@ const settings = () => {
   return { token, slug };
 };
 
+const loadWorkflowRuns = async (token, slug, workflow, scheduledOnly = false) => {
+  const suffix = scheduledOnly ? "?event=schedule&per_page=20" : "?per_page=30";
+  const response = await gh(
+    token,
+    `/repos/${slug}/actions/workflows/${workflow}/runs${suffix}`,
+  );
+  if (!response.ok) {
+    return { ok: false, status: response.status, workflow, runs: [] };
+  }
+  const body = await response.json();
+  return { ok: true, status: response.status, workflow, runs: body.workflow_runs || [] };
+};
+
 export default async function handler(req, res) {
   if (req.method !== "GET") {
     return json(res, 405, { ok: false, error: "GET으로 불러 주세요." });
@@ -226,21 +254,27 @@ export default async function handler(req, res) {
     });
   }
 
-  const [runsRes, scheduledRunsRes] = await Promise.all([
-    gh(token, `/repos/${slug}/actions/workflows/${WORKFLOW}/runs?per_page=30`),
-    gh(token, `/repos/${slug}/actions/workflows/${WORKFLOW}/runs?event=schedule&per_page=20`),
+  const [coreRunsResult, coreScheduledResult, nhRunsResult, nhScheduledResult] = await Promise.all([
+    loadWorkflowRuns(token, slug, CORE_WORKFLOW),
+    loadWorkflowRuns(token, slug, CORE_WORKFLOW, true),
+    loadWorkflowRuns(token, slug, NH_WORKFLOW),
+    loadWorkflowRuns(token, slug, NH_WORKFLOW, true),
   ]);
-  if (!runsRes.ok) {
-    return json(res, 502, { ok: false, error: `GitHub 실행 상태를 읽지 못했습니다 (${runsRes.status}).` });
-  }
-  if (!scheduledRunsRes.ok) {
+  const failed = [
+    coreRunsResult,
+    coreScheduledResult,
+    nhRunsResult,
+    nhScheduledResult,
+  ].find((result) => !result.ok);
+  if (failed) {
     return json(res, 502, {
       ok: false,
-      error: `GitHub 정기 수집 이력을 읽지 못했습니다 (${scheduledRunsRes.status}).`,
+      error: `GitHub 수집 이력을 읽지 못했습니다 (${failed.workflow}: ${failed.status}).`,
     });
   }
-  const runs = (await runsRes.json()).workflow_runs || [];
-  const scheduledRuns = (await scheduledRunsRes.json()).workflow_runs || [];
+
+  const runs = mergeRuns(coreRunsResult.runs, nhRunsResult.runs);
+  const scheduledRuns = mergeRuns(coreScheduledResult.runs, nhScheduledResult.runs);
   const collections = runs.filter((run) => run.event !== "push");
   const activeCollection = collections.find((run) => ACTIVE.has(run.status)) || null;
   const activePublish = runs.find((run) => run.event === "push" && ACTIVE.has(run.status)) || null;
@@ -255,6 +289,9 @@ export default async function handler(req, res) {
   const cycleDetails = await Promise.all(cycleRuns.map(async (run) => (
     detailRun && run.id === detailRun.id ? detail : loadRunSteps(token, slug, run)
   )));
+
+  // KFCC remains the scheduled finisher. Its successful publish means core + NH
+  // + KFCC have all had a chance to run in the writer queue for this cycle.
   const finisher = cycleDetails.find((entry) => {
     const step = entry.sourceSteps.kfcc;
     return step && step.conclusion !== "skipped";

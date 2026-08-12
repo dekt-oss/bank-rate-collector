@@ -1,4 +1,5 @@
-"""08:00 cycle SLA 경계값과 source 실패 결합을 실제 Node API로 검증한다."""
+# ruff: noqa: E501
+"""08:00 cycle SLA와 독립 NH workflow 결합을 실제 Node API로 검증한다."""
 
 import json
 import subprocess
@@ -20,16 +21,14 @@ def _node(script: str) -> dict:
 
 
 def _sla(completed: str | None, now: str, source_state: dict | None = None) -> dict:
-    completed_js = json.dumps(completed)
-    source_state_js = json.dumps(source_state)
     script = f"""
       import {{ cycleSla }} from {json.dumps(HEALTH_API)};
       const run = {{ run_started_at: '2026-08-10T19:17:00Z' }};
       console.log(JSON.stringify(cycleSla(
         run,
-        {completed_js},
+        {json.dumps(completed)},
         new Date({json.dumps(now)}),
-        {source_state_js},
+        {json.dumps(source_state)},
       )));
     """
     return _node(script)
@@ -95,60 +94,39 @@ def test_late_publish_stays_breached_even_if_source_also_failed() -> None:
     assert result["status"] == "breached"
 
 
-def test_health_handler_combines_core_failure_with_kfcc_publish() -> None:
-    """KFCC가 제시간에 발행돼도 core의 NH 실패를 전체 정상으로 숨기지 않는다."""
+def test_health_combines_independent_nh_failure_with_kfcc_publish() -> None:
+    """KFCC 발행 성공이 별도 NH workflow 실패를 전체 정상으로 숨기면 안 된다."""
     script = f"""
       import handler from {json.dumps(HEALTH_API)};
       process.env.GITHUB_DISPATCH_TOKEN = 'test-token';
       process.env.GITHUB_REPOSITORY = 'dekt-oss/bank-rate-collector';
 
-      const runs = [
-        {{
-          id: 202,
-          run_number: 202,
-          event: 'schedule',
-          status: 'completed',
-          conclusion: 'success',
-          run_started_at: '2026-08-10T19:20:00Z',
-          created_at: '2026-08-10T19:17:00Z',
-          updated_at: '2026-08-10T22:20:00Z',
-          html_url: 'https://example.test/kfcc',
-        }},
-        {{
-          id: 201,
-          run_number: 201,
-          event: 'schedule',
-          status: 'completed',
-          conclusion: 'success',
-          run_started_at: '2026-08-10T15:20:00Z',
-          created_at: '2026-08-10T15:17:00Z',
-          updated_at: '2026-08-10T19:10:00Z',
-          html_url: 'https://example.test/core',
-        }},
-      ];
+      const coreRun = {{
+        id: 201, run_number: 201, event: 'schedule', status: 'completed', conclusion: 'success',
+        run_started_at: '2026-08-10T15:20:00Z', created_at: '2026-08-10T15:17:00Z',
+        updated_at: '2026-08-10T15:35:00Z', html_url: 'https://example.test/core',
+      }};
+      const nhRun = {{
+        id: 203, run_number: 203, event: 'schedule', status: 'completed', conclusion: 'failure',
+        run_started_at: '2026-08-10T15:40:00Z', created_at: '2026-08-10T15:37:00Z',
+        updated_at: '2026-08-10T19:00:00Z', html_url: 'https://example.test/nh',
+      }};
+      const kfccRun = {{
+        id: 202, run_number: 202, event: 'schedule', status: 'completed', conclusion: 'success',
+        run_started_at: '2026-08-10T19:20:00Z', created_at: '2026-08-10T19:17:00Z',
+        updated_at: '2026-08-10T22:20:00Z', html_url: 'https://example.test/kfcc',
+      }};
       const step = (name, conclusion, completedAt = '2026-08-10T19:00:00Z') => ({{
-        name,
-        status: 'completed',
-        conclusion,
-        started_at: '2026-08-10T18:59:00Z',
-        completed_at: completedAt,
+        name, status: 'completed', conclusion,
+        started_at: '2026-08-10T18:59:00Z', completed_at: completedAt,
       }});
       const coreSteps = [
-        step('Collect finlife savings bank', 'success'),
-        step('Collect finlife bank', 'success'),
-        step('Collect BOK base rate', 'success'),
-        step('Collect FSB', 'success'),
-        step('Collect CU', 'success'),
-        step('Collect NH local', 'failure'),
-        step('Collect KFCC', 'skipped'),
+        step('Collect finlife savings bank', 'success'), step('Collect finlife bank', 'success'),
+        step('Collect BOK base rate', 'success'), step('Collect FSB', 'success'),
+        step('Collect CU', 'success'), step('Collect KFCC', 'skipped'),
       ];
+      const nhSteps = [step('Collect NH local', 'failure')];
       const kfccSteps = [
-        step('Collect finlife savings bank', 'skipped'),
-        step('Collect finlife bank', 'skipped'),
-        step('Collect BOK base rate', 'skipped'),
-        step('Collect FSB', 'skipped'),
-        step('Collect CU', 'skipped'),
-        step('Collect NH local', 'skipped'),
         step('Collect KFCC', 'success'),
         step('Publish to rate-data branch', 'success', '2026-08-10T22:20:00Z'),
       ];
@@ -156,32 +134,25 @@ def test_health_handler_combines_core_failure_with_kfcc_publish() -> None:
       globalThis.fetch = async (url) => {{
         const value = String(url);
         if (value.includes('/actions/workflows/collect.yml/runs?event=schedule&per_page=20')) {{
-          return {{
-            ok: true,
-            status: 200,
-            json: async () => ({{ workflow_runs: runs }}),
-          }};
+          return {{ ok: true, status: 200, json: async () => ({{ workflow_runs: [kfccRun, coreRun] }}) }};
         }}
         if (value.includes('/actions/workflows/collect.yml/runs?per_page=30')) {{
-          return {{
-            ok: true,
-            status: 200,
-            json: async () => ({{ workflow_runs: runs }}),
-          }};
+          return {{ ok: true, status: 200, json: async () => ({{ workflow_runs: [kfccRun, coreRun] }}) }};
         }}
-        if (value.includes('/actions/runs/202/jobs?per_page=20')) {{
-          return {{
-            ok: true,
-            status: 200,
-            json: async () => ({{ jobs: [{{ steps: kfccSteps }}] }}),
-          }};
+        if (value.includes('/actions/workflows/collect-nh.yml/runs?event=schedule&per_page=20')) {{
+          return {{ ok: true, status: 200, json: async () => ({{ workflow_runs: [nhRun] }}) }};
+        }}
+        if (value.includes('/actions/workflows/collect-nh.yml/runs?per_page=30')) {{
+          return {{ ok: true, status: 200, json: async () => ({{ workflow_runs: [nhRun] }}) }};
         }}
         if (value.includes('/actions/runs/201/jobs?per_page=20')) {{
-          return {{
-            ok: true,
-            status: 200,
-            json: async () => ({{ jobs: [{{ steps: coreSteps }}] }}),
-          }};
+          return {{ ok: true, status: 200, json: async () => ({{ jobs: [{{ steps: coreSteps }}] }}) }};
+        }}
+        if (value.includes('/actions/runs/202/jobs?per_page=20')) {{
+          return {{ ok: true, status: 200, json: async () => ({{ jobs: [{{ steps: kfccSteps }}] }}) }};
+        }}
+        if (value.includes('/actions/runs/203/jobs?per_page=20')) {{
+          return {{ ok: true, status: 200, json: async () => ({{ jobs: [{{ steps: nhSteps }}] }}) }};
         }}
         throw new Error(`unexpected URL: ${{value}}`);
       }};
@@ -203,22 +174,26 @@ def test_health_handler_combines_core_failure_with_kfcc_publish() -> None:
     assert result["missing_sources"] == []
 
 
-def test_schedule_history_is_not_lost_when_recent_window_is_push_heavy() -> None:
-    """일반 30-run 창에서 core가 밀려도 schedule 전용 조회로 같은 cycle을 복원한다."""
+def test_schedule_history_includes_independent_nh_when_core_recent_window_is_push_heavy() -> None:
     script = f"""
       import handler from {json.dumps(HEALTH_API)};
       process.env.GITHUB_DISPATCH_TOKEN = 'test-token';
       process.env.GITHUB_REPOSITORY = 'dekt-oss/bank-rate-collector';
 
+      const coreRun = {{
+        id: 301, run_number: 301, event: 'schedule', status: 'completed', conclusion: 'success',
+        run_started_at: '2026-08-10T15:20:00Z', created_at: '2026-08-10T15:17:00Z',
+        updated_at: '2026-08-10T15:35:00Z', html_url: 'https://example.test/core',
+      }};
+      const nhRun = {{
+        id: 303, run_number: 303, event: 'schedule', status: 'completed', conclusion: 'success',
+        run_started_at: '2026-08-10T15:40:00Z', created_at: '2026-08-10T15:37:00Z',
+        updated_at: '2026-08-10T19:00:00Z', html_url: 'https://example.test/nh',
+      }};
       const kfccRun = {{
         id: 302, run_number: 302, event: 'schedule', status: 'completed', conclusion: 'success',
         run_started_at: '2026-08-10T19:20:00Z', created_at: '2026-08-10T19:17:00Z',
         updated_at: '2026-08-10T22:20:00Z', html_url: 'https://example.test/kfcc',
-      }};
-      const coreRun = {{
-        id: 301, run_number: 301, event: 'schedule', status: 'completed', conclusion: 'success',
-        run_started_at: '2026-08-10T15:20:00Z', created_at: '2026-08-10T15:17:00Z',
-        updated_at: '2026-08-10T19:10:00Z', html_url: 'https://example.test/core',
       }};
       const pushes = Array.from({{ length: 29 }}, (_, index) => ({{
         id: 400 + index, run_number: 400 + index, event: 'push', status: 'completed',
@@ -226,8 +201,6 @@ def test_schedule_history_is_not_lost_when_recent_window_is_push_heavy() -> None
         created_at: '2026-08-11T00:00:00Z', updated_at: '2026-08-11T00:01:00Z',
         html_url: 'https://example.test/push',
       }}));
-      const recentRuns = [kfccRun, ...pushes];
-      const scheduledRuns = [kfccRun, coreRun];
       const step = (name, completedAt = '2026-08-10T19:00:00Z') => ({{
         name, status: 'completed', conclusion: 'success',
         started_at: '2026-08-10T18:59:00Z', completed_at: completedAt,
@@ -235,42 +208,34 @@ def test_schedule_history_is_not_lost_when_recent_window_is_push_heavy() -> None
       const coreSteps = [
         step('Collect finlife savings bank'), step('Collect finlife bank'),
         step('Collect BOK base rate'), step('Collect FSB'), step('Collect CU'),
-        step('Collect NH local'),
-        {{ ...step('Collect KFCC'), conclusion: 'skipped' }},
       ];
+      const nhSteps = [step('Collect NH local')];
       const kfccSteps = [
-        {{ ...step('Collect finlife savings bank'), conclusion: 'skipped' }},
-        {{ ...step('Collect finlife bank'), conclusion: 'skipped' }},
-        {{ ...step('Collect BOK base rate'), conclusion: 'skipped' }},
-        {{ ...step('Collect FSB'), conclusion: 'skipped' }},
-        {{ ...step('Collect CU'), conclusion: 'skipped' }},
-        {{ ...step('Collect NH local'), conclusion: 'skipped' }},
-        step('Collect KFCC'),
-        step('Publish to rate-data branch', '2026-08-10T22:20:00Z'),
+        step('Collect KFCC'), step('Publish to rate-data branch', '2026-08-10T22:20:00Z'),
       ];
 
       globalThis.fetch = async (url) => {{
         const value = String(url);
-        if (value.includes('/runs?event=schedule&per_page=20')) {{
-          return {{
-            ok: true, status: 200,
-            json: async () => ({{ workflow_runs: scheduledRuns }}),
-          }};
+        if (value.includes('/actions/workflows/collect.yml/runs?event=schedule&per_page=20')) {{
+          return {{ ok: true, status: 200, json: async () => ({{ workflow_runs: [kfccRun, coreRun] }}) }};
         }}
-        if (value.includes('/runs?per_page=30')) {{
-          return {{ ok: true, status: 200, json: async () => ({{ workflow_runs: recentRuns }}) }};
+        if (value.includes('/actions/workflows/collect.yml/runs?per_page=30')) {{
+          return {{ ok: true, status: 200, json: async () => ({{ workflow_runs: [kfccRun, ...pushes] }}) }};
         }}
-        if (value.includes('/actions/runs/302/jobs?per_page=20')) {{
-          return {{
-            ok: true, status: 200,
-            json: async () => ({{ jobs: [{{ steps: kfccSteps }}] }}),
-          }};
+        if (value.includes('/actions/workflows/collect-nh.yml/runs?event=schedule&per_page=20')) {{
+          return {{ ok: true, status: 200, json: async () => ({{ workflow_runs: [nhRun] }}) }};
+        }}
+        if (value.includes('/actions/workflows/collect-nh.yml/runs?per_page=30')) {{
+          return {{ ok: true, status: 200, json: async () => ({{ workflow_runs: [nhRun] }}) }};
         }}
         if (value.includes('/actions/runs/301/jobs?per_page=20')) {{
-          return {{
-            ok: true, status: 200,
-            json: async () => ({{ jobs: [{{ steps: coreSteps }}] }}),
-          }};
+          return {{ ok: true, status: 200, json: async () => ({{ jobs: [{{ steps: coreSteps }}] }}) }};
+        }}
+        if (value.includes('/actions/runs/302/jobs?per_page=20')) {{
+          return {{ ok: true, status: 200, json: async () => ({{ jobs: [{{ steps: kfccSteps }}] }}) }};
+        }}
+        if (value.includes('/actions/runs/303/jobs?per_page=20')) {{
+          return {{ ok: true, status: 200, json: async () => ({{ jobs: [{{ steps: nhSteps }}] }}) }};
         }}
         throw new Error(`unexpected URL: ${{value}}`);
       }};
@@ -292,8 +257,44 @@ def test_schedule_history_is_not_lost_when_recent_window_is_push_heavy() -> None
     assert result["missing_sources"] == []
 
 
+def test_active_independent_nh_is_reported_as_active_collection() -> None:
+    script = f"""
+      import handler from {json.dumps(HEALTH_API)};
+      process.env.GITHUB_DISPATCH_TOKEN = 'test-token';
+      process.env.GITHUB_REPOSITORY = 'dekt-oss/bank-rate-collector';
+      const nhRun = {{
+        id: 601, run_number: 601, event: 'schedule', status: 'in_progress', conclusion: null,
+        run_started_at: '2026-08-12T15:40:00Z', created_at: '2026-08-12T15:37:00Z',
+        updated_at: '2026-08-12T15:41:00Z', html_url: 'https://example.test/nh-active',
+      }};
+      globalThis.fetch = async (url) => {{
+        const value = String(url);
+        if (value.includes('/actions/workflows/collect.yml/runs')) {{
+          return {{ ok: true, status: 200, json: async () => ({{ workflow_runs: [] }}) }};
+        }}
+        if (value.includes('/actions/workflows/collect-nh.yml/runs')) {{
+          return {{ ok: true, status: 200, json: async () => ({{ workflow_runs: [nhRun] }}) }};
+        }}
+        if (value.includes('/actions/runs/601/jobs?per_page=20')) {{
+          return {{ ok: true, status: 200, json: async () => ({{ jobs: [{{ steps: [] }}] }}) }};
+        }}
+        throw new Error(`unexpected URL: ${{value}}`);
+      }};
+      let payload = null;
+      const res = {{
+        setHeader() {{}},
+        status(code) {{ this.statusCode = code; return this; }},
+        send(body) {{ payload = JSON.parse(body); }},
+      }};
+      await handler({{ method: 'GET' }}, res);
+      console.log(JSON.stringify(payload));
+    """
+    result = _node(script)
+    assert result["active_collection"]["run_number"] == 601
+    assert result["active_collection"]["status"] == "in_progress"
+
+
 def test_jobs_api_failure_is_unknown_not_a_false_sla_breach() -> None:
-    """GitHub jobs API 장애는 source 실패나 08:00 위반의 증거가 아니다."""
     script = f"""
       import handler from {json.dumps(HEALTH_API)};
       process.env.GITHUB_DISPATCH_TOKEN = 'test-token';
@@ -305,11 +306,11 @@ def test_jobs_api_failure_is_unknown_not_a_false_sla_breach() -> None:
       }};
       globalThis.fetch = async (url) => {{
         const value = String(url);
-        if (value.includes('/runs?event=schedule&per_page=20')) {{
+        if (value.includes('/actions/workflows/collect.yml/runs')) {{
           return {{ ok: true, status: 200, json: async () => ({{ workflow_runs: [run] }}) }};
         }}
-        if (value.includes('/runs?per_page=30')) {{
-          return {{ ok: true, status: 200, json: async () => ({{ workflow_runs: [run] }}) }};
+        if (value.includes('/actions/workflows/collect-nh.yml/runs')) {{
+          return {{ ok: true, status: 200, json: async () => ({{ workflow_runs: [] }}) }};
         }}
         if (value.includes('/actions/runs/501/jobs?per_page=20')) {{
           return {{ ok: false, status: 502, json: async () => ({{}}) }};
