@@ -379,7 +379,6 @@ jobs:
             work/nh-checkpoint-context.json
             work/nh-checkpoint-recovery.json
             work/nh-fresh-runner-decision.json
-            work/rate_monitor.sqlite3
             data/raw/
             publish/manifest.json
             publish/summary.json
