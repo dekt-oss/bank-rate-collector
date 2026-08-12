@@ -11,7 +11,11 @@ from rate_monitor.db.session import create_db_engine, make_session_factory
 from rate_monitor.domain.schemas import CollectionRequest
 from rate_monitor.services.collection_service import collect_source
 from rate_monitor.services.dashboard_service import DATA_END, DATA_MARKER
-from rate_monitor.services.site_service import build_site
+from rate_monitor.services.site_service import (
+    DEFAULT_STRATEGY_TEMPLATE,
+    STRATEGY_ENABLED_ENV,
+    build_site,
+)
 from rate_monitor.services.strategy_service import build_strategy_summary
 from tests.test_collection_service import REAL, FixtureAdapter
 
@@ -53,9 +57,32 @@ def _bump_max_rate(out: Path, delta: float = 0.20) -> Path:
     return out
 
 
-def test_build_site_writes_strategy_page_without_replacing_index(collected_db, tmp_path) -> None:
+def test_strategy_release_gate_is_off_by_default(
+    collected_db, tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     db, _, _ = collected_db
     out = tmp_path / "site-public"
+    out.mkdir()
+    # 같은 디렉터리를 Preview → production 순으로 재사용해도 과거 파일이
+    # 남아 공개 gate를 우회하면 안 된다.
+    (out / "strategy.html").write_text("stale preview", encoding="utf-8")
+    monkeypatch.delenv(STRATEGY_ENABLED_ENV, raising=False)
+
+    manifest = build_site(db, out_dir=out)
+    index_html = (out / "index.html").read_text(encoding="utf-8")
+
+    assert (out / "index.html").exists()
+    assert not (out / "strategy.html").exists()
+    assert "strategy.html" not in manifest.files
+    assert 'href="strategy.html"' not in index_html
+
+
+def test_release_gate_builds_strategy_page_without_replacing_index(
+    collected_db, tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    db, _, _ = collected_db
+    out = tmp_path / "site-public"
+    monkeypatch.setenv(STRATEGY_ENABLED_ENV, "1")
     manifest = build_site(db, out_dir=out)
 
     assert (out / "index.html").exists()
@@ -77,10 +104,12 @@ def test_build_site_writes_strategy_page_without_replacing_index(collected_db, t
     assert "시장 변화 감지" in strategy_html
 
 
-def test_strategy_page_reuses_canonical_table_without_inlining_rows(collected_db, tmp_path) -> None:
+def test_strategy_page_reuses_canonical_table_without_inlining_rows(
+    collected_db, tmp_path
+) -> None:
     db, _, _ = collected_db
     out = tmp_path / "site-public"
-    build_site(db, out_dir=out)
+    build_site(db, out_dir=out, strategy_template_path=DEFAULT_STRATEGY_TEMPLATE)
 
     strategy_html = (out / "strategy.html").read_text(encoding="utf-8")
     inline = _inline(strategy_html)
@@ -122,7 +151,7 @@ def test_inflow_ui_requires_explicit_assumptions_and_never_claims_prediction(
 ) -> None:
     db, _, _ = collected_db
     out = tmp_path / "site-public"
-    build_site(db, out_dir=out)
+    build_site(db, out_dir=out, strategy_template_path=DEFAULT_STRATEGY_TEMPLATE)
     strategy_html = (out / "strategy.html").read_text(encoding="utf-8")
 
     assert "가정 기반 예상 월 수신액" in strategy_html
