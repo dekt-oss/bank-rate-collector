@@ -241,6 +241,27 @@ const loadWorkflowRuns = async (token, slug, workflow, scheduledOnly = false) =>
   return { ok: true, status: response.status, workflow, runs: body.workflow_runs || [] };
 };
 
+// 보통 수집은 위 두 canonical workflow에서 보인다. 다만 운영 중 one-shot
+// 검증처럼 별도 caller가 production `nh-attempt.yml`을 재사용할 수도 있다.
+// 그런 실행도 실제 canonical 수집 경로를 점유하므로 "현재 수집 없음"으로
+// 숨기지 않는다. 완료된 임시 실행은 최신 수집 이력/SLA에는 섞지 않는다.
+const isIndirectNhAcquisitionRun = (run) => {
+  const path = String(run?.path || "");
+  if (path === `.github/workflows/${CORE_WORKFLOW}`
+      || path === `.github/workflows/${NH_WORKFLOW}`) {
+    return false;
+  }
+  return (run?.referenced_workflows || []).some((reference) =>
+    String(reference?.path || "").includes("/.github/workflows/nh-attempt.yml@"));
+};
+
+const loadRecentRepositoryRuns = async (token, slug) => {
+  const response = await gh(token, `/repos/${slug}/actions/runs?per_page=50`);
+  if (!response.ok) return { ok: false, status: response.status, runs: [] };
+  const body = await response.json();
+  return { ok: true, status: response.status, runs: body.workflow_runs || [] };
+};
+
 export default async function handler(req, res) {
   if (req.method !== "GET") {
     return json(res, 405, { ok: false, error: "GET으로 불러 주세요." });
@@ -254,11 +275,18 @@ export default async function handler(req, res) {
     });
   }
 
-  const [coreRunsResult, coreScheduledResult, nhRunsResult, nhScheduledResult] = await Promise.all([
+  const [
+    coreRunsResult,
+    coreScheduledResult,
+    nhRunsResult,
+    nhScheduledResult,
+    repositoryRunsResult,
+  ] = await Promise.all([
     loadWorkflowRuns(token, slug, CORE_WORKFLOW),
     loadWorkflowRuns(token, slug, CORE_WORKFLOW, true),
     loadWorkflowRuns(token, slug, NH_WORKFLOW),
     loadWorkflowRuns(token, slug, NH_WORKFLOW, true),
+    loadRecentRepositoryRuns(token, slug),
   ]);
   const failed = [
     coreRunsResult,
@@ -276,7 +304,15 @@ export default async function handler(req, res) {
   const runs = mergeRuns(coreRunsResult.runs, nhRunsResult.runs);
   const scheduledRuns = mergeRuns(coreScheduledResult.runs, nhScheduledResult.runs);
   const collections = runs.filter((run) => run.event !== "push");
-  const activeCollection = collections.find((run) => ACTIVE.has(run.status)) || null;
+  // 보조 탐색 실패는 canonical health 자체를 깨지 않는다. canonical workflow는
+  // 기존 조회로 계속 보이고, indirect caller 감지만 잠시 빠질 뿐이다.
+  const indirectActiveCollections = repositoryRunsResult.ok
+    ? repositoryRunsResult.runs.filter(
+      (run) => ACTIVE.has(run.status) && isIndirectNhAcquisitionRun(run),
+    )
+    : [];
+  const activeCollection = mergeRuns(collections, indirectActiveCollections)
+    .find((run) => ACTIVE.has(run.status)) || null;
   const activePublish = runs.find((run) => run.event === "push" && ACTIVE.has(run.status)) || null;
   const latestCollection = collections[0] || null;
   const latestScheduled = scheduledRuns[0] || null;
