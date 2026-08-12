@@ -57,7 +57,12 @@ def resolve_host(host: str = TARGET_HOST) -> dict[str, Any]:
         ipv6: list[str] = []
         for family, _socktype, _proto, _canonname, sockaddr in answers:
             address = str(sockaddr[0])
-            bucket = ipv4 if family == socket.AF_INET else ipv6 if family == socket.AF_INET6 else None
+            if family == socket.AF_INET:
+                bucket = ipv4
+            elif family == socket.AF_INET6:
+                bucket = ipv6
+            else:
+                bucket = None
             if bucket is not None and address not in bucket:
                 bucket.append(address)
         return {
@@ -122,7 +127,12 @@ def probe_tcp_tls(ip: str, family: int, host: str = TARGET_HOST) -> dict[str, An
     return result
 
 
-def _simple_get(url: str, *, trust_env: bool = True, headers: dict[str, str] | None = None) -> dict[str, Any]:
+def _simple_get(
+    url: str,
+    *,
+    trust_env: bool = True,
+    headers: dict[str, str] | None = None,
+) -> dict[str, Any]:
     started = time.perf_counter()
     try:
         with httpx.Client(
@@ -174,7 +184,9 @@ def get_control_http() -> dict[str, Any]:
     return result
 
 
-def classify_target(dns: dict[str, Any], endpoints: list[dict[str, Any]]) -> tuple[bool, str]:
+def classify_target(
+    dns: dict[str, Any], endpoints: list[dict[str, Any]]
+) -> tuple[bool, str]:
     """Return whether this runner should enter the real NH collector."""
     if not dns.get("ok"):
         return False, "DNS_FAIL"
