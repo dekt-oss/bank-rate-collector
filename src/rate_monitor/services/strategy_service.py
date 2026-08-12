@@ -11,6 +11,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
+from rate_monitor.domain.preference_taxonomy import labels as preference_labels
 from rate_monitor.domain.timeutil import kst_iso
 
 MARKET_CHANGE_WINDOW_DAYS = 30
@@ -123,6 +124,7 @@ def build_strategy_summary(db_path: Path) -> dict[str, Any]:
 
     latest = aggregate.get("latest_changed_at")
     return {
+        "preference_labels": preference_labels(),
         "market_changes": {
             "window_days": MARKET_CHANGE_WINDOW_DAYS,
             "count": int(aggregate.get("count") or 0),
@@ -136,5 +138,5 @@ def build_strategy_summary(db_path: Path) -> dict[str, Any]:
                 "term_months": 12,
                 "rate_field": "max_rate",
             },
-        }
+        },
     }
