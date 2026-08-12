@@ -68,61 +68,9 @@ jobs:
       - name: Sync dependencies
         run: uv sync --locked
 
-      - name: Decide storage backend
-        id: storage
-        env:
-          STORAGE_BACKEND: ${{ vars.STORAGE_BACKEND }}
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
-          R2_BUCKET: ${{ vars.R2_BUCKET }}
-          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
-          R2_REGION: ${{ vars.R2_REGION }}
-        run: |
-          BACKEND=$(uv run python -c "
-          from pathlib import Path
-          from rate_monitor.services.storage_service import load_backend
-          c = load_backend(Path('config/storage.yaml'))
-          print(c.backend.value)
-          import sys; print(f'backend={c.backend.value} ({c.source})', file=sys.stderr)
-          ")
-          echo "backend=$BACKEND" >> "$GITHUB_OUTPUT"
-          echo "상태 저장소: $BACKEND"
-
-      - name: Restore previous database
-        env:
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
-          R2_BUCKET: ${{ vars.R2_BUCKET }}
-          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
-          R2_REGION: ${{ vars.R2_REGION }}
-        run: |
-          set -euo pipefail
-          mkdir -p work
-
-          if [ "${{ steps.storage.outputs.backend }}" = "r2" ]; then
-            uv run rate-monitor storage restore --dest work/rate_monitor.sqlite3
-            exit 0
-          fi
-
-          if git ls-remote --exit-code --heads origin rate-data >/dev/null 2>&1; then
-            git fetch origin rate-data --depth=1
-            git checkout origin/rate-data -- latest/rate_monitor.sqlite3.gz 2>/dev/null || true
-            if [ -f latest/rate_monitor.sqlite3.gz ]; then
-              gunzip -c latest/rate_monitor.sqlite3.gz > work/rate_monitor.sqlite3
-              echo "이전 DB 복원: $(stat -c%s work/rate_monitor.sqlite3) bytes"
-            fi
-            rm -rf latest
-          else
-            echo "rate-data 브랜치 없음. 새 DB로 시작한다."
-          fi
-
-      - name: Apply migrations
-        env:
-          RATE_MONITOR_DB_URL: sqlite+pysqlite:///${{ github.workspace }}/work/rate_monitor.sqlite3
-        run: uv run alembic upgrade head
-
+      # Context creation is local/lightweight. Keep it before the network gate so
+      # a rejected attempt can still hand the exact same KST cycle date to the
+      # next fresh runner without restoring the canonical database first.
       - name: Prepare NH checkpoint context
         id: context
         env:
@@ -159,6 +107,67 @@ jobs:
           echo "admit=$ADMIT" >> "$GITHUB_OUTPUT"
           echo "classification=$CLASSIFICATION" >> "$GITHUB_OUTPUT"
           echo "NH preflight attempt=${{ inputs.attempt }} admit=$ADMIT classification=$CLASSIFICATION"
+
+      # Attempts 1-2 with a bad NH path stop before R2/DB restore and immediately
+      # hand control to the next fresh runner. Attempt 3 restores state even after
+      # a failed preflight so the real collector can record a terminal CollectionRun.
+      - name: Decide storage backend
+        id: storage
+        if: ${{ steps.preflight.outputs.admit == 'true' || inputs.attempt == inputs.max_attempts }}
+        env:
+          STORAGE_BACKEND: ${{ vars.STORAGE_BACKEND }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+          R2_REGION: ${{ vars.R2_REGION }}
+        run: |
+          BACKEND=$(uv run python -c "
+          from pathlib import Path
+          from rate_monitor.services.storage_service import load_backend
+          c = load_backend(Path('config/storage.yaml'))
+          print(c.backend.value)
+          import sys; print(f'backend={c.backend.value} ({c.source})', file=sys.stderr)
+          ")
+          echo "backend=$BACKEND" >> "$GITHUB_OUTPUT"
+          echo "상태 저장소: $BACKEND"
+
+      - name: Restore previous database
+        if: ${{ steps.preflight.outputs.admit == 'true' || inputs.attempt == inputs.max_attempts }}
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+          R2_REGION: ${{ vars.R2_REGION }}
+        run: |
+          set -euo pipefail
+          mkdir -p work
+
+          if [ "${{ steps.storage.outputs.backend }}" = "r2" ]; then
+            uv run rate-monitor storage restore --dest work/rate_monitor.sqlite3
+            exit 0
+          fi
+
+          if git ls-remote --exit-code --heads origin rate-data >/dev/null 2>&1; then
+            git fetch origin rate-data --depth=1
+            git checkout origin/rate-data -- latest/rate_monitor.sqlite3.gz 2>/dev/null || true
+            if [ -f latest/rate_monitor.sqlite3.gz ]; then
+              gunzip -c latest/rate_monitor.sqlite3.gz > work/rate_monitor.sqlite3
+              echo "이전 DB 복원: $(stat -c%s work/rate_monitor.sqlite3) bytes"
+            fi
+            rm -rf latest
+          else
+            echo "rate-data 브랜치 없음. 새 DB로 시작한다."
+          fi
+
+      - name: Apply migrations
+        if: ${{ steps.preflight.outputs.admit == 'true' || inputs.attempt == inputs.max_attempts }}
+        env:
+          RATE_MONITOR_DB_URL: sqlite+pysqlite:///${{ github.workspace }}/work/rate_monitor.sqlite3
+        run: uv run alembic upgrade head
 
       # Attempts 1-2 discard a runner immediately when target TCP/TLS admission
       # fails. Attempt 3 still enters the real collector so a final zero-progress
