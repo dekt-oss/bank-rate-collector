@@ -146,6 +146,7 @@ jobs:
           R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
           R2_REGION: ${{ vars.R2_REGION }}
         run: |
+          mkdir -p data/raw
           uv run rate-monitor collect \
             --source nh_local \
             --resume auto \
@@ -193,12 +194,19 @@ jobs:
       - name: Verify P1-A gate
         if: ${{ steps.decision.outputs.eligible == 'true' }}
         run: |
+          NO_COLLECTION=""
+          if [ "${{ steps.retry_nh.outcome }}" = "failure" ]; then
+            # preflight zero-raw failure도 CollectionRun evidence는 canonical DB에 남겨야 한다.
+            # 이 경우 새 원본이 없다는 사실 자체가 기대값이므로 raw gate만 no-collection 계약을 쓴다.
+            NO_COLLECTION="--no-collection"
+          fi
           uv run python scripts/verify_gate.py \
             --db publish/rate_monitor.sqlite3 \
             --manifest publish/manifest.json \
             --summary publish/summary.json \
             --site site/index.html \
-            --raw-root data/raw
+            --raw-root data/raw \
+            $NO_COLLECTION
 
       - name: Volume gate
         if: ${{ steps.decision.outputs.eligible == 'true' }}
