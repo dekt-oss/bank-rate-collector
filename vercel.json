@@ -4,7 +4,7 @@
   "buildCommand": "",
   "installCommand": "",
   "outputDirectory": "site-public",
-  "ignoreCommand": "[ \"$VERCEL_GIT_COMMIT_REF\" != \"rate-data\" ] && [ \"$VERCEL_GIT_COMMIT_REF\" != \"feat/strategy-dashboard-lab\" ]",
+  "ignoreCommand": "[ \"$VERCEL_GIT_COMMIT_REF\" != \"rate-data\" ]",
   "headers": [
     {
       "source": "/(.*)",
