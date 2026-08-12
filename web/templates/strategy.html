@@ -1,0 +1,794 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>수신상품 전략 대시보드</title>
+<meta name="description" content="저축은행 경쟁사 금리 현황, 최근 시장 변화와 신상품 금리 시나리오를 한 화면에서 분석합니다.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='4' fill='%231D7A62'/%3E%3Ctext x='8' y='12' font-size='10' font-family='Arial' font-weight='bold' text-anchor='middle' fill='white'%3ES%3C/text%3E%3C/svg%3E">
+<style>
+  :root {
+    --bg: #0E1514;
+    --bg-2: #151F1D;
+    --bg-3: #1B2825;
+    --panel: #F5F6F2;
+    --panel-strong: #FFFFFF;
+    --panel-soft: #EEF1EC;
+    --ink: #17201D;
+    --ink-2: #58635F;
+    --ink-3: #83908A;
+    --line: rgba(28, 47, 41, .11);
+    --green: #1D7A62;
+    --green-2: #31A17E;
+    --green-soft: #DFF0E9;
+    --mint: #A9DCC7;
+    --gold: #B78B32;
+    --gold-soft: #F4E9CD;
+    --rose: #A95B62;
+    --rose-soft: #F4E4E4;
+    --shadow: 0 24px 70px rgba(0, 0, 0, .22);
+    --shadow-soft: 0 12px 34px rgba(0, 0, 0, .12);
+    --radius-xl: 28px;
+    --radius-lg: 22px;
+    --radius-md: 15px;
+    --sans: system-ui, -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo",
+            "Pretendard", "Noto Sans KR", "Malgun Gothic", sans-serif;
+    --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+  }
+
+  * { box-sizing: border-box; }
+  html { background: var(--bg); }
+  body {
+    margin: 0;
+    color: #fff;
+    font-family: var(--sans);
+    font-size: 14px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    background:
+      radial-gradient(circle at 8% -5%, rgba(52, 143, 113, .22), transparent 30%),
+      radial-gradient(circle at 91% 8%, rgba(183, 139, 50, .12), transparent 24%),
+      linear-gradient(145deg, #0B1211 0%, #111A18 48%, #0F1816 100%);
+    min-height: 100vh;
+  }
+  button, input { font: inherit; }
+  a { color: inherit; }
+
+  .shell {
+    width: min(1500px, calc(100% - 36px));
+    margin: 0 auto;
+    padding: 18px 0 54px;
+  }
+
+  /* ── 최소 헤더 ─────────────────────────────────────────────────── */
+  .topbar {
+    position: sticky;
+    top: 12px;
+    z-index: 40;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    min-height: 58px;
+    padding: 8px 10px 8px 14px;
+    border: 1px solid rgba(255, 255, 255, .09);
+    border-radius: 18px;
+    background: rgba(13, 21, 19, .76);
+    box-shadow: 0 18px 44px rgba(0, 0, 0, .19);
+    backdrop-filter: blur(18px) saturate(125%);
+  }
+  .identity { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .mark {
+    width: 34px; height: 34px; flex: none; border-radius: 11px;
+    display: grid; place-items: center;
+    background: linear-gradient(145deg, #EAF5EF 0%, #80CDB1 100%);
+    color: #173A30; font-weight: 900; letter-spacing: -.04em;
+    box-shadow: inset 0 1px 0 #fff, 0 8px 22px rgba(49, 161, 126, .2);
+  }
+  .identity b { font-size: 14px; letter-spacing: -.015em; }
+  .nav {
+    display: flex; align-items: center; gap: 3px;
+    padding: 4px; border-radius: 13px;
+    background: rgba(255, 255, 255, .06);
+  }
+  .nav a {
+    text-decoration: none; color: rgba(255,255,255,.66); font-size: 12.5px;
+    font-weight: 700; padding: 7px 12px; border-radius: 10px;
+    transition: background .18s ease, color .18s ease, transform .18s ease;
+  }
+  .nav a:hover { color: #fff; transform: translateY(-1px); }
+  .nav a.active { background: #F4F5F1; color: #17201D; box-shadow: 0 5px 18px rgba(0,0,0,.16); }
+  .top-meta { display: flex; align-items: center; gap: 8px; color: rgba(255,255,255,.62); font-size: 11.5px; }
+  .live-dot { width: 7px; height: 7px; border-radius: 50%; background: #50C79C; box-shadow: 0 0 0 5px rgba(80,199,156,.10); }
+
+  /* ── 히어로 ───────────────────────────────────────────────────── */
+  .hero {
+    display: grid; grid-template-columns: minmax(0, 1fr) auto;
+    gap: 20px; align-items: end;
+    padding: 44px 4px 24px;
+  }
+  .eyebrow {
+    display: inline-flex; align-items: center; gap: 8px;
+    margin-bottom: 9px; color: #9BD8C1; font-size: 11px; font-weight: 800;
+    letter-spacing: .09em; text-transform: uppercase;
+  }
+  .eyebrow::before { content: ""; width: 18px; height: 1px; background: currentColor; opacity: .7; }
+  h1 { margin: 0; font-size: clamp(32px, 4vw, 54px); line-height: 1.05; letter-spacing: -.055em; }
+  .hero p { margin: 11px 0 0; color: rgba(255,255,255,.61); max-width: 650px; font-size: 14px; }
+  .scope {
+    display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 7px;
+    max-width: 520px;
+  }
+  .scope span {
+    padding: 7px 10px; border: 1px solid rgba(255,255,255,.09); border-radius: 999px;
+    color: rgba(255,255,255,.7); background: rgba(255,255,255,.04); font-size: 11.5px;
+  }
+  .scope .strong { color: #BFE8D8; border-color: rgba(91,190,153,.3); background: rgba(42,127,96,.15); }
+
+  /* ── 카드 시스템 ───────────────────────────────────────────────── */
+  .grid { display: grid; gap: 14px; }
+  .kpis { grid-template-columns: 1.2fr 1.1fr .9fr; }
+  .main-grid { grid-template-columns: minmax(0, 1.12fr) minmax(390px, .88fr); margin-top: 14px; }
+  .signal-grid { grid-template-columns: minmax(0, 1.18fr) minmax(330px, .82fr); margin-top: 14px; }
+  .card {
+    position: relative; overflow: hidden;
+    color: var(--ink); background: var(--panel);
+    border: 1px solid rgba(255,255,255,.38);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-soft), inset 0 1px 0 rgba(255,255,255,.92);
+  }
+  .card::after {
+    content: ""; position: absolute; pointer-events: none; inset: 0;
+    border-radius: inherit; box-shadow: inset 0 0 0 1px rgba(27,54,44,.025);
+  }
+  .card-pad { padding: 22px; }
+  .card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 17px; }
+  .card-head h2 { margin: 0; font-size: 16px; letter-spacing: -.025em; }
+  .card-head p { margin: 4px 0 0; color: var(--ink-3); font-size: 11.5px; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 5px; flex: none;
+    padding: 5px 8px; border-radius: 999px; background: #fff;
+    border: 1px solid var(--line); color: var(--ink-2); font-size: 10.5px; font-weight: 750;
+  }
+
+  .kpi {
+    min-height: 190px; padding: 22px;
+    display: flex; flex-direction: column; justify-content: space-between;
+  }
+  .kpi.green {
+    background:
+      radial-gradient(circle at 92% 8%, rgba(55,173,130,.16), transparent 35%),
+      linear-gradient(140deg, #F4FAF7, #E9F3EE);
+  }
+  .kpi.gold {
+    background:
+      radial-gradient(circle at 88% 12%, rgba(198,154,67,.18), transparent 38%),
+      linear-gradient(140deg, #FAF7EF, #F3EAD9);
+  }
+  .kpi.dark {
+    color: #F6F7F4;
+    background:
+      radial-gradient(circle at 82% 24%, rgba(57,161,126,.24), transparent 33%),
+      linear-gradient(145deg, #20312D 0%, #17231F 100%);
+    border-color: rgba(255,255,255,.06);
+  }
+  .kpi-label { color: var(--ink-2); font-size: 11.5px; font-weight: 800; letter-spacing: .015em; }
+  .kpi.dark .kpi-label { color: rgba(255,255,255,.58); }
+  .kpi-value { margin-top: 9px; font-size: clamp(40px, 4vw, 61px); line-height: .95; letter-spacing: -.065em; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .kpi-value small { font-size: .46em; letter-spacing: -.025em; margin-left: 2px; }
+  .kpi.green .kpi-value { color: #176C55; }
+  .kpi.gold .kpi-value { color: #9D7425; }
+  .kpi-foot { display: flex; align-items: end; justify-content: space-between; gap: 12px; color: var(--ink-2); font-size: 11.5px; }
+  .kpi.dark .kpi-foot { color: rgba(255,255,255,.62); }
+  .mini-stat { font-family: var(--mono); font-size: 10.5px; font-weight: 700; }
+
+  /* ── 경쟁사 표 ─────────────────────────────────────────────────── */
+  .table-wrap { overflow-x: auto; margin: 0 -4px; padding: 0 4px 2px; }
+  table { width: 100%; border-collapse: collapse; min-width: 680px; }
+  th {
+    padding: 8px 8px 10px; border-bottom: 1px solid var(--line);
+    color: var(--ink-3); font-size: 10px; font-weight: 800; text-align: right;
+    letter-spacing: .02em;
+  }
+  th:first-child, th:nth-child(2) { text-align: left; }
+  td { padding: 13px 8px; border-bottom: 1px solid var(--line); text-align: right; font-size: 11.5px; font-variant-numeric: tabular-nums; }
+  td:first-child, td:nth-child(2) { text-align: left; }
+  tbody tr:last-child td { border-bottom: 0; }
+  tbody tr { transition: background .16s ease; }
+  tbody tr:hover { background: rgba(31,122,98,.045); }
+  .rank {
+    display: inline-grid; place-items: center; width: 25px; height: 25px; border-radius: 9px;
+    background: #E9ECE7; color: var(--ink-2); font: 800 10.5px/1 var(--mono);
+  }
+  tr:first-child .rank { background: var(--gold-soft); color: #8C681F; }
+  .bank-name { font-weight: 800; color: var(--ink); }
+  .product-name { display: block; color: var(--ink-3); margin-top: 2px; font-size: 10.5px; max-width: 205px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .rate-strong { color: var(--green); font-weight: 850; }
+  .muted { color: var(--ink-3); }
+
+  /* ── 지역 그래픽 ───────────────────────────────────────────────── */
+  .map-card { min-height: 472px; background: linear-gradient(145deg, #F7F8F5 0%, #EEF2EE 100%); }
+  .map-stage { position: relative; min-height: 360px; }
+  .korea-map { display: block; width: 100%; height: 365px; overflow: visible; }
+  .land {
+    fill: rgba(65, 91, 81, .055); stroke: rgba(54, 78, 69, .15); stroke-width: 1.3;
+    stroke-dasharray: 3 4;
+  }
+  .map-node circle { fill: #D9E1DC; stroke: #fff; stroke-width: 3; transition: r .18s ease, fill .18s ease; }
+  .map-node.active circle { fill: #50C79C; filter: drop-shadow(0 5px 9px rgba(37,145,108,.25)); }
+  .map-node.top circle { fill: #1D7A62; }
+  .map-node text { fill: var(--ink-2); font-size: 10px; font-family: var(--sans); font-weight: 750; pointer-events: none; }
+  .map-node .value { font-family: var(--mono); font-size: 11px; font-weight: 850; fill: var(--ink); }
+  .region-list { display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px; margin-top: -4px; }
+  .region-pill { padding: 9px 10px; border-radius: 12px; border: 1px solid var(--line); background: rgba(255,255,255,.65); }
+  .region-pill b { display: block; font-size: 11px; }
+  .region-pill span { color: var(--green); font: 800 12px/1.5 var(--mono); }
+
+  /* ── 변화 감지 ─────────────────────────────────────────────────── */
+  .change-summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 14px; }
+  .change-stat { padding: 12px 13px; background: #fff; border: 1px solid var(--line); border-radius: 14px; }
+  .change-stat span { display: block; color: var(--ink-3); font-size: 9.5px; font-weight: 800; }
+  .change-stat b { display: block; margin-top: 2px; font: 800 19px/1.3 var(--mono); }
+  .change-stat.up b { color: var(--rose); }
+  .change-stat.down b { color: var(--green); }
+  .change-feed { display: grid; gap: 7px; max-height: 298px; overflow: auto; padding-right: 2px; }
+  .change-item {
+    display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; gap: 10px; align-items: center;
+    padding: 10px 11px; background: rgba(255,255,255,.64); border: 1px solid var(--line); border-radius: 13px;
+  }
+  .change-icon { width: 32px; height: 32px; display: grid; place-items: center; border-radius: 11px; font-weight: 900; }
+  .change-item.up .change-icon { color: #8B444A; background: var(--rose-soft); }
+  .change-item.down .change-icon { color: #176C55; background: var(--green-soft); }
+  .change-copy { min-width: 0; }
+  .change-copy b { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 11.5px; }
+  .change-copy span { display: block; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 10px; }
+  .delta { text-align: right; font: 850 11px/1.4 var(--mono); }
+  .delta small { display: block; color: var(--ink-3); font: 500 9px/1.5 var(--sans); }
+  .empty { padding: 28px 16px; border: 1px dashed rgba(32,62,50,.16); border-radius: 14px; text-align: center; color: var(--ink-3); font-size: 11.5px; }
+
+  /* ── 우대조건 ─────────────────────────────────────────────────── */
+  .pref-list { display: grid; gap: 11px; }
+  .pref-row { display: grid; grid-template-columns: minmax(110px, .9fr) 1.6fr 42px; gap: 10px; align-items: center; }
+  .pref-row label { font-size: 10.5px; font-weight: 750; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .track { height: 7px; background: #DDE3DE; border-radius: 99px; overflow: hidden; }
+  .track i { display: block; width: 0; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #238268, #5EC3A0); transition: width .35s ease; }
+  .pref-row output { text-align: right; color: var(--ink-2); font: 800 10px/1 var(--mono); }
+  .pref-note { margin-top: 16px; color: var(--ink-3); font-size: 10px; line-height: 1.55; }
+
+  /* ── 시뮬레이터 ────────────────────────────────────────────────── */
+  .simulator {
+    margin-top: 14px; padding: 25px;
+    background:
+      radial-gradient(circle at 90% -5%, rgba(67,180,140,.13), transparent 30%),
+      linear-gradient(145deg, #F9FAF7 0%, #EEF2ED 100%);
+  }
+  .sim-layout { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(330px, .7fr); gap: 20px; }
+  .controls { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .control {
+    padding: 15px; border: 1px solid var(--line); background: rgba(255,255,255,.7); border-radius: 15px;
+  }
+  .control.wide { grid-column: 1 / -1; }
+  .control-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .control label { color: var(--ink-2); font-size: 10.5px; font-weight: 800; }
+  .number-wrap { position: relative; display: inline-flex; align-items: center; }
+  .number-wrap input {
+    width: 86px; padding: 7px 25px 7px 9px; border-radius: 9px; border: 1px solid var(--line);
+    background: #fff; color: var(--ink); text-align: right; font: 800 13px/1 var(--mono); outline: none;
+  }
+  .number-wrap span { position: absolute; right: 8px; color: var(--ink-3); font-size: 10px; pointer-events: none; }
+  input[type="range"] { width: 100%; margin: 15px 0 3px; accent-color: var(--green); }
+  .range-ends { display: flex; justify-content: space-between; color: var(--ink-3); font: 500 9px/1 var(--mono); }
+  .assumption { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 11px; }
+  .assumption input {
+    width: 100%; margin-top: 7px; padding: 10px 11px; border: 1px solid var(--line); border-radius: 10px;
+    background: #fff; color: var(--ink); outline: none; font-family: var(--mono);
+  }
+  input:focus { border-color: rgba(29,122,98,.55) !important; box-shadow: 0 0 0 3px rgba(29,122,98,.08); }
+  .formula { margin: 10px 0 0; padding: 9px 10px; border-radius: 10px; background: rgba(29,122,98,.055); color: var(--ink-3); font-size: 9.5px; }
+  .result-panel {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 9px; align-content: start;
+    padding: 14px; border-radius: 18px; background: #172420; color: #F7F9F6;
+    box-shadow: 0 18px 36px rgba(18,38,31,.16);
+  }
+  .result { padding: 13px; border-radius: 13px; background: rgba(255,255,255,.055); border: 1px solid rgba(255,255,255,.07); }
+  .result.wide { grid-column: 1 / -1; }
+  .result span { display: block; color: rgba(255,255,255,.48); font-size: 9.5px; font-weight: 750; }
+  .result b { display: block; margin-top: 5px; font-size: 25px; letter-spacing: -.045em; line-height: 1.1; }
+  .result b.green { color: #71D5B0; }
+  .result b.gold { color: #E9C872; }
+  .result small { display: block; margin-top: 5px; color: rgba(255,255,255,.48); font-size: 9px; line-height: 1.45; }
+  .grade { display: inline-grid; place-items: center; width: 38px; height: 38px; margin-top: 6px; border-radius: 50%; border: 1px solid rgba(113,213,176,.55); color: #71D5B0; font-size: 19px; font-weight: 850; }
+  .scenario-warning { grid-column: 1 / -1; margin-top: 2px; padding: 10px 11px; border-radius: 11px; background: rgba(239,199,100,.08); color: rgba(255,255,255,.58); font-size: 9px; line-height: 1.55; }
+
+  .foot {
+    display: flex; justify-content: space-between; gap: 24px; margin-top: 16px; padding: 2px 5px;
+    color: rgba(255,255,255,.42); font-size: 9.5px; line-height: 1.55;
+  }
+  .foot b { color: rgba(255,255,255,.62); }
+
+  .loading-mask {
+    position: absolute; inset: 0; z-index: 10; display: grid; place-items: center;
+    border-radius: inherit; background: rgba(245,246,242,.88); color: var(--ink-2); font-size: 11px;
+    backdrop-filter: blur(5px);
+  }
+  .loading-mask[hidden] { display: none; }
+  .error-banner {
+    margin: 0 4px 14px; padding: 11px 13px; border: 1px solid rgba(231,144,144,.25);
+    background: rgba(126,49,49,.22); color: #F1C9C9; border-radius: 12px; font-size: 11.5px;
+  }
+  .error-banner[hidden] { display: none; }
+
+  @media (max-width: 1080px) {
+    .hero { grid-template-columns: 1fr; }
+    .scope { justify-content: flex-start; }
+    .main-grid, .signal-grid, .sim-layout { grid-template-columns: 1fr; }
+    .kpis { grid-template-columns: 1fr 1fr; }
+    .kpi.dark { grid-column: 1 / -1; }
+  }
+  @media (max-width: 700px) {
+    .shell { width: min(100% - 20px, 1500px); padding-top: 10px; }
+    .topbar { top: 6px; flex-wrap: wrap; }
+    .identity b, .top-meta { display: none; }
+    .nav { margin-left: auto; }
+    .nav a { padding: 7px 9px; font-size: 11px; }
+    .hero { padding-top: 31px; }
+    .kpis { grid-template-columns: 1fr; }
+    .kpi.dark { grid-column: auto; }
+    .card-pad, .simulator { padding: 17px; }
+    .region-list { grid-template-columns: repeat(2, 1fr); }
+    .change-summary { grid-template-columns: 1fr 1fr 1fr; }
+    .controls { grid-template-columns: 1fr; }
+    .control.wide { grid-column: auto; }
+    .result-panel { grid-template-columns: 1fr 1fr; }
+    .foot { flex-direction: column; gap: 8px; }
+  }
+</style>
+</head>
+<body>
+<div class="shell">
+  <header class="topbar">
+    <div class="identity">
+      <div class="mark" aria-hidden="true">SB</div>
+      <b>수신 인사이트</b>
+    </div>
+    <nav class="nav" aria-label="주요 화면">
+      <a href="./">검색·조회</a>
+      <a href="strategy.html" class="active" aria-current="page">전략 대시보드</a>
+    </nav>
+    <div class="top-meta"><i class="live-dot" aria-hidden="true"></i><span id="top-time">데이터 확인 중</span></div>
+  </header>
+
+  <section class="hero">
+    <div>
+      <div class="eyebrow">Deposit intelligence</div>
+      <h1>수신상품 전략 대시보드</h1>
+      <p>경쟁사 금리 수준과 최근 변화를 한 화면에서 확인하고, 제안 금리가 현재 시장에서 어느 위치인지 바로 시뮬레이션합니다.</p>
+    </div>
+    <div class="scope" aria-label="기본 분석 범위">
+      <span class="strong">저축은행</span><span>정기예금</span><span>12개월</span><span>최고금리 기준</span><span>최근 변화 30일</span>
+    </div>
+  </section>
+
+  <div class="error-banner" id="error" hidden role="alert"></div>
+
+  <section class="grid kpis" aria-label="시장 요약">
+    <article class="card kpi green">
+      <div>
+        <div class="kpi-label">시장 최고 금리</div>
+        <div class="kpi-value" id="market-max">—</div>
+      </div>
+      <div class="kpi-foot"><span id="market-max-name">금리표 불러오는 중</span><span class="mini-stat" id="market-gap">—</span></div>
+    </article>
+    <article class="card kpi gold">
+      <div>
+        <div class="kpi-label">시장 평균 최고금리</div>
+        <div class="kpi-value" id="market-mean">—</div>
+      </div>
+      <div class="kpi-foot"><span>12개월 정기예금 · 고유 기관/상품</span><span class="mini-stat" id="market-median">중앙값 —</span></div>
+    </article>
+    <article class="card kpi dark">
+      <div>
+        <div class="kpi-label">현재 비교 Universe</div>
+        <div class="kpi-value" id="market-count">—</div>
+      </div>
+      <div class="kpi-foot"><span id="market-institutions">기관 —</span><span class="mini-stat">수집 범위 내</span></div>
+    </article>
+  </section>
+
+  <section class="grid main-grid">
+    <article class="card card-pad" aria-labelledby="top5-title">
+      <div class="card-head">
+        <div><h2 id="top5-title">경쟁사 TOP 5</h2><p>저축은행 · 12개월 정기예금 · 최고금리 기준</p></div>
+        <span class="chip">LIVE DATA</span>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>순위</th><th>금융사 / 상품</th><th>기본</th><th>우대폭</th><th>최고</th></tr></thead>
+          <tbody id="top5"><tr><td colspan="5" class="muted" style="text-align:center;padding:30px">데이터를 불러오는 중입니다.</td></tr></tbody>
+        </table>
+      </div>
+    </article>
+
+    <article class="card card-pad map-card" aria-labelledby="map-title">
+      <div class="card-head">
+        <div><h2 id="map-title">본점 소재지별 금리 분포</h2><p>저축은행 최고금리 · 지점 적용금리 의미가 아님</p></div>
+        <span class="chip">12개월</span>
+      </div>
+      <div class="map-stage">
+        <svg class="korea-map" id="map" viewBox="0 0 420 480" role="img" aria-label="저축은행 본점 소재지별 12개월 정기예금 최고금리">
+          <path class="land" d="M181 27 C221 36 263 62 282 96 C303 132 293 172 313 199 C329 220 328 252 309 273 C286 300 298 325 279 347 C260 371 227 385 211 410 C195 434 162 424 148 397 C134 369 108 347 104 314 C99 277 117 254 106 221 C96 191 108 163 128 145 C147 126 142 98 151 70 C158 48 166 34 181 27 Z"/>
+          <path class="land" d="M108 438 C124 426 148 427 158 441 C145 453 120 458 101 450 C102 445 104 441 108 438 Z"/>
+          <g id="map-nodes"></g>
+        </svg>
+      </div>
+      <div class="region-list" id="region-list"></div>
+      <div class="loading-mask" id="map-loading">지역 데이터를 계산하는 중입니다.</div>
+    </article>
+  </section>
+
+  <section class="grid signal-grid">
+    <article class="card card-pad" aria-labelledby="changes-title">
+      <div class="card-head">
+        <div><h2 id="changes-title">시장 변화 감지</h2><p>DB 변경이력에서 확인한 최근 30일 최고금리 변경</p></div>
+        <span class="chip" id="change-latest">30D</span>
+      </div>
+      <div class="change-summary">
+        <div class="change-stat"><span>변경 감지</span><b id="change-count">—</b></div>
+        <div class="change-stat up"><span>금리 상승</span><b id="change-up">—</b></div>
+        <div class="change-stat down"><span>금리 하락</span><b id="change-down">—</b></div>
+      </div>
+      <div class="change-feed" id="change-feed"><div class="empty">변경이력을 확인하는 중입니다.</div></div>
+    </article>
+
+    <article class="card card-pad" aria-labelledby="pref-title">
+      <div class="card-head">
+        <div><h2 id="pref-title">우대조건 트렌드</h2><p>조건이 실제 기재된 비교상품 중 표준 분류 비중</p></div>
+        <span class="chip" id="pref-denom">—</span>
+      </div>
+      <div class="pref-list" id="pref-list"><div class="empty">금리표를 불러온 뒤 계산합니다.</div></div>
+      <p class="pref-note">한 상품에 여러 조건 코드가 동시에 붙을 수 있어 비중의 합은 100%가 아닐 수 있습니다. ‘원천 미제공’은 ‘우대조건 없음’으로 계산하지 않습니다.</p>
+    </article>
+  </section>
+
+  <section class="card simulator" aria-labelledby="sim-title">
+    <div class="card-head">
+      <div><h2 id="sim-title">신상품 기획 시뮬레이터</h2><p>제안 최고금리를 현재 경쟁상품과 비교하고, 사용자가 넣은 민감도 가정으로 수신액 시나리오를 계산합니다.</p></div>
+      <span class="chip">WHAT-IF</span>
+    </div>
+    <div class="sim-layout">
+      <div class="controls">
+        <div class="control">
+          <div class="control-head">
+            <label for="base-number">기본금리</label>
+            <span class="number-wrap"><input id="base-number" type="number" min="0" max="10" step="0.01" value="3.20"><span>%</span></span>
+          </div>
+          <input id="base-range" type="range" min="1.50" max="6.00" step="0.01" value="3.20">
+          <div class="range-ends"><span>1.50%</span><span>6.00%</span></div>
+        </div>
+        <div class="control">
+          <div class="control-head">
+            <label for="bonus-number">우대금리</label>
+            <span class="number-wrap"><input id="bonus-number" type="number" min="0" max="3" step="0.01" value="0.50"><span>%p</span></span>
+          </div>
+          <input id="bonus-range" type="range" min="0" max="3.00" step="0.01" value="0.50">
+          <div class="range-ends"><span>0.00%p</span><span>3.00%p</span></div>
+        </div>
+        <div class="control wide">
+          <div class="control-head"><label>예상 수신액 가정</label><span class="chip">사용자 입력</span></div>
+          <div class="assumption">
+            <label>기준 월 수신액 (억원)<input id="baseline-inflow" type="number" min="0" step="1" placeholder="예: 100"></label>
+            <label>+0.10%p당 변화율 (%)<input id="sensitivity" type="number" step="0.1" placeholder="예: 4"></label>
+          </div>
+          <p class="formula">제안 최고금리와 시장 평균 최고금리의 격차를 0.10%p 단위로 환산한 뒤, 입력한 민감도를 기준 월 수신액에 적용합니다.</p>
+        </div>
+      </div>
+
+      <aside class="result-panel" aria-live="polite">
+        <div class="result">
+          <span>제안 최고금리</span><b class="green" id="sim-max">3.70%</b><small>기본 + 우대</small>
+        </div>
+        <div class="result">
+          <span>상대 경쟁력</span><i class="grade" id="sim-grade">—</i><small>현재 순위 백분위</small>
+        </div>
+        <div class="result wide">
+          <span>현재 시장 예상 순위</span><b class="gold" id="sim-rank">데이터 대기</b><small id="sim-rank-note">현재 수집 범위의 고유 저축은행 12개월 정기예금과 비교합니다.</small>
+        </div>
+        <div class="result wide">
+          <span>가정 기반 예상 월 수신액</span><b id="sim-inflow">가정 입력 필요</b><small id="sim-inflow-note">기준 수신액과 민감도를 입력하면 계산합니다.</small>
+        </div>
+        <p class="scenario-warning">내부 실적 기반 예측모형이 아닙니다. 입력한 기준 수신액·금리 민감도 가정에 따른 시나리오이며 실제 유입을 보장하지 않습니다.</p>
+      </aside>
+    </div>
+  </section>
+
+  <footer class="foot">
+    <div><b>데이터 해석 주의</b> · 수집된 공시 범위 안의 비교입니다. 실제 거래 조건은 해당 금융기관에서 다시 확인해야 합니다.</div>
+    <div><b>저축은행 공시금리 — 전국 본점 기준 참고값</b> · 지역 표시는 본점 소재지이며 지점별 적용금리를 뜻하지 않습니다.</div>
+  </footer>
+</div>
+
+<script id="rate-monitor-data" type="application/json">
+{"totals":{},"table_url":"data/table.json","strategy":{"market_changes":{"items":[]}}}
+</script>
+<script>
+(() => {
+  "use strict";
+  const data = JSON.parse(document.getElementById("rate-monitor-data").textContent);
+  const $ = (id) => document.getElementById(id);
+  const fmt = new Intl.NumberFormat("ko-KR");
+  const pct = (value, digits = 2) => Number.isFinite(value) ? `${value.toFixed(digits)}%` : "—";
+  const num = (value) => Number.isFinite(Number(value)) ? Number(value) : null;
+  const esc = (value) => String(value ?? "").replace(/[&<>"']/g,
+    (ch) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[ch]));
+
+  let products = [];
+  let universeRows = [];
+  let marketMean = null;
+
+  const regionCoords = {
+    "서울": [128, 105], "인천": [93, 124], "경기": [151, 145], "강원": [242, 112],
+    "충북": [188, 205], "충남": [121, 221], "세종": [151, 224], "대전": [157, 250],
+    "경북": [254, 235], "대구": [255, 282], "울산": [295, 318], "부산": [274, 358],
+    "경남": [213, 344], "전북": [137, 300], "광주": [121, 349], "전남": [117, 382],
+    "제주": [127, 444]
+  };
+
+  function canonicalRegion(raw) {
+    const value = String(raw || "").trim();
+    const aliases = ["서울","인천","경기","강원","충북","충남","세종","대전","경북","대구","울산","부산","경남","전북","광주","전남","제주"];
+    return aliases.find((name) => value.startsWith(name)) || value;
+  }
+
+  function expandTable(payload) {
+    const columns = payload.columns || [];
+    const lookups = payload.lookups || {};
+    const col = Object.fromEntries(columns.map((name, index) => [name, index]));
+    const look = (name, value) => {
+      if (value == null) return null;
+      const values = lookups[name];
+      return values ? values[value] : value;
+    };
+    return (payload.rows || []).map((row) => ({
+      sector: look("sector", row[col.sector]),
+      institution: look("institution", row[col.institution]),
+      region: look("region", row[col.region]),
+      product: look("product", row[col.product]),
+      productType: look("product_type", row[col.product_type]),
+      term: num(row[col.term_months]),
+      base: num(row[col.base_rate]),
+      max: num(row[col.max_rate]),
+      source: look("source_id", row[col.source_id]),
+      preferenceStatus: look("preference_status", row[col.preference_status]),
+      preferenceTags: look("preference_tags", row[col.preference_tags]) || "",
+    }));
+  }
+
+  function comparableRows(rows) {
+    return rows.filter((row) => row.sector === "savings_bank"
+      && row.productType === "term_deposit"
+      && row.term === 12
+      && Number.isFinite(row.max));
+  }
+
+  function dedupeProducts(rows) {
+    const best = new Map();
+    rows.forEach((row) => {
+      const key = `${row.institution}\u0000${row.product}\u0000${row.term}`;
+      const prior = best.get(key);
+      if (!prior || row.max > prior.max || (row.max === prior.max && (row.base ?? -1) > (prior.base ?? -1))) {
+        best.set(key, row);
+      }
+    });
+    return [...best.values()].sort((a, b) => b.max - a.max || String(a.institution).localeCompare(String(b.institution), "ko"));
+  }
+
+  function median(values) {
+    if (!values.length) return null;
+    const sorted = [...values].sort((a,b) => a-b);
+    const mid = Math.floor(sorted.length / 2);
+    return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+  }
+
+  function renderMarket() {
+    if (!products.length) {
+      $("market-max-name").textContent = "비교 가능한 최고금리 없음";
+      $("top5").innerHTML = '<tr><td colspan="5" class="muted" style="text-align:center;padding:30px">현재 범위에 최고금리가 있는 비교상품이 없습니다.</td></tr>';
+      return;
+    }
+    const rates = products.map((row) => row.max);
+    marketMean = rates.reduce((sum, rate) => sum + rate, 0) / rates.length;
+    const mid = median(rates);
+    const leader = products[0];
+    const institutions = new Set(products.map((row) => row.institution));
+
+    $("market-max").innerHTML = `${leader.max.toFixed(2)}<small>%</small>`;
+    $("market-max-name").textContent = `${leader.institution} · ${leader.product}`;
+    $("market-gap").textContent = Number.isFinite(mid) ? `중앙값 +${(leader.max - mid).toFixed(2)}%p` : "—";
+    $("market-mean").innerHTML = `${marketMean.toFixed(2)}<small>%</small>`;
+    $("market-median").textContent = `중앙값 ${mid.toFixed(2)}%`;
+    $("market-count").textContent = fmt.format(products.length);
+    $("market-institutions").textContent = `기관 ${fmt.format(institutions.size)}곳`;
+
+    $("top5").innerHTML = products.slice(0, 5).map((row, index) => {
+      const spread = Number.isFinite(row.base) ? row.max - row.base : null;
+      return `<tr>
+        <td><span class="rank">${index + 1}</span></td>
+        <td><span class="bank-name">${esc(row.institution)}</span><span class="product-name" title="${esc(row.product)}">${esc(row.product)}</span></td>
+        <td>${Number.isFinite(row.base) ? row.base.toFixed(2) : "—"}%</td>
+        <td>${Number.isFinite(spread) ? `+${spread.toFixed(2)}` : "—"}%p</td>
+        <td class="rate-strong">${row.max.toFixed(2)}%</td>
+      </tr>`;
+    }).join("");
+  }
+
+  function renderRegions() {
+    const byRegion = new Map();
+    products.forEach((row) => {
+      const region = canonicalRegion(row.region);
+      if (!region) return;
+      const prior = byRegion.get(region) || { region, max: -Infinity, count: 0 };
+      prior.count += 1;
+      prior.max = Math.max(prior.max, row.max);
+      byRegion.set(region, prior);
+    });
+    const regions = [...byRegion.values()].filter((item) => Number.isFinite(item.max)).sort((a,b) => b.max - a.max);
+    const top = regions[0]?.max ?? null;
+    $("map-nodes").innerHTML = regions.filter((item) => regionCoords[item.region]).map((item) => {
+      const [x, y] = regionCoords[item.region];
+      const isTop = item.max === top;
+      return `<g class="map-node active${isTop ? " top" : ""}" transform="translate(${x} ${y})">
+        <circle r="${isTop ? 14 : 10}"></circle>
+        <text x="17" y="-2">${esc(item.region)}</text>
+        <text class="value" x="17" y="12">${item.max.toFixed(2)}%</text>
+      </g>`;
+    }).join("");
+    $("region-list").innerHTML = regions.slice(0, 6).map((item) =>
+      `<div class="region-pill"><b>${esc(item.region)}</b><span>${item.max.toFixed(2)}%</span></div>`).join("")
+      || '<div class="empty" style="grid-column:1/-1">본점 소재지 지역값이 없습니다.</div>';
+    $("map-loading").hidden = true;
+  }
+
+  function renderChanges() {
+    const changes = data.strategy?.market_changes || {};
+    $("change-count").textContent = fmt.format(changes.count || 0);
+    $("change-up").textContent = fmt.format(changes.up_count || 0);
+    $("change-down").textContent = fmt.format(changes.down_count || 0);
+    if (changes.latest_changed_at) {
+      const date = new Date(changes.latest_changed_at);
+      if (!Number.isNaN(date.getTime())) $("change-latest").textContent = `최근 ${date.toLocaleDateString("ko-KR", {month:"2-digit", day:"2-digit"})}`;
+    }
+    const items = changes.items || [];
+    if (!items.length) {
+      $("change-feed").innerHTML = '<div class="empty">최근 30일 범위에서 비교 가능한 최고금리 변경이 감지되지 않았습니다.</div>';
+      return;
+    }
+    $("change-feed").innerHTML = items.map((item) => {
+      const delta = Number(item.delta || 0);
+      const direction = delta >= 0 ? "up" : "down";
+      const when = item.changed_at ? new Date(item.changed_at) : null;
+      const dateLabel = when && !Number.isNaN(when.getTime()) ? when.toLocaleDateString("ko-KR", {month:"2-digit", day:"2-digit"}) : "";
+      return `<div class="change-item ${direction}">
+        <div class="change-icon">${direction === "up" ? "↗" : "↘"}</div>
+        <div class="change-copy"><b>${esc(item.institution)}</b><span>${esc(item.product)} · ${Number(item.previous_max_rate).toFixed(2)} → ${Number(item.max_rate).toFixed(2)}%</span></div>
+        <div class="delta">${delta > 0 ? "+" : ""}${delta.toFixed(2)}%p<small>${dateLabel}</small></div>
+      </div>`;
+    }).join("");
+  }
+
+  function renderPreferences() {
+    const presentRows = universeRows.filter((row) => row.preferenceStatus === "present");
+    const productTags = new Map();
+    presentRows.forEach((row) => {
+      const key = `${row.institution}\u0000${row.product}\u0000${row.term}`;
+      if (!productTags.has(key)) productTags.set(key, new Set());
+      String(row.preferenceTags || "").split(/\s+/).filter(Boolean).forEach((tag) => productTags.get(key).add(tag));
+    });
+    const labels = data.strategy?.preference_labels || {};
+    const counts = new Map();
+    productTags.forEach((tags) => tags.forEach((tag) => counts.set(tag, (counts.get(tag) || 0) + 1)));
+    const denom = productTags.size;
+    $("pref-denom").textContent = denom ? `${fmt.format(denom)}상품` : "기재 없음";
+    const ranked = [...counts.entries()].map(([code, count]) => ({code, count, ratio: denom ? count / denom * 100 : 0}))
+      .sort((a,b) => b.count - a.count || a.code.localeCompare(b.code)).slice(0, 6);
+    if (!ranked.length) {
+      $("pref-list").innerHTML = '<div class="empty">현재 비교군에서 분류 가능한 우대조건이 없습니다.</div>';
+      return;
+    }
+    $("pref-list").innerHTML = ranked.map((item) => `<div class="pref-row">
+      <label title="${esc(labels[item.code] || item.code)}">${esc(labels[item.code] || item.code)}</label>
+      <div class="track"><i style="width:${Math.max(3, item.ratio).toFixed(1)}%"></i></div>
+      <output>${item.ratio.toFixed(0)}%</output>
+    </div>`).join("");
+  }
+
+  function gradeFor(rank, total) {
+    if (!total || !rank) return "—";
+    const share = rank / total;
+    if (share <= .10) return "A";
+    if (share <= .25) return "B";
+    if (share <= .50) return "C";
+    return "D";
+  }
+
+  function syncPair(rangeId, numberId) {
+    const range = $(rangeId); const number = $(numberId);
+    range.addEventListener("input", () => { number.value = range.value; updateSimulator(); });
+    number.addEventListener("input", () => {
+      const value = Number(number.value);
+      if (Number.isFinite(value)) range.value = String(Math.min(Number(range.max), Math.max(Number(range.min), value)));
+      updateSimulator();
+    });
+  }
+
+  function updateSimulator() {
+    const base = Number($("base-number").value) || 0;
+    const bonus = Number($("bonus-number").value) || 0;
+    const proposed = base + bonus;
+    $("sim-max").textContent = pct(proposed);
+
+    if (products.length) {
+      const higher = products.filter((row) => row.max > proposed + 1e-9).length;
+      const rank = higher + 1;
+      $("sim-rank").textContent = `${rank}위 / ${fmt.format(products.length)}상품`;
+      $("sim-rank-note").textContent = `제안금리보다 높은 대표 비교상품 ${fmt.format(higher)}개 · 동률은 같은 순위`;
+      $("sim-grade").textContent = gradeFor(rank, products.length);
+    } else {
+      $("sim-rank").textContent = "비교 데이터 없음";
+      $("sim-rank-note").textContent = "최고금리가 있는 12개월 정기예금 데이터가 필요합니다.";
+      $("sim-grade").textContent = "—";
+    }
+
+    const baseline = Number($("baseline-inflow").value);
+    const sensitivity = Number($("sensitivity").value);
+    if (baseline >= 0 && Number.isFinite(baseline) && Number.isFinite(sensitivity) && Number.isFinite(marketMean)) {
+      const gapUnits = (proposed - marketMean) / 0.10;
+      const factor = Math.max(0, 1 + gapUnits * sensitivity / 100);
+      const estimate = baseline * factor;
+      $("sim-inflow").textContent = `${estimate.toLocaleString("ko-KR", {maximumFractionDigits: 1})}억원`;
+      $("sim-inflow-note").textContent = `시장 평균 대비 ${(proposed - marketMean >= 0 ? "+" : "")}${(proposed - marketMean).toFixed(2)}%p · 가정 계수 ×${factor.toFixed(2)}`;
+    } else {
+      $("sim-inflow").textContent = "가정 입력 필요";
+      $("sim-inflow-note").textContent = "기준 월 수신액과 +0.10%p당 변화율을 모두 입력하면 계산합니다.";
+    }
+  }
+
+  async function boot() {
+    renderChanges();
+    const generated = data.generated_at ? new Date(data.generated_at) : null;
+    if (generated && !Number.isNaN(generated.getTime())) {
+      $("top-time").textContent = `${generated.toLocaleString("ko-KR", {month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit"})} 발행본`;
+    } else {
+      $("top-time").textContent = "발행 시각 미확인";
+    }
+
+    try {
+      const response = await fetch(data.table_url || "data/table.json", {cache: "no-store"});
+      if (!response.ok) throw new Error(`금리표 응답 ${response.status}`);
+      const payload = await response.json();
+      const rows = expandTable(payload);
+      universeRows = comparableRows(rows);
+      products = dedupeProducts(universeRows);
+      renderMarket();
+      renderRegions();
+      renderPreferences();
+      updateSimulator();
+    } catch (error) {
+      $("map-loading").hidden = true;
+      $("error").hidden = false;
+      $("error").textContent = `전략 화면의 금리표를 불러오지 못했습니다. 기존 검색·조회 화면은 영향을 받지 않습니다. (${error.message || error})`;
+      $("top5").innerHTML = '<tr><td colspan="5" class="muted" style="text-align:center;padding:30px">금리표 로드 실패</td></tr>';
+      $("region-list").innerHTML = '<div class="empty" style="grid-column:1/-1">지역 데이터 로드 실패</div>';
+    }
+  }
+
+  syncPair("base-range", "base-number");
+  syncPair("bonus-range", "bonus-number");
+  $("baseline-inflow").addEventListener("input", updateSimulator);
+  $("sensitivity").addEventListener("input", updateSimulator);
+  updateSimulator();
+  boot();
+})();
+</script>
+</body>
+</html>
