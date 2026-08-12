@@ -1,0 +1,160 @@
+name: Strategy dashboard preview
+
+on:
+  push:
+    branches: [feat/strategy-dashboard-lab]
+    paths:
+      - "web/templates/strategy.html"
+      - "web/templates/site.html"
+      - "src/rate_monitor/services/site_service.py"
+      - "src/rate_monitor/services/strategy_service.py"
+      - "src/rate_monitor/domain/preference_taxonomy.py"
+      - "config/**"
+      - "migrations/**"
+      - "alembic.ini"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".github/workflows/strategy-preview.yml"
+  workflow_dispatch:
+
+# 운영 rate-data writer와 완전히 분리한다. 이 workflow는 운영 DB를 읽기만 하고
+# preview/strategy-dashboard 브랜치만 갱신한다.
+concurrency:
+  group: strategy-dashboard-preview
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  preview:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Sync dependencies
+        run: uv sync --locked
+
+      - name: Restore current production database read-only
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+          R2_REGION: ${{ vars.R2_REGION }}
+        run: |
+          set -euo pipefail
+          mkdir -p work
+          BACKEND=$(uv run python -c "
+          from pathlib import Path
+          from rate_monitor.services.storage_service import load_backend
+          print(load_backend(Path('config/storage.yaml')).backend.value)
+          ")
+          echo "preview source backend=$BACKEND"
+
+          if [ "$BACKEND" = "r2" ]; then
+            uv run rate-monitor storage restore --dest work/rate_monitor.sqlite3
+          else
+            git fetch origin rate-data --depth=1
+            git checkout origin/rate-data -- latest/rate_monitor.sqlite3.gz
+            gunzip -c latest/rate_monitor.sqlite3.gz > work/rate_monitor.sqlite3
+            rm -rf latest
+          fi
+
+          test -s work/rate_monitor.sqlite3
+          echo "restored bytes=$(stat -c%s work/rate_monitor.sqlite3)"
+
+      - name: Apply migrations to preview copy
+        env:
+          RATE_MONITOR_DB_URL: sqlite+pysqlite:///${{ github.workspace }}/work/rate_monitor.sqlite3
+        run: uv run alembic upgrade head
+
+      - name: Build strategy preview site
+        run: |
+          set -euo pipefail
+          uv run rate-monitor build-site \
+            --db work/rate_monitor.sqlite3 \
+            --template web/templates/site.html \
+            --out site-public
+
+          test -s site-public/index.html
+          test -s site-public/strategy.html
+          test -s site-public/data/table.json
+          grep -q "전략 대시보드" site-public/index.html
+          grep -q "수신상품 전략 대시보드" site-public/strategy.html
+          grep -q "시장 변화 감지" site-public/strategy.html
+          grep -q "신상품 기획 시뮬레이터" site-public/strategy.html
+
+      - name: Stamp preview source
+        env:
+          SOURCE_SHA: ${{ github.sha }}
+          SOURCE_REF: ${{ github.ref_name }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          Path("site-public/preview-source.json").write_text(
+              json.dumps(
+                  {
+                      "source_ref": os.environ["SOURCE_REF"],
+                      "source_sha": os.environ["SOURCE_SHA"],
+                      "production": False,
+                  },
+                  ensure_ascii=False,
+                  indent=2,
+              ) + "\n",
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Prepare preview-only Vercel config
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          config = json.loads(Path("vercel.json").read_text(encoding="utf-8"))
+          config["ignoreCommand"] = (
+              '[ "$VERCEL_GIT_COMMIT_REF" != "preview/strategy-dashboard" ]'
+          )
+          Path("preview-vercel.json").write_text(
+              json.dumps(config, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Publish isolated preview branch
+        run: |
+          set -euo pipefail
+          rm -rf preview-stage
+          mkdir preview-stage
+          cp -R site-public preview-stage/site-public
+          cp preview-vercel.json preview-stage/vercel.json
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -q --detach
+          git branch -D strategy-preview-new 2>/dev/null || true
+          git checkout -q --orphan strategy-preview-new
+          git rm -rf . >/dev/null 2>&1 || true
+          find . -maxdepth 1 -mindepth 1 \
+            -not -name .git -not -name preview-stage \
+            -exec rm -rf {} +
+          cp -R preview-stage/site-public .
+          cp preview-stage/vercel.json .
+          rm -rf preview-stage
+
+          git add -f site-public vercel.json
+          git commit -q -m "preview: strategy dashboard from ${{ github.sha }}"
+          git push --force origin HEAD:preview/strategy-dashboard
