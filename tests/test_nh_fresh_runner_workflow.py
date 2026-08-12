@@ -43,6 +43,7 @@ def test_retry_lane_is_chained_only_from_completed_collect_rates() -> None:
 def test_retry_lane_uses_same_single_writer_and_a_github_hosted_runner() -> None:
     workflow = _workflow()
     assert workflow["concurrency"]["group"] == "rate-data-writer"
+    assert workflow["concurrency"]["queue"] == "max"
     assert workflow["concurrency"]["cancel-in-progress"] is False
     assert _job()["runs-on"] == "ubuntu-latest"
 
