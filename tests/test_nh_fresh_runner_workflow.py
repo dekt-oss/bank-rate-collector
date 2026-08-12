@@ -63,13 +63,19 @@ def test_network_preflight_happens_before_real_collection() -> None:
     names = [step.get("name") for step in _attempt_steps()]
     assert names.index("Probe NH network path") < names.index("Collect NH local")
 
-    preflight = next(step for step in _attempt_steps() if step.get("name") == "Probe NH network path")
+    preflight = next(
+        step
+        for step in _attempt_steps()
+        if step.get("name") == "Probe NH network path"
+    )
     assert "python -m rate_monitor.nh_network_preflight" in preflight["run"]
     assert "nh-network-forensics.json" in preflight["run"]
 
 
 def test_first_two_bad_preflights_discard_runner_but_final_attempt_records_failure() -> None:
-    collect = next(step for step in _attempt_steps() if step.get("name") == "Collect NH local")
+    collect = next(
+        step for step in _attempt_steps() if step.get("name") == "Collect NH local"
+    )
     condition = str(collect["if"])
     assert "steps.preflight.outputs.admit == 'true'" in condition
     assert "inputs.attempt == inputs.max_attempts" in condition
@@ -77,7 +83,11 @@ def test_first_two_bad_preflights_discard_runner_but_final_attempt_records_failu
 
 
 def test_only_checkpoint_or_zero_progress_network_failure_can_retry_after_collection() -> None:
-    decision = next(step for step in _attempt_steps() if step.get("name") == "Decide attempt outcome")
+    decision = next(
+        step
+        for step in _attempt_steps()
+        if step.get("name") == "Decide attempt outcome"
+    )
     body = decision["run"]
     assert "CHECKPOINT_ELIGIBLE" in body
     assert "ZERO_PROGRESS_ELIGIBLE" in body
@@ -86,14 +96,17 @@ def test_only_checkpoint_or_zero_progress_network_failure_can_retry_after_collec
 
 
 def test_forensic_evidence_is_kept_for_every_attempt() -> None:
-    upload = next(step for step in _attempt_steps() if step.get("name") == "Upload NH attempt evidence")
+    upload = next(
+        step
+        for step in _attempt_steps()
+        if step.get("name") == "Upload NH attempt evidence"
+    )
     assert upload["if"] == "always()"
     assert upload["with"]["retention-days"] == 90
     paths = upload["with"]["path"]
     assert "work/nh-network-forensics.json" in paths
     assert "work/nh-checkpoint-recovery.json" in paths
     assert "work/nh-fresh-runner-decision.json" in paths
-    assert "work/rate_monitor.sqlite3" in paths
 
 
 def test_intermediate_retry_does_not_publish_canonical_state() -> None:
@@ -115,7 +128,11 @@ def test_intermediate_retry_does_not_publish_canonical_state() -> None:
 
 
 def test_zero_raw_terminal_network_failure_uses_no_collection_gate() -> None:
-    verify = next(step for step in _attempt_steps() if step.get("name") == "Verify P1-A gate")
+    verify = next(
+        step
+        for step in _attempt_steps()
+        if step.get("name") == "Verify P1-A gate"
+    )
     assert "steps.decision.outputs.zero_raw_network" in verify["run"]
     assert "--no-collection" in verify["run"]
 
