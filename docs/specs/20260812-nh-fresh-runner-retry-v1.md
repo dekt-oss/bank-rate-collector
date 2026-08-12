@@ -68,7 +68,7 @@ checkpoint work 분배, 무한 recovery는 여전히 비목표다.
 - durable checkpoint 진행이 있어 기존 resume 대상인 경우
 - 부모 run 안에 NH 시도가 0개 또는 2개 이상인 경우
 - `workflow_dispatch` 수동 수집 및 custom scope
-- KFCC/CU/KFCC/FINLIFE/FSB 등 다른 source
+- KFCC/CU/FINLIFE/FSB 등 다른 source
 - retry workflow 자신의 실패에 대한 재귀 retry
 
 메시지 전체에서 `NETWORK_CONNECT`라는 단어가 발견됐다는 이유만으로 재시도하지 않는다.
@@ -93,11 +93,16 @@ NH fresh runner retry workflow (runner B)
 ```
 
 - 새 workflow도 `rate-data-writer`를 사용하여 다른 DB writer와 직렬화한다.
+- 새 workflow는 `queue: max`를 사용한다. 새 retry가 늦게 생성됐다는 이유로 이미 pending인
+  KFCC/다른 writer를 교체 취소하지 않는다.
 - retry는 parent의 `run_started_at`을 KST로 변환한 cycle date를 그대로 사용한다.
 - retry workflow는 NH 이외 source를 호출하지 않는다.
 - NH retry가 또 network failure로 끝나도 세 번째 자동 시도는 없다.
 - retry 실패도 DB/summary에 남기기 위해 collection step은 evidence publish까지 진행시키고, 최종
   workflow status는 실패로 표면화한다.
+- retry가 다시 preflight zero-raw로 실패한 경우 P1-A의 current-run raw 검사는
+  `--no-collection` 계약을 사용한다. 원본이 0건인 것이 기대 상태인 이 경로에서도 실패
+  `CollectionRun`과 summary는 canonical state에 남기되 historical integrity 검사는 계속 수행한다.
 - authoritative R2 upload는 validation/volume/size gate를 모두 통과한 뒤 수행한다.
 
 ## 5. Acceptance
@@ -108,9 +113,10 @@ NH fresh runner retry workflow (runner B)
 - TIMEOUT + raw=0 + `NO_DURABLE_PROGRESS`만 eligible
 - raw>0, blocked/schema/다른 network code, multiple attempts, durable progress는 ineligible
 - workflow trigger는 `Collect rates` completed이고 scheduled parent만 job 실행
-- workflow가 `rate-data-writer`를 공유
+- workflow가 `rate-data-writer`를 공유하고 `queue: max`로 pending writer를 보존
 - retry workflow의 collector는 NH 정확히 1개
 - retry 이후 snapshot/validate/gates/R2/publish 순서 고정
+- zero-raw retry 재실패도 failure evidence를 publish한 뒤 workflow failure로 표면화
 - 재귀 `workflow_run` 체인 없음
 
 Runtime acceptance:
