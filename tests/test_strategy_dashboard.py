@@ -13,7 +13,7 @@ from rate_monitor.services.collection_service import collect_source
 from rate_monitor.services.dashboard_service import DATA_END, DATA_MARKER
 from rate_monitor.services.site_service import build_site
 from rate_monitor.services.strategy_service import build_strategy_summary
-from tests.test_collection_service import FixtureAdapter, REAL
+from tests.test_collection_service import REAL, FixtureAdapter
 
 
 @pytest.fixture()
