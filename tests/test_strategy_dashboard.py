@@ -66,7 +66,11 @@ def test_build_site_writes_strategy_page_without_replacing_index(collected_db, t
     index_html = (out / "index.html").read_text(encoding="utf-8")
     strategy_html = (out / "strategy.html").read_text(encoding="utf-8")
 
+    # 현행 조회 화면은 제목과 기능을 그대로 두고 전략 화면 링크만 얻는다.
     assert "전국 예·적금 금리 비교" in index_html
+    assert 'href="strategy.html"' in index_html
+
+    # 전략 화면에서도 조회 화면으로 즉시 돌아갈 수 있다.
     assert "수신상품 전략 대시보드" in strategy_html
     assert 'href="./"' in strategy_html
     assert "신상품 기획 시뮬레이터" in strategy_html
@@ -113,7 +117,9 @@ def test_market_changes_come_from_observation_history(collected_db, tmp_path) ->
     assert all(item["term_months"] == 12 for item in changes["items"])
 
 
-def test_inflow_ui_never_claims_an_internal_prediction_model(collected_db, tmp_path) -> None:
+def test_inflow_ui_requires_explicit_assumptions_and_never_claims_prediction(
+    collected_db, tmp_path
+) -> None:
     db, _, _ = collected_db
     out = tmp_path / "site-public"
     build_site(db, out_dir=out)
@@ -123,3 +129,8 @@ def test_inflow_ui_never_claims_an_internal_prediction_model(collected_db, tmp_p
     assert "가정 입력 필요" in strategy_html
     assert "내부 실적 기반 예측모형이 아닙니다" in strategy_html
     assert "실제 유입을 보장하지 않습니다" in strategy_html
+
+    # JavaScript의 Number("")는 0이다. 원문이 비었는지 먼저 확인하지 않으면
+    # 사용자가 아무 가정도 입력하지 않았는데 0억원을 예측값처럼 보여준다.
+    assert 'baselineRaw!==""' in strategy_html
+    assert 'sensitivityRaw!==""' in strategy_html
