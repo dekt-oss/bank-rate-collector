@@ -59,27 +59,36 @@ def test_each_attempt_gets_a_fresh_github_hosted_runner() -> None:
     assert reusable["jobs"]["attempt"]["runs-on"] == "ubuntu-latest"
 
 
-def test_network_preflight_happens_before_real_collection() -> None:
-    names = [step.get("name") for step in _attempt_steps()]
-    assert names.index("Probe NH network path") < names.index("Collect NH local")
+def test_network_preflight_happens_before_state_restore_and_collection() -> None:
+    steps = _attempt_steps()
+    names = [step.get("name") for step in steps]
+    preflight_index = names.index("Probe NH network path")
+    assert names.index("Prepare NH checkpoint context") < preflight_index
+    assert preflight_index < names.index("Decide storage backend")
+    assert preflight_index < names.index("Restore previous database")
+    assert preflight_index < names.index("Apply migrations")
+    assert preflight_index < names.index("Collect NH local")
 
-    preflight = next(
-        step
-        for step in _attempt_steps()
-        if step.get("name") == "Probe NH network path"
-    )
+    preflight = next(step for step in steps if step.get("name") == "Probe NH network path")
     assert "python -m rate_monitor.nh_network_preflight" in preflight["run"]
     assert "nh-network-forensics.json" in preflight["run"]
 
 
-def test_first_two_bad_preflights_discard_runner_but_final_attempt_records_failure() -> None:
-    collect = next(
-        step for step in _attempt_steps() if step.get("name") == "Collect NH local"
-    )
-    condition = str(collect["if"])
-    assert "steps.preflight.outputs.admit == 'true'" in condition
-    assert "inputs.attempt == inputs.max_attempts" in condition
-    assert collect["continue-on-error"] is True
+def test_bad_first_two_preflights_skip_state_restore_and_real_collection() -> None:
+    by_name = {step.get("name"): step for step in _attempt_steps()}
+    expected_gate = "steps.preflight.outputs.admit == 'true'"
+    final_attempt = "inputs.attempt == inputs.max_attempts"
+    for name in (
+        "Decide storage backend",
+        "Restore previous database",
+        "Apply migrations",
+        "Collect NH local",
+    ):
+        condition = str(by_name[name]["if"])
+        assert expected_gate in condition
+        assert final_attempt in condition
+
+    assert by_name["Collect NH local"]["continue-on-error"] is True
 
 
 def test_only_checkpoint_or_zero_progress_network_failure_can_retry_after_collection() -> None:
