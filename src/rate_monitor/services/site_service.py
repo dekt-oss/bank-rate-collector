@@ -15,6 +15,10 @@
     data/rates.csv  사람이 받아가는 파일. 버튼이 이 파일을 그냥 가리킨다
     data/rates.json 같은 내용의 JSON
 
+전략 화면은 코드가 존재하는 것과 공개되는 것을 분리한다. 기본 빌드에서는
+`strategy.html`도 헤더 링크도 만들지 않는다. Preview나 실제 공개 시점에만
+`RATE_MONITOR_STRATEGY_DASHBOARD=1`을 명시해 켠다.
+
 화면이 쓰는 `table.json`과 사람이 받는 `rates.json`은 **다른 파일이다.**
 앞은 조회표 색인이 든 압축 배열이고 뒤는 한 행이 한 객체인 형태다. 한때 둘
 다 `rates.json`이었는데, 내보내기 복사가 금리표를 덮어써서 화면이 빈 표를
@@ -27,6 +31,7 @@
 
 import gzip
 import json
+import os
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
@@ -46,6 +51,8 @@ DEFAULT_TEMPLATE = Path("web/templates/site.html")
 DEFAULT_STRATEGY_TEMPLATE = Path("web/templates/strategy.html")
 DEFAULT_OUT = Path("site-public")
 STRATEGY_FILE = "strategy.html"
+STRATEGY_ENABLED_ENV = "RATE_MONITOR_STRATEGY_DASHBOARD"
+_TRUE_VALUES = frozenset({"1", "true", "yes", "on"})
 
 # 화면이 받아 가는 금리표. 내보내기 파일과 이름이 겹치면 안 된다.
 TABLE_FILE = "data/table.json"
@@ -121,6 +128,15 @@ class SiteManifest:
         )
 
 
+def strategy_dashboard_enabled() -> bool:
+    """전략 화면의 **발행** 여부.
+
+    코드 존재 여부와 공개 여부를 분리한다. 값이 없거나 오타면 안전하게 OFF다.
+    운영 공개는 이 값을 명시적으로 켜는 별도 변경으로만 일어난다.
+    """
+    return os.getenv(STRATEGY_ENABLED_ENV, "").strip().lower() in _TRUE_VALUES
+
+
 def split_summary(summary: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
     """요약을 화면용(가벼움)과 데이터용(무거움)으로 가른다.
 
@@ -179,21 +195,31 @@ def build_site(
     out_dir: Path = DEFAULT_OUT,
     *,
     export_dir: Path | None = None,
-    strategy_template_path: Path | None = DEFAULT_STRATEGY_TEMPLATE,
+    strategy_template_path: Path | None = None,
 ) -> SiteManifest:
     """SQLite → 배포 가능한 정적 사이트 한 벌.
 
     `export_dir`을 주면 그 안의 CSV·JSON을 `data/`로 복사한다. 내려받기
     버튼이 브라우저에서 조립하지 않고 이 파일을 그냥 가리킨다.
 
-    `strategy_template_path`가 있으면 현행 조회 화면과 같은 `table.json`을 읽는
-    전략 실험 화면도 `strategy.html`로 만든다. 두 화면의 데이터 원본을
-    갈라놓지 않는 것이 핵심이다.
+    전략 화면은 기본 OFF다. `strategy_template_path`를 직접 주거나
+    `RATE_MONITOR_STRATEGY_DASHBOARD=1`일 때만 `strategy.html`과 검색 화면의
+    이동 링크를 발행한다. 따라서 구현을 main에 합쳐도 공개 플래그를 켜기
+    전까지 기존 공식 화면 산출물은 그대로다.
     """
+    if strategy_template_path is None and strategy_dashboard_enabled():
+        strategy_template_path = DEFAULT_STRATEGY_TEMPLATE
+
     summary = build_summary(db_path)
     page_data, table = split_summary(summary)
 
     out_dir.mkdir(parents=True, exist_ok=True)
+    # OFF로 되돌린 뒤 같은 out_dir을 재사용하는 경우 과거 실험 HTML이 남으면
+    # release gate를 우회한다. 빌드 시작 시 반드시 stale strategy 파일을 지운다.
+    strategy_path = out_dir / STRATEGY_FILE
+    if strategy_template_path is None and strategy_path.exists():
+        strategy_path.unlink()
+
     # 이전 실행이 남긴 내려받기 파일을 지운다. 압축 여부가 크기에 따라
     # 바뀌므로, 안 지우면 부산 때의 rates.json과 전국 때의 rates.json.gz가
     # 같이 남아 어느 쪽이 최신인지 알 수 없게 된다.
@@ -264,7 +290,7 @@ def build_site(
             strategy_template_path.read_text(encoding="utf-8"), strategy_page_data
         )
         _verify_strategy(strategy_html, strategy_page_data)
-        (out_dir / STRATEGY_FILE).write_text(strategy_html, encoding="utf-8")
+        strategy_path.write_text(strategy_html, encoding="utf-8")
         files.insert(1, STRATEGY_FILE)
 
     # 검색엔진에게 이 사이트를 통째로 긁지 말라고 한다.
@@ -317,7 +343,7 @@ def _verify(html: str, page_data: dict[str, Any]) -> None:
         raise DashboardBuildError("본점 기준 참고값 표기가 없다 (v3.1 §6.4)")
     # 금리표가 페이지에 섞여 들어가면 분리한 의미가 없다.
     raw = json.dumps(parsed, ensure_ascii=False, separators=(",", ":"))
-    if '"rows":[[' in raw:
+    if '\"rows\":[[' in raw:
         raise DashboardBuildError("금리표가 페이지에 인라인됐다. 분리가 깨졌다")
 
 
@@ -333,5 +359,5 @@ def _verify_strategy(html: str, page_data: dict[str, Any]) -> None:
     if HEAD_OFFICE_NOTICE not in html:
         raise DashboardBuildError("전략 화면에 저축은행 지역근거 주의문이 없다")
     raw = json.dumps(parsed, ensure_ascii=False, separators=(",", ":"))
-    if '"rows":[[' in raw:
+    if '\"rows\":[[' in raw:
         raise DashboardBuildError("전략 화면에 금리표가 인라인됐다")
