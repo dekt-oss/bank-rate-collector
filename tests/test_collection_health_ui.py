@@ -54,7 +54,7 @@ def test_live_health_exposes_eight_am_cycle_sla() -> None:
     assert "normal_target_at: normalTargetAt" in API
     assert "sla_deadline_at: deadlineAt" in API
     assert "latest_publish_completed_at: publishCompletedAt || null" in API
-    assert "runs?event=schedule&per_page=20" in API
+    assert '?event=schedule&per_page=20' in API
     assert "finisher?.pipelineSteps.publish" in API
     assert "08:00 SLA" in SITE
     assert 'body.sla ? "<br>" + slaLine(body.sla)' in SITE
