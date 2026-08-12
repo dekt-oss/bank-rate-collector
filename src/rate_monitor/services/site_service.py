@@ -50,6 +50,15 @@ STRATEGY_FILE = "strategy.html"
 # 화면이 받아 가는 금리표. 내보내기 파일과 이름이 겹치면 안 된다.
 TABLE_FILE = "data/table.json"
 
+# 기존 검색·조회 템플릿은 안정화된 거대한 단일 HTML이다. 실험 화면 하나를
+# 붙이려고 그 DOM을 다시 구성하지 않는다. 빌드 산출물의 기존 액션 영역에
+# 링크 하나만 삽입하고, 전략 화면을 제거하면 이 삽입도 함께 사라진다.
+HEAD_ACTION_MARKER = '<div class="head-right">'
+STRATEGY_NAV = (
+    '<a class="icon-btn" href="strategy.html" style="text-decoration:none" '
+    'aria-label="전략 대시보드 열기">전략 대시보드</a>'
+)
+
 # 이 크기를 넘는 내려받기 파일은 압축해서 싣는다.
 #
 # 2026-08-06 전국 실측: 내보내기 JSON이 53 MB다. 한 행이 한 객체이고 열
@@ -153,6 +162,17 @@ def render(template_text: str, page_data: dict[str, Any]) -> str:
     )
 
 
+def _add_strategy_nav(html: str) -> str:
+    """현행 검색 화면의 헤더 액션에 실험 화면 링크 하나만 붙인다."""
+    if HEAD_ACTION_MARKER not in html:
+        raise DashboardBuildError("검색 화면 헤더 액션 영역을 찾지 못했다")
+    return html.replace(
+        HEAD_ACTION_MARKER,
+        HEAD_ACTION_MARKER + "\n      " + STRATEGY_NAV,
+        1,
+    )
+
+
 def build_site(
     db_path: Path,
     template_path: Path = DEFAULT_TEMPLATE,
@@ -228,6 +248,8 @@ def build_site(
     page_data["downloads"] = downloads
 
     html = render(template_path.read_text(encoding="utf-8"), page_data)
+    if strategy_template_path is not None:
+        html = _add_strategy_nav(html)
     _verify(html, page_data)
     page_path = out_dir / "index.html"
     page_path.write_text(html, encoding="utf-8")
