@@ -122,7 +122,11 @@ def test_guessing_counts_one_human_attempt_not_two_workflows() -> None:
     assert "ATTEMPT_WINDOW_MINUTES = 60" in FUNCTION
     assert "MAX_ATTEMPTS_PER_WINDOW = 5" in FUNCTION
     assert "const coreRuns = groups[0].runs" in FUNCTION
-    assert 'run.event === "workflow_dispatch" && minutesSince(run) < ATTEMPT_WINDOW_MINUTES' in FUNCTION
+    attempt_filter = (
+        'run.event === "workflow_dispatch" '
+        "&& minutesSince(run) < ATTEMPT_WINDOW_MINUTES"
+    )
+    assert attempt_filter in FUNCTION
 
 
 def test_a_typo_does_not_lock_out_the_next_real_attempt() -> None:
