@@ -105,11 +105,9 @@ def probe_tcp_tls(ip: str, host: str, family: int) -> dict[str, Any]:
     try:
         raw = socket.socket(family, socket.SOCK_STREAM)
         raw.settimeout(CONNECT_TIMEOUT)
-        endpoint: tuple[Any, ...]
-        if family == socket.AF_INET6:
-            endpoint = (ip, TARGET_PORT, 0, 0)
-        else:
-            endpoint = (ip, TARGET_PORT)
+        endpoint: tuple[Any, ...] = (
+            (ip, TARGET_PORT, 0, 0) if family == socket.AF_INET6 else (ip, TARGET_PORT)
+        )
         raw.connect(endpoint)
         result["tcp_ok"] = True
         result["tcp_elapsed_ms"] = _elapsed_ms(started)

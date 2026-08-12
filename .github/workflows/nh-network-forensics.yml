@@ -1,9 +1,9 @@
 name: NH network forensics
 
+# 2026-08-12 one-shot matrix has completed. Keep the workflow manual-only so
+# ordinary branch cleanup/fixes do not send another 10 NH requests.
 on:
-  push:
-    branches:
-      - agent/nh-network-forensics
+  workflow_dispatch:
 
 permissions:
   contents: read
