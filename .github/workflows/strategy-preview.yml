@@ -79,6 +79,9 @@ jobs:
         run: uv run alembic upgrade head
 
       - name: Build strategy preview site
+        env:
+          # 운영 build-site에는 이 값이 없다. 전략 화면은 Preview에서만 발행한다.
+          RATE_MONITOR_STRATEGY_DASHBOARD: "1"
         run: |
           set -euo pipefail
           uv run rate-monitor build-site \
