@@ -128,6 +128,103 @@ jobs:
           )
           PY
 
+      - name: Audit strategy canonical inputs
+        run: |
+          python - <<'PY'
+          import json
+          from collections import Counter
+          from pathlib import Path
+
+          packed = json.loads(Path("site-public/data/table.json").read_text(encoding="utf-8"))
+          columns = {name: i for i, name in enumerate(packed["columns"])}
+          lookups = packed.get("lookups") or {}
+
+          def value(row, name):
+              raw = row[columns[name]]
+              if name in lookups and raw is not None:
+                  return lookups[name][raw]
+              return raw
+
+          current = []
+          for row in packed["rows"]:
+              if value(row, "sector") != "savings_bank":
+                  continue
+              if value(row, "product_type") != "term_deposit":
+                  continue
+              if value(row, "term_months") != 12:
+                  continue
+              max_rate = value(row, "max_rate")
+              if max_rate is None:
+                  continue
+              current.append({
+                  "institution": value(row, "institution"),
+                  "product": value(row, "product"),
+                  "base_rate": value(row, "base_rate"),
+                  "max_rate": float(max_rate),
+                  "source_id": value(row, "source_id"),
+                  "source_effective_at": value(row, "source_effective_at"),
+                  "region": value(row, "region"),
+                  "district": value(row, "district"),
+                  "preference_status": value(row, "preference_status"),
+                  "preference_tags": value(row, "preference_tags") or "",
+              })
+
+          # 전략 화면과 같은 기관+상품+기간 대표 최고금리. 같은 최고값이면
+          # 공시일이 더 최근인 행을 감사 출력에 사용한다.
+          products = {}
+          for item in current:
+              key = (item["institution"], item["product"])
+              old = products.get(key)
+              freshness = item["source_effective_at"] or ""
+              old_freshness = (old or {}).get("source_effective_at") or ""
+              if old is None or item["max_rate"] > old["max_rate"] or (
+                  item["max_rate"] == old["max_rate"] and freshness > old_freshness
+              ):
+                  products[key] = item
+
+          ranked = sorted(
+              products.values(),
+              key=lambda x: (-x["max_rate"], x["institution"], x["product"]),
+          )
+          print("strategy canonical 12m product_count=", len(ranked))
+          print("strategy canonical TOP10")
+          for i, item in enumerate(ranked[:10], 1):
+              print(
+                  i,
+                  item["institution"],
+                  item["product"],
+                  f"base={item['base_rate']}",
+                  f"max={item['max_rate']}",
+                  f"source={item['source_id']}",
+                  f"effective={item['source_effective_at']}",
+              )
+
+          for target in ("대백저축은행", "키움예스저축은행", "고려저축은행"):
+              rows = [x for x in ranked if x["institution"] == target]
+              print(f"audit institution={target} products={len(rows)}")
+              for item in rows[:12]:
+                  print(
+                      " ", item["product"], f"max={item['max_rate']}",
+                      f"source={item['source_id']}",
+                      f"effective={item['source_effective_at']}",
+                  )
+
+          busan = [x for x in ranked if x["region"] == "부산" and x["district"]]
+          print("busan district rows=", len(busan))
+          print("busan districts=", sorted(Counter(x["district"] for x in busan).items()))
+
+          known_conditions = []
+          for item in ranked:
+              if item["preference_status"] != "present":
+                  continue
+              tags = {x for x in item["preference_tags"].split() if x}
+              known_conditions.append(len(tags))
+          print(
+              "condition benchmark products=", len(known_conditions),
+              "distribution=", sorted(Counter(known_conditions).items()),
+          )
+          PY
+
       - name: Verify strategy inline JavaScript
         run: |
           set -euo pipefail
