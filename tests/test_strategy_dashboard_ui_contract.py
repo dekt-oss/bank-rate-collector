@@ -42,6 +42,21 @@ def test_strategy_dashboard_keeps_trend_and_analysis_panels() -> None:
     assert 'data-term="36"' in html
 
 
+def test_strategy_dashboard_compares_three_historical_rate_lines() -> None:
+    html = _html()
+
+    assert "시장 최고 / 시장 평균 / 고려저축은행 최고금리" in html
+    assert "시장 최고</span>" in html
+    assert "시장 평균</span>" in html
+    assert "고려저축은행</span>" in html
+    assert 'class="legendline max"' in html
+    assert 'class="legendline mean"' in html
+    assert 'class="legendline own"' in html
+    assert 'build("market_max_rate","max")' in html
+    assert 'build("mean_max_rate","mean",true)' in html
+    assert 'build("our_company_max_rate","own")' in html
+
+
 def test_strategy_dashboard_explains_product_event_deduplication() -> None:
     html = _html()
 
