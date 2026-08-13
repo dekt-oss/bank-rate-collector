@@ -1,107 +1,81 @@
-# 전략 대시보드 실데이터 연동·감사 — 2026-08-13
+# 전략 대시보드 데이터 연동 감사 — 2026-08-13
 
-## 목적
+## 결론
 
-전략 대시보드의 숫자가 단순 UI 예시가 아니라 현재 canonical 금리표와 관측 이력에서 계산되는지 확인하고,
-데이터 연결이 되어 있더라도 원천 최신성이 틀릴 수 있는 위험을 분리해 관리한다.
+전략 대시보드와 신상품 시뮬레이터는 별도 임의 데이터를 사용하지 않고 production R2에서 복원한 canonical `site-public/data/table.json`과 DB 관측 이력을 사용한다. KPI, TOP5, 가입기간별 시뮬레이터 순위, 시장평균·중앙값·TOP10 진입선, 고려저축은행 현재값이 같은 상품 대표 기준을 사용하도록 확인했다.
 
-## 기준 데이터 계약
+다만 **화면 계산의 일관성과 upstream 원천 금리의 정확성은 별개**다. FSB와 개별 저축은행 자체 공시가 충돌하는 사례가 있어 현재 canonical 전체를 무조건 정확하다고 판정하지 않는다. source reconciliation은 Issue #98에서 별도로 다룬다.
 
-전략 화면의 현행 시장 비교값은 `site-public/data/table.json`을 Source of Truth로 사용한다. 이 파일은
-`dashboard_service.build_rate_table()`이 각 수집원별 마지막 정상 실행(`success`, `partial`, `no_change`)에서
-마지막으로 확인된 관측(`last_run_id`)을 가져와 만든 canonical 표다.
+## Canonical 현재값 계약
 
-저축은행은 FSB를 1차 공식 원천으로 두고, `finlife_savings_bank`는 겹치는 비교축에서 후퇴하는 교차검증 원천이다.
-전략 화면은 별도 금리 DB를 만들지 않고 이 canonical 표를 그대로 소비한다.
+- 전략 화면은 `site-public/data/table.json`을 읽는다.
+- 저축은행 / 정기예금 / 선택 가입기간만 비교한다.
+- `금융기관 + 상품 + 가입기간`을 대표상품 identity로 사용한다.
+- 여러 variant가 있으면 가장 높은 `max_rate`를 대표값으로 사용한다.
+- 동일 최고금리 variant가 여러 개면 더 최근 `source_effective_at`의 metadata를 표시한다.
+- `max_rate IS NULL`을 `base_rate`로 대체하지 않는다.
+- 제안 순위는 `1 + 제안금리보다 높은 대표상품 수`다.
 
-## 상품 대표값
+## 2026-08-13 production R2 audit
 
-전략 화면의 현재 시장 비교 단위는 `금융기관 + 상품명 + 가입기간`이다.
+Preview #21에서 production snapshot을 read-only로 복원했다.
 
-- 같은 상품의 가입채널·이자방식 variant가 여러 개면 최고 `max_rate`를 상품 대표 최고금리로 사용한다.
-- 대표 최고금리가 같은 행이 여러 개면 공시기준일이 더 최근인 행의 source metadata를 화면에 사용한다.
-- 시장 최고 / 평균 / 중앙값 / 상위 10% / TOP5 / 시뮬레이터 순위는 같은 대표 상품 집합에서 계산한다.
-- `max_rate`가 없는 상품에 기본금리를 대체하지 않는다.
+- snapshot: `state/snapshots/20260813T123319-61fe7160.sqlite3.gz`
+- DB size: 2,112,434,176 bytes
+- `rate_observations`: 1,519,527
+- `institutions`: 7,125
+- `products`: 80,848
+- `product_variants`: 329,309
+- `collection_runs`: 76
+- generated canonical table: 326,794 rows
+- 12개월 전략 대표상품: 321
+- 63일 historical chart points: 9
+- 고려저축은행 historical points: 9/9
 
-## 시뮬레이터
+### 12개월 canonical audit 예시
 
-### 실제 데이터에 연결되는 항목
+1. 대백저축은행 애플정기예금 — base 4.10 / max 4.10 / `source=fsb` / effective 2026-08-12
+2. 애큐온저축은행 처음만난예금(모바일전용) — base 4.00 / max 4.10 / `source=fsb` / effective 2026-08-03
+3. 애큐온저축은행 다시만난예금(모바일전용) — base 3.70 / max 4.05 / `source=fsb` / effective 2026-08-03
+4. 키움예스저축은행 SB톡톡 회전yes정기예금 — base/max 4.05 / `source=fsb` / effective 2026-08-10
+5. 키움예스저축은행 e-회전yes정기예금 — base/max 4.05 / `source=fsb` / effective 2026-08-10
 
-- 가입기간 6/12/24/36개월: 선택 기간의 실제 canonical 비교상품 universe를 다시 만든다.
-- 예상 시장 순위: `1 + 제안 최고금리보다 높은 대표상품 수`.
-- 시장 평균 / 중앙값 / 상위 10% 진입선: 선택 기간 실제 대표상품 집합에서 계산한다.
-- 고려저축은행 현재 최고: 같은 기간의 고려저축은행 대표상품 중 최고 `max_rate`.
-- 제안안과 당사 현재 최고 차이: 두 실측 비교값의 단순 차이.
-- 시장 포지션 rail: 시장 평균 / 중앙값 / 고려저축은행 현재 최고 / 제안금리를 같은 축에 표시한다.
+고려저축은행의 audit 대상 12개월 대표상품 6개는 모두 max 3.80%, `source=fsb`, effective 2026-08-11로 확인됐다.
 
-### 우대조건 수
+## 지역 / 부산
 
-이전 구현에서는 `우대조건 수` 버튼이 active CSS만 바꾸는 장식 UI였다. 이를 실제 canonical
-`preference_status` / `preference_tags`에 연결한다.
+전국 지도는 상품 대표 최고금리를 본점 `region`별 평균으로 표시한다.
 
-- `preference_status=present`인 상품만 조건 복잡도 분모에 포함한다.
-- 같은 상품의 여러 variant에서 발견된 표준 preference tag를 합집합한다.
-- 선택한 조건 수와 같은 상품 수(4개+는 4개 이상), 조건 기재 상품 수, 시장 중앙 조건 수를 보여준다.
-- **조건 수가 금리순위를 바꾸는 인과관계는 만들지 않는다.** 금리순위에는 미반영임을 화면에 명시한다.
+부산 district가 있는 12개월 대표상품은 31개다.
 
-### 예상 월 수신액
+- 동구 9
+- 부산진구 10
+- 연제구 12
 
-기존 WHAT-IF 계약을 유지한다. 내부 실적 예측모형이 아니며 사용자가 `기준 월 수신액`과
-`+0.10%p당 변화율`을 모두 입력한 경우에만 계산한다. 실제 유입을 보장한다고 표현하지 않는다.
+지역 데이터는 저축은행 본점 소재지 참고값이며 지점 적용범위로 확장하지 않는다. district가 없는 구에 임의 금리를 만들지 않는다.
 
-## 지역·부산 상세
+## 우대조건
 
-전국 화면은 12개월 대표상품을 본점 소재지 `region`으로 묶고 지역별 대표 최고금리 평균을 표시한다.
-저축은행 금리는 본점 기준 참고값이며 지점별 적용금리를 의미하지 않는다.
+우대조건 taxonomy 데이터는 별도 `우대조건 트렌드` 분석에서만 사용한다. 2026-08-13 audit에서 `preference_status=present`인 12개월 대표상품의 표준 태그 수 분포는 47상품이며 1개 37상품, 2개 10상품이었다.
 
-canonical 표에는 이미 `district`가 포함되어 있으므로 DB schema 변경 없이 부산 drill-down이 가능하다.
-전국 지도에서 부산 node를 클릭하면 부산 `district` 값이 있는 대표상품을 구·군별로 묶어 다음을 표시한다.
+사용자 검수 후 **신상품 시뮬레이터에서는 우대조건 수 입력과 조건 복잡도 benchmark를 제거했다.** 우대조건 개수가 금리순위를 변화시킨다는 검증된 인과관계가 없기 때문이다.
 
-- 구·군명
-- 상품 대표 최고금리 평균
-- 비교상품 수
-- 해당 구·군 최고금리
+## Source discrepancy
 
-실제 부산 행정경계 geometry는 저장소에 없으므로 임의 polygon을 만들지 않는다. 현재 drill-down은 실제
-`district` 값 기반 카드 상세이며, 향후 검증된 공개 geometry를 도입할 때 구 경계형 map으로 교체할 수 있다.
+대백저축은행 사례처럼 canonical FSB 값과 개별 금융사 자체 공시가 불일치하는 사례가 확인됐다. 화면에서 임의로 한 값을 overwrite하지 않는다.
 
-## 기간별 추이
+후속 Issue #98에서 다음을 수행한다.
 
-시장 최고 / 시장 평균 / 고려저축은행 최고금리 3개 선은 `rate_observations`의 historical validity interval을
-복원한다. 최근 정상 수집일 snapshot에서 `valid_from <= t < valid_to`(또는 valid_to NULL)인 관측만 사용한다.
-현재값을 과거에 소급하지 않는다.
+- FSB raw payload와 canonical row trace
+- FSB ↔ 금융상품한눈에 ↔ 개별 금융사 공식 공시 cross-check
+- effective date / 시행일 의미 검증
+- source authority 및 freshness 규칙 정의
+- discrepancy 자동 감지 신호 설계
 
-## 데이터 최신성 감사
+## 검증 상태
 
-UI 연결이 맞더라도 upstream 공시가 틀리거나 서로 어긋날 수 있으므로 Preview workflow에서 실제
-`table.json`을 디코딩해 아래 항목을 로그로 남긴다.
+Visual source `f86e3f4d490ab828d4d37e92b59cb9da0679d4ea` 기준 Preview #21은 R2 restore, migration, build, canonical audit, inline JavaScript `node --check`, generated preview branch publish가 모두 성공했다.
 
-- 12개월 전략 비교상품 수
-- TOP10의 금융기관 / 상품 / 기본금리 / 최고금리 / source_id / source_effective_at
-- 대백저축은행 / 키움예스저축은행 / 고려저축은행의 현재 대표상품
-- 부산 district 분포
-- 우대조건 tag-count 분포
+UI contract test head `ad6182074bfdf31ae65d1c820647978cfe247e1b`의 PR CI #884는 Ruff, **919 pytest**, empty DB migration, 15-table model parity가 모두 성공했다.
 
-이 감사 로그는 데이터 수정이 아니라 진단 장치다.
-
-## 외부 원천 spot-check에서 확인한 위험
-
-2026-08-13 화면 검수 중 대백저축은행 공식 홈페이지의 애플정기예금 12개월 표시값과 전략 Preview의
-시장 선두값이 일치하지 않는 사례를 발견했다. 따라서 현재 단계에서는 **canonical 연동은 검증됐지만,
-저축은행 전체 현재값의 원천 정확성은 완전 검증됐다고 선언하지 않는다.**
-
-키움예스저축은행도 공식 상품 페이지와 날짜가 명시된 금리변경 공지 사이에 서로 다른 값이 검색되어,
-단일 페이지를 절대적인 정답으로 쓰기보다 source_effective_at과 최신 공지·상품공시를 함께 대조해야 한다.
-
-이 문제는 전략 UI 계산식과 별개인 수집원 최신성/교차검증 이슈로 분리한다. 실제 source_id와 공시기준일을
-Preview canonical audit에서 특정한 뒤 수집기 수정 여부를 결정한다.
-
-## 운영 경계
-
-- collector 변경 없음
-- DB schema / migration 변경 없음
-- canonical table 생성 계약 변경 없음
-- 공식 release gate OFF 유지
-- production address 미변경
-- `feat/strategy-dashboard-v2` staging에서만 검증
-- 데이터가 외부 공식 원천과 어긋나는 항목은 숨기거나 임의 보정하지 않고 감사 결과로 남긴다.
+Generated preview commit은 `064f68672269852554e10dc6aae4092577ccb2c4`다. 다만 Vercel은 이 commit에 `Deployment rate limited — retry in 24 hours.`를 반환했으므로 기존 고정 Vercel Preview URL은 최신 UI browser evidence로 사용할 수 없다. GitHub generated artifact는 최신 visual source를 반영한 것으로 확인했다.
