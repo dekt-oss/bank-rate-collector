@@ -4,8 +4,6 @@ import json
 import sqlite3
 from pathlib import Path
 
-import pytest
-
 from rate_monitor.db.migrate import upgrade
 from rate_monitor.db.models import CollectionRun, Institution, Product, ProductVariant, Source
 from rate_monitor.db.session import create_session_factory
