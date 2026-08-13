@@ -42,23 +42,34 @@ v1은 **감사 전용(read-only)** 이다. FSB, 금융상품한눈에, 개별 �
 
 `정규화 기관명 + 정확히 정규화된 상품명 + 상품유형 + 가입기간`
 
-상품명은 공백·특수문자 수준만 정규화한다. 채널명·괄호·상품 수식어를 임의 삭제하지 않는다.
-
-이유는 false merge가 false negative보다 위험하기 때문이다. 서로 다른 상품을 잘못 붙여 금리 불일치라고 판단하면 이후 자동 보정 설계가 더 위험해진다.
+상품명은 공백·특수문자 수준만 정규화한다. 채널명·괄호·상품 수식어를 임의 삭제하지 않는다. false merge가 false negative보다 위험하기 때문이다.
 
 정확 상품명이 안 붙지만 `기관 + 상품유형 + 기간`에는 상대 source 후보가 존재하면 `unmatched_product`로 남긴다. 후보가 전혀 없으면 `source_only`다.
 
-## 상태 분류
+## 금리·기준일 상태 분류
 
-- `agree`: 최고금리 일치, 양쪽 기준일도 동일하거나 비교 가능한 차이 없음
-- `agree_rate_date_diff`: 최고금리는 일치하지만 양쪽 `source_effective_at`이 다름
-- `rate_mismatch`: 최고금리가 다르고 양쪽 기준일은 동일
-- `rate_mismatch_date_diff`: 최고금리와 양쪽 기준일이 모두 다름. 최신성 차이 가능성을 별도로 검토해야 함
-- `incomplete_rate`: 확실히 매칭됐지만 한쪽 최고금리가 NULL
-- `unmatched_product`: 같은 기관/상품유형/기간 후보는 있으나 정확 상품명이 안 붙음
+최고금리는 전략 순위에 직접 쓰이므로 top-level 상태로 관리한다.
+
+- `agree`: 최고금리 일치 + 기준일 동일
+- `agree_rate_date_diff`: 최고금리 일치 + 기준일 다름
+- `agree_rate_date_unknown`: 최고금리 일치 + 한쪽 이상 기준일 미확인
+- `rate_mismatch`: 최고금리 불일치 + 기준일 동일
+- `rate_mismatch_date_diff`: 최고금리 불일치 + 기준일 다름
+- `rate_mismatch_date_unknown`: 최고금리 불일치 + 한쪽 이상 기준일 미확인
+- `incomplete_rate`: 매칭됐지만 최고금리가 한쪽 이상 누락
+- `unmatched_product`: 상대 source에 같은 기관/상품유형/기간 후보가 있으나 정확 상품명이 안 붙음
 - `source_only`: 상대 source 비교 후보가 없음
 
-금리 차이는 `primary - secondary` Decimal 문자열로 기록한다.
+기준일은 별도로 `same / different / unknown`을 기록한다. 한쪽 기준일이 없다고 `same`으로 간주하지 않는다.
+
+기본금리도 각 exact match에서 독립적으로 비교한다.
+
+- `agree`
+- `mismatch`
+- `incomplete`
+- `both_missing`
+
+기본금리와 최고금리 차이는 모두 `primary - secondary` Decimal 문자열로 기록한다.
 
 ## Provenance
 
@@ -79,8 +90,6 @@ v1은 **감사 전용(read-only)** 이다. FSB, 금융상품한눈에, 개별 �
 
 `scripts/source_discrepancy_audit.py --official-evidence <json>`으로 제3의 공식 증거를 추가할 수 있다.
 
-형식:
-
 ```json
 {
   "records": [
@@ -99,11 +108,11 @@ v1은 **감사 전용(read-only)** 이다. FSB, 금융상품한눈에, 개별 �
 }
 ```
 
-이 evidence는 DB에 저장하거나 canonical을 수정하지 않는다. 정확 상품 키가 붙는 FSB/finlife 행과만 나란히 비교한다.
+이 evidence는 DB에 저장하거나 canonical을 수정하지 않는다. 정확 상품 키가 붙는 FSB/finlife 행과만 나란히 비교하며 기본금리·최고금리를 각각 비교한다.
 
 ## Production R2 최초 실측
 
-Source discrepancy audit #3, production snapshot `state/snapshots/20260813T123319-61fe7160.sqlite3.gz`:
+Source discrepancy audit #4, production snapshot `state/snapshots/20260813T123319-61fe7160.sqlite3.gz` 기준 최고금리 결과:
 
 - FSB 대표상품: 2,166
 - 금융상품한눈에 대표상품: 1,030
@@ -116,23 +125,21 @@ Source discrepancy audit #3, production snapshot `state/snapshots/20260813T12331
 - `unmatched_product`: 165
 - `source_only`: 1,183
 
-즉 확실히 같은 상품으로 자동 매칭된 924건 중 16건에서 최고금리 불일치가 발견됐다.
+즉 확실히 같은 상품으로 자동 매칭된 924건 중 16건에서 최고금리 불일치가 발견됐다. 기본금리 및 `date_unknown` 집계는 보강 후 최신 production audit에서 다시 검증한다.
 
-### 동일 기준일인데 금리가 다른 사례
+### 동일 기준일인데 최고금리가 다른 사례
 
-청주저축은행 정기적금에서 `source_effective_at=2026-08-10`이 양쪽 동일한데도 다음 불일치가 검출됐다.
+청주저축은행 정기적금:
 
-- FSB 3.80 / finlife 4.00
-- FSB 2.10 / finlife 3.05
-
-같은 상품명의 서로 다른 가입기간은 별도 비교키이므로 로그상 상품명이 반복될 수 있다.
+- 12개월: FSB 3.80 / finlife 4.00 / 양쪽 effective 2026-08-10
+- 6개월: FSB 2.10 / finlife 3.05 / 양쪽 effective 2026-08-10
 
 ### 금리와 기준일이 함께 다른 사례
 
 금화·대신·대원·아산·진주·하나저축은행 등에서 검출됐다. 예:
 
-- 아산저축은행 `SB톡톡-정기예금`: FSB 2.50 (2025-12-03), finlife 4.10 또는 4.00 (2026-07-20)
-- 진주저축은행 `정기예금(진주,통영)`: 기간별로 FSB와 finlife의 금리·기준일이 함께 다름
+- 아산저축은행 `SB톡톡-정기예금` 12개월: FSB 2.50 (2025-12-03), finlife 4.10 (2026-07-20)
+- 진주저축은행 `정기예금(진주,통영)` 12개월: FSB 3.63 (2026-07-24), finlife 2.30 (2026-07-20)
 
 이 유형은 어느 값이 잘못됐다고 자동 판정하지 않고 source freshness/시행일 확인 대상으로 남긴다.
 
