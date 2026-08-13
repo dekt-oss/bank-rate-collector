@@ -66,9 +66,27 @@ def _db(tmp_path: Path) -> Path:
     conn.executemany(
         "INSERT INTO collection_runs VALUES (?, ?, ?, ?, ?)",
         [
-            ("fsb-old", "fsb", "2026-08-12T00:00:00", "2026-08-12T00:01:00", "success"),
-            ("fsb-new", "fsb", "2026-08-13T00:00:00", "2026-08-13T00:01:00", "success"),
-            ("fin-new", "finlife_savings_bank", "2026-08-13T00:10:00", "2026-08-13T00:11:00", "success"),
+            (
+                "fsb-old",
+                "fsb",
+                "2026-08-12T00:00:00",
+                "2026-08-12T00:01:00",
+                "success",
+            ),
+            (
+                "fsb-new",
+                "fsb",
+                "2026-08-13T00:00:00",
+                "2026-08-13T00:01:00",
+                "success",
+            ),
+            (
+                "fin-new",
+                "finlife_savings_bank",
+                "2026-08-13T00:10:00",
+                "2026-08-13T00:11:00",
+                "success",
+            ),
         ],
     )
     conn.executemany(
@@ -200,7 +218,9 @@ def test_exact_product_match_surfaces_rate_mismatch_with_provenance(tmp_path: Pa
 def test_different_product_names_are_not_guessed_as_same_product(tmp_path: Path) -> None:
     report = build_source_discrepancy_report(_db(tmp_path))
 
-    uncertain = [item for item in report["source_only"] if item["status"] == "unmatched_product"]
+    uncertain = [
+        item for item in report["source_only"] if item["status"] == "unmatched_product"
+    ]
     assert len(uncertain) == 2
     assert report["summary"]["unmatched_product"] == 2
     assert {item["side"] for item in uncertain} == {"primary", "secondary"}
