@@ -1,6 +1,10 @@
 """전략 대시보드 HTML 초안의 핵심 의사결정 UI 계약."""
 
+import shutil
+import subprocess
 from pathlib import Path
+
+import pytest
 
 
 TEMPLATE = Path("web/templates/strategy.html")
@@ -44,3 +48,27 @@ def test_strategy_dashboard_keeps_scenario_safety_language() -> None:
     assert "실제 유입을 보장하지 않습니다" in html
     assert 'baselineRaw!==""' in html
     assert 'sensitivityRaw!==""' in html
+
+
+def test_strategy_dashboard_inline_javascript_parses(tmp_path: Path) -> None:
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("Node.js가 없는 환경에서는 브라우저 JS 구문 검증을 건너뛴다")
+
+    html = _html()
+    marker = '<script id="rate-monitor-data" type="application/json">'
+    data_start = html.index(marker)
+    data_end = html.index("</script>", data_start)
+    script_start = html.index("<script>", data_end) + len("<script>")
+    script_end = html.index("</script>", script_start)
+    script = html[script_start:script_end]
+
+    js = tmp_path / "strategy-inline.js"
+    js.write_text(script, encoding="utf-8")
+    result = subprocess.run(
+        [node, "--check", str(js)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
