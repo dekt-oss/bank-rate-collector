@@ -203,16 +203,47 @@ def test_exact_product_match_surfaces_rate_mismatch_with_provenance(tmp_path: Pa
     assert report["summary"]["exact_matches"] == 1
     assert report["summary"]["rate_mismatch_date_diff"] == 1
     assert report["summary"]["mismatch_or_incomplete"] == 1
+    assert report["summary"]["base_rate_mismatch"] == 1
 
     match = report["matches"][0]
     assert match["status"] == "rate_mismatch_date_diff"
+    assert match["effective_date_status"] == "different"
     assert match["delta_max_rate_primary_minus_secondary"] == "0.30"
-    assert match["primary"]["max_rate"] == "4.10"
-    assert match["secondary"]["max_rate"] == "3.80"
+    assert match["base_rate_comparison"] == {
+        "status": "mismatch",
+        "primary": "4.10",
+        "secondary": "3.80",
+        "delta_primary_minus_secondary": "0.30",
+    }
+    assert match["max_rate_comparison"] == {
+        "status": "mismatch",
+        "primary": "4.10",
+        "secondary": "3.80",
+        "delta_primary_minus_secondary": "0.30",
+    }
     assert match["primary"]["raw_artifact_path"] == "raw/fsb/apple.json"
     assert match["primary"]["raw_artifact_sha256"] == "a" * 64
     assert match["primary"]["base_source_locator"] == "fsb:apple"
     assert match["secondary"]["option_source_locator"] == "fin:apple:12m"
+
+
+def test_missing_effective_date_is_not_treated_as_same_date(tmp_path: Path) -> None:
+    db = _db(tmp_path)
+    conn = sqlite3.connect(db)
+    try:
+        conn.execute(
+            "UPDATE rate_observations SET source_effective_at = NULL WHERE id = 'o-fin'"
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    report = build_source_discrepancy_report(db)
+    match = report["matches"][0]
+
+    assert match["status"] == "rate_mismatch_date_unknown"
+    assert match["effective_date_status"] == "unknown"
+    assert report["summary"]["rate_mismatch_date_unknown"] == 1
 
 
 def test_different_product_names_are_not_guessed_as_same_product(tmp_path: Path) -> None:
@@ -256,9 +287,21 @@ def test_official_bank_evidence_is_compared_without_mutating_db(tmp_path: Path) 
     report = write_source_discrepancy_report(db, out, official_evidence_path=evidence)
 
     comparison = report["official_evidence"][0]
-    assert comparison["sources"]["primary"]["rate_agrees"] is False
-    assert comparison["sources"]["primary"]["delta_vs_official"] == "0.30"
-    assert comparison["sources"]["secondary"]["rate_agrees"] is True
+    assert comparison["sources"]["primary"]["base_rate_comparison"]["status"] == (
+        "mismatch"
+    )
+    assert comparison["sources"]["primary"]["max_rate_comparison"] == {
+        "status": "mismatch",
+        "primary": "4.10",
+        "secondary": "3.80",
+        "delta_primary_minus_secondary": "0.30",
+    }
+    assert comparison["sources"]["secondary"]["base_rate_comparison"]["status"] == (
+        "agree"
+    )
+    assert comparison["sources"]["secondary"]["max_rate_comparison"]["status"] == (
+        "agree"
+    )
     assert comparison["official"]["url"] == "https://example.invalid/debec/apple"
     assert out.exists()
 
