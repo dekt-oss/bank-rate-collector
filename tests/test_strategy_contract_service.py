@@ -74,7 +74,8 @@ def _table() -> dict:
 def test_strategy_template_adapter_uses_stable_id_and_reference_date() -> None:
     html = adapt_strategy_template(DEFAULT_STRATEGY_TEMPLATE.read_text(encoding="utf-8"))
     assert 'productId:look("product_id"' in html
-    assert "const key=r.productId?" in html
+    assert 'const key=`${r.productId}\\0${term}`;' in html
+    assert "const key=r.productId?" not in html
     assert "tagLatest:new Map" in html
     assert "latestAt:latest.get(code)||null" in html
     assert '원천 기준일 ${formatDate(topPref.latestAt)}' in html
