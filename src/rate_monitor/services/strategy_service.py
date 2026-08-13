@@ -23,6 +23,7 @@ MARKET_CHANGE_WINDOW_DAYS = 30
 MARKET_CHANGE_ITEM_LIMIT = 12
 MARKET_TREND_WINDOW_DAYS = 63
 MARKET_TREND_POINT_LIMIT = 9
+OUR_INSTITUTION_NAME = "고려저축은행"
 
 
 def _rows(conn: sqlite3.Connection, sql: str, params: tuple = ()) -> list[dict[str, Any]]:
@@ -101,27 +102,38 @@ def _change_cte() -> str:
     """
 
 
+def _empty_rate_trend() -> dict[str, Any]:
+    return {
+        "window_days": MARKET_TREND_WINDOW_DAYS,
+        "points": [],
+        "scope": {
+            "sector": "savings_bank",
+            "product_type": "term_deposit",
+            "term_months": 12,
+            "rate_field": "max_rate",
+            "aggregation": "product_representative_mean",
+            "our_institution": OUR_INSTITUTION_NAME,
+            "our_company_aggregation": "institution_product_representative_max",
+        },
+    }
+
+
 def _build_rate_trend(conn: sqlite3.Connection) -> dict[str, Any]:
-    """최근 수집일별 12개월 정기예금 시장 대표금리 추이를 복원한다.
+    """최근 수집일별 12개월 정기예금 시장·우리회사 금리 추이를 복원한다.
 
     관측은 값이 바뀔 때만 새 행이 생기므로 단순히 ``valid_from``을 날짜별로
     평균 내면 "그날 바뀐 상품"만 평균하게 된다. 여기서는 각 정상 수집일의
     마지막 시각을 snapshot으로 잡고, 그 시각에 유효했던 관측 구간
     (valid_from <= t < valid_to)을 복원한 뒤 상품별 최고금리 대표값을 만든다.
+
+    시장 평균과 시장 최고는 전체 상품 대표값에서 계산한다. 우리회사 선은
+    같은 snapshot에서 고려저축은행의 상품 대표 최고금리 중 가장 높은 값을
+    사용한다. 과거 시점에 데이터가 없으면 NULL로 남겨 현재값을 과거에
+    소급하지 않는다.
     """
     required = ("collection_runs", "sources", "rate_observations")
     if not all(_table_exists(conn, table) for table in required):
-        return {
-            "window_days": MARKET_TREND_WINDOW_DAYS,
-            "points": [],
-            "scope": {
-                "sector": "savings_bank",
-                "product_type": "term_deposit",
-                "term_months": 12,
-                "rate_field": "max_rate",
-                "aggregation": "product_representative_mean",
-            },
-        }
+        return _empty_rate_trend()
 
     window = f"-{MARKET_TREND_WINDOW_DAYS} days"
     snapshots = _rows(
@@ -153,10 +165,13 @@ def _build_rate_trend(conn: sqlite3.Connection) -> dict[str, Any]:
             SELECT
                 AVG(product_max_rate) AS mean_max_rate,
                 MAX(product_max_rate) AS market_max_rate,
+                MAX(CASE WHEN institution = ? THEN product_max_rate END)
+                    AS our_company_max_rate,
                 COUNT(*) AS product_count
             FROM (
                 SELECT
                     p.id AS product_id,
+                    i.canonical_name AS institution,
                     MAX(CAST(o.max_rate AS REAL)) AS product_max_rate
                 FROM rate_observations o
                 JOIN product_variants v ON v.id = o.variant_id
@@ -169,34 +184,30 @@ def _build_rate_trend(conn: sqlite3.Connection) -> dict[str, Any]:
                   AND o.max_rate IS NOT NULL
                   AND o.valid_from <= ?
                   AND (o.valid_to IS NULL OR o.valid_to > ?)
-                GROUP BY p.id
+                GROUP BY p.id, i.canonical_name
             )
             """,
-            (at, at),
+            (OUR_INSTITUTION_NAME, at, at),
         )[0]
         if row.get("mean_max_rate") is None:
             continue
+        our_rate = row.get("our_company_max_rate")
         points.append(
             {
                 "date": snapshot["snapshot_date"],
                 "snapshot_at": kst_iso(at),
                 "mean_max_rate": round(float(row["mean_max_rate"]), 4),
                 "market_max_rate": round(float(row["market_max_rate"]), 4),
+                "our_company_max_rate": (
+                    round(float(our_rate), 4) if our_rate is not None else None
+                ),
                 "product_count": int(row.get("product_count") or 0),
             }
         )
 
-    return {
-        "window_days": MARKET_TREND_WINDOW_DAYS,
-        "points": points,
-        "scope": {
-            "sector": "savings_bank",
-            "product_type": "term_deposit",
-            "term_months": 12,
-            "rate_field": "max_rate",
-            "aggregation": "product_representative_mean",
-        },
-    }
+    trend = _empty_rate_trend()
+    trend["points"] = points
+    return trend
 
 
 def build_strategy_summary(db_path: Path) -> dict[str, Any]:
