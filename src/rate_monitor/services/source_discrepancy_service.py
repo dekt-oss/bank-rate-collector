@@ -43,6 +43,26 @@ def _decimal_json(value: Decimal | None) -> str | None:
     return format(value, "f")
 
 
+def _rate_comparison(primary: object, secondary: object) -> dict[str, str | None]:
+    left = _decimal(primary)
+    right = _decimal(secondary)
+    if left is None and right is None:
+        status = "both_missing"
+        delta = None
+    elif left is None or right is None:
+        status = "incomplete"
+        delta = None
+    else:
+        delta = left - right
+        status = "agree" if delta == 0 else "mismatch"
+    return {
+        "status": status,
+        "primary": _decimal_json(left),
+        "secondary": _decimal_json(right),
+        "delta_primary_minus_secondary": _decimal_json(delta),
+    }
+
+
 def _latest_confirmed_runs(
     conn: sqlite3.Connection, source_ids: tuple[str, ...]
 ) -> dict[str, dict[str, Any]]:
@@ -167,21 +187,36 @@ def _provenance(row: dict[str, Any]) -> dict[str, Any]:
 
 def _classify_pair(
     primary: dict[str, Any], secondary: dict[str, Any]
-) -> tuple[str, str | None]:
-    left = _decimal(primary.get("max_rate"))
-    right = _decimal(secondary.get("max_rate"))
-    if left is None or right is None:
-        return "incomplete_rate", None
+) -> tuple[str, str, dict[str, str | None], dict[str, str | None]]:
+    base_comparison = _rate_comparison(primary.get("base_rate"), secondary.get("base_rate"))
+    max_comparison = _rate_comparison(primary.get("max_rate"), secondary.get("max_rate"))
 
-    delta = left - right
     left_date = str(primary.get("source_effective_at") or "")
     right_date = str(secondary.get("source_effective_at") or "")
-    date_differs = bool(left_date and right_date and left_date != right_date)
-    if delta == 0:
-        status = "agree_rate_date_diff" if date_differs else "agree"
-        return status, _decimal_json(delta)
-    status = "rate_mismatch_date_diff" if date_differs else "rate_mismatch"
-    return status, _decimal_json(delta)
+    if not left_date or not right_date:
+        date_status = "unknown"
+    elif left_date == right_date:
+        date_status = "same"
+    else:
+        date_status = "different"
+
+    max_status = max_comparison["status"]
+    if max_status in {"incomplete", "both_missing"}:
+        status = "incomplete_rate"
+    elif max_status == "agree":
+        if date_status == "different":
+            status = "agree_rate_date_diff"
+        elif date_status == "unknown":
+            status = "agree_rate_date_unknown"
+        else:
+            status = "agree"
+    elif date_status == "different":
+        status = "rate_mismatch_date_diff"
+    elif date_status == "unknown":
+        status = "rate_mismatch_date_unknown"
+    else:
+        status = "rate_mismatch"
+    return status, date_status, base_comparison, max_comparison
 
 
 def _source_only_record(
@@ -247,22 +282,20 @@ def _compare_official_evidence(
     result = []
     for record in evidence:
         key = _evidence_key(record)
-        official_max = _decimal(record.get("max_rate"))
         sources: dict[str, Any] = {}
         for label, mapping in (("primary", primary), ("secondary", secondary)):
             matched = mapping.get(key)
             if matched is None:
                 sources[label] = None
                 continue
-            source_max = _decimal(matched.get("max_rate"))
             sources[label] = {
                 "record": _provenance(matched),
-                "delta_vs_official": _decimal_json(source_max - official_max)
-                if source_max is not None and official_max is not None
-                else None,
-                "rate_agrees": source_max == official_max
-                if source_max is not None and official_max is not None
-                else None,
+                "base_rate_comparison": _rate_comparison(
+                    matched.get("base_rate"), record.get("base_rate")
+                ),
+                "max_rate_comparison": _rate_comparison(
+                    matched.get("max_rate"), record.get("max_rate")
+                ),
             }
         result.append({"official": record, "sources": sources})
     return result
@@ -293,14 +326,21 @@ def build_source_discrepancy_report(
 
     matches = []
     status_counter: Counter[str] = Counter()
+    base_status_counter: Counter[str] = Counter()
     for key in sorted(primary.keys() & secondary.keys(), key=str):
         left, right = primary[key], secondary[key]
-        status, delta = _classify_pair(left, right)
+        status, date_status, base_comparison, max_comparison = _classify_pair(left, right)
         status_counter[status] += 1
+        base_status_counter[str(base_comparison["status"])] += 1
         matches.append(
             {
                 "status": status,
-                "delta_max_rate_primary_minus_secondary": delta,
+                "effective_date_status": date_status,
+                "delta_max_rate_primary_minus_secondary": max_comparison[
+                    "delta_primary_minus_secondary"
+                ],
+                "base_rate_comparison": base_comparison,
+                "max_rate_comparison": max_comparison,
                 "match": {
                     "institution_key": key[0],
                     "product_key": key[1],
@@ -337,10 +377,13 @@ def build_source_discrepancy_report(
     evidence = _load_official_evidence(official_evidence_path)
     evidence_comparisons = _compare_official_evidence(evidence, primary, secondary)
 
-    mismatch_count = sum(
-        status_counter[name]
-        for name in ("rate_mismatch", "rate_mismatch_date_diff", "incomplete_rate")
+    mismatch_names = (
+        "rate_mismatch",
+        "rate_mismatch_date_diff",
+        "rate_mismatch_date_unknown",
+        "incomplete_rate",
     )
+    mismatch_count = sum(status_counter[name] for name in mismatch_names)
     return {
         "generated_at": datetime.now(UTC).isoformat(),
         "scope": {
@@ -360,10 +403,16 @@ def build_source_discrepancy_report(
             "exact_matches": len(matches),
             "agree": status_counter["agree"],
             "agree_rate_date_diff": status_counter["agree_rate_date_diff"],
+            "agree_rate_date_unknown": status_counter["agree_rate_date_unknown"],
             "rate_mismatch": status_counter["rate_mismatch"],
             "rate_mismatch_date_diff": status_counter["rate_mismatch_date_diff"],
+            "rate_mismatch_date_unknown": status_counter["rate_mismatch_date_unknown"],
             "incomplete_rate": status_counter["incomplete_rate"],
             "mismatch_or_incomplete": mismatch_count,
+            "base_rate_agree": base_status_counter["agree"],
+            "base_rate_mismatch": base_status_counter["mismatch"],
+            "base_rate_incomplete": base_status_counter["incomplete"],
+            "base_rate_both_missing": base_status_counter["both_missing"],
             "unmatched_product": source_only_counter["unmatched_product"],
             "source_only": source_only_counter["source_only"],
             "official_evidence_records": len(evidence),
