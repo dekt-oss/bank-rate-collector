@@ -2,7 +2,6 @@
 
 from pathlib import Path
 
-
 TEMPLATE = Path("web/templates/strategy.html")
 
 
