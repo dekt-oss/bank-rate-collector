@@ -64,8 +64,6 @@ def test_strategy_release_gate_is_off_by_default(
     db, _, _ = collected_db
     out = tmp_path / "site-public"
     out.mkdir()
-    # 같은 디렉터리를 Preview → production 순으로 재사용해도 과거 파일이
-    # 남아 공개 gate를 우회하면 안 된다.
     (out / "strategy.html").write_text("stale preview", encoding="utf-8")
     monkeypatch.delenv(STRATEGY_ENABLED_ENV, raising=False)
 
@@ -94,15 +92,15 @@ def test_release_gate_builds_strategy_page_without_replacing_index(
     index_html = (out / "index.html").read_text(encoding="utf-8")
     strategy_html = (out / "strategy.html").read_text(encoding="utf-8")
 
-    # 현행 조회 화면은 제목과 기능을 그대로 두고 전략 화면 링크만 얻는다.
     assert "전국 예·적금 금리 비교" in index_html
     assert 'href="strategy.html"' in index_html
-
-    # 전략 화면에서도 조회 화면으로 즉시 돌아갈 수 있다.
     assert "수신상품 전략 대시보드" in strategy_html
     assert 'href="./"' in strategy_html
     assert "신상품 기획 시뮬레이터" in strategy_html
-    assert "시장 변화 감지" in strategy_html
+    assert "최근 시장 변화" in strategy_html
+    assert "우대조건 트렌드" in strategy_html
+    assert "기간별 금리 추이" in strategy_html
+    assert "시장 인사이트" in strategy_html
 
 
 def test_strategy_page_reuses_canonical_table_without_inlining_rows(
@@ -147,6 +145,18 @@ def test_market_changes_come_from_observation_history(collected_db, tmp_path) ->
     assert all(item["delta"] > 0 for item in changes["items"])
     assert all(item["term_months"] == 12 for item in changes["items"])
     assert all(item["variant_count"] >= 1 for item in changes["items"])
+
+
+def test_rate_trend_uses_real_collection_snapshots(collected_db) -> None:
+    db, _, _ = collected_db
+    trend = build_strategy_summary(db)["rate_trend"]
+
+    assert trend["window_days"] == 63
+    assert trend["scope"]["aggregation"] == "product_representative_mean"
+    assert trend["points"]
+    assert all(point["product_count"] > 0 for point in trend["points"])
+    assert all(point["mean_max_rate"] > 0 for point in trend["points"])
+    assert all(point["market_max_rate"] >= point["mean_max_rate"] for point in trend["points"])
 
 
 def test_market_changes_collapse_identical_variant_moves_to_one_product_event(
@@ -202,7 +212,8 @@ def test_market_changes_collapse_identical_variant_moves_to_one_product_event(
     finally:
         conn.close()
 
-    changes = build_strategy_summary(db)["market_changes"]
+    summary = build_strategy_summary(db)
+    changes = summary["market_changes"]
 
     assert changes["count"] == 1
     assert changes["up_count"] == 1
@@ -212,6 +223,7 @@ def test_market_changes_collapse_identical_variant_moves_to_one_product_event(
     assert changes["items"][0]["variant_count"] == 2
     assert changes["items"][0]["previous_max_rate"] == 3.0
     assert changes["items"][0]["max_rate"] == 3.2
+    assert summary["rate_trend"]["points"] == []
 
 
 def test_inflow_ui_requires_explicit_assumptions_and_never_claims_prediction(
@@ -226,8 +238,19 @@ def test_inflow_ui_requires_explicit_assumptions_and_never_claims_prediction(
     assert "가정 입력 필요" in strategy_html
     assert "내부 실적 기반 예측모형이 아닙니다" in strategy_html
     assert "실제 유입을 보장하지 않습니다" in strategy_html
-
-    # JavaScript의 Number("")는 0이다. 원문이 비었는지 먼저 확인하지 않으면
-    # 사용자가 아무 가정도 입력하지 않았는데 0억원을 예측값처럼 보여준다.
     assert 'baselineRaw!==""' in strategy_html
     assert 'sensitivityRaw!==""' in strategy_html
+
+
+def test_simulator_term_buttons_and_actual_term_summary_are_present(
+    collected_db, tmp_path
+) -> None:
+    db, _, _ = collected_db
+    out = tmp_path / "site-public"
+    build_site(db, out_dir=out, strategy_template_path=DEFAULT_STRATEGY_TEMPLATE)
+    strategy_html = (out / "strategy.html").read_text(encoding="utf-8")
+
+    for term in (6, 12, 24, 36):
+        assert f'data-term="{term}"' in strategy_html
+        assert f"{term}개월 평균" in strategy_html
+    assert "termProducts(simTerm)" in strategy_html
