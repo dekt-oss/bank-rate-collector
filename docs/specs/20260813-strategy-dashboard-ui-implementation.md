@@ -9,6 +9,21 @@
 이번 디자인 기준은 dark navy/charcoal 기반의 고밀도 분석 화면이다. 밝은 카드가 반복되며 화면 비율이
 무너지는 이전 초안 대신, 동일한 어두운 surface 안에서 green/gold를 핵심 숫자와 상태에만 사용한다.
 
+## 2026-08-13 Reference Fidelity Pass
+
+사용자가 승인한 기존 레퍼런스 화면의 **구성과 비율을 우선 계약**으로 둔다. 새로운 장식이나 별도 브리핑을
+추가해 레퍼런스의 화면 위계를 바꾸지 않는다.
+
+- 첫 화면 KPI는 `시장 최고 금리 / 시장 평균 금리 / 현재 비교군 / 상위 10% 진입선` **4개 한 행만** 둔다.
+- 과거 초안의 `핵심 시장 브리핑`, `시장 선두 최고금리` 별도 3카드 행은 금지한다.
+- 시장 최고금리는 헤드라인 KPI에서 한 번만 크게 표현한다. TOP5·지역·추이는 분석 맥락의 작은 숫자로만 쓴다.
+- 데스크톱 최대 폭은 약 1180px, KPI 높이는 약 112px로 고정해 레퍼런스의 조밀한 비율에 가깝게 맞춘다.
+- 카드 간격과 radius를 줄여 `큰 흰 카드가 두 줄로 쌓이는` 형태를 피한다.
+- 본점 소재지별 분포는 지역별 `최고값`을 반복하지 않고, 해당 지역의 상품 대표 최고금리 **평균**을 표시한다.
+  따라서 여러 지역이 동일한 시장 최고금리 4.10%로 반복 표기되는 현상을 피하면서 실제 분포를 보여준다.
+- 최근 시장 변화 상세 피드는 접힌 보조영역으로 내려 핵심 레퍼런스 구성을 침범하지 않는다.
+- 기능·데이터 계약은 유지하고, 이 pass에서는 collector / DB schema / migration을 변경하지 않는다.
+
 ## 화면 구조
 
 ### 1. 상단
@@ -36,8 +51,8 @@
   - 기관+상품+기간 단위 대표값
   - 기본금리 / 우대폭 / 최고금리
 - 우측: `본점 소재지별 금리 분포`
-  - 지역 최고금리 실제 값으로 node를 표시
-  - 가장 높은 지역만 gold highlight
+  - 12개월 비교상품을 기관+상품 단위로 대표화한 뒤 지역별 최고금리 평균을 node로 표시
+  - 가장 높은 지역 평균만 gold highlight
   - 지역은 본점 소재지 참고값이며 지점 적용금리가 아님을 계속 표시
 
 ### 4. 분석 카드 3개
@@ -54,7 +69,7 @@
   - 예상 수신액은 사용자 입력 baseline / sensitivity가 모두 있을 때만 계산
 - `시장 인사이트`
   - 최근 30일 상승/하락 이벤트 우세 방향
-  - 실제 본점 소재지별 최고금리 강세 지역
+  - 실제 본점 소재지별 지역 평균금리 상위 지역
   - 실제 우대조건 taxonomy 상위 비중
   - 별도 생성형 예측 수치나 가공된 임의 시장수치를 만들지 않음
 
@@ -72,8 +87,9 @@
 3. 각 snapshot에서 `valid_from <= snapshot < valid_to` 또는 `valid_to IS NULL`인 관측만 선택한다.
 4. 저축은행 / 정기예금 / 12개월 / 최고금리 non-null로 범위를 제한한다.
 5. 상품별 여러 variant 중 최고 `max_rate`를 대표값으로 사용한다.
-6. 상품 대표 최고금리의 평균을 날짜별 point로 저장한다.
-7. 최근 최대 9개 snapshot을 chart에 표시한다.
+6. 상품 대표 최고금리의 평균과 시장 최고를 날짜별 point로 저장한다.
+7. 같은 snapshot에서 고려저축은행 상품 대표 최고금리 중 최대값을 우리회사 비교선으로 저장한다.
+8. 최근 최대 9개 snapshot을 chart에 표시한다.
 
 반환 필드:
 
@@ -81,6 +97,7 @@
 - `snapshot_at`
 - `mean_max_rate`
 - `market_max_rate`
+- `our_company_max_rate`
 - `product_count`
 
 scope의 aggregation은 `product_representative_mean`으로 고정한다.
@@ -90,7 +107,7 @@ line은 현재 우선순위인 12개월만 DB 이력으로 제공한다.
 
 ### 6. 최근 시장 변화
 
-상세 변경 피드는 핵심 화면 비율을 방해하지 않도록 하단 보조영역으로 이동한다.
+상세 변경 피드는 핵심 화면 비율을 방해하지 않도록 하단의 기본 접힘 보조영역으로 이동한다.
 
 - 최근 30일
 - 상품 변경 이벤트 수
@@ -138,7 +155,9 @@ line은 현재 우선순위인 12개월만 DB 이력으로 제공한다.
 ## Acceptance
 
 - 4개 핵심 KPI가 현재 12개월 저축은행 정기예금 실제 비교상품에서 계산된다.
-- TOP5 / 지역 / 우대조건 / 기간별 현재 평균이 canonical table에서 계산된다.
+- `핵심 시장 브리핑` 또는 `시장 선두 최고금리` 중복 카드가 존재하지 않는다.
+- KPI DOM id는 각각 한 번만 존재한다.
+- TOP5 / 지역 평균 / 우대조건 / 기간별 현재 평균이 canonical table에서 계산된다.
 - 가입기간 selector가 simulator의 실제 비교상품 universe를 변경한다.
 - 사용자 가정이 없으면 예상 수신액 숫자를 만들지 않는다.
 - 시장 인사이트의 숫자는 현재 비교표 또는 DB 시장변화 집계에서만 나온다.
@@ -154,8 +173,8 @@ line은 현재 우선순위인 12개월만 DB 이력으로 제공한다.
 - production R2 snapshot read-only 복원: 2,104,946,688 bytes
 - 복원 DB: `rate_observations` 1,514,629행 / `collection_runs` 73회
 - 실제 Preview build: canonical table 326,794행
-- historical 12개월 평균 최고금리 trend: 8개 snapshot point 생성
+- historical 12개월 금리 trend: 8개 snapshot point 생성
 - generated inline JavaScript: `node --check` 통과
-- 검증된 코드/테스트 상태: Ruff 통과 / pytest 911 passed / empty DB migration + 15 tables parity 통과
+- 검증된 코드/테스트 상태: Ruff 통과 / pytest 912 passed / empty DB migration + 15 tables parity 통과
 - isolated preview branch publish 자체는 성공
-- Vercel의 최신 재배포는 애플리케이션 오류가 아니라 `build-rate-limit`로 거절됨. 제한 해제 후 같은 preview artifact를 재배포해야 브라우저 최신판 확인이 가능하다.
+- Vercel의 최신 재배포는 애플리케이션 오류가 아니라 `build-rate-limit`로 거절된 이력이 있다. 최신 pass는 별도 CI/Preview에서 다시 검증한다.
