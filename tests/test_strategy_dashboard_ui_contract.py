@@ -19,21 +19,21 @@ def test_strategy_dashboard_has_one_kpi_row_without_legacy_briefing() -> None:
     assert html.count('id="count"') == 1
     assert html.count('id="top10"') == 1
     assert ".kpis{grid-template-columns:repeat(4,minmax(0,1fr))" in html
-    assert ".kpi{min-height:128px" in html
+    assert ".kpi{min-height:132px" in html
 
 
 def test_strategy_dashboard_keeps_readable_desktop_density() -> None:
     html = _html()
 
-    assert ".shell{width:min(1280px,calc(100% - 28px))" in html
+    assert ".shell{width:min(1380px,calc(100% - 32px))" in html
     assert ".head h2{margin:0;font-size:15px" in html
-    assert ".simrow label{color:#cad5d7;font-size:10.5px" in html
+    assert ".simrow label{color:#cad5d0;font-size:10.5px" in html
     assert ".segment button{border:1px solid var(--line)" in html
-    assert "padding:7px 10px;font-size:10px" in html
-    assert ".simresult b{display:block;margin-top:3px" in html
-    assert "font:790 18px var(--mono)" in html
-    assert ".chartwrap{height:300px" in html
-    assert ".node-label{fill:#d0dcdd;font:700 10px" in html
+    assert "padding:8px 12px;font-size:10px" in html
+    assert ".simresult b{display:block;margin-top:4px" in html
+    assert "font:790 19px var(--mono)" in html
+    assert ".chartwrap{height:310px" in html
+    assert ".node-label{fill:#d3dcd7;font:700 11px" in html
 
 
 def test_strategy_dashboard_expands_canonical_source_and_district_fields() -> None:
@@ -58,19 +58,33 @@ def test_strategy_dashboard_uses_product_representatives_for_market_metrics() ->
     assert "ratesStats(products12)" in html
 
 
-def test_strategy_dashboard_uses_region_average_and_busan_district_drilldown() -> None:
+def test_strategy_dashboard_uses_large_map_and_busan_map_zoom() -> None:
     html = _html()
 
+    assert ".primary{grid-template-columns:minmax(0,1.45fr)" in html
+    assert ".mapcard{min-height:640px" in html
+    assert ".mapstage{height:540px" in html
+    assert 'id="geo-map"' in html
     assert "지역별 상품 대표 최고금리의 평균" in html
     assert "function regionAverages(rows)" in html
     assert 'data-region="${esc(x.region)}"' in html
     assert 'x.region==="부산"?"busan clickable"' in html
-    assert "function showBusanDistricts()" in html
+    assert "function renderKoreaMap()" in html
+    assert "function showBusanMap()" in html
+    assert "const busanCoords=" in html
+    assert "부산을 누르면 부산 지도로 확대" in html
+    assert "부산 구·군별 금리 지도" in html
+    assert "부산 위치 개략도" in html
     assert 'region(x.region)==="부산"&&x.district' in html
-    assert 'id="district-panel"' in html
-    assert 'id="district-grid"' in html
     assert 'id="map-back"' in html
-    assert "canonical district" in html
+    assert 'id="district-panel"' not in html
+    assert 'id="district-grid"' not in html
+
+
+def test_strategy_dashboard_places_map_before_top5() -> None:
+    html = _html()
+
+    assert html.index('id="geo-map"') < html.index("경쟁사 TOP 5")
 
 
 def test_simulator_term_selector_changes_real_market_universe() -> None:
@@ -99,18 +113,20 @@ def test_simulator_compares_proposal_with_actual_our_bank_product() -> None:
     assert "제안안 ${proposed-own.max" in html
 
 
-def test_condition_selector_is_data_linked_but_does_not_change_rate_rank() -> None:
+def test_simulator_has_no_preference_condition_selector() -> None:
     html = _html()
 
-    assert "function conditionStats(products,selected)" in html
-    assert "p.prefKnown" in html
-    assert "p.tagCount" in html
-    assert 'id="condition-match"' in html
-    assert 'id="condition-note"' in html
-    assert "simConditionCount=Number(btn.dataset.condition)" in html
-    assert "시장 중앙" in html
-    assert "금리순위에는 미반영" in html
-    assert "조건 수는 금리순위를 임의 조정하지 않습니다" in html
+    assert "우대조건 트렌드" in html
+    assert 'prefStatus:look("preference_status",r[c.preference_status])' in html
+    assert 'prefTags:look("preference_tags",r[c.preference_tags])' in html
+    assert "기본금리·우대금리·가입기간만 입력" in html
+    assert 'id="term-segment"' in html
+    assert "우대조건 수" not in html
+    assert 'id="condition-segment"' not in html
+    assert 'id="condition-match"' not in html
+    assert 'id="condition-note"' not in html
+    assert "simConditionCount" not in html
+    assert "conditionStats(products,selected)" not in html
 
 
 def test_strategy_dashboard_keeps_three_historical_rate_lines() -> None:
