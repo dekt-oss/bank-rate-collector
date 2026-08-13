@@ -77,6 +77,15 @@ _CHANNEL_TOKENS = {
 _NO_PREFERENCE = {"", "-", "없음", "해당없음"}
 
 
+def _source_product_key(service: str, fin_prdt_cd: object) -> str:
+    """FINLIFE 상품코드는 API service namespace 안에서만 유일하다.
+
+    2026-08-12 실측에서 deposit/saving 서비스가 같은 ``fin_prdt_cd``를
+    재사용하는 사례를 확인했다. 저장 identity에는 service를 반드시 포함한다.
+    """
+    return f"{service}:{fin_prdt_cd}"
+
+
 def _fingerprint(result: dict[str, Any]) -> str:
     """구조 지문. 응답 키 집합과 리스트 필드 구성을 담는다 (v3 §8.3)."""
     base_keys = sorted(result.get("baseList", [{}])[0].keys()) if result.get("baseList") else []
@@ -235,6 +244,7 @@ def parse(
                 option=option,
                 base_idx=base_idx,
                 opt_idx=opt_idx,
+                service=service,
                 product_type=product_type,
                 rate_scope=rate_scope,
                 sector=sector,
@@ -251,6 +261,7 @@ def _build_row(
     option: dict[str, Any],
     base_idx: int,
     opt_idx: int,
+    service: str,
     product_type: str,
     rate_scope: str,
     sector: str,
@@ -281,7 +292,7 @@ def _build_row(
         sector=sector,
         source_institution_key=str(base.get("fin_co_no")),
         source_outlet_key=None,
-        source_product_key=str(base.get("fin_prdt_cd")),
+        source_product_key=_source_product_key(service, base.get("fin_prdt_cd")),
         institution_name=str(base.get("kor_co_nm") or ""),
         outlet_name=None,
         institution_type=None,
@@ -308,7 +319,10 @@ def _build_row(
         base_rate=base_rate,
         max_rate=max_rate,
         preference_raw=_preference_raw(base.get("spcl_cnd")),
-        source_row_ref=f"{base.get('fin_co_no')}/{base.get('fin_prdt_cd')}/{option.get('save_trm')}",
+        source_row_ref=(
+            f"{service}:{base.get('fin_co_no')}/{base.get('fin_prdt_cd')}/"
+            f"{option.get('save_trm')}"
+        ),
         base_source_locator=f"$.result.baseList[{base_idx}]",
         option_source_locator=f"$.result.optionList[{opt_idx}]",
         source_record_hash=_record_hash(base, option),
@@ -316,6 +330,7 @@ def _build_row(
         validation_status=status,
         validation_message=message,
         extra={
+            "finlife_service": service,
             "dcls_month": base.get("dcls_month"),
             "mtrt_int": base.get("mtrt_int"),
             "etc_note": base.get("etc_note"),
