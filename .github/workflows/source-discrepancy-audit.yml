@@ -1,0 +1,132 @@
+name: Source discrepancy audit
+
+on:
+  push:
+    branches: ["feat/source-discrepancy-*"]
+    paths:
+      - "src/rate_monitor/services/source_discrepancy_service.py"
+      - "scripts/source_discrepancy_audit.py"
+      - "tests/test_source_discrepancy_service.py"
+      - ".github/workflows/source-discrepancy-audit.yml"
+      - "config/storage.yaml"
+      - "migrations/**"
+      - "alembic.ini"
+      - "pyproject.toml"
+      - "uv.lock"
+  workflow_dispatch:
+
+concurrency:
+  group: source-discrepancy-audit
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Sync dependencies
+        run: uv sync --locked
+
+      - name: Restore current production database read-only
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+          R2_REGION: ${{ vars.R2_REGION }}
+        run: |
+          set -euo pipefail
+          mkdir -p work
+          BACKEND=$(uv run python -c "
+          from pathlib import Path
+          from rate_monitor.services.storage_service import load_backend
+          print(load_backend(Path('config/storage.yaml')).backend.value)
+          ")
+          echo "audit source backend=$BACKEND"
+
+          if [ "$BACKEND" = "r2" ]; then
+            uv run rate-monitor storage restore --dest work/rate_monitor.sqlite3
+          else
+            git fetch origin rate-data --depth=1
+            git checkout origin/rate-data -- latest/rate_monitor.sqlite3.gz
+            gunzip -c latest/rate_monitor.sqlite3.gz > work/rate_monitor.sqlite3
+            rm -rf latest
+          fi
+
+          test -s work/rate_monitor.sqlite3
+          echo "restored bytes=$(stat -c%s work/rate_monitor.sqlite3)"
+
+      - name: Apply migrations to audit copy
+        env:
+          RATE_MONITOR_DB_URL: sqlite+pysqlite:///${{ github.workspace }}/work/rate_monitor.sqlite3
+        run: uv run alembic upgrade head
+
+      - name: Build read-only discrepancy report
+        run: |
+          set -euo pipefail
+          uv run python scripts/source_discrepancy_audit.py \
+            --db work/rate_monitor.sqlite3 \
+            --out work/source-discrepancy-report.json
+
+      - name: Inspect mismatch evidence
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          report = json.loads(Path("work/source-discrepancy-report.json").read_text(encoding="utf-8"))
+          assert report["scope"]["canonical_mutated"] is False
+          print("source runs:", report["source_runs"])
+          print("summary:", report["summary"])
+
+          mismatches = [
+              item for item in report["matches"]
+              if item["status"] in {
+                  "rate_mismatch",
+                  "rate_mismatch_date_diff",
+                  "incomplete_rate",
+              }
+          ]
+          print(f"mismatch evidence rows={len(mismatches)}")
+          for item in mismatches[:20]:
+              left = item["primary"]
+              right = item["secondary"]
+              print(
+                  item["status"],
+                  left["institution"],
+                  left["product"],
+                  f"fsb={left['max_rate']}@{left['source_effective_at']}",
+                  f"finlife={right['max_rate']}@{right['source_effective_at']}",
+                  f"delta={item['delta_max_rate_primary_minus_secondary']}",
+                  f"raw={left['raw_artifact_path']}",
+              )
+
+          for target in ("대백", "고려", "키움YES", "키움예스"):
+              found = [
+                  item for item in report["matches"]
+                  if target in (item["primary"]["institution"] or "")
+                  or target in (item["secondary"]["institution"] or "")
+              ]
+              print(f"target={target} exact_matches={len(found)}")
+              for item in found[:8]:
+                  print(
+                      " ",
+                      item["status"],
+                      item["primary"]["product"],
+                      item["primary"]["max_rate"],
+                      item["secondary"]["max_rate"],
+                  )
+          PY
