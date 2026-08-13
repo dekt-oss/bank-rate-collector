@@ -253,4 +253,4 @@ def test_simulator_term_buttons_and_actual_term_summary_are_present(
     for term in (6, 12, 24, 36):
         assert f'data-term="{term}"' in strategy_html
         assert f"{term}개월 평균" in strategy_html
-    assert "termProducts(simTerm)" in strategy_html
+    assert "aggregateProducts(simTerm)" in strategy_html
