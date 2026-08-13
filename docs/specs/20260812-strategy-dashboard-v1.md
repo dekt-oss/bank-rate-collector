@@ -116,7 +116,13 @@ v1에서는 **최근 30일 저축은행 12개월 정기예금 최고금리 변�
 - `validation_status = error`는 제외한다.
 - 최근 변경 건수, 상승/하락 건수, 대표 변경 항목을 제공한다.
 - 변경 항목에는 기관, 상품, 변경 전/후 최고금리, 증감폭, 변경 감지시각을 표시한다.
+- 동일 수집 실행에서 같은 상품의 가입채널·이자방식 등 여러 variant가 **같은
+  전후 최고금리로 함께 변경**되면 대시보드에서는 상품 변경 1건으로 집계한다.
+- 같은 상품이라도 수집 실행이 다르거나 전후 금리가 다르면 별도 변경 이벤트로
+  보존한다. 원본 `rate_observations`는 합치거나 삭제하지 않는다.
 
+따라서 화면의 `변경 감지` 건수는 raw variant 변경행 수가 아니라
+`run + product + 이전 max_rate + 현재 max_rate`로 식별한 **상품 변경 이벤트 수**다.
 이 집계는 시장 전체 상품 출시량이나 시장점유율을 의미하지 않는다.
 
 ## 7. 신상품 시장 순위 시뮬레이션
@@ -240,7 +246,7 @@ site-public/
 
 ### 개발 Preview
 
-`feat/strategy-dashboard-lab` 변경은 별도 workflow가 현재 canonical 운영 DB를
+`feat/strategy-dashboard-*` 브랜치 변경은 별도 workflow가 현재 canonical 운영 DB를
 **읽기 전용으로 복원**한 뒤 release gate를 ON으로 빌드한다. 결과는
 `preview/strategy-dashboard`에만 강제 갱신한다.
 
@@ -263,6 +269,7 @@ Preview workflow는:
 - [ ] gate ON 상태에서 상단에서 두 화면을 왕복할 수 있다.
 - [ ] 전략 화면이 실제 `table.json`으로 경쟁사 TOP 5와 시장 순위를 계산한다.
 - [ ] 최근 30일 시장 변화 집계는 DB 변경이력에서 계산한다.
+- [ ] 같은 run·상품·전후금리의 variant 변경은 상품 이벤트 1건으로 집계한다.
 - [ ] 수신액은 사용자 가정 없이는 숫자를 만들지 않는다.
 - [ ] `strategy.html`에도 전체 금리표가 인라인되지 않는다.
 - [ ] Preview는 canonical 운영 DB를 읽기만 하고 별도 preview branch만 쓴다.
@@ -278,6 +285,3 @@ Preview workflow는:
 - 상품 승인 워크플로우
 - 로그인/권한 분리
 - 지도 GIS 정밀 구현
-- 사용자 지시 없는 공식 공개 gate 활성화
-
-이 항목들은 전략 화면의 실제 사용성을 확인한 뒤 후속 PR로 분리한다.

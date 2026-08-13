@@ -80,7 +80,6 @@ jobs:
 
       - name: Build strategy preview site
         env:
-          # 운영 build-site에는 이 값이 없다. 전략 화면은 Preview에서만 발행한다.
           RATE_MONITOR_STRATEGY_DASHBOARD: "1"
         run: |
           set -euo pipefail
@@ -94,8 +93,59 @@ jobs:
           test -s site-public/data/table.json
           grep -q "전략 대시보드" site-public/index.html
           grep -q "수신상품 전략 대시보드" site-public/strategy.html
-          grep -q "시장 변화 감지" site-public/strategy.html
+          grep -q "경쟁사 TOP 5" site-public/strategy.html
+          grep -q "우대조건 트렌드" site-public/strategy.html
           grep -q "신상품 기획 시뮬레이터" site-public/strategy.html
+          grep -q "시장 인사이트" site-public/strategy.html
+          grep -q "기간별 금리 추이" site-public/strategy.html
+          grep -q "고려저축은행" site-public/strategy.html
+          grep -q "최근 시장 변화" site-public/strategy.html
+          grep -q "시장 포지션" site-public/strategy.html
+
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          html = Path("site-public/strategy.html").read_text(encoding="utf-8")
+          marker = '<script id="rate-monitor-data" type="application/json">'
+          start = html.index(marker) + len(marker)
+          end = html.index("</script>", start)
+          payload = json.loads(html[start:end].replace("<\\/", "</"))
+          trend = payload["strategy"]["rate_trend"]
+          assert trend["window_days"] == 63
+          assert trend["scope"]["aggregation"] == "product_representative_mean"
+          assert trend["scope"]["our_institution"] == "고려저축은행"
+          assert trend["points"]
+          assert all(point["market_max_rate"] >= point["mean_max_rate"] for point in trend["points"])
+          own_points = [
+              point for point in trend["points"]
+              if point.get("our_company_max_rate") is not None
+          ]
+          assert own_points, "운영 DB 이력에서 고려저축은행 12개월 최고금리 추이를 찾지 못함"
+          print(
+              f"preview rate trend points={len(trend['points'])} "
+              f"our_company_points={len(own_points)}"
+          )
+          PY
+
+      - name: Verify strategy inline JavaScript
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          html = Path("site-public/strategy.html").read_text(encoding="utf-8")
+          data_marker = '<script id="rate-monitor-data" type="application/json">'
+          data_start = html.index(data_marker)
+          data_end = html.index("</script>", data_start)
+          script_start = html.index("<script>", data_end) + len("<script>")
+          script_end = html.index("</script>", script_start)
+          Path("work/strategy-inline.js").write_text(
+              html[script_start:script_end],
+              encoding="utf-8",
+          )
+          PY
+          node --check work/strategy-inline.js
 
       - name: Stamp preview source
         env:
