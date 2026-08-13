@@ -16,6 +16,16 @@ from rate_monitor.services.dashboard_service import DashboardBuildError
 
 PRODUCT_ID_COLUMN = "product_id"
 _STRATEGY_TERMS = frozenset({6, 12, 24, 36})
+_IDENTITY_KEY_COLUMNS = (
+    "source_id",
+    "institution",
+    "product",
+    "product_type",
+    "term_months",
+    "payment_method",
+    "interest_method",
+    "join_channel",
+)
 
 
 def _decode(table: dict[str, Any], column: str, value: Any) -> Any:
@@ -27,19 +37,8 @@ def _decode(table: dict[str, Any], column: str, value: Any) -> Any:
 
 def _row_key(table: dict[str, Any], row: list[Any]) -> tuple[Any, ...]:
     columns = {name: index for index, name in enumerate(table.get("columns") or [])}
-    names = (
-        "source_id",
-        "institution",
-        "product",
-        "product_type",
-        "term_months",
-        "payment_method",
-        "interest_method",
-        "join_channel",
-    )
     return tuple(
-        _decode(table, name, row[columns[name]]) if name in columns else None
-        for name in names
+        _decode(table, name, row[columns[name]]) for name in _IDENTITY_KEY_COLUMNS
     )
 
 
@@ -93,17 +92,20 @@ def augment_strategy_table(
     if PRODUCT_ID_COLUMN in columns:
         return table, {"matched": len(table.get("rows") or []), "unmatched": 0}
 
+    source_columns = {name: index for index, name in enumerate(columns)}
+    required = set(_IDENTITY_KEY_COLUMNS) | {"sector"}
+    missing = sorted(required.difference(source_columns))
+    if missing:
+        raise DashboardBuildError(
+            "전략 stable identity에 필요한 table 열이 없다: " + ", ".join(missing)
+        )
+
     product_ids = _product_id_index(db_path)
     id_lookup: list[str] = []
     id_positions: dict[str, int] = {}
     rows: list[list[Any]] = []
     target_unmatched = 0
     matched = 0
-
-    source_columns = {name: index for index, name in enumerate(columns)}
-    required = {"sector", "product_type", "term_months"}
-    if not required.issubset(source_columns):
-        raise DashboardBuildError("전략 stable identity에 필요한 table 열이 없다")
 
     for source_row in table.get("rows") or []:
         row = list(source_row)
@@ -162,7 +164,7 @@ def adapt_strategy_template(template_text: str) -> str:
     text = _replace_once(
         text,
         'const key=`${r.institution}\\0${r.product}\\0${term}`;',
-        'const key=r.productId?`${r.productId}\\0${term}`:`${r.institution}\\0${r.product}\\0${term}`;',
+        'const key=`${r.productId}\\0${term}`;',
         "aggregateProducts.product_id",
     )
     text = _replace_once(
