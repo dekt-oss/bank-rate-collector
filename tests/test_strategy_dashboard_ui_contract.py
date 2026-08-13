@@ -9,6 +9,28 @@ def _html() -> str:
     return TEMPLATE.read_text(encoding="utf-8")
 
 
+def test_strategy_dashboard_has_one_compact_kpi_row_without_legacy_briefing() -> None:
+    html = _html()
+
+    assert "핵심 시장 브리핑" not in html
+    assert "시장 선두 최고금리" not in html
+    assert html.count('id="market-max"') == 1
+    assert html.count('id="mean"') == 1
+    assert html.count('id="count"') == 1
+    assert html.count('id="top10"') == 1
+    assert ".kpis{grid-template-columns:repeat(4,minmax(0,1fr))" in html
+    assert ".kpi{min-height:112px" in html
+
+
+def test_strategy_dashboard_uses_region_average_in_distribution_map() -> None:
+    html = _html()
+
+    assert "지역별 상품 대표 최고금리의 평균" in html
+    assert "지역 평균" in html
+    assert "function regionAverages(rows)" in html
+    assert "strongest.rate.toFixed(2)" in html
+
+
 def test_strategy_dashboard_keeps_core_kpis_and_market_position_ui() -> None:
     html = _html()
 
