@@ -58,7 +58,7 @@ def test_strategy_dashboard_uses_product_representatives_for_market_metrics() ->
     assert "ratesStats(products12)" in html
 
 
-def test_strategy_dashboard_uses_large_map_and_busan_map_zoom() -> None:
+def test_strategy_dashboard_uses_large_map_and_real_busan_boundaries() -> None:
     html = _html()
 
     assert ".primary{grid-template-columns:minmax(0,1.45fr)" in html
@@ -71,14 +71,34 @@ def test_strategy_dashboard_uses_large_map_and_busan_map_zoom() -> None:
     assert 'x.region==="부산"?"busan clickable"' in html
     assert "function renderKoreaMap()" in html
     assert "function showBusanMap()" in html
-    assert "const busanCoords=" in html
+    assert "const BUSAN_BOUNDARY_SVG=" in html
+    assert "const busanCoords=" not in html
     assert "부산을 누르면 부산 지도로 확대" in html
     assert "부산 구·군별 금리 지도" in html
-    assert "부산 위치 개략도" in html
+    assert "부산 위치 개략도" not in html
+    assert "통계청 SGIS 2020 행정경계" in html
+    assert "StatGarten maps(MIT)" in html
     assert 'region(x.region)==="부산"&&x.district' in html
+    assert "데이터 없음" in html
     assert 'id="map-back"' in html
     assert 'id="district-panel"' not in html
     assert 'id="district-grid"' not in html
+    districts = (
+        "강서구", "금정구", "기장군", "남구", "동구", "동래구", "부산진구", "북구",
+        "사상구", "사하구", "서구", "수영구", "연제구", "영도구", "중구", "해운대구",
+    )
+    for district in districts:
+        assert f'id="{district}"' in html
+
+
+def test_busan_boundary_keeps_source_and_license_notice() -> None:
+    notice = Path("docs/third-party/statgarten-maps.md").read_text(encoding="utf-8")
+
+    assert "통계청 SGIS Open API" in notice
+    assert "geometry 기준연도: **2020**" in notice
+    assert "MIT License" in notice
+    assert "Copyright (c) 2022 StatGarten" in notice
+    assert "데이터 없음" in notice
 
 
 def test_strategy_dashboard_places_map_before_top5() -> None:
