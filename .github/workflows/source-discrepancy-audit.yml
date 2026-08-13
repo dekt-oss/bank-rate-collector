@@ -108,6 +108,7 @@ jobs:
                   item["status"],
                   left["institution"],
                   left["product"],
+                  f"term={left['term_months']}",
                   f"fsb={left['max_rate']}@{left['source_effective_at']}",
                   f"finlife={right['max_rate']}@{right['source_effective_at']}",
                   f"delta={item['delta_max_rate_primary_minus_secondary']}",
@@ -121,11 +122,12 @@ jobs:
                   or target in (item["secondary"]["institution"] or "")
               ]
               print(f"target={target} exact_matches={len(found)}")
-              for item in found[:8]:
+              for item in found[:20]:
                   print(
                       " ",
                       item["status"],
                       item["primary"]["product"],
+                      f"term={item['primary']['term_months']}",
                       item["primary"]["max_rate"],
                       item["secondary"]["max_rate"],
                   )
