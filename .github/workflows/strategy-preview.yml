@@ -96,6 +96,27 @@ jobs:
           grep -q "수신상품 전략 대시보드" site-public/strategy.html
           grep -q "시장 변화 감지" site-public/strategy.html
           grep -q "신상품 기획 시뮬레이터" site-public/strategy.html
+          grep -q "핵심 시장 브리핑" site-public/strategy.html
+          grep -q "시장 포지션" site-public/strategy.html
+
+      - name: Verify strategy inline JavaScript
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          html = Path("site-public/strategy.html").read_text(encoding="utf-8")
+          data_marker = '<script id="rate-monitor-data" type="application/json">'
+          data_start = html.index(data_marker)
+          data_end = html.index("</script>", data_start)
+          script_start = html.index("<script>", data_end) + len("<script>")
+          script_end = html.index("</script>", script_start)
+          Path("work/strategy-inline.js").write_text(
+              html[script_start:script_end],
+              encoding="utf-8",
+          )
+          PY
+          node --check work/strategy-inline.js
 
       - name: Stamp preview source
         env:
