@@ -1,0 +1,64 @@
+{
+  "records": [
+    {
+      "institution": "청주저축은행",
+      "product": "정기적금",
+      "product_type": "installment_savings",
+      "term_months": 6,
+      "base_rate": "2.10",
+      "max_rate": "2.10",
+      "effective_at": "2026-06-18",
+      "captured_at": "2026-08-13T17:19:23+09:00",
+      "url": "https://www.cheongjubank.com/ProdList_001.act?rnum=15",
+      "evidence_note": "청주본점 대면 정기적금 공식 공시. 상품 설명은 매월 일정한 금액을 불입하는 상품이며 우대조건 없음."
+    },
+    {
+      "institution": "청주저축은행",
+      "product": "정기적금",
+      "product_type": "installment_savings",
+      "term_months": 12,
+      "base_rate": "3.80",
+      "max_rate": "3.80",
+      "effective_at": "2026-06-18",
+      "captured_at": "2026-08-13T17:19:23+09:00",
+      "url": "https://www.cheongjubank.com/ProdList_001.act?rnum=15",
+      "evidence_note": "청주본점 대면 정기적금 공식 공시. 상품 설명은 매월 일정한 금액을 불입하는 상품이며 우대조건 없음."
+    }
+  ],
+  "investigation_context": {
+    "finlife_raw_artifact": "collection-run-31511052013 / artifact 9110010177",
+    "finlife_collection_run_id": "5793a596-fd1a-4478-9d7d-65a96a6be392",
+    "finlife_savings_record": {
+      "path": "data/raw/2026/08/12/5793a596-fd1a-4478-9d7d-65a96a6be392/savingProductsSearch_030300_page2.json",
+      "base_locator": "$.result.baseList[49]",
+      "product_code": "310008",
+      "product_name": "정기적금",
+      "join_way": "영업점",
+      "dcls_strt_day": "20260810",
+      "rsrv_type": "F",
+      "rsrv_type_nm": "자유적립식",
+      "option_locators": {
+        "12": "$.result.optionList[264]",
+        "6": "$.result.optionList[265]"
+      },
+      "reported_rates": {
+        "12": "4.00",
+        "6": "3.05"
+      }
+    },
+    "finlife_deposit_cross_check": {
+      "path": "data/raw/2026/08/12/5793a596-fd1a-4478-9d7d-65a96a6be392/depositProductsSearch_030300_page3.json",
+      "base_locator": "$.result.baseList[24]",
+      "product_code": "240010",
+      "product_name": "정기예금_본점",
+      "join_way": "영업점",
+      "reported_rates": {
+        "12": "4.00",
+        "6": "3.05"
+      },
+      "official_bank_rate_effective_at": "2026-08-03",
+      "official_bank_url": "https://www.cheongjubank.com/ProdList_001.act?rnum=2",
+      "evidence_note": "FINLIFE 적금 310008의 6/12개월 값이 같은 artifact의 청주저축은행 본점 정기예금 240010 값과 동일하다. source-level anomaly 조사 단서이며 canonical 자동 보정 근거로 사용하지 않는다."
+    }
+  }
+}

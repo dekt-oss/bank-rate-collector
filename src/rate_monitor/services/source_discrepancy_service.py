@@ -27,6 +27,39 @@ CONFIRMED_RUN_STATUSES = ("success", "partial", "no_change")
 DEFAULT_PRIMARY_SOURCE = "fsb"
 DEFAULT_SECONDARY_SOURCE = "finlife_savings_bank"
 
+# `source_effective_at` is a legacy storage field whose meaning is source-specific.
+# It is NOT a uniform product-rate effective date. Keep the DB contract stable and
+# make the source semantics explicit in the audit report instead.
+SOURCE_DATE_SEMANTICS: dict[str, dict[str, Any]] = {
+    "fsb": {
+        "kind": "submission_or_start_date",
+        "label": "FSB 공시기준일",
+        "source_fields": ["FINAN_COMP_SUBMIT_DATE", "START_DATE"],
+        "selection": "FINAN_COMP_SUBMIT_DATE 우선, 없으면 START_DATE",
+        "rate_effective_date_equivalent": False,
+    },
+    "finlife_savings_bank": {
+        "kind": "disclosure_start_date",
+        "label": "금융상품한눈에 공시 시작일",
+        "source_fields": ["dcls_strt_day"],
+        "selection": "dcls_strt_day",
+        "rate_effective_date_equivalent": False,
+    },
+}
+
+
+def _source_date_semantics(source_id: str) -> dict[str, Any]:
+    known = SOURCE_DATE_SEMANTICS.get(source_id)
+    if known is not None:
+        return dict(known)
+    return {
+        "kind": "unknown_source_reference_date",
+        "label": "원천 기준일/공시일",
+        "source_fields": [],
+        "selection": "unknown",
+        "rate_effective_date_equivalent": False,
+    }
+
 
 def _decimal(value: object) -> Decimal | None:
     if value is None or value == "":
@@ -93,6 +126,7 @@ def _current_source_rows(
         "SELECT lr.source_id, o.id AS observation_id, o.run_id, o.last_run_id, "
         "       i.canonical_name AS institution, p.name AS product, "
         "       p.product_type, pv.term_months, pv.join_channel, pv.interest_method, "
+        "       pv.payment_method, "
         "       o.base_rate, o.max_rate, o.source_effective_at, o.last_seen_at, "
         "       o.base_source_locator, o.option_source_locator, o.source_record_hash, "
         "       ra.relative_path AS raw_artifact_path, ra.sha256 AS raw_artifact_sha256 "
@@ -170,9 +204,14 @@ def _provenance(row: dict[str, Any]) -> dict[str, Any]:
         "term_months": row.get("term_months"),
         "join_channel": row.get("join_channel"),
         "interest_method": row.get("interest_method"),
+        "payment_method": row.get("payment_method"),
         "base_rate": _decimal_json(_decimal(row.get("base_rate"))),
         "max_rate": _decimal_json(_decimal(row.get("max_rate"))),
+        # Compatibility: keep the stored field name, but expose the audit-safe
+        # name and its source-specific semantics beside it.
         "source_effective_at": row.get("source_effective_at"),
+        "source_reference_date": row.get("source_effective_at"),
+        "source_date_semantics": _source_date_semantics(str(row.get("source_id") or "")),
         "last_seen_at": row.get("last_seen_at"),
         "run_id": row.get("run_id"),
         "last_run_id": row.get("last_run_id"),
@@ -335,6 +374,10 @@ def build_source_discrepancy_report(
         matches.append(
             {
                 "status": status,
+                # Canonical audit name: these are source-specific reference/disclosure
+                # dates, not guaranteed product-rate effective dates.
+                "source_reference_date_status": date_status,
+                # Deprecated compatibility alias from source-discrepancy v1.
                 "effective_date_status": date_status,
                 "delta_max_rate_primary_minus_secondary": max_comparison[
                     "delta_primary_minus_secondary"
@@ -395,6 +438,17 @@ def build_source_discrepancy_report(
                 "normalized institution + exact normalized product + product type + term"
             ),
             "unmatched_policy": "do_not_guess",
+            "source_date_comparison": (
+                "source-specific reference/disclosure dates only; "
+                "not a uniform product-rate effective date"
+            ),
+            "source_date_semantics": {
+                primary_source: _source_date_semantics(primary_source),
+                secondary_source: _source_date_semantics(secondary_source),
+            },
+            "deprecated_fields": {
+                "effective_date_status": "use source_reference_date_status"
+            },
         },
         "source_runs": runs,
         "summary": {

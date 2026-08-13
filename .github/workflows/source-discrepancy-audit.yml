@@ -7,6 +7,7 @@ on:
       - "src/rate_monitor/services/source_discrepancy_service.py"
       - "scripts/source_discrepancy_audit.py"
       - "tests/test_source_discrepancy_service.py"
+      - "docs/evidence/source-discrepancy/**"
       - ".github/workflows/source-discrepancy-audit.yml"
       - "config/storage.yaml"
       - "migrations/**"
@@ -79,6 +80,7 @@ jobs:
           set -euo pipefail
           uv run python scripts/source_discrepancy_audit.py \
             --db work/rate_monitor.sqlite3 \
+            --official-evidence docs/evidence/source-discrepancy/20260813-cheongju.json \
             --out work/source-discrepancy-report.json
 
       - name: Inspect mismatch evidence
@@ -89,6 +91,7 @@ jobs:
 
           report = json.loads(Path("work/source-discrepancy-report.json").read_text(encoding="utf-8"))
           assert report["scope"]["canonical_mutated"] is False
+          assert report["summary"]["official_evidence_records"] == 2
           print("source runs:", report["source_runs"])
           print("summary:", report["summary"])
 
@@ -110,10 +113,14 @@ jobs:
                   left["institution"],
                   left["product"],
                   f"term={left['term_months']}",
-                  f"fsb={left['max_rate']}@{left['source_effective_at']}",
-                  f"finlife={right['max_rate']}@{right['source_effective_at']}",
+                  f"{left['source_id']}={left['max_rate']}@source_ref={left['source_reference_date']}",
+                  f"{right['source_id']}={right['max_rate']}@source_ref={right['source_reference_date']}",
+                  f"source_ref_status={item['source_reference_date_status']}",
                   f"delta={item['delta_max_rate_primary_minus_secondary']}",
-                  f"raw={left['raw_artifact_path']}",
+                  f"primary_variant={left['join_channel']}/{left['interest_method']}/payment={left['payment_method']}",
+                  f"secondary_variant={right['join_channel']}/{right['interest_method']}/payment={right['payment_method']}",
+                  f"primary_raw={left['raw_artifact_path']}#{left['base_source_locator']}|{left['option_source_locator']}",
+                  f"secondary_raw={right['raw_artifact_path']}#{right['base_source_locator']}|{right['option_source_locator']}",
               )
 
           base_mismatches = [
@@ -134,7 +141,20 @@ jobs:
                   f"delta={base['delta_primary_minus_secondary']}",
               )
 
-          for target in ("대백", "고려", "키움YES", "키움예스"):
+          for evidence in report["official_evidence"]:
+              official = evidence["official"]
+              print(
+                  "official",
+                  official["institution"],
+                  official["product"],
+                  f"term={official['term_months']}",
+                  f"rate={official['max_rate']}",
+                  f"effective_at={official.get('effective_at')}",
+                  f"primary={evidence['sources']['primary']['max_rate_comparison']['status'] if evidence['sources']['primary'] else 'unmatched'}",
+                  f"secondary={evidence['sources']['secondary']['max_rate_comparison']['status'] if evidence['sources']['secondary'] else 'unmatched'}",
+              )
+
+          for target in ("청주", "대백", "고려", "키움YES", "키움예스"):
               found = [
                   item for item in report["matches"]
                   if target in (item["primary"]["institution"] or "")

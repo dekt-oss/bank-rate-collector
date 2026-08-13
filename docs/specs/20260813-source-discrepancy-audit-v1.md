@@ -126,14 +126,21 @@ Source discrepancy audit #8 / run `31674837679`, snapshot `state/snapshots/20260
 
 즉 확실히 같은 상품으로 자동 매칭된 924건 중 **16건에서 기본금리와 최고금리가 모두 불일치**했고, 이번 snapshot의 exact match에는 기준일 미확인 행이 없었다.
 
-### 동일 기준일인데 금리가 다른 사례
+### 저장된 source reference date가 같은데 금리가 다른 사례
 
 청주저축은행 정기적금:
 
-- 12개월: FSB 3.80 / finlife 4.00 / 양쪽 `source_effective_at=2026-08-10`
-- 6개월: FSB 2.10 / finlife 3.05 / 양쪽 `source_effective_at=2026-08-10`
+- 12개월: FSB 3.80 / finlife 4.00 / 양쪽 저장값 `source_effective_at=2026-08-10`
+- 6개월: FSB 2.10 / finlife 3.05 / 양쪽 저장값 `source_effective_at=2026-08-10`
 
-### 금리와 기준일이 함께 다른 사례
+여기서 `source_effective_at`의 **필드명이 같다고 날짜 의미까지 같은 것은 아니다.**
+FSB 파서는 `FINAN_COMP_SUBMIT_DATE`를 우선하고 없으면 `START_DATE`를 쓰며,
+finlife 파서는 `dcls_strt_day`(공시 시작일)를 쓴다. 따라서 위 사례를
+"동일 시행일인데 금리가 다르다"고 해석하지 않는다. v1.1부터 감사 리포트의
+정식 명칭은 `source_reference_date_status`이고, 기존 `effective_date_status`는
+호환용 deprecated alias로만 유지한다.
+
+### 금리와 source reference date 저장값이 함께 다른 사례
 
 금화·대신·대원·아산·진주·하나저축은행 등에서 검출됐다. 예:
 
@@ -145,7 +152,7 @@ Source discrepancy audit #8 / run `31674837679`, snapshot `state/snapshots/20260
 ## 현재 한계
 
 1. 정확 상품명 자동매칭이 보수적이라 165건은 사람이 identity 규칙을 추가 검토해야 한다.
-2. FSB가 제공하는 `source_effective_at`과 실제 금리 시행일의 의미가 상품별로 같은지 별도 검증이 필요하다.
+2. `source_effective_at`은 source별 의미가 다른 legacy 저장 필드다. FSB는 `FINAN_COMP_SUBMIT_DATE` 우선/`START_DATE` 대체이고 finlife는 `dcls_strt_day`이므로, 감사에서는 source reference/disclosure date로만 비교한다. 실제 금리 시행일은 별도 official evidence로 확인해야 한다.
 3. 개별 저축은행 홈페이지는 아직 공통 자동 collector가 아니다. v1은 evidence 입력 계약만 제공한다.
 4. raw artifact는 현재 값을 처음 관측한 artifact다. 마지막 확인 run의 raw row를 직접 연결하려면 별도 provenance 확장이 필요하다.
 5. 이 리포트는 warning/evidence이지 canonical source authority 결정기가 아니다.
@@ -158,3 +165,23 @@ Source discrepancy audit #8 / run `31674837679`, snapshot `state/snapshots/20260
 - source별 freshness/authority 정책을 ADR 또는 별도 spec으로 확정한다.
 - 확정 후 전략 대시보드에 `원천 일치 / 기준일 차이 / 금리 불일치` 신호만 표출한다.
 - 자동 canonical 보정은 별도 승인 전 구현하지 않는다.
+
+## v1.1 — source date semantics clarification
+
+`source_effective_at` DB 컬럼은 기존 이력과 호환성을 위해 유지하지만, audit의 의미는 다음처럼 고정한다.
+
+| source | 저장 원천 필드 | audit 의미 | 실제 금리 시행일과 동일하다고 보장 |
+|---|---|---|---|
+| `fsb` | `FINAN_COMP_SUBMIT_DATE` 우선, 없으면 `START_DATE` | FSB 공시기준일 | 아니오 |
+| `finlife_savings_bank` | `dcls_strt_day` | 금융상품한눈에 공시 시작일 | 아니오 |
+
+규칙:
+
+1. 리포트의 정식 비교 필드는 `source_reference_date_status = same | different | unknown`이다.
+2. 기존 `effective_date_status`는 v1 소비자 호환을 위한 deprecated alias이며 같은 값을 반환한다.
+3. status 이름의 `_date_diff` / `_date_unknown`에서 `date`는 source reference/disclosure date를 뜻한다.
+4. `same`은 두 source가 저장한 날짜 문자열이 같다는 뜻일 뿐 **동일 금리 시행일을 증명하지 않는다.**
+5. 각 provenance에는 `source_reference_date`와 `source_date_semantics`를 함께 싣는다.
+6. official bank evidence의 `effective_at`은 은행이 실제 시행일로 명시한 근거가 있을 때만 그 의미로 사용한다.
+7. 이 정정은 audit JSON의 의미를 명확히 하는 변경이며 DB migration, canonical 수정, source authority 자동판정을 수행하지 않는다.
+8. `payment_method`(예: finlife `F=자유적립식`)는 provenance에 노출한다. FSB는 동등 필드를 주지 않으므로 exact key에는 넣지 않으며, 값이 한쪽만 있다는 사실 자체를 identity 조사 단서로 사용한다.

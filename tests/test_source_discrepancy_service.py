@@ -38,7 +38,8 @@ def _db(tmp_path: Path) -> Path:
           product_id TEXT NOT NULL,
           term_months INTEGER,
           join_channel TEXT,
-          interest_method TEXT
+          interest_method TEXT,
+          payment_method TEXT
         );
         CREATE TABLE raw_artifacts (
           id TEXT PRIMARY KEY,
@@ -106,12 +107,12 @@ def _db(tmp_path: Path) -> Path:
         ],
     )
     conn.executemany(
-        "INSERT INTO product_variants VALUES (?, ?, 12, ?, ?)",
+        "INSERT INTO product_variants VALUES (?, ?, 12, ?, ?, ?)",
         [
-            ("v-fsb", "p-fsb", "internet", "simple"),
-            ("v-fin", "p-fin", "internet", "simple"),
-            ("v-fsb-other", "p-fsb-other", "branch", "simple"),
-            ("v-fin-other", "p-fin-other", "internet", "simple"),
+            ("v-fsb", "p-fsb", "internet", "simple", None),
+            ("v-fin", "p-fin", "internet", "simple", "F"),
+            ("v-fsb-other", "p-fsb-other", "branch", "simple", None),
+            ("v-fin-other", "p-fin-other", "internet", "simple", None),
         ],
     )
     conn.executemany(
@@ -207,8 +208,25 @@ def test_exact_product_match_surfaces_rate_mismatch_with_provenance(tmp_path: Pa
 
     match = report["matches"][0]
     assert match["status"] == "rate_mismatch_date_diff"
+    assert match["source_reference_date_status"] == "different"
+    # v1 compatibility alias: keep old consumers working without claiming
+    # the dates are uniform product-rate effective dates.
     assert match["effective_date_status"] == "different"
     assert match["delta_max_rate_primary_minus_secondary"] == "0.30"
+    assert match["primary"]["source_reference_date"] == "2026-08-12"
+    assert match["secondary"]["source_reference_date"] == "2026-08-13"
+    assert match["primary"]["payment_method"] is None
+    assert match["secondary"]["payment_method"] == "F"
+    assert match["primary"]["source_date_semantics"]["kind"] == "submission_or_start_date"
+    assert match["secondary"]["source_date_semantics"]["kind"] == "disclosure_start_date"
+    assert match["primary"]["source_date_semantics"]["rate_effective_date_equivalent"] is False
+    assert report["scope"]["source_date_semantics"]["fsb"]["source_fields"] == [
+        "FINAN_COMP_SUBMIT_DATE",
+        "START_DATE",
+    ]
+    assert report["scope"]["deprecated_fields"] == {
+        "effective_date_status": "use source_reference_date_status"
+    }
     assert match["base_rate_comparison"] == {
         "status": "mismatch",
         "primary": "4.10",
@@ -242,6 +260,7 @@ def test_missing_effective_date_is_not_treated_as_same_date(tmp_path: Path) -> N
     match = report["matches"][0]
 
     assert match["status"] == "rate_mismatch_date_unknown"
+    assert match["source_reference_date_status"] == "unknown"
     assert match["effective_date_status"] == "unknown"
     assert report["summary"]["rate_mismatch_date_unknown"] == 1
 
