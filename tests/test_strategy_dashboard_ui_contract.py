@@ -22,6 +22,22 @@ def test_strategy_dashboard_has_one_compact_kpi_row_without_legacy_briefing() ->
     assert ".kpi{min-height:112px" in html
 
 
+def test_strategy_dashboard_has_desktop_readability_floor() -> None:
+    html = _html()
+
+    assert "@media(min-width:981px)" in html
+    assert ".shell{width:min(1280px,calc(100% - 28px))" in html
+    assert ".kpi{min-height:128px" in html
+    assert ".head h2{font-size:15px" in html
+    assert ".simrow label{font-size:10.5px" in html
+    assert ".segment button{padding:7px 10px;font-size:10px" in html
+    assert ".simresult b{font:790 19px" in html
+    assert ".chartwrap{height:280px" in html
+    assert ".axistext{font:9.5px" in html
+    assert ".trendlabel{font:800 10px" in html
+    assert ".node-label{font:700 10px" in html
+
+
 def test_strategy_dashboard_uses_region_average_in_distribution_map() -> None:
     html = _html()
 
