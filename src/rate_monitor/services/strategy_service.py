@@ -40,6 +40,12 @@ def _table_exists(conn: sqlite3.Connection, table: str) -> bool:
     return row is not None
 
 
+def _column_exists(conn: sqlite3.Connection, table: str, column: str) -> bool:
+    if not _table_exists(conn, table):
+        return False
+    return any(row[1] == column for row in conn.execute(f"PRAGMA table_info({table})"))
+
+
 def _coverage_key(row: dict[str, Any]) -> tuple[str, Any, Any]:
     return (
         str(row.get("normalized_institution") or row.get("institution") or ""),
@@ -70,8 +76,17 @@ def _apply_source_precedence(rows: list[dict[str, Any]]) -> list[dict[str, Any]]
 def _source_visible_at(conn: sqlite3.Connection, change: dict[str, Any]) -> bool:
     """변경 시점에 공개 비교 universe에서 이 source가 보였는지 판단한다."""
     retreating = tuple(dedupe_sources())
-    if not retreating or change.get("source_id") not in retreating:
+    if (
+        not retreating
+        or change.get("source_id") not in retreating
+        or not _table_exists(conn, "collection_runs")
+    ):
         return True
+    institution_column = (
+        "i.normalized_name"
+        if _column_exists(conn, "institutions", "normalized_name")
+        else "i.canonical_name"
+    )
     placeholders = ",".join("?" for _ in retreating)
     row = conn.execute(
         f"""
@@ -83,7 +98,7 @@ def _source_visible_at(conn: sqlite3.Connection, change: dict[str, Any]) -> bool
         JOIN institutions i ON i.id = p.institution_id
         WHERE r.source_id NOT IN ({placeholders})
           AND i.sector = 'savings_bank'
-          AND i.normalized_name = ?
+          AND {institution_column} = ?
           AND p.product_type = ?
           AND v.term_months = ?
           AND o.validation_status != 'error'
@@ -104,15 +119,20 @@ def _source_visible_at(conn: sqlite3.Connection, change: dict[str, Any]) -> bool
     return row is None
 
 
-def _change_cte() -> str:
+def _change_cte(*, source_metadata: bool, normalized_name: bool) -> str:
     """저축은행 12개월 정기예금의 상품 단위 최고금리 변경 후보."""
-    return """
+    source_select = "r.source_id" if source_metadata else "NULL AS source_id"
+    source_join = "JOIN collection_runs r ON r.id = o.run_id" if source_metadata else ""
+    normalized_select = (
+        "i.normalized_name" if normalized_name else "i.canonical_name"
+    )
+    return f"""
         WITH history AS (
             SELECT
                 o.id,
                 o.variant_id,
                 o.run_id,
-                r.source_id,
+                {source_select},
                 o.valid_from,
                 o.max_rate,
                 o.validation_status,
@@ -121,7 +141,7 @@ def _change_cte() -> str:
                     ORDER BY o.valid_from, o.id
                 ) AS previous_max_rate
             FROM rate_observations o
-            JOIN collection_runs r ON r.id = o.run_id
+            {source_join}
             WHERE o.validation_status != 'error'
         ), changes AS (
             SELECT
@@ -132,7 +152,7 @@ def _change_cte() -> str:
                 h.previous_max_rate,
                 h.max_rate,
                 i.canonical_name AS institution,
-                i.normalized_name AS normalized_institution,
+                {normalized_select} AS normalized_institution,
                 p.id AS product_id,
                 p.name AS product,
                 p.product_type AS product_type,
@@ -287,9 +307,13 @@ def build_strategy_summary(db_path: Path) -> dict[str, Any]:
     conn.row_factory = None
     window = f"-{MARKET_CHANGE_WINDOW_DAYS} days"
     try:
+        cte = _change_cte(
+            source_metadata=_table_exists(conn, "collection_runs"),
+            normalized_name=_column_exists(conn, "institutions", "normalized_name"),
+        )
         raw_changes = _rows(
             conn,
-            _change_cte()
+            cte
             + """
                 SELECT
                     source_id,
