@@ -156,6 +156,6 @@ line은 현재 우선순위인 12개월만 DB 이력으로 제공한다.
 - 실제 Preview build: canonical table 326,794행
 - historical 12개월 평균 최고금리 trend: 8개 snapshot point 생성
 - generated inline JavaScript: `node --check` 통과
-- CI #800: Ruff 통과 / pytest 911 passed / empty DB migration + 15 tables parity 통과
+- 검증된 코드/테스트 상태: Ruff 통과 / pytest 911 passed / empty DB migration + 15 tables parity 통과
 - isolated preview branch publish 자체는 성공
 - Vercel의 최신 재배포는 애플리케이션 오류가 아니라 `build-rate-limit`로 거절됨. 제한 해제 후 같은 preview artifact를 재배포해야 브라우저 최신판 확인이 가능하다.
