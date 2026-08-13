@@ -62,14 +62,7 @@ v1은 **감사 전용(read-only)** 이다. FSB, 금융상품한눈에, 개별 �
 
 기준일은 별도로 `same / different / unknown`을 기록한다. 한쪽 기준일이 없다고 `same`으로 간주하지 않는다.
 
-기본금리도 각 exact match에서 독립적으로 비교한다.
-
-- `agree`
-- `mismatch`
-- `incomplete`
-- `both_missing`
-
-기본금리와 최고금리 차이는 모두 `primary - secondary` Decimal 문자열로 기록한다.
+기본금리도 각 exact match에서 독립적으로 `agree / mismatch / incomplete / both_missing`으로 비교한다. 기본금리와 최고금리 차이는 모두 `primary - secondary` Decimal 문자열로 기록한다.
 
 ## Provenance
 
@@ -110,29 +103,35 @@ v1은 **감사 전용(read-only)** 이다. FSB, 금융상품한눈에, 개별 �
 
 이 evidence는 DB에 저장하거나 canonical을 수정하지 않는다. 정확 상품 키가 붙는 FSB/finlife 행과만 나란히 비교하며 기본금리·최고금리를 각각 비교한다.
 
-## Production R2 최초 실측
+## Production R2 최신 실측
 
-Source discrepancy audit #4, production snapshot `state/snapshots/20260813T123319-61fe7160.sqlite3.gz` 기준 최고금리 결과:
+Source discrepancy audit #8 / run `31674837679`, snapshot `state/snapshots/20260813T123319-61fe7160.sqlite3.gz`:
 
 - FSB 대표상품: 2,166
 - 금융상품한눈에 대표상품: 1,030
 - exact matches: 924
-- `agree`: 229
-- `agree_rate_date_diff`: 679
-- `rate_mismatch`: 2
-- `rate_mismatch_date_diff`: 14
-- `incomplete_rate`: 0
+- 최고금리 `agree`: 229
+- 최고금리 `agree_rate_date_diff`: 679
+- 최고금리 `agree_rate_date_unknown`: 0
+- 최고금리 `rate_mismatch`: 2
+- 최고금리 `rate_mismatch_date_diff`: 14
+- 최고금리 `rate_mismatch_date_unknown`: 0
+- 최고금리 `incomplete_rate`: 0
+- 기본금리 `agree`: 908
+- 기본금리 `mismatch`: 16
+- 기본금리 `incomplete`: 0
+- 기본금리 `both_missing`: 0
 - `unmatched_product`: 165
 - `source_only`: 1,183
 
-즉 확실히 같은 상품으로 자동 매칭된 924건 중 16건에서 최고금리 불일치가 발견됐다. 기본금리 및 `date_unknown` 집계는 보강 후 최신 production audit에서 다시 검증한다.
+즉 확실히 같은 상품으로 자동 매칭된 924건 중 **16건에서 기본금리와 최고금리가 모두 불일치**했고, 이번 snapshot의 exact match에는 기준일 미확인 행이 없었다.
 
-### 동일 기준일인데 최고금리가 다른 사례
+### 동일 기준일인데 금리가 다른 사례
 
 청주저축은행 정기적금:
 
-- 12개월: FSB 3.80 / finlife 4.00 / 양쪽 effective 2026-08-10
-- 6개월: FSB 2.10 / finlife 3.05 / 양쪽 effective 2026-08-10
+- 12개월: FSB 3.80 / finlife 4.00 / 양쪽 `source_effective_at=2026-08-10`
+- 6개월: FSB 2.10 / finlife 3.05 / 양쪽 `source_effective_at=2026-08-10`
 
 ### 금리와 기준일이 함께 다른 사례
 
@@ -150,6 +149,7 @@ Source discrepancy audit #4, production snapshot `state/snapshots/20260813T12331
 3. 개별 저축은행 홈페이지는 아직 공통 자동 collector가 아니다. v1은 evidence 입력 계약만 제공한다.
 4. raw artifact는 현재 값을 처음 관측한 artifact다. 마지막 확인 run의 raw row를 직접 연결하려면 별도 provenance 확장이 필요하다.
 5. 이 리포트는 warning/evidence이지 canonical source authority 결정기가 아니다.
+6. 같은 상품·기간의 source별 대표 최고금리를 비교하므로 가입채널/이자방식 coverage 차이가 불일치 원인일 수 있다. provenance의 variant context를 함께 확인해야 한다.
 
 ## 다음 단계
 
