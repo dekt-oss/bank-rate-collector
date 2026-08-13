@@ -48,6 +48,7 @@ def _table() -> dict:
     return {
         "columns": [
             "sector",
+            "source_id",
             "institution",
             "product",
             "product_type",
@@ -58,6 +59,7 @@ def _table() -> dict:
         ],
         "lookups": {
             "sector": ["savings_bank"],
+            "source_id": ["fsb"],
             "institution": ["테스트저축은행"],
             "product": ["테스트예금"],
             "product_type": ["term_deposit"],
@@ -65,7 +67,7 @@ def _table() -> dict:
             "interest_method": ["simple"],
             "join_channel": ["online"],
         },
-        "rows": [[0, 0, 0, 0, 12, 0, 0, 0]],
+        "rows": [[0, 0, 0, 0, 0, 12, 0, 0, 0]],
     }
 
 
