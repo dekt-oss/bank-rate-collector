@@ -92,15 +92,16 @@ jobs:
           print("source runs:", report["source_runs"])
           print("summary:", report["summary"])
 
+          mismatch_statuses = {
+              "rate_mismatch",
+              "rate_mismatch_date_diff",
+              "rate_mismatch_date_unknown",
+              "incomplete_rate",
+          }
           mismatches = [
-              item for item in report["matches"]
-              if item["status"] in {
-                  "rate_mismatch",
-                  "rate_mismatch_date_diff",
-                  "incomplete_rate",
-              }
+              item for item in report["matches"] if item["status"] in mismatch_statuses
           ]
-          print(f"mismatch evidence rows={len(mismatches)}")
+          print(f"max-rate mismatch evidence rows={len(mismatches)}")
           for item in mismatches[:20]:
               left = item["primary"]
               right = item["secondary"]
@@ -113,6 +114,24 @@ jobs:
                   f"finlife={right['max_rate']}@{right['source_effective_at']}",
                   f"delta={item['delta_max_rate_primary_minus_secondary']}",
                   f"raw={left['raw_artifact_path']}",
+              )
+
+          base_mismatches = [
+              item for item in report["matches"]
+              if item["base_rate_comparison"]["status"] in {"mismatch", "incomplete"}
+          ]
+          print(f"base-rate mismatch/incomplete evidence rows={len(base_mismatches)}")
+          for item in base_mismatches[:20]:
+              left = item["primary"]
+              base = item["base_rate_comparison"]
+              print(
+                  base["status"],
+                  left["institution"],
+                  left["product"],
+                  f"term={left['term_months']}",
+                  f"fsb={base['primary']}",
+                  f"finlife={base['secondary']}",
+                  f"delta={base['delta_primary_minus_secondary']}",
               )
 
           for target in ("대백", "고려", "키움YES", "키움예스"):
