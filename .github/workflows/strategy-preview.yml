@@ -2,7 +2,7 @@ name: Strategy dashboard preview
 
 on:
   push:
-    branches: ["feat/strategy-dashboard-*"]
+    branches: ["feat/strategy-dashboard-*", "agent/strategy-engine-data-contract"]
     paths:
       - "web/templates/strategy.html"
       - "web/templates/site.html"
@@ -169,8 +169,6 @@ jobs:
                   "preference_tags": value(row, "preference_tags") or "",
               })
 
-          # 전략 화면과 같은 기관+상품+기간 대표 최고금리. 같은 최고값이면
-          # 공시일이 더 최근인 행을 감사 출력에 사용한다.
           products = {}
           for item in current:
               key = (item["institution"], item["product"])
