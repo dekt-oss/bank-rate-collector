@@ -93,7 +93,13 @@ https://finlife.fss.or.kr/finlifeapi/{서비스명}.{json|xml}
 | `intr_rate` | 기본 이자율(%) | `rate_observations.base_rate` |
 | `intr_rate2` | 우대 이자율(%) | `rate_observations.max_rate` |
 
-결합키: `fin_co_no` + `fin_prdt_cd`
+응답 내부 결합키: `fin_co_no` + `fin_prdt_cd`
+
+이 결합키는 **같은 API service의 baseList ↔ optionList 내부 join에만** 사용한다.
+2026-08-12 실측에서 `depositProductsSearch`와 `savingProductsSearch`가 동일
+`fin_prdt_cd`를 재사용하는 사례가 확인됐다. 따라서 저장용 상품 identity는
+`{service}:{fin_prdt_cd}`로 namespace를 분리한다. 자세한 근거와 전환 규칙은
+`docs/specs/20260813-finlife-product-identity-v1.md`를 따른다.
 
 ### 3.3 금융회사 API — `optionList`
 
@@ -181,6 +187,7 @@ finlife 상품 API(`depositProductsSearch`, `savingProductsSearch`)의 `baseList
 - `intr_rate2`가 비어 있으면 `max_rate`를 `base_rate`와 같게 두지 않고 `NULL`로 둔다
   (명세서 v3 §8.4).
 - 원본 JSON은 `data/raw/` 아래 그대로 보존하고 레포에는 커밋하지 않는다.
+- persisted `source_product_key`에는 API service namespace를 포함한다 (`depositProductsSearch:<code>` / `savingProductsSearch:<code>`).
 
 ---
 

@@ -138,6 +138,21 @@ def test_saving_service_maps_to_installment() -> None:
     assert {r.product_type for r in rows} == {ProductType.INSTALLMENT_SAVINGS}
 
 
+def test_product_code_is_namespaced_by_service() -> None:
+    deposit, _ = parser.parse(load(EDGE), "depositProductsSearch", "030300")
+    saving, _ = parser.parse(load(EDGE), "savingProductsSearch", "030300")
+    deposit_row = next(r for r in deposit if r.source_product_key.endswith(":EDGE001"))
+    saving_row = next(r for r in saving if r.source_product_key.endswith(":EDGE001"))
+
+    assert deposit_row.source_product_key == "depositProductsSearch:EDGE001"
+    assert saving_row.source_product_key == "savingProductsSearch:EDGE001"
+    assert deposit_row.source_product_key != saving_row.source_product_key
+    assert deposit_row.source_row_ref.startswith("depositProductsSearch:")
+    assert saving_row.source_row_ref.startswith("savingProductsSearch:")
+    assert deposit_row.extra["finlife_service"] == "depositProductsSearch"
+    assert saving_row.extra["finlife_service"] == "savingProductsSearch"
+
+
 def test_preference_none_marker_becomes_empty(real_rows: list) -> None:
     """'없음'은 우대조건 없음이므로 빈 문자열. 그 외 원문은 그대로 보존한다."""
     assert all(r.preference_raw != "없음" for r in real_rows)
@@ -161,7 +176,7 @@ def test_missing_intr_rate2_yields_null_max_rate() -> None:
     명세서 v3 §8.4. 참고 저장소가 틀린 지점이라 테스트로 못박는다.
     """
     rows, _ = parser.parse(load(EDGE), "depositProductsSearch", "030300")
-    row = next(r for r in rows if r.source_product_key == "EDGE001")
+    row = next(r for r in rows if r.source_product_key == "depositProductsSearch:EDGE001")
     assert row.base_rate == Decimal("2.5")
     assert row.max_rate is None
 
@@ -176,7 +191,7 @@ def test_real_data_never_fills_max_rate_from_base(real_rows: list) -> None:
 def test_unparseable_rate_is_null_not_sentinel() -> None:
     """금리 변환 실패는 NULL + error 상태. -1 같은 마법값을 쓰지 않는다."""
     rows, _ = parser.parse(load(EDGE), "depositProductsSearch", "030300")
-    row = next(r for r in rows if r.source_product_key == "EDGE003")
+    row = next(r for r in rows if r.source_product_key == "depositProductsSearch:EDGE003")
     assert row.base_rate == Decimal("2.75")  # "연 2.75%" 는 파싱된다
     assert row.max_rate is None  # "별도 문의" 는 NULL
     assert row.max_rate != -1
@@ -187,28 +202,28 @@ def test_unparseable_rate_is_null_not_sentinel() -> None:
 def test_missing_dcls_strt_day_stays_null() -> None:
     """원천 기준일이 없으면 NULL. 수집시각으로 대체하지 않는다 (v3.1 §7.3)."""
     rows, _ = parser.parse(load(EDGE), "depositProductsSearch", "030300")
-    row = next(r for r in rows if r.source_product_key == "EDGE002")
+    row = next(r for r in rows if r.source_product_key == "depositProductsSearch:EDGE002")
     assert row.source_effective_at is None
 
 
 def test_orphan_option_is_warned_not_dropped_silently() -> None:
     """대응 상품이 없는 옵션은 경고를 남긴다."""
     rows, warnings = parser.parse(load(EDGE), "depositProductsSearch", "030300")
-    assert not any(r.source_product_key == "ORPHAN01" for r in rows)
+    assert not any(r.source_product_key == "depositProductsSearch:ORPHAN01" for r in rows)
     assert any("ORPHAN01" in w for w in warnings)
 
 
 def test_product_without_option_produces_no_row() -> None:
     """옵션 없는 상품은 비교 단위가 없으므로 행을 만들지 않는다."""
     rows, _ = parser.parse(load(EDGE), "depositProductsSearch", "030300")
-    assert not any(r.source_product_key == "EDGE004" for r in rows)
+    assert not any(r.source_product_key == "depositProductsSearch:EDGE004" for r in rows)
 
 
 def test_join_channel_multi_becomes_any() -> None:
     rows, _ = parser.parse(load(EDGE), "depositProductsSearch", "030300")
-    single = next(r for r in rows if r.source_product_key == "EDGE001")
+    single = next(r for r in rows if r.source_product_key == "depositProductsSearch:EDGE001")
     assert single.join_channel == JoinChannel.BRANCH
-    internet = next(r for r in rows if r.source_product_key == "EDGE002")
+    internet = next(r for r in rows if r.source_product_key == "depositProductsSearch:EDGE002")
     assert internet.join_channel == JoinChannel.INTERNET
 
 
