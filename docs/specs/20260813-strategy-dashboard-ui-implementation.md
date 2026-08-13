@@ -1,197 +1,116 @@
-# 전략 대시보드 실제 구현 — 2026-08-13
+# 전략 대시보드 UI 구현 기록 — 2026-08-13
 
 ## 목적
 
-`docs/specs/20260812-strategy-dashboard-v1.md`의 비공개 Preview / release gate 계약을 유지하면서,
-수신상품 담당자가 경쟁 금리와 시장 흐름을 한 화면에서 읽고 신상품 제안금리의 위치를 판단할 수 있는
-실제 데이터 기반 전략 대시보드를 구현한다.
+검색·조회 화면을 유지하면서 별도 전략 대시보드에서 실제 canonical 금리 데이터와 수집 이력을 사용해 시장 비교 및 신상품 금리 WHAT-IF를 제공한다. 운영 release gate는 계속 OFF로 유지한다.
 
-이번 디자인 기준은 dark navy/charcoal 기반의 고밀도 분석 화면이다. 밝은 카드가 반복되며 화면 비율이
-무너지는 이전 초안 대신, 동일한 어두운 surface 안에서 green/gold를 핵심 숫자와 상태에만 사용한다.
+## 사용자 검수 반영 — 지도 / 부산 / 시뮬레이터
 
-## 2026-08-13 Reference Fidelity Pass
+2026-08-13 사용자 화면 검수에서 다음 불일치를 확인했고 수정했다.
 
-사용자가 승인한 기존 레퍼런스 화면의 **구성과 비율을 우선 계약**으로 둔다. 새로운 장식이나 별도 브리핑을
-추가해 레퍼런스의 화면 위계를 바꾸지 않는다.
+- 전국 지도가 충분히 크지 않았다.
+- 부산 클릭이 같은 지도에서 부산으로 확대되는 대신 지도 아래 카드 상세로 전환됐다.
+- 시뮬레이터에 `우대조건 수` 선택이 남아 있었다.
 
-- 첫 화면 KPI는 `시장 최고 금리 / 시장 평균 금리 / 현재 비교군 / 상위 10% 진입선` **4개 한 행만** 둔다.
-- 과거 초안의 `핵심 시장 브리핑`, `시장 선두 최고금리` 별도 3카드 행은 금지한다.
-- 시장 최고금리는 헤드라인 KPI에서 한 번만 크게 표현한다. TOP5·지역·추이는 분석 맥락의 작은 숫자로만 쓴다.
-- compact base는 최대 폭 약 1180px / KPI 112px을 유지하되, 실제 데스크톱 사용 구간에서는 아래 Readability Pass가 우선한다.
-- 카드 간격과 radius를 줄여 `큰 흰 카드가 두 줄로 쌓이는` 형태를 피한다.
-- 본점 소재지별 분포는 지역별 `최고값`을 반복하지 않고, 해당 지역의 상품 대표 최고금리 **평균**을 표시한다.
-  따라서 여러 지역이 동일한 시장 최고금리 4.10%로 반복 표기되는 현상을 피하면서 실제 분포를 보여준다.
-- 최근 시장 변화 상세 피드는 접힌 보조영역으로 내려 핵심 레퍼런스 구성을 침범하지 않는다.
-- 기능·데이터 계약은 유지하고, 이 pass에서는 collector / DB schema / migration을 변경하지 않는다.
+최종 계약은 다음과 같다.
 
-## 2026-08-13 Desktop Readability Pass
+### 지도
 
-구성은 바꾸지 않고, 981px 이상 데스크톱에서 읽기 어려웠던 6.5~8px 보조 텍스트와 작은 차트·시뮬레이터를 확대한다.
+- 데스크톱 컨테이너 최대폭: 1380px.
+- 지도 카드 최소 높이: 640px.
+- 지도 실제 표시 영역: 540px.
+- 메인 2열에서 지도:TOP5 비율은 약 1.45:0.75로 지도를 우선한다.
+- 전국 지도와 부산 지도는 동일 SVG(`geo-map`)를 재사용한다.
+- 부산 node를 클릭하거나 키보드로 실행하면 `showBusanMap()`이 같은 SVG의 viewBox와 내용을 부산 지도 모드로 바꾼다.
+- `전국 보기`를 누르면 `renderKoreaMap()`으로 복귀한다.
+- 별도 `district-panel`/`district-grid` 방식은 제거했다.
 
-- 데스크톱 content 최대 폭은 약 1280px로 소폭 확대한다.
-- KPI는 4열 구성을 유지하면서 실효 높이를 128px로 확대한다.
-- 카드 제목은 15px, 주요 보조문구는 9~10px 이상을 목표로 한다.
-- TOP5 본문은 10.5px, 지도 지역명은 10px, 지역 금리는 10.5px로 확대한다.
-- 시뮬레이터 label 10.5px, selector 10px, 결과값 19px로 확대하고 각 control의 padding과 간격도 함께 늘린다.
-- 기간별 금리 추이 chart는 205px → 280px로 확대하고 axis/date/series label을 9~10px 수준으로 올린다.
-- 우대조건·시장 인사이트·주의문·접힌 최근시장변화도 같은 비율로 가독성을 높인다.
-- Tablet/Mobile의 기존 재배치 계약은 유지하며, 이 pass는 우선 데스크톱에만 적용한다.
-- 데이터 집계·시뮬레이션 산식·historical series·release gate 계약은 변경하지 않는다.
+### 부산 상세
 
-## 화면 구조
+저장소에는 검증된 행정경계 polygon geometry가 없으므로 실제 경계처럼 보이는 임의 polygon을 만들지 않는다. 현재 부산 화면은 **구·군 위치 개략도**이며, canonical `district`가 존재하는 구에만 실제 금리를 표기한다.
 
-### 1. 상단
+2026-08-13 production R2 snapshot audit 기준 12개월 대표상품에서 district가 있는 부산 상품은 31개다.
 
-- `SB 인사이트` 브랜드
-- `검색 조회 / 전략 대시보드` 2메뉴
-- 최신 발행 시각과 `collection_health` 상태
-- 제목 `수신상품 전략 대시보드`
-- 분석범위: 저축은행 / 정기예금 / 12개월 / 최고금리 / 최근 변화 30일
+- 동구: 9
+- 부산진구: 10
+- 연제구: 12
 
-### 2. 핵심 KPI 4개
+나머지 부산 구·군은 위치 맥락을 위해 표시하되 `데이터 없음`으로 명시한다. 지점이 있다는 이유로 금리를 복제하지 않는다.
 
-한 행에 다음 네 지표만 둬 첫 화면 비율과 정보 위계를 고정한다.
+### 시뮬레이터
 
-1. 시장 최고 금리
-2. 시장 평균 금리
-3. 현재 비교군 상품 수 / 기관 수 / 중앙값
-4. 상위 10% 진입선
+입력은 다음 세 가지 상품조건만 사용한다.
 
-별도 `핵심 시장 브리핑` 카드 3개를 KPI 위에 중복 배치하지 않는다.
+- 기본금리
+- 우대금리
+- 가입기간 6/12/24/36개월
 
-### 3. 경쟁사 / 지역 분포
+`우대조건 수`, `condition-segment`, `condition-match`, 조건 복잡도 benchmark는 시뮬레이터에서 완전히 제거한다. 우대조건 자체의 시장분석은 별도의 `우대조건 트렌드` 카드에만 남긴다.
 
-- 좌측: `경쟁사 TOP 5`
-  - 기관+상품+기간 단위 대표값
-  - 기본금리 / 우대폭 / 최고금리
-- 우측: `본점 소재지별 금리 분포`
-  - 12개월 비교상품을 기관+상품 단위로 대표화한 뒤 지역별 최고금리 평균을 node로 표시
-  - 가장 높은 지역 평균만 gold highlight
-  - 지역은 본점 소재지 참고값이며 지점 적용금리가 아님을 계속 표시
+선택 가입기간이 바뀌면 canonical `table.json`에서 `금융기관 + 상품 + 가입기간` 대표상품을 다시 만들고 실제 시장평균·중앙값·TOP10 진입선·제안순위·고려저축은행 현재 최고를 재계산한다.
 
-### 4. 분석 카드 3개
+## 데이터 계약
 
-- `우대조건 트렌드`
-  - 실제 우대조건 원문이 `present`인 상품만 분모에 포함
-  - 표준 taxonomy tag별 상품 비중
-  - 한 상품의 복수 조건은 중복 가능
-- `신상품 기획 시뮬레이터`
-  - 기본금리 / 우대금리
-  - 우대조건 수 selector
-  - 가입기간 6/12/24/36개월 selector
-  - 가입기간 선택 시 실제 해당 기간 비교상품 universe로 예상 순위와 시장 포지션을 다시 계산
-  - 예상 수신액은 사용자 입력 baseline / sensitivity가 모두 있을 때만 계산
-- `시장 인사이트`
-  - 최근 30일 상승/하락 이벤트 우세 방향
-  - 실제 본점 소재지별 지역 평균금리 상위 지역
-  - 실제 우대조건 taxonomy 상위 비중
-  - 별도 생성형 예측 수치나 가공된 임의 시장수치를 만들지 않음
+- 별도 전략용 금리 DB를 만들지 않는다.
+- `site-public/data/table.json`이 현재값의 canonical source다.
+- 대표상품은 `금융기관 + 상품 + 가입기간` 단위다.
+- variant가 여러 개면 최고 `max_rate`를 사용한다.
+- 동일 최고금리면 더 최근 `source_effective_at` 행의 source metadata를 사용한다.
+- `max_rate IS NULL`에 `base_rate`를 대체하지 않는다.
+- 순위는 `1 + proposed_rate보다 높은 대표상품 수`이며 동률은 공동순위다.
+- TOP5, KPI, 시뮬레이터가 같은 대표상품 universe를 사용한다.
 
-### 5. 기간별 금리 추이
+## Preview / CI evidence
 
-`기간별 금리 추이`는 목업 line을 사용하지 않는다.
+Visual source commit: `f86e3f4d490ab828d4d37e92b59cb9da0679d4ea`
 
-현재 DB는 금리값이 바뀔 때만 `rate_observations` 새 행을 생성한다. 따라서 `valid_from` 날짜별로 단순
-평균하면 그날 변경된 상품만 평균하게 되어 시장 평균으로 사용할 수 없다.
+Strategy Preview #21 / run `31672878890`:
 
-실제 구현은 다음 순서로 snapshot을 복원한다.
+- production R2 snapshot read-only restore 성공
+- DB 2,112,434,176 bytes
+- `rate_observations` 1,519,527
+- `products` 80,848
+- `product_variants` 329,309
+- `collection_runs` 76
+- generated canonical table 326,794 rows
+- 12개월 전략 대표상품 321개
+- historical trend 9 points
+- 고려저축은행 historical points 9/9
+- generated inline JavaScript `node --check` 성공
+- isolated `preview/strategy-dashboard` branch publish 성공
 
-1. 최근 63일의 저축은행 정상 수집(`success`, `partial`, `no_change`) 날짜를 찾는다.
-2. 같은 날짜에 여러 실행이 있으면 마지막 수집 시각을 snapshot 시각으로 사용한다.
-3. 각 snapshot에서 `valid_from <= snapshot < valid_to` 또는 `valid_to IS NULL`인 관측만 선택한다.
-4. 저축은행 / 정기예금 / 12개월 / 최고금리 non-null로 범위를 제한한다.
-5. 상품별 여러 variant 중 최고 `max_rate`를 대표값으로 사용한다.
-6. 상품 대표 최고금리의 평균과 시장 최고를 날짜별 point로 저장한다.
-7. 같은 snapshot에서 고려저축은행 상품 대표 최고금리 중 최대값을 우리회사 비교선으로 저장한다.
-8. 최근 최대 9개 snapshot을 chart에 표시한다.
+Generated preview commit: `064f68672269852554e10dc6aae4092577ccb2c4`
 
-반환 필드:
+`preview-source.json`은 source SHA `f86e3f4d...`와 `production:false`를 기록한다.
 
-- `date`
-- `snapshot_at`
-- `mean_max_rate`
-- `market_max_rate`
-- `our_company_max_rate`
-- `product_count`
+UI contract test commit: `ad6182074bfdf31ae65d1c820647978cfe247e1b`
 
-scope의 aggregation은 `product_representative_mean`으로 고정한다.
+PR CI #884 / run `31672981103`:
 
-현재 6/12/24/36개월 미니카드는 canonical `data/table.json`의 현행 수집값에서 계산한다. 기간별 historical
-line은 현재 우선순위인 12개월만 DB 이력으로 제공한다.
+- Ruff 성공
+- pytest **919 passed**
+- empty DB Alembic migration 성공
+- model/table parity **15 tables** 성공
 
-### 6. 최근 시장 변화
+### Vercel Preview 주의
 
-상세 변경 피드는 핵심 화면 비율을 방해하지 않도록 하단의 기본 접힘 보조영역으로 이동한다.
+Generated preview branch publish 자체는 성공했지만 Vercel은 commit `064f686...` 배포에 대해 `Deployment rate limited — retry in 24 hours.`를 반환했다. 따라서 기존 고정 Vercel Preview URL은 이전 배포 화면을 계속 보여줄 수 있으며, 이를 최신 UI runtime 검증으로 간주하지 않는다.
 
-- 최근 30일
-- 상품 변경 이벤트 수
-- 상승 / 하락 수
-- 영향 세부 관측 수
-- 동일 run + 동일 product + 동일 전후 최고금리 transition의 variant 동시 변경은 상품 이벤트 1건
-- 원본 `rate_observations` 수정/삭제 없음
+GitHub의 generated preview artifact와 Actions build/JS 검증은 최신 소스를 반영한 것으로 확인했다. Vercel 브라우저 배포는 rate limit 해소 후 재검증이 필요하다.
 
-## 반응형
+## 데이터 정확성
 
-### Desktop
-
-- KPI 4열
-- TOP5 / 지역 분포 2열
-- 트렌드 / 시뮬레이터 / 인사이트 3열
-- 기간별 금리 추이 full width
-- 981px 이상에서는 Desktop Readability Pass를 적용
-
-### Tablet
-
-- KPI 2열
-- 주요 2열 영역은 1열 전환
-- 분석 카드 2열 후 인사이트 full width
-
-### Mobile
-
-- KPI와 분석카드 1열
-- TOP5는 가로 table 대신 상품별 카드형 row
-- 지도 높이 축소
-- simulator controls / 결과를 세로 재배치
-- 기간별 chart 높이 축소
-- `viewport-fit=cover`, `prefers-reduced-motion` 적용
-
-## 데이터·운영 경계
-
-- DB schema 변경 없음
-- migration 변경 없음
-- collector 변경 없음
-- canonical `data/table.json` 재사용
-- historical trend / market changes는 기존 DB의 read-only 집계
-- 공식 release gate 기본 OFF 유지
-- Preview workflow만 `RATE_MONITOR_STRATEGY_DASHBOARD=1`
-- Preview는 production DB를 read-only 복원한 copy에 migration을 적용하고 isolated preview branch만 갱신
-- 공식 `rate-data`에는 승인 전 전략 화면을 발행하지 않음
+UI/canonical 계산 연동과 upstream source 정확성은 분리한다. FSB와 개별 저축은행 자체 공시 불일치는 Issue #98에서 교차검증 구조로 추적한다. 이 UI PR에서 원천 금리를 임의 overwrite하지 않는다.
 
 ## Acceptance
 
-- 4개 핵심 KPI가 현재 12개월 저축은행 정기예금 실제 비교상품에서 계산된다.
-- `핵심 시장 브리핑` 또는 `시장 선두 최고금리` 중복 카드가 존재하지 않는다.
-- KPI DOM id는 각각 한 번만 존재한다.
-- TOP5 / 지역 평균 / 우대조건 / 기간별 현재 평균이 canonical table에서 계산된다.
-- 981px 이상 데스크톱에서 시뮬레이터 주요 label/control은 10px 이상, 결과 핵심값은 19px 수준으로 표시된다.
-- 기간별 금리 추이 chart는 데스크톱에서 280px 높이와 9px 이상 axis/date label을 갖는다.
-- 가입기간 selector가 simulator의 실제 비교상품 universe를 변경한다.
+- KPI / TOP5 / 지도 / 시뮬레이터는 canonical `table.json` 기반이다.
+- 지도는 데스크톱 540px 표시영역을 확보한다.
+- 부산 클릭은 같은 SVG를 부산 지도 모드로 전환한다.
+- 부산 상세에서 canonical district 없는 구는 금리를 만들지 않는다.
+- 시뮬레이터에는 `우대조건 수` 입력이 없다.
+- 가입기간은 실제 해당 기간 비교상품 universe를 변경한다.
+- 고려저축은행 현재 최고와 제안금리를 비교한다.
 - 사용자 가정이 없으면 예상 수신액 숫자를 만들지 않는다.
-- 시장 인사이트의 숫자는 현재 비교표 또는 DB 시장변화 집계에서만 나온다.
-- historical line은 `valid_from`/`valid_to` 유효구간을 복원한 실제 snapshot에서 계산된다.
-- production DB Preview에서 historical point가 1개 이상 확인된다.
-- 동일 상품 variant 동시 변경은 시장 이벤트 한 건으로 표시된다.
-- 인라인 JavaScript가 `node --check`를 통과한다.
-- Ruff / pytest / empty DB migration CI가 통과한다.
+- inline JavaScript / Ruff / pytest / migration이 통과한다.
 - official release gate는 사용자 승인 전 OFF다.
-
-## 2026-08-13 검증 기록
-
-- production R2 snapshot read-only 복원: 2,104,946,688 bytes
-- 복원 DB: `rate_observations` 1,514,629행 / `collection_runs` 73회
-- 실제 Preview build: canonical table 326,794행
-- historical 12개월 금리 trend: 8개 snapshot point 생성
-- generated inline JavaScript: `node --check` 통과
-- 검증된 코드/테스트 상태: Ruff 통과 / pytest 912 passed / empty DB migration + 15 tables parity 통과
-- isolated preview branch publish 자체는 성공
-- Vercel의 최신 재배포는 애플리케이션 오류가 아니라 `build-rate-limit`로 거절된 이력이 있다. 최신 pass는 별도 CI/Preview에서 다시 검증한다.
