@@ -14,10 +14,11 @@ from __future__ import annotations
 import json
 import sqlite3
 from collections import Counter, defaultdict
-from datetime import datetime, timezone
+from collections.abc import Iterable
+from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 from rate_monitor.domain.normalization import normalize_product_name
 from rate_monitor.services.institution_matching import normalize_institution
@@ -130,7 +131,9 @@ def _prefer_representative(
     return current
 
 
-def _representatives(rows: list[dict[str, Any]]) -> dict[tuple[str, str, str, int | None], dict[str, Any]]:
+def _representatives(
+    rows: list[dict[str, Any]],
+) -> dict[tuple[str, str, str, int | None], dict[str, Any]]:
     result: dict[tuple[str, str, str, int | None], dict[str, Any]] = {}
     for row in rows:
         key = _product_key(row)
@@ -162,7 +165,9 @@ def _provenance(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _classify_pair(primary: dict[str, Any], secondary: dict[str, Any]) -> tuple[str, str | None]:
+def _classify_pair(
+    primary: dict[str, Any], secondary: dict[str, Any]
+) -> tuple[str, str | None]:
     left = _decimal(primary.get("max_rate"))
     right = _decimal(secondary.get("max_rate"))
     if left is None or right is None:
@@ -173,8 +178,10 @@ def _classify_pair(primary: dict[str, Any], secondary: dict[str, Any]) -> tuple[
     right_date = str(secondary.get("source_effective_at") or "")
     date_differs = bool(left_date and right_date and left_date != right_date)
     if delta == 0:
-        return ("agree_rate_date_diff" if date_differs else "agree"), _decimal_json(delta)
-    return ("rate_mismatch_date_diff" if date_differs else "rate_mismatch"), _decimal_json(delta)
+        status = "agree_rate_date_diff" if date_differs else "agree"
+        return status, _decimal_json(delta)
+    status = "rate_mismatch_date_diff" if date_differs else "rate_mismatch"
+    return status, _decimal_json(delta)
 
 
 def _source_only_record(
@@ -199,14 +206,22 @@ def _load_official_evidence(path: Path | None) -> list[dict[str, Any]]:
     records = payload.get("records") if isinstance(payload, dict) else payload
     if not isinstance(records, list):
         raise ValueError("official evidence JSON은 배열 또는 {records:[...]} 형식이어야 한다")
-    required = {"institution", "product", "product_type", "term_months", "captured_at", "url"}
+    required = {
+        "institution",
+        "product",
+        "product_type",
+        "term_months",
+        "captured_at",
+        "url",
+    }
     result: list[dict[str, Any]] = []
     for index, record in enumerate(records):
         if not isinstance(record, dict):
             raise ValueError(f"official evidence records[{index}]는 객체여야 한다")
         missing = sorted(required - set(record))
         if missing:
-            raise ValueError(f"official evidence records[{index}] 필수값 없음: {', '.join(missing)}")
+            detail = ", ".join(missing)
+            raise ValueError(f"official evidence records[{index}] 필수값 없음: {detail}")
         cleaned = dict(record)
         cleaned["term_months"] = int(cleaned["term_months"])
         cleaned["base_rate"] = _decimal_json(_decimal(cleaned.get("base_rate")))
@@ -327,13 +342,15 @@ def build_source_discrepancy_report(
         for name in ("rate_mismatch", "rate_mismatch_date_diff", "incomplete_rate")
     )
     return {
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "generated_at": datetime.now(UTC).isoformat(),
         "scope": {
             "sector": "savings_bank",
             "primary_source": primary_source,
             "secondary_source": secondary_source,
             "canonical_mutated": False,
-            "automatic_match_method": "normalized institution + exact normalized product + product type + term",
+            "automatic_match_method": (
+                "normalized institution + exact normalized product + product type + term"
+            ),
             "unmatched_policy": "do_not_guess",
         },
         "source_runs": runs,
