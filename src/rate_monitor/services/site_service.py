@@ -195,7 +195,8 @@ def adapt_strategy_korea_map_template(template_text: str) -> str:
         ('viewBox="0 0 760 560" role="img"', 'viewBox="0 0 800 759" role="img"'),
         (
             'setAttribute("viewBox","0 0 760 560")',
-            'setAttribute("viewBox","0 0 800 759")',
+            'setAttribute("viewBox","0 0 800 759");'
+            '$("geo-map").setAttribute("viewBox","120 0 500 759")',
         ),
         (
             '$("map-mode-label").textContent="전국 · 본점 소재지 기준"',
