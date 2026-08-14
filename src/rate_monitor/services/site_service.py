@@ -94,9 +94,10 @@ _STRATEGY_KOREA_SVG_OLD = (
 _STRATEGY_KOREA_SVG_NEW = (
     'function koreaSvg(){return`<defs><filter id="glow"><feGaussianBlur '
     'stdDeviation="4" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode '
-    'in="SourceGraphic"/></feMerge></filter></defs><image class="korea-map-image" '
+    'in="SourceGraphic"/></feMerge></filter></defs><g class="korea-map-zoom" '
+    'transform="translate(-25 -35) scale(1.08)"><image class="korea-map-image" '
     'href="assets/korea-sido.svg" x="0" y="0" width="800" height="759" '
-    'preserveAspectRatio="xMidYMid meet"/><g id="nodes"></g>`}'
+    'preserveAspectRatio="xMidYMid meet"/><g id="nodes"></g></g>`}'
 )
 
 # 화면이 받아 가는 금리표. 내보내기 파일과 이름이 겹치면 안 된다.
@@ -192,6 +193,18 @@ def adapt_strategy_korea_map_template(template_text: str) -> str:
     replacements = (
         (_STRATEGY_KOREA_COORDS_OLD, _STRATEGY_KOREA_COORDS_NEW),
         (_STRATEGY_KOREA_SVG_OLD, _STRATEGY_KOREA_SVG_NEW),
+        (
+            '.primary{grid-template-columns:minmax(0,1.45fr) minmax(360px,.75fr);'
+            'margin-bottom:12px;align-items:stretch}',
+            '.primary{grid-template-columns:minmax(0,1.45fr) minmax(360px,.75fr);'
+            'margin-bottom:12px;align-items:stretch}'
+            '.primary{grid-template-columns:minmax(0,1.08fr) minmax(460px,.92fr)}',
+        ),
+        (
+            '.node-rate{fill:#9bd5b8;font:800 11.5px var(--mono)}',
+            '.node-rate{fill:#9bd5b8;font:800 11.5px var(--mono)}'
+            '.node-label{font-size:13.5px}.node-rate{font-size:14px}',
+        ),
         ('viewBox="0 0 760 560" role="img"', 'viewBox="0 0 800 759" role="img"'),
         (
             'setAttribute("viewBox","0 0 760 560")',
