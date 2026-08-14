@@ -46,3 +46,7 @@ extend-exclude = ["src/rate_monitor/db/migrations/versions"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "W"]
+
+[tool.ruff.lint.per-file-ignores]
+# 전략 템플릿 원문을 exact-match하는 계약 문자열은 임의 줄바꿈하면 매칭값이 바뀐다.
+"src/rate_monitor/services/strategy_contract_service.py" = ["E501"]

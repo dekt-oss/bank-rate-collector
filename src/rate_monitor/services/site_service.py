@@ -45,6 +45,10 @@ from rate_monitor.services.dashboard_service import (
     DashboardBuildError,
     build_summary,
 )
+from rate_monitor.services.strategy_contract_service import (
+    adapt_strategy_template,
+    augment_strategy_table,
+)
 from rate_monitor.services.strategy_service import build_strategy_summary
 
 DEFAULT_TEMPLATE = Path("web/templates/site.html")
@@ -212,6 +216,9 @@ def build_site(
 
     summary = build_summary(db_path)
     page_data, table = split_summary(summary)
+    strategy_table_contract: dict[str, int] | None = None
+    if strategy_template_path is not None:
+        table, strategy_table_contract = augment_strategy_table(db_path, table)
 
     out_dir.mkdir(parents=True, exist_ok=True)
     # OFF로 되돌린 뒤 같은 out_dir을 재사용하는 경우 과거 실험 HTML이 남으면
@@ -285,10 +292,12 @@ def build_site(
         strategy_page_data = {
             **page_data,
             "strategy": build_strategy_summary(db_path),
+            "strategy_table_contract": strategy_table_contract,
         }
-        strategy_html = render(
-            strategy_template_path.read_text(encoding="utf-8"), strategy_page_data
+        strategy_template_text = adapt_strategy_template(
+            strategy_template_path.read_text(encoding="utf-8")
         )
+        strategy_html = render(strategy_template_text, strategy_page_data)
         _verify_strategy(strategy_html, strategy_page_data)
         strategy_path.write_text(strategy_html, encoding="utf-8")
         files.insert(1, STRATEGY_FILE)
