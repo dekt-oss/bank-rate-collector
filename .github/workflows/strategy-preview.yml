@@ -2,7 +2,7 @@ name: Strategy dashboard preview
 
 on:
   push:
-    branches: ["feat/strategy-dashboard-*", "agent/strategy-engine-data-contract"]
+    branches: ["feat/strategy-dashboard-*"]
     paths:
       - "web/templates/strategy.html"
       - "web/templates/site.html"
