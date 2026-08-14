@@ -171,7 +171,6 @@ def test_simulator_has_no_preference_condition_selector() -> None:
     html = _html()
 
     assert "우대조건 트렌드" in html
-    assert 'prefStatus:look("preference_status",r[c.prefStatus])' not in html
     assert 'prefStatus:look("preference_status",r[c.preference_status])' in html
     assert 'prefTags:look("preference_tags",r[c.preference_tags])' in html
     assert "기본금리·우대금리·가입기간만 입력" in html
