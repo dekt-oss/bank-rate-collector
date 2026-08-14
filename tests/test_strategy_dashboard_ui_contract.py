@@ -2,11 +2,14 @@
 
 from pathlib import Path
 
+from rate_monitor.services.site_service import adapt_strategy_korea_map_template
+
 TEMPLATE = Path("web/templates/strategy.html")
+KOREA_MAP = Path("web/assets/korea-sido.svg")
 
 
 def _html() -> str:
-    return TEMPLATE.read_text(encoding="utf-8")
+    return adapt_strategy_korea_map_template(TEMPLATE.read_text(encoding="utf-8"))
 
 
 def test_strategy_dashboard_has_one_kpi_row_without_legacy_briefing() -> None:
@@ -58,13 +61,14 @@ def test_strategy_dashboard_uses_product_representatives_for_market_metrics() ->
     assert "ratesStats(products12)" in html
 
 
-def test_strategy_dashboard_uses_large_map_and_real_busan_boundaries() -> None:
+def test_strategy_dashboard_uses_real_national_and_busan_boundaries() -> None:
     html = _html()
 
     assert ".primary{grid-template-columns:minmax(0,1.45fr)" in html
     assert ".mapcard{min-height:640px" in html
     assert ".mapstage{height:540px" in html
     assert 'id="geo-map"' in html
+    assert 'viewBox="0 0 800 759" role="img"' in html
     assert "지역별 상품 대표 최고금리의 평균" in html
     assert "function regionAverages(rows)" in html
     assert 'data-region="${esc(x.region)}"' in html
@@ -73,6 +77,10 @@ def test_strategy_dashboard_uses_large_map_and_real_busan_boundaries() -> None:
     assert "function showBusanMap()" in html
     assert "const BUSAN_BOUNDARY_SVG=" in html
     assert "const busanCoords=" not in html
+    assert 'href="assets/korea-sido.svg"' in html
+    assert 'const coords={"서울":[261,132],"인천":[210,158],"경기":[315,190]' in html
+    assert 'setAttribute("viewBox","0 0 800 759")' in html
+    assert "M335 31C383" not in html
     assert "부산을 누르면 부산 지도로 확대" in html
     assert "부산 구·군별 금리 지도" in html
     assert "부산 위치 개략도" not in html
@@ -91,11 +99,33 @@ def test_strategy_dashboard_uses_large_map_and_real_busan_boundaries() -> None:
         assert f'id="{district}"' in html
 
 
-def test_busan_boundary_keeps_source_and_license_notice() -> None:
+def test_national_boundary_asset_has_all_17_sido_and_separate_jeju() -> None:
+    map_svg = KOREA_MAP.read_text(encoding="utf-8")
+
+    assert 'viewBox="0 0 800 759"' in map_svg
+    assert 'id="전국_시도_경계"' in map_svg
+    assert map_svg.count("<path ") == 17
+    regions = (
+        "서울특별시", "부산광역시", "대구광역시", "인천광역시", "광주광역시",
+        "대전광역시", "울산광역시", "세종특별자치시", "경기도", "강원도",
+        "충청북도", "충청남도", "전라북도", "전라남도", "경상북도", "경상남도",
+        "제주특별자치도",
+    )
+    for region_name in regions:
+        assert f'id="{region_name}"' in map_svg
+    assert "SGIS 2020" in map_svg
+    assert "StatGarten" in map_svg
+    assert "preserve_topology=True" in map_svg
+
+
+def test_boundary_assets_keep_source_and_license_notice() -> None:
     notice = Path("docs/third-party/statgarten-maps.md").read_text(encoding="utf-8")
 
     assert "통계청 SGIS Open API" in notice
     assert "geometry 기준연도: **2020**" in notice
+    assert "svg/simple/전국_시도_경계.svg" in notice
+    assert "2a97985e7b0e0d3e0653ab37f55677a768b864f0" in notice
+    assert "2.5 SVG units" in notice
     assert "MIT License" in notice
     assert "Copyright (c) 2022 StatGarten" in notice
     assert "데이터 없음" in notice

@@ -55,8 +55,49 @@ DEFAULT_TEMPLATE = Path("web/templates/site.html")
 DEFAULT_STRATEGY_TEMPLATE = Path("web/templates/strategy.html")
 DEFAULT_OUT = Path("site-public")
 STRATEGY_FILE = "strategy.html"
+STRATEGY_MAP_ASSET = Path("web/assets/korea-sido.svg")
+STRATEGY_MAP_FILE = "assets/korea-sido.svg"
 STRATEGY_ENABLED_ENV = "RATE_MONITOR_STRATEGY_DASHBOARD"
 _TRUE_VALUES = frozenset({"1", "true", "yes", "on"})
+
+# 전국 지도는 template의 데이터/상호작용 계약과 실제 행정경계 geometry를 분리한다.
+# 원본 template의 임시 실루엣 marker가 바뀌면 조용히 부분 적용하지 않고 build를
+# 깨뜨린다. 이렇게 해야 부산 drill-down 같은 기존 동작을 건드리지 않은 채 전국
+# 표현 layer만 실제 시도 경계 asset으로 교체할 수 있다.
+_STRATEGY_KOREA_COORDS_OLD = (
+    'const coords={"서울":[328,84],"인천":[245,118],"경기":[345,139],'
+    '"강원":[470,110],"충북":[395,220],"충남":[270,237],"세종":[330,250],'
+    '"대전":[330,281],"경북":[495,286],"대구":[485,349],"울산":[547,390],'
+    '"부산":[515,438],"경남":[405,420],"전북":[300,348],"광주":[247,421],'
+    '"전남":[248,468],"제주":[280,528]};'
+)
+_STRATEGY_KOREA_COORDS_NEW = (
+    'const coords={"서울":[261,132],"인천":[210,158],"경기":[315,190],'
+    '"강원":[405,124],"충북":[353,260],"충남":[245,289],"세종":[290,280],'
+    '"대전":[305,320],"경북":[455,314],"대구":[436,385],"울산":[513,422],'
+    '"부산":[494,470],"경남":[402,449],"전북":[276,401],"광주":[241,472],'
+    '"전남":[255,520],"제주":[207,723]};'
+)
+_STRATEGY_KOREA_SVG_OLD = (
+    'function koreaSvg(){return`<defs><pattern id="dots" width="8" height="8" '
+    'patternUnits="userSpaceOnUse"><circle cx="2" cy="2" r="1.15" '
+    'fill="rgba(143,180,163,.22)"/></pattern><filter id="glow"><feGaussianBlur '
+    'stdDeviation="4" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode '
+    'in="SourceGraphic"/></feMerge></filter></defs><path class="land" '
+    'd="M335 31C383 41 428 72 455 119C478 159 469 200 491 243C513 286 509 331 '
+    '487 369C467 404 459 444 438 479C415 517 383 544 349 553C321 557 291 541 '
+    '270 514C247 486 215 456 201 417C188 379 203 338 188 300C174 264 183 222 '
+    '211 190C236 160 235 119 249 83C266 49 299 28 335 31Z"/><path class="island" '
+    'd="M228 520C254 505 294 506 315 525C297 544 251 550 218 538C218 531 222 '
+    '525 228 520Z"/><g id="nodes"></g>`}'
+)
+_STRATEGY_KOREA_SVG_NEW = (
+    'function koreaSvg(){return`<defs><filter id="glow"><feGaussianBlur '
+    'stdDeviation="4" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode '
+    'in="SourceGraphic"/></feMerge></filter></defs><image class="korea-map-image" '
+    'href="assets/korea-sido.svg" x="0" y="0" width="800" height="759" '
+    'preserveAspectRatio="xMidYMid meet"/><g id="nodes"></g>`}'
+)
 
 # 화면이 받아 가는 금리표. 내보내기 파일과 이름이 겹치면 안 된다.
 TABLE_FILE = "data/table.json"
@@ -141,6 +182,37 @@ def strategy_dashboard_enabled() -> bool:
     return os.getenv(STRATEGY_ENABLED_ENV, "").strip().lower() in _TRUE_VALUES
 
 
+def adapt_strategy_korea_map_template(template_text: str) -> str:
+    """전국 지도 표현만 실제 시도 경계 asset 좌표계로 교체한다.
+
+    부산 16개 구·군 SVG와 데이터 계산 함수는 이 변환 대상이 아니다. 각 marker는
+    정확히 한 번 존재해야 하며, template 구조가 달라졌는데 부분 치환되는 것을
+    막기 위해 없거나 중복되면 build를 실패시킨다.
+    """
+    replacements = (
+        (_STRATEGY_KOREA_COORDS_OLD, _STRATEGY_KOREA_COORDS_NEW),
+        (_STRATEGY_KOREA_SVG_OLD, _STRATEGY_KOREA_SVG_NEW),
+        ('viewBox="0 0 760 560" role="img"', 'viewBox="0 0 800 759" role="img"'),
+        (
+            'setAttribute("viewBox","0 0 760 560")',
+            'setAttribute("viewBox","0 0 800 759")',
+        ),
+        (
+            '$("map-mode-label").textContent="전국 · 본점 소재지 기준"',
+            '$("map-mode-label").textContent="전국 · SGIS 2020 시도 경계 · 본점 소재지 기준"',
+        ),
+    )
+    adapted = template_text
+    for old, new in replacements:
+        count = adapted.count(old)
+        if count != 1:
+            raise DashboardBuildError(
+                f"전국 지도 template marker 개수가 예상과 다르다: {count}"
+            )
+        adapted = adapted.replace(old, new, 1)
+    return adapted
+
+
 def split_summary(summary: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
     """요약을 화면용(가벼움)과 데이터용(무거움)으로 가른다.
 
@@ -221,11 +293,15 @@ def build_site(
         table, strategy_table_contract = augment_strategy_table(db_path, table)
 
     out_dir.mkdir(parents=True, exist_ok=True)
-    # OFF로 되돌린 뒤 같은 out_dir을 재사용하는 경우 과거 실험 HTML이 남으면
-    # release gate를 우회한다. 빌드 시작 시 반드시 stale strategy 파일을 지운다.
+    # OFF로 되돌린 뒤 같은 out_dir을 재사용하는 경우 과거 실험 산출물이 남으면
+    # release gate를 우회한다. 빌드 시작 시 strategy HTML/asset을 함께 지운다.
     strategy_path = out_dir / STRATEGY_FILE
-    if strategy_template_path is None and strategy_path.exists():
-        strategy_path.unlink()
+    strategy_map_path = out_dir / STRATEGY_MAP_FILE
+    if strategy_template_path is None:
+        if strategy_path.exists():
+            strategy_path.unlink()
+        if strategy_map_path.exists():
+            strategy_map_path.unlink()
 
     # 이전 실행이 남긴 내려받기 파일을 지운다. 압축 여부가 크기에 따라
     # 바뀌므로, 안 지우면 부산 때의 rates.json과 전국 때의 rates.json.gz가
@@ -297,10 +373,14 @@ def build_site(
         strategy_template_text = adapt_strategy_template(
             strategy_template_path.read_text(encoding="utf-8")
         )
+        strategy_template_text = adapt_strategy_korea_map_template(strategy_template_text)
         strategy_html = render(strategy_template_text, strategy_page_data)
         _verify_strategy(strategy_html, strategy_page_data)
         strategy_path.write_text(strategy_html, encoding="utf-8")
+        strategy_map_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(STRATEGY_MAP_ASSET, strategy_map_path)
         files.insert(1, STRATEGY_FILE)
+        files.insert(2, STRATEGY_MAP_FILE)
 
     # 검색엔진에게 이 사이트를 통째로 긁지 말라고 한다.
     #

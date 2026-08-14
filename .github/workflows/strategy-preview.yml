@@ -6,6 +6,7 @@ on:
     paths:
       - "web/templates/strategy.html"
       - "web/templates/site.html"
+      - "web/assets/**"
       - "src/rate_monitor/services/site_service.py"
       - "src/rate_monitor/services/strategy_service.py"
       - "src/rate_monitor/domain/preference_taxonomy.py"
@@ -18,7 +19,7 @@ on:
   workflow_dispatch:
 
 # 운영 rate-data writer와 완전히 분리한다. 이 workflow는 운영 DB를 읽기만 하고
-# preview/strategy-dashboard 브랜치만 갱신한다.
+# preview/strategy-dashboard와 고정 review용 strategy-preview 브랜치만 갱신한다.
 concurrency:
   group: strategy-dashboard-preview
   cancel-in-progress: true
@@ -90,6 +91,7 @@ jobs:
 
           test -s site-public/index.html
           test -s site-public/strategy.html
+          test -s site-public/assets/korea-sido.svg
           test -s site-public/data/table.json
           grep -q "전략 대시보드" site-public/index.html
           grep -q "수신상품 전략 대시보드" site-public/strategy.html
@@ -101,6 +103,8 @@ jobs:
           grep -q "고려저축은행" site-public/strategy.html
           grep -q "최근 시장 변화" site-public/strategy.html
           grep -q "시장 포지션" site-public/strategy.html
+          grep -q "assets/korea-sido.svg" site-public/strategy.html
+          grep -q 'id="제주특별자치도"' site-public/assets/korea-sido.svg
 
           python - <<'PY'
           import json
@@ -276,7 +280,8 @@ jobs:
 
           config = json.loads(Path("vercel.json").read_text(encoding="utf-8"))
           config["ignoreCommand"] = (
-              '[ "$VERCEL_GIT_COMMIT_REF" != "preview/strategy-dashboard" ]'
+              '[ "$VERCEL_GIT_COMMIT_REF" != "preview/strategy-dashboard" ] '
+              '&& [ "$VERCEL_GIT_COMMIT_REF" != "strategy-preview" ]'
           )
           Path("preview-vercel.json").write_text(
               json.dumps(config, ensure_ascii=False, indent=2) + "\n",
@@ -284,7 +289,7 @@ jobs:
           )
           PY
 
-      - name: Publish isolated preview branch
+      - name: Publish isolated preview branches
         run: |
           set -euo pipefail
           rm -rf preview-stage
@@ -308,3 +313,4 @@ jobs:
           git add -f site-public vercel.json
           git commit -q -m "preview: strategy dashboard from ${{ github.sha }}"
           git push --force origin HEAD:preview/strategy-dashboard
+          git push --force origin HEAD:strategy-preview
