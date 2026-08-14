@@ -83,7 +83,9 @@ def test_strategy_dashboard_uses_real_national_and_busan_boundaries() -> None:
     assert 'transform="translate(-25 -35) scale(1.08)"' in html
     assert 'const coords={"서울":[261,132],"인천":[210,158],"경기":[315,190]' in html
     assert 'setAttribute("viewBox","0 0 800 759")' in html
-    assert 'setAttribute("viewBox","120 0 500 759")' in html
+    assert 'setAttribute("viewBox","120 0 500 785")' in html
+    assert '$("map-mode-label").style.left="auto"' in html
+    assert '$("map-mode-label").style.right="16px"' in html
     assert "M335 31C383" not in html
     assert "부산을 누르면 부산 지도로 확대" in html
     assert "부산 구·군별 금리 지도" in html
