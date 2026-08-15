@@ -110,8 +110,8 @@ def test_release_gate_builds_strategy_page_without_replacing_index(
     assert "기간별 금리 추이" in strategy_html
     assert "시장 인사이트" in strategy_html
     assert 'href="assets/korea-sido.svg"' in strategy_html
-    assert 'viewBox="0 0 800 759" role="img"' in strategy_html
-    assert 'setAttribute("viewBox","0 0 800 759")' in strategy_html
+    assert 'viewBox="130 -5 450 675" role="img"' in strategy_html
+    assert 'setAttribute("viewBox","130 -5 450 675")' in strategy_html
     assert "M335 31C383" not in strategy_html
 
 
