@@ -76,7 +76,7 @@ _STRATEGY_KOREA_COORDS_NEW = (
     '"강원":[405,124],"충북":[353,260],"충남":[245,289],"세종":[290,280],'
     '"대전":[305,320],"경북":[455,314],"대구":[436,385],"울산":[513,422],'
     '"부산":[494,470],"경남":[402,449],"전북":[276,401],"광주":[241,472],'
-    '"전남":[255,520],"제주":[207,723]};'
+    '"전남":[255,520],"제주":[207,633]};'
 )
 _STRATEGY_KOREA_SVG_OLD = (
     'function koreaSvg(){return`<defs><pattern id="dots" width="8" height="8" '
@@ -94,10 +94,17 @@ _STRATEGY_KOREA_SVG_OLD = (
 _STRATEGY_KOREA_SVG_NEW = (
     'function koreaSvg(){return`<defs><filter id="glow"><feGaussianBlur '
     'stdDeviation="4" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode '
-    'in="SourceGraphic"/></feMerge></filter></defs><g class="korea-map-zoom" '
-    'transform="translate(-25 -50) scale(1.08)"><image class="korea-map-image" '
+    'in="SourceGraphic"/></feMerge></filter><clipPath id="korea-mainland-clip" '
+    'clipPathUnits="userSpaceOnUse"><rect x="0" y="0" width="800" height="670"/>'
+    '</clipPath><clipPath id="korea-jeju-clip" clipPathUnits="userSpaceOnUse">'
+    '<rect x="140" y="680" width="140" height="79"/></clipPath></defs>'
+    '<g class="korea-map-compact"><g clip-path="url(#korea-mainland-clip)">'
+    '<image class="korea-map-image" href="assets/korea-sido.svg" x="0" y="0" '
+    'width="800" height="759" preserveAspectRatio="xMidYMid meet"/></g>'
+    '<g class="korea-jeju-inset" transform="translate(0 -90)" '
+    'clip-path="url(#korea-jeju-clip)"><image class="korea-map-image" '
     'href="assets/korea-sido.svg" x="0" y="0" width="800" height="759" '
-    'preserveAspectRatio="xMidYMid meet"/><g id="nodes"></g></g>`}'
+    'preserveAspectRatio="xMidYMid meet"/></g><g id="nodes"></g></g>`}'
 )
 
 # 화면이 받아 가는 금리표. 내보내기 파일과 이름이 겹치면 안 된다.
@@ -198,24 +205,28 @@ def adapt_strategy_korea_map_template(template_text: str) -> str:
             'margin-bottom:12px;align-items:stretch}',
             '.primary{grid-template-columns:minmax(0,1.45fr) minmax(360px,.75fr);'
             'margin-bottom:12px;align-items:stretch}'
-            '.primary{grid-template-columns:minmax(0,1.08fr) minmax(460px,.92fr)}',
+            '.primary{grid-template-columns:minmax(360px,.64fr) minmax(620px,1.36fr)}',
         ),
+        ('.mapcard{min-height:640px', '.mapcard{min-height:590px'),
+        ('.mapstage{height:540px', '.mapstage{height:500px'),
         (
             '.node-rate{fill:#9bd5b8;font:800 11.5px var(--mono)}',
             '.node-rate{fill:#9bd5b8;font:800 11.5px var(--mono)}'
-            '.node-label{font-size:13.5px}.node-rate{font-size:14px}',
+            '.node-label{font-size:18px}.node-rate{font-size:19px}',
         ),
-        ('viewBox="0 0 760 560" role="img"', 'viewBox="0 0 800 759" role="img"'),
+        (
+            'viewBox="0 0 760 560" role="img"',
+            'viewBox="130 -5 450 675" role="img"',
+        ),
         (
             'setAttribute("viewBox","0 0 760 560")',
-            'setAttribute("viewBox","0 0 800 759");'
-            '$("geo-map").setAttribute("viewBox","120 0 500 759")',
+            'setAttribute("viewBox","130 -5 450 675")',
         ),
         (
             '$("map-mode-label").textContent="전국 · 본점 소재지 기준"',
             '$("map-mode-label").style.left="auto";'
             '$("map-mode-label").style.right="16px";'
-            '$("map-mode-label").textContent="전국 · SGIS 2020 시도 경계 · 본점 소재지 기준"',
+            '$("map-mode-label").textContent="전국 · SGIS 2020 시도 경계 · 제주 inset · 본점 소재지 기준"',
         ),
     )
     adapted = template_text
