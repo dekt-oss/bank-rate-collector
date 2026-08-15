@@ -95,7 +95,7 @@ _STRATEGY_KOREA_SVG_NEW = (
     'function koreaSvg(){return`<defs><filter id="glow"><feGaussianBlur '
     'stdDeviation="4" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode '
     'in="SourceGraphic"/></feMerge></filter></defs><g class="korea-map-zoom" '
-    'transform="translate(-25 -35) scale(1.08)"><image class="korea-map-image" '
+    'transform="translate(-25 -50) scale(1.08)"><image class="korea-map-image" '
     'href="assets/korea-sido.svg" x="0" y="0" width="800" height="759" '
     'preserveAspectRatio="xMidYMid meet"/><g id="nodes"></g></g>`}'
 )
@@ -209,7 +209,7 @@ def adapt_strategy_korea_map_template(template_text: str) -> str:
         (
             'setAttribute("viewBox","0 0 760 560")',
             'setAttribute("viewBox","0 0 800 759");'
-            '$("geo-map").setAttribute("viewBox","120 0 500 785")',
+            '$("geo-map").setAttribute("viewBox","120 0 500 759")',
         ),
         (
             '$("map-mode-label").textContent="전국 · 본점 소재지 기준"',
