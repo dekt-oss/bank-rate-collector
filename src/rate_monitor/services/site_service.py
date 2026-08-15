@@ -226,7 +226,8 @@ def adapt_strategy_korea_map_template(template_text: str) -> str:
             '$("map-mode-label").textContent="전국 · 본점 소재지 기준"',
             '$("map-mode-label").style.left="auto";'
             '$("map-mode-label").style.right="16px";'
-            '$("map-mode-label").textContent="전국 · SGIS 2020 시도 경계 · 제주 inset · 본점 소재지 기준"',
+            '$("map-mode-label").textContent="전국 · SGIS 2020 시도 경계 · '
+            '제주 inset · 본점 소재지 기준"',
         ),
     )
     adapted = template_text
