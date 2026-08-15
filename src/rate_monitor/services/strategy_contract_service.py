@@ -4,8 +4,9 @@
 canonical ``product_id``를 table.json에 덧붙인다. 전략 화면은 이 stable id로
 상품 대표값을 묶는다.
 
-전략 템플릿은 큰 단일 HTML이라 데이터 계약 변경을 작은 어댑터로 명시적으로
-적용한다. 기대한 원문이 사라지면 조용히 건너뛰지 않고 빌드를 실패시킨다.
+전략 템플릿은 큰 단일 HTML이라 데이터 계약과 전략 화면 전용 표현 변경을 작은
+어댑터로 명시적으로 적용한다. 기대한 원문이 사라지면 조용히 건너뛰지 않고 빌드를
+실패시킨다.
 """
 
 import sqlite3
@@ -154,7 +155,7 @@ def _replace_once(text: str, old: str, new: str, label: str) -> str:
 
 
 def adapt_strategy_template(template_text: str) -> str:
-    """stable product id와 우대조건 원천 기준일 계약을 전략 JS에 적용한다."""
+    """stable product id, 우대조건 기준일, 부산 포커스 UI 계약을 적용한다."""
     text = _replace_once(
         template_text,
         'product:look("product",r[c.product]),type:look("product_type",r[c.product_type])',
@@ -196,5 +197,45 @@ def adapt_strategy_template(template_text: str) -> str:
         '조건 기재 상품 중 ${topPref.ratio.toFixed(0)}%에서 확인 · 최신 공시기준일 ${formatDate(fresh)}',
         '조건 기재 상품 중 ${topPref.ratio.toFixed(0)}%에서 확인 · 원천 기준일 ${formatDate(topPref.latestAt)}',
         "insight.preference_reference_date",
+    )
+    text = _replace_once(
+        text,
+        '.district-rate.top{fill:var(--gold)}',
+        '.district-rate.top{fill:var(--gold)}'
+        '@media(min-width:1021px){'
+        '.primary.busan-focus{grid-template-columns:minmax(720px,1.45fr) '
+        'minmax(420px,.55fr)}'
+        '.primary.busan-focus .mapcard{min-height:650px}'
+        '.primary.busan-focus .mapstage{height:560px}'
+        '}'
+        '.primary.busan-focus .district-name{font-size:15px;stroke-width:4px}'
+        '.primary.busan-focus .district-rate{font-size:14px;stroke-width:4px}',
+        "busan_focus.css",
+    )
+    text = _replace_once(
+        text,
+        'function renderKoreaMap(){\n  mapMode="korea";',
+        'function renderKoreaMap(){\n  mapMode="korea";'
+        'document.querySelector(".primary")?.classList.remove("busan-focus");',
+        "busan_focus.reset",
+    )
+    text = _replace_once(
+        text,
+        'function showBusanMap(){\n  mapMode="busan";',
+        'function showBusanMap(){\n  mapMode="busan";'
+        'document.querySelector(".primary")?.classList.add("busan-focus");',
+        "busan_focus.open",
+    )
+    text = _replace_once(
+        text,
+        'nameText.setAttribute("y",(y-(has?5:0)).toFixed(1));',
+        'nameText.setAttribute("y",(y-(has?7:0)).toFixed(1));',
+        "busan_focus.name_spacing",
+    )
+    text = _replace_once(
+        text,
+        'rateText.setAttribute("y",(y+10).toFixed(1));',
+        'rateText.setAttribute("y",(y+12).toFixed(1));',
+        "busan_focus.rate_spacing",
     )
     return text
