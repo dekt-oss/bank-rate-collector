@@ -65,12 +65,12 @@ def test_strategy_dashboard_uses_real_national_and_busan_boundaries() -> None:
     html = _html()
 
     assert ".primary{grid-template-columns:minmax(0,1.45fr)" in html
-    assert ".primary{grid-template-columns:minmax(0,1.08fr) minmax(460px,.92fr)}" in html
-    assert ".mapcard{min-height:640px" in html
-    assert ".mapstage{height:540px" in html
-    assert ".node-label{font-size:13.5px}.node-rate{font-size:14px}" in html
+    assert ".primary{grid-template-columns:minmax(360px,.64fr) minmax(620px,1.36fr)}" in html
+    assert ".mapcard{min-height:590px" in html
+    assert ".mapstage{height:500px" in html
+    assert ".node-label{font-size:18px}.node-rate{font-size:19px}" in html
     assert 'id="geo-map"' in html
-    assert 'viewBox="0 0 800 759" role="img"' in html
+    assert 'viewBox="130 -5 450 675" role="img"' in html
     assert "지역별 상품 대표 최고금리의 평균" in html
     assert "function regionAverages(rows)" in html
     assert 'data-region="${esc(x.region)}"' in html
@@ -80,12 +80,15 @@ def test_strategy_dashboard_uses_real_national_and_busan_boundaries() -> None:
     assert "const BUSAN_BOUNDARY_SVG=" in html
     assert "const busanCoords=" not in html
     assert 'href="assets/korea-sido.svg"' in html
-    assert 'transform="translate(-25 -35) scale(1.08)"' in html
+    assert 'class="korea-map-compact"' in html
+    assert 'id="korea-jeju-clip"' in html
+    assert 'transform="translate(0 -90)"' in html
     assert 'const coords={"서울":[261,132],"인천":[210,158],"경기":[315,190]' in html
-    assert 'setAttribute("viewBox","0 0 800 759")' in html
-    assert 'setAttribute("viewBox","120 0 500 785")' in html
+    assert '"제주":[207,633]' in html
+    assert 'setAttribute("viewBox","130 -5 450 675")' in html
     assert '$("map-mode-label").style.left="auto"' in html
     assert '$("map-mode-label").style.right="16px"' in html
+    assert "제주 inset" in html
     assert "M335 31C383" not in html
     assert "부산을 누르면 부산 지도로 확대" in html
     assert "부산 구·군별 금리 지도" in html
