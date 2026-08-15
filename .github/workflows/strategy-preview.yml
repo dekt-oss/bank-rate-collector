@@ -8,7 +8,6 @@ on:
       - "web/templates/site.html"
       - "web/assets/**"
       - "src/rate_monitor/services/site_service.py"
-      - "src/rate_monitor/services/strategy_contract_service.py"
       - "src/rate_monitor/services/strategy_service.py"
       - "src/rate_monitor/domain/preference_taxonomy.py"
       - "config/**"
@@ -59,84 +58,259 @@ jobs:
           BACKEND=$(uv run python -c "
           from pathlib import Path
           from rate_monitor.services.storage_service import load_backend
-          print(load_backend(Path('config/sources.yaml')).backend)
+          print(load_backend(Path('config/storage.yaml')).backend.value)
           ")
-          if [ "$BACKEND" = "local" ]; then
-            git fetch --depth=1 origin rate-data
-            git show origin/rate-data:rates.sqlite3 > work/rates.sqlite3
+          echo "preview source backend=$BACKEND"
+
+          if [ "$BACKEND" = "r2" ]; then
+            uv run rate-monitor storage restore --dest work/rate_monitor.sqlite3
           else
-            uv run rate-monitor storage-restore --config config/sources.yaml --db work/rates.sqlite3
+            git fetch origin rate-data --depth=1
+            git checkout origin/rate-data -- latest/rate_monitor.sqlite3.gz
+            gunzip -c latest/rate_monitor.sqlite3.gz > work/rate_monitor.sqlite3
+            rm -rf latest
           fi
 
+          test -s work/rate_monitor.sqlite3
+          echo "restored bytes=$(stat -c%s work/rate_monitor.sqlite3)"
+
       - name: Apply migrations to preview copy
-        run: uv run alembic -c alembic.ini upgrade head
         env:
-          RATE_MONITOR_DB: work/rates.sqlite3
+          RATE_MONITOR_DB_URL: sqlite+pysqlite:///${{ github.workspace }}/work/rate_monitor.sqlite3
+        run: uv run alembic upgrade head
 
       - name: Build strategy preview site
+        env:
+          RATE_MONITOR_STRATEGY_DASHBOARD: "1"
         run: |
-          RATE_MONITOR_STRATEGY_DASHBOARD=1 uv run rate-monitor build-site \
-            --db work/rates.sqlite3 \
+          set -euo pipefail
+          uv run rate-monitor build-site \
+            --db work/rate_monitor.sqlite3 \
+            --template web/templates/site.html \
             --out site-public
 
-      - name: Audit strategy canonical inputs
-        run: uv run python scripts/audit_strategy_inputs.py --site-dir site-public
+          test -s site-public/index.html
+          test -s site-public/strategy.html
+          test -s site-public/assets/korea-sido.svg
+          test -s site-public/data/table.json
+          grep -q "전략 대시보드" site-public/index.html
+          grep -q "수신상품 전략 대시보드" site-public/strategy.html
+          grep -q "경쟁사 TOP 5" site-public/strategy.html
+          grep -q "우대조건 트렌드" site-public/strategy.html
+          grep -q "신상품 기획 시뮬레이터" site-public/strategy.html
+          grep -q "시장 인사이트" site-public/strategy.html
+          grep -q "기간별 금리 추이" site-public/strategy.html
+          grep -q "고려저축은행" site-public/strategy.html
+          grep -q "최근 시장 변화" site-public/strategy.html
+          grep -q "시장 포지션" site-public/strategy.html
+          grep -q "assets/korea-sido.svg" site-public/strategy.html
+          grep -q 'id="제주특별자치도"' site-public/assets/korea-sido.svg
 
-      - name: Verify strategy inline JavaScript
-        run: |
           python - <<'PY'
-          import re
+          import json
           from pathlib import Path
 
           html = Path("site-public/strategy.html").read_text(encoding="utf-8")
-          scripts = re.findall(r"<script(?: [^>]*)?>(.*?)</script>", html, re.S)
-          inline = [script for script in scripts if script.strip()]
-          if not inline:
-              raise SystemExit("strategy inline JavaScript not found")
-          Path("/tmp/strategy-inline.js").write_text(inline[-1], encoding="utf-8")
+          marker = '<script id="rate-monitor-data" type="application/json">'
+          start = html.index(marker) + len(marker)
+          end = html.index("</script>", start)
+          payload = json.loads(html[start:end].replace("<\\/", "</"))
+          trend = payload["strategy"]["rate_trend"]
+          assert trend["window_days"] == 63
+          assert trend["scope"]["aggregation"] == "product_representative_mean"
+          assert trend["scope"]["our_institution"] == "고려저축은행"
+          assert trend["points"]
+          assert all(point["market_max_rate"] >= point["mean_max_rate"] for point in trend["points"])
+          own_points = [
+              point for point in trend["points"]
+              if point.get("our_company_max_rate") is not None
+          ]
+          assert own_points, "운영 DB 이력에서 고려저축은행 12개월 최고금리 추이를 찾지 못함"
+          print(
+              f"preview rate trend points={len(trend['points'])} "
+              f"our_company_points={len(own_points)}"
+          )
           PY
-          node --check /tmp/strategy-inline.js
+
+      - name: Audit strategy canonical inputs
+        run: |
+          python - <<'PY'
+          import json
+          from collections import Counter
+          from pathlib import Path
+
+          packed = json.loads(Path("site-public/data/table.json").read_text(encoding="utf-8"))
+          columns = {name: i for i, name in enumerate(packed["columns"])}
+          lookups = packed.get("lookups") or {}
+
+          def value(row, name):
+              raw = row[columns[name]]
+              if name in lookups and raw is not None:
+                  return lookups[name][raw]
+              return raw
+
+          current = []
+          for row in packed["rows"]:
+              if value(row, "sector") != "savings_bank":
+                  continue
+              if value(row, "product_type") != "term_deposit":
+                  continue
+              if value(row, "term_months") != 12:
+                  continue
+              max_rate = value(row, "max_rate")
+              if max_rate is None:
+                  continue
+              current.append({
+                  "institution": value(row, "institution"),
+                  "product": value(row, "product"),
+                  "base_rate": value(row, "base_rate"),
+                  "max_rate": float(max_rate),
+                  "source_id": value(row, "source_id"),
+                  "source_effective_at": value(row, "source_effective_at"),
+                  "region": value(row, "region"),
+                  "district": value(row, "district"),
+                  "preference_status": value(row, "preference_status"),
+                  "preference_tags": value(row, "preference_tags") or "",
+              })
+
+          # 전략 화면과 같은 기관+상품+기간 대표 최고금리. 같은 최고값이면
+          # 공시일이 더 최근인 행을 감사 출력에 사용한다.
+          products = {}
+          for item in current:
+              key = (item["institution"], item["product"])
+              old = products.get(key)
+              freshness = item["source_effective_at"] or ""
+              old_freshness = (old or {}).get("source_effective_at") or ""
+              if old is None or item["max_rate"] > old["max_rate"] or (
+                  item["max_rate"] == old["max_rate"] and freshness > old_freshness
+              ):
+                  products[key] = item
+
+          ranked = sorted(
+              products.values(),
+              key=lambda x: (-x["max_rate"], x["institution"], x["product"]),
+          )
+          print("strategy canonical 12m product_count=", len(ranked))
+          print("strategy canonical TOP10")
+          for i, item in enumerate(ranked[:10], 1):
+              print(
+                  i,
+                  item["institution"],
+                  item["product"],
+                  f"base={item['base_rate']}",
+                  f"max={item['max_rate']}",
+                  f"source={item['source_id']}",
+                  f"effective={item['source_effective_at']}",
+              )
+
+          for target in ("대백저축은행", "키움예스저축은행", "고려저축은행"):
+              rows = [x for x in ranked if x["institution"] == target]
+              print(f"audit institution={target} products={len(rows)}")
+              for item in rows[:12]:
+                  print(
+                      " ", item["product"], f"max={item['max_rate']}",
+                      f"source={item['source_id']}",
+                      f"effective={item['source_effective_at']}",
+                  )
+
+          busan = [x for x in ranked if x["region"] == "부산" and x["district"]]
+          print("busan district rows=", len(busan))
+          print("busan districts=", sorted(Counter(x["district"] for x in busan).items()))
+
+          known_conditions = []
+          for item in ranked:
+              if item["preference_status"] != "present":
+                  continue
+              tags = {x for x in item["preference_tags"].split() if x}
+              known_conditions.append(len(tags))
+          print(
+              "condition benchmark products=", len(known_conditions),
+              "distribution=", sorted(Counter(known_conditions).items()),
+          )
+          PY
+
+      - name: Verify strategy inline JavaScript
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          html = Path("site-public/strategy.html").read_text(encoding="utf-8")
+          data_marker = '<script id="rate-monitor-data" type="application/json">'
+          data_start = html.index(data_marker)
+          data_end = html.index("</script>", data_start)
+          script_start = html.index("<script>", data_end) + len("<script>")
+          script_end = html.index("</script>", script_start)
+          Path("work/strategy-inline.js").write_text(
+              html[script_start:script_end],
+              encoding="utf-8",
+          )
+          PY
+          node --check work/strategy-inline.js
 
       - name: Stamp preview source
+        env:
+          SOURCE_SHA: ${{ github.sha }}
+          SOURCE_REF: ${{ github.ref_name }}
         run: |
-          printf '%s\n' "$GITHUB_SHA" > site-public/PREVIEW_SOURCE_SHA.txt
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          Path("site-public/preview-source.json").write_text(
+              json.dumps(
+                  {
+                      "source_ref": os.environ["SOURCE_REF"],
+                      "source_sha": os.environ["SOURCE_SHA"],
+                      "production": False,
+                  },
+                  ensure_ascii=False,
+                  indent=2,
+              ) + "\n",
+              encoding="utf-8",
+          )
+          PY
 
       - name: Prepare preview-only Vercel config
         run: |
-          cat > site-public/vercel.json <<'JSON'
-          {
-            "cleanUrls": true,
-            "trailingSlash": false,
-            "headers": [
-              {
-                "source": "/(.*)",
-                "headers": [
-                  {"key": "X-Robots-Tag", "value": "noindex, nofollow"},
-                  {"key": "Cache-Control", "value": "public, max-age=0, must-revalidate"}
-                ]
-              }
-            ]
-          }
-          JSON
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          config = json.loads(Path("vercel.json").read_text(encoding="utf-8"))
+          config["ignoreCommand"] = (
+              '[ "$VERCEL_GIT_COMMIT_REF" != "preview/strategy-dashboard" ] '
+              '&& [ "$VERCEL_GIT_COMMIT_REF" != "strategy-preview" ]'
+          )
+          Path("preview-vercel.json").write_text(
+              json.dumps(config, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          PY
 
       - name: Publish isolated preview branches
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          PUBLISH_DIR="$RUNNER_TEMP/strategy-publish"
-          rm -rf "$PUBLISH_DIR"
-          mkdir -p "$PUBLISH_DIR"
-          cp -a site-public/. "$PUBLISH_DIR/"
-          git fetch origin preview/strategy-dashboard strategy-preview || true
-          rm -rf site-public
-          git checkout --orphan preview/strategy-dashboard-next
-          git rm -rf .
-          cp -a "$PUBLISH_DIR/." .
-          git add -A
-          git -c user.name="github-actions[bot]" \
-              -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
-              commit -m "preview: strategy dashboard ${GITHUB_SHA}"
-          PREVIEW_SHA=$(git rev-parse HEAD)
-          git push --force origin "$PREVIEW_SHA:refs/heads/preview/strategy-dashboard"
-          git push --force origin "$PREVIEW_SHA:refs/heads/strategy-preview"
+          rm -rf preview-stage
+          mkdir preview-stage
+          cp -R site-public preview-stage/site-public
+          cp preview-vercel.json preview-stage/vercel.json
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -q --detach
+          git branch -D strategy-preview-new 2>/dev/null || true
+          git checkout -q --orphan strategy-preview-new
+          git rm -rf . >/dev/null 2>&1 || true
+          find . -maxdepth 1 -mindepth 1 \
+            -not -name .git -not -name preview-stage \
+            -exec rm -rf {} +
+          cp -R preview-stage/site-public .
+          cp preview-stage/vercel.json .
+          rm -rf preview-stage
+
+          git add -f site-public vercel.json
+          git commit -q -m "preview: strategy dashboard from ${{ github.sha }}"
+          git push --force origin HEAD:preview/strategy-dashboard
+          git push --force origin HEAD:strategy-preview
