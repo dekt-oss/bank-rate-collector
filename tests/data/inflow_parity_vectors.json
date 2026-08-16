@@ -1,0 +1,270 @@
+{
+  "vectors": [
+    {
+      "name": "zero_change_12m",
+      "inputs": {
+        "baseline_new_money": 100.0,
+        "maturity_amount": 200.0,
+        "current_rollover_rate_pct": 60.0,
+        "current_own_rate": 3.5,
+        "proposed_rate": 3.5,
+        "market_top10_rate": 3.6,
+        "term_months": 12
+      },
+      "expected": {
+        "scenarios": {
+          "low": {
+            "predicted_new_money": 100.0,
+            "predicted_rollover_rate_pct": 60.0,
+            "predicted_total": 220.0,
+            "surface_interest_delta": 0.0
+          },
+          "base": {
+            "predicted_new_money": 100.0,
+            "predicted_rollover_rate_pct": 60.0,
+            "predicted_total": 220.0,
+            "surface_interest_delta": 0.0
+          },
+          "high": {
+            "predicted_new_money": 100.0,
+            "predicted_rollover_rate_pct": 60.0,
+            "predicted_total": 220.0,
+            "surface_interest_delta": 0.0
+          }
+        },
+        "predicted_total_range": {
+          "min": 220.0,
+          "max": 220.0
+        }
+      }
+    },
+    {
+      "name": "zero_rollover_0pct_6m",
+      "inputs": {
+        "baseline_new_money": 80.0,
+        "maturity_amount": 150.0,
+        "current_rollover_rate_pct": 0.0,
+        "current_own_rate": 3.4,
+        "proposed_rate": 3.4,
+        "market_top10_rate": 3.55,
+        "term_months": 6
+      },
+      "expected": {
+        "scenarios": {
+          "low": {
+            "predicted_new_money": 80.0,
+            "predicted_rollover_rate_pct": 0.0,
+            "predicted_total": 80.0,
+            "surface_interest_delta": 0.0
+          },
+          "base": {
+            "predicted_new_money": 80.0,
+            "predicted_rollover_rate_pct": 0.0,
+            "predicted_total": 80.0,
+            "surface_interest_delta": 0.0
+          },
+          "high": {
+            "predicted_new_money": 80.0,
+            "predicted_rollover_rate_pct": 0.0,
+            "predicted_total": 80.0,
+            "surface_interest_delta": 0.0
+          }
+        },
+        "predicted_total_range": {
+          "min": 80.0,
+          "max": 80.0
+        }
+      }
+    },
+    {
+      "name": "zero_rollover_100pct_36m",
+      "inputs": {
+        "baseline_new_money": 80.0,
+        "maturity_amount": 150.0,
+        "current_rollover_rate_pct": 100.0,
+        "current_own_rate": 3.4,
+        "proposed_rate": 3.4,
+        "market_top10_rate": 3.55,
+        "term_months": 36
+      },
+      "expected": {
+        "scenarios": {
+          "low": {
+            "predicted_new_money": 80.0,
+            "predicted_rollover_rate_pct": 100.0,
+            "predicted_total": 230.0,
+            "surface_interest_delta": 0.0
+          },
+          "base": {
+            "predicted_new_money": 80.0,
+            "predicted_rollover_rate_pct": 100.0,
+            "predicted_total": 230.0,
+            "surface_interest_delta": 0.0
+          },
+          "high": {
+            "predicted_new_money": 80.0,
+            "predicted_rollover_rate_pct": 100.0,
+            "predicted_total": 230.0,
+            "surface_interest_delta": 0.0
+          }
+        },
+        "predicted_total_range": {
+          "min": 230.0,
+          "max": 230.0
+        }
+      }
+    },
+    {
+      "name": "plus_10bp_12m",
+      "inputs": {
+        "baseline_new_money": 100.0,
+        "maturity_amount": 200.0,
+        "current_rollover_rate_pct": 60.0,
+        "current_own_rate": 3.5,
+        "proposed_rate": 3.6,
+        "market_top10_rate": 3.6,
+        "term_months": 12
+      },
+      "expected": {
+        "scenarios": {
+          "low": {
+            "predicted_new_money": 102.02013400267558,
+            "predicted_rollover_rate_pct": 60.956048336939794,
+            "predicted_total": 223.93223067655515,
+            "surface_interest_delta": 0.36156030435598563
+          },
+          "base": {
+            "predicted_new_money": 105.12710963760242,
+            "predicted_rollover_rate_pct": 61.90375473455115,
+            "predicted_total": 228.9346191067047,
+            "surface_interest_delta": 0.5416462878413695
+          },
+          "high": {
+            "predicted_new_money": 110.51709180756477,
+            "predicted_rollover_rate_pct": 63.77161154162534,
+            "predicted_total": 238.06031489081545,
+            "surface_interest_delta": 0.8701713360693573
+          }
+        },
+        "predicted_total_range": {
+          "min": 223.93223067655515,
+          "max": 238.06031489081545
+        }
+      }
+    },
+    {
+      "name": "minus_10bp_6m",
+      "inputs": {
+        "baseline_new_money": 120.0,
+        "maturity_amount": 180.0,
+        "current_rollover_rate_pct": 45.0,
+        "current_own_rate": 3.6,
+        "proposed_rate": 3.5,
+        "market_top10_rate": 3.55,
+        "term_months": 6
+      },
+      "expected": {
+        "scenarios": {
+          "low": {
+            "predicted_new_money": 117.62384079681063,
+            "predicted_rollover_rate_pct": 44.012107500486586,
+            "predicted_total": 196.8456342976865,
+            "surface_interest_delta": -0.17320139979048665
+          },
+          "base": {
+            "predicted_new_money": 114.14753094008569,
+            "predicted_rollover_rate_pct": 43.02893538082566,
+            "predicted_total": 191.59961462557186,
+            "surface_interest_delta": -0.2650067440524926
+          },
+          "high": {
+            "predicted_new_money": 108.58049016431514,
+            "predicted_rollover_rate_pct": 41.07972191840947,
+            "predicted_total": 182.52398961745217,
+            "surface_interest_delta": -0.4238301816945871
+          }
+        },
+        "predicted_total_range": {
+          "min": 182.52398961745217,
+          "max": 196.8456342976865
+        }
+      }
+    },
+    {
+      "name": "rate_cut_20bp_36m",
+      "inputs": {
+        "baseline_new_money": 75.0,
+        "maturity_amount": 300.0,
+        "current_rollover_rate_pct": 70.0,
+        "current_own_rate": 3.7,
+        "proposed_rate": 3.5,
+        "market_top10_rate": 3.6,
+        "term_months": 36
+      },
+      "expected": {
+        "scenarios": {
+          "low": {
+            "predicted_new_money": 72.05920793642424,
+            "predicted_rollover_rate_pct": 68.2936077020653,
+            "predicted_total": 276.94003104262015,
+            "surface_interest_delta": -2.556296740524882
+          },
+          "base": {
+            "predicted_new_money": 67.86280635269696,
+            "predicted_rollover_rate_pct": 66.53655530107471,
+            "predicted_total": 267.4724722559211,
+            "surface_interest_delta": -3.5503904131282837
+          },
+          "high": {
+            "predicted_new_money": 61.40480648084863,
+            "predicted_rollover_rate_pct": 62.88526606030194,
+            "predicted_total": 250.06060466175444,
+            "surface_interest_delta": -5.378636510515783
+          }
+        },
+        "predicted_total_range": {
+          "min": 250.06060466175444,
+          "max": 276.94003104262015
+        }
+      }
+    },
+    {
+      "name": "extreme_positive_clamp_12m",
+      "inputs": {
+        "baseline_new_money": 50.0,
+        "maturity_amount": 100.0,
+        "current_rollover_rate_pct": 50.0,
+        "current_own_rate": 3.0,
+        "proposed_rate": 10.0,
+        "market_top10_rate": 3.6,
+        "term_months": 12
+      },
+      "expected": {
+        "scenarios": {
+          "low": {
+            "predicted_new_money": 202.75999834223376,
+            "predicted_rollover_rate_pct": 94.26758241011312,
+            "predicted_total": 297.02758075234686,
+            "surface_interest_delta": 26.702758075234687
+          },
+          "base": {
+            "predicted_new_money": 224.08445351690324,
+            "predicted_rollover_rate_pct": 99.6315760100564,
+            "predicted_total": 323.71602952695963,
+            "surface_interest_delta": 29.37160295269596
+          },
+          "high": {
+            "predicted_new_money": 224.08445351690324,
+            "predicted_rollover_rate_pct": 99.99863259909154,
+            "predicted_total": 324.0830861159948,
+            "surface_interest_delta": 29.40830861159948
+          }
+        },
+        "predicted_total_range": {
+          "min": 297.02758075234686,
+          "max": 324.0830861159948
+        }
+      }
+    }
+  ]
+}
