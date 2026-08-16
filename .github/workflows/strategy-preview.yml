@@ -9,6 +9,7 @@ on:
       - "web/assets/**"
       - "src/rate_monitor/services/site_service.py"
       - "src/rate_monitor/services/strategy_contract_service.py"
+      - "src/rate_monitor/services/strategy_refinement_service.py"
       - "src/rate_monitor/services/strategy_service.py"
       - "src/rate_monitor/services/inflow_prediction_service.py"
       - "src/rate_monitor/domain/preference_taxonomy.py"
@@ -100,9 +101,16 @@ jobs:
           grep -q "경쟁사 TOP 5" site-public/strategy.html
           grep -q "우대조건 트렌드" site-public/strategy.html
           grep -q "신상품 기획 시뮬레이터" site-public/strategy.html
-          grep -q "PREDICT v1" site-public/strategy.html
+          grep -q 'id="prediction-toggle"' site-public/strategy.html
+          grep -q 'id="prediction-panel"' site-public/strategy.html
+          grep -q "예측엔진 보기" site-public/strategy.html
           grep -q "수신금액 예측 엔진" site-public/strategy.html
           grep -q "내부 실적 미보정" site-public/strategy.html
+          grep -q "Fed FEDS 2013" site-public/strategy.html
+          grep -q "NY Fed 2025" site-public/strategy.html
+          grep -q "한국은행 BOK 이슈노트 2023-33" site-public/strategy.html
+          grep -q "koreaLabelOffsets" site-public/strategy.html
+          grep -q 'minmax(470px,.86fr)' site-public/strategy.html
           grep -q 'id="baseline-new"' site-public/strategy.html
           grep -q 'id="maturity-amount"' site-public/strategy.html
           grep -q 'id="rollover-rate"' site-public/strategy.html
@@ -128,7 +136,10 @@ jobs:
           assert trend["scope"]["aggregation"] == "product_representative_mean"
           assert trend["scope"]["our_institution"] == "고려저축은행"
           assert trend["points"]
-          assert all(point["market_max_rate"] >= point["mean_max_rate"] for point in trend["points"])
+          assert all(
+              point["market_max_rate"] >= point["mean_max_rate"]
+              for point in trend["points"]
+          )
           own_points = [
               point for point in trend["points"]
               if point.get("our_company_max_rate") is not None
