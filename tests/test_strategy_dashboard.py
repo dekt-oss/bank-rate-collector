@@ -238,7 +238,7 @@ def test_market_changes_collapse_identical_variant_moves_to_one_product_event(
     assert summary["rate_trend"]["points"] == []
 
 
-def test_inflow_ui_requires_explicit_assumptions_and_never_claims_prediction(
+def test_inflow_ui_uses_structural_prediction_engine_with_explicit_uncalibrated_state(
     collected_db, tmp_path
 ) -> None:
     db, _, _ = collected_db
@@ -246,12 +246,24 @@ def test_inflow_ui_requires_explicit_assumptions_and_never_claims_prediction(
     build_site(db, out_dir=out, strategy_template_path=DEFAULT_STRATEGY_TEMPLATE)
     strategy_html = (out / "strategy.html").read_text(encoding="utf-8")
 
-    assert "가정 기반 예상 월 수신액" in strategy_html
-    assert "가정 입력 필요" in strategy_html
-    assert "내부 실적 기반 예측모형이 아닙니다" in strategy_html
+    assert "수신금액 예측 엔진" in strategy_html
+    assert "내부 실적 미보정" in strategy_html
+    assert "민감도 스트레스 결과" in strategy_html
     assert "실제 유입을 보장하지 않습니다" in strategy_html
-    assert 'baselineRaw!==""' in strategy_html
-    assert 'sensitivityRaw!==""' in strategy_html
+    assert 'id="baseline-new"' in strategy_html
+    assert 'id="maturity-amount"' in strategy_html
+    assert 'id="rollover-rate"' in strategy_html
+    assert 'id="inflow-new"' in strategy_html
+    assert 'id="inflow-rollover"' in strategy_html
+    assert 'id="inflow-total"' in strategy_html
+    assert 'id="inflow-range"' in strategy_html
+    assert 'id="inflow-cost"' in strategy_html
+    assert "const INFLOW_MODEL=" in strategy_html
+    assert "function runInflowScenario" in strategy_html
+    assert "function predictInflow" in strategy_html
+    assert 'id="baseline"' not in strategy_html
+    assert 'id="sensitivity"' not in strategy_html
+    assert "가정 기반 예상 월 수신액" not in strategy_html
 
 
 def test_simulator_term_buttons_and_actual_term_summary_are_present(
