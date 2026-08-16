@@ -40,6 +40,9 @@ warning 관측성, source freshness, 업권 용어를 안정화하는 작업 범
 
 | 문서 | 상태 | 비고 |
 |---|---|---|
+| [`20260816-strategy-dashboard-v2-workorder.md`](20260816-strategy-dashboard-v2-workorder.md) | **draft/work-order** | 2026-08-16 설계 리뷰 반영 개선판 작업 명세. Stage A~E 순서와 인터페이스 계약 |
+| [`20260816-inflow-prediction-v1.md`](20260816-inflow-prediction-v1.md) | **experimental** | 수신금액 예측엔진 v1 구조모형. 계수는 내부 실적 미보정 스트레스 밴드 |
+| [`20260816-inflow-prediction-v1-evidence.md`](20260816-inflow-prediction-v1-evidence.md) | evidence_note | 예측엔진 근거와 가정 경계. 외부 연구 인용 범위 구분 |
 | [`20260812-strategy-dashboard-v1.md`](20260812-strategy-dashboard-v1.md) | **experimental/current-work** | 현행 검색·조회 화면 보존 + 별도 전략 대시보드/시뮬레이션 실험 |
 | [`20260810-stabilization-v1.md`](20260810-stabilization-v1.md) | **planned/current-work** | 2026-08-10 감사에서 확인된 오류·운영 리스크 안정화. P0/P1 최소 범위 |
 | [`20260806-rate-monitor-v4.md`](20260806-rate-monitor-v4.md) | **current** | 제품·화면·우선순위. 메인 4업권 + 참고지표 |
