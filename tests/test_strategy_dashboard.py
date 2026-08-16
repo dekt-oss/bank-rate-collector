@@ -16,6 +16,7 @@ from rate_monitor.services.site_service import (
     DEFAULT_STRATEGY_TEMPLATE,
     STRATEGY_ENABLED_ENV,
     STRATEGY_MAP_FILE,
+    STRATEGY_TABLE_FILE,
     build_site,
 )
 from rate_monitor.services.strategy_service import build_strategy_summary
@@ -69,6 +70,11 @@ def test_strategy_release_gate_is_off_by_default(
     stale_map = out / STRATEGY_MAP_FILE
     stale_map.parent.mkdir(parents=True)
     stale_map.write_text("stale map", encoding="utf-8")
+    stale_slice = out / STRATEGY_TABLE_FILE
+    stale_slice.parent.mkdir(parents=True, exist_ok=True)
+    stale_slice.write_text("stale strategy table", encoding="utf-8")
+    stale_slice_gz = stale_slice.with_suffix(".json.gz")
+    stale_slice_gz.write_bytes(b"stale gzip")
     monkeypatch.delenv(STRATEGY_ENABLED_ENV, raising=False)
 
     manifest = build_site(db, out_dir=out)
@@ -77,8 +83,11 @@ def test_strategy_release_gate_is_off_by_default(
     assert (out / "index.html").exists()
     assert not (out / "strategy.html").exists()
     assert not stale_map.exists()
+    assert not stale_slice.exists()
+    assert not stale_slice_gz.exists()
     assert "strategy.html" not in manifest.files
     assert STRATEGY_MAP_FILE not in manifest.files
+    assert STRATEGY_TABLE_FILE not in manifest.files
     assert 'href="strategy.html"' not in index_html
 
 
@@ -93,9 +102,12 @@ def test_release_gate_builds_strategy_page_without_replacing_index(
     assert (out / "index.html").exists()
     assert (out / "strategy.html").exists()
     assert (out / STRATEGY_MAP_FILE).exists()
+    assert (out / STRATEGY_TABLE_FILE).exists()
+    assert (out / STRATEGY_TABLE_FILE).with_suffix(".json.gz").exists()
     assert "index.html" in manifest.files
     assert "strategy.html" in manifest.files
     assert STRATEGY_MAP_FILE in manifest.files
+    assert STRATEGY_TABLE_FILE in manifest.files
 
     index_html = (out / "index.html").read_text(encoding="utf-8")
     strategy_html = (out / "strategy.html").read_text(encoding="utf-8")
@@ -115,7 +127,7 @@ def test_release_gate_builds_strategy_page_without_replacing_index(
     assert "M335 31C383" not in strategy_html
 
 
-def test_strategy_page_reuses_canonical_table_without_inlining_rows(
+def test_strategy_page_uses_canonical_derived_slice_without_inlining_rows(
     collected_db, tmp_path
 ) -> None:
     db, _, _ = collected_db
@@ -124,12 +136,33 @@ def test_strategy_page_reuses_canonical_table_without_inlining_rows(
 
     strategy_html = (out / "strategy.html").read_text(encoding="utf-8")
     inline = _inline(strategy_html)
+    canonical = json.loads((out / "data" / "table.json").read_text(encoding="utf-8"))
+    strategy_table = json.loads((out / STRATEGY_TABLE_FILE).read_text(encoding="utf-8"))
 
-    assert inline["table_url"] == "data/table.json"
+    assert inline["table_url"] == STRATEGY_TABLE_FILE
+    assert inline["table_rows"] == len(strategy_table["rows"])
     assert "strategy" in inline
     assert "rows" not in inline
     assert '"rows":[[' not in strategy_html
-    assert (out / "data" / "table.json").exists()
+    assert "product_id" not in canonical["columns"]
+    assert strategy_table["columns"][-1] == "product_id"
+    assert len(strategy_table["rows"]) <= len(canonical["rows"])
+
+    columns = {name: i for i, name in enumerate(strategy_table["columns"])}
+    lookups = strategy_table["lookups"]
+
+    def decode(name: str, value):
+        lookup = lookups.get(name)
+        return lookup[value] if lookup is not None and value is not None else value
+
+    for row in strategy_table["rows"]:
+        assert decode("sector", row[columns["sector"]]) == "savings_bank"
+        assert decode("product_type", row[columns["product_type"]]) == "term_deposit"
+        assert row[columns["term_months"]] in {6, 12, 24, 36}
+
+    assert "const aggregateCache=new Map" in strategy_html
+    assert "if(aggregateCache.has(term))return aggregateCache.get(term)" in strategy_html
+    assert "[6,12,24,36].forEach(aggregateProducts)" in strategy_html
 
 
 def test_market_changes_come_from_observation_history(collected_db, tmp_path) -> None:
