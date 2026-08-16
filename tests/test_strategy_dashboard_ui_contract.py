@@ -178,7 +178,7 @@ def test_simulator_has_no_preference_condition_selector() -> None:
     assert "우대조건 트렌드" in html
     assert 'prefStatus:look("preference_status",r[c.preference_status])' in html
     assert 'prefTags:look("preference_tags",r[c.preference_tags])' in html
-    assert "금리를 정하면 실제 시장 포지션과 수신금액 구조모형을 함께 계산" in html
+    assert "시장 흐름을 확인한 뒤 금리·우대·기간을 설계" in html
     assert 'id="term-segment"' in html
     assert "우대조건 수" not in html
     assert 'id="condition-segment"' not in html
