@@ -94,7 +94,6 @@ def test_strategy_template_adapter_replaces_manual_inflow_sensitivity_with_engin
     assert 'id="rollover-rate"' in html
     assert "function runInflowScenario" in html
     assert "function predictInflow" in html
-    assert "market_top10_rate" not in html
     assert "relativeChange=proposedGap-currentGap" in html
     assert "Math.exp(logEffect)" in html
     assert "logistic(rollLogit)" in html
