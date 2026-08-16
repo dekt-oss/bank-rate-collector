@@ -109,7 +109,7 @@ def public_model_config() -> dict[str, Any]:
         "amount_unit": "KRW_100M",
         "rate_unit": "percent",
         "term_unit": "month",
-        "cost_metric": "simple_surface_interest_delta",
+        "cost_metric": "simple_surface_interest_total_delta",
         "coefficient_provenance": "uncalibrated_stress_assumptions",
     }
 
@@ -165,9 +165,9 @@ def predict_scenario(
     incremental_total = predicted_total - baseline_total
 
     term_factor = term_months / 12.0
-    surface_interest_delta = (
-        predicted_total * (proposed - own_rate) / 100.0 * term_factor
-    )
+    baseline_surface_interest = baseline_total * own_rate / 100.0 * term_factor
+    predicted_surface_interest = predicted_total * proposed / 100.0 * term_factor
+    surface_interest_delta = predicted_surface_interest - baseline_surface_interest
 
     return {
         "scenario": scenario.key,
@@ -187,6 +187,8 @@ def predict_scenario(
         "baseline_total": _round_amount(baseline_total),
         "predicted_total": _round_amount(predicted_total),
         "incremental_total": _round_amount(incremental_total),
+        "baseline_surface_interest": _round_amount(baseline_surface_interest),
+        "predicted_surface_interest": _round_amount(predicted_surface_interest),
         "surface_interest_delta": _round_amount(surface_interest_delta),
     }
 
