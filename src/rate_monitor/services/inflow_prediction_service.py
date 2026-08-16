@@ -21,6 +21,7 @@ RATE_STEP_PERCENTAGE_POINT = 0.10
 MAX_ABS_NEW_MONEY_LOG_EFFECT = 1.5
 _MIN_PROBABILITY = 0.001
 _MAX_PROBABILITY = 0.999
+_ZERO_STEP_TOLERANCE = 1e-12
 
 
 @dataclass(frozen=True)
@@ -73,7 +74,7 @@ def _probability_from_percent(value: float) -> float:
     percent = _finite("current_rollover_rate_pct", value)
     if percent < 0 or percent > 100:
         raise ValueError("current_rollover_rate_pct는 0~100 범위여야 한다")
-    return min(_MAX_PROBABILITY, max(_MIN_PROBABILITY, percent / 100.0))
+    return percent / 100.0
 
 
 def _logit(probability: float) -> float:
@@ -153,10 +154,15 @@ def predict_scenario(
     new_money_multiplier = math.exp(log_effect)
     predicted_new = baseline * new_money_multiplier
 
-    rollover_logit = (
-        _logit(p0) + scenario.rollover_log_odds_change_per_10bp * rate_steps
-    )
-    predicted_rollover_probability = _logistic(rollover_logit)
+    if abs(rate_steps) <= _ZERO_STEP_TOLERANCE:
+        predicted_rollover_probability = p0
+    else:
+        logit_anchor = min(_MAX_PROBABILITY, max(_MIN_PROBABILITY, p0))
+        rollover_logit = (
+            _logit(logit_anchor)
+            + scenario.rollover_log_odds_change_per_10bp * rate_steps
+        )
+        predicted_rollover_probability = _logistic(rollover_logit)
     predicted_rollover = maturity * predicted_rollover_probability
 
     baseline_rollover = maturity * p0
