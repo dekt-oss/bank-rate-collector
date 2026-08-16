@@ -85,9 +85,13 @@ def test_strategy_template_adapter_uses_stable_id_and_reference_date() -> None:
 def test_strategy_template_adapter_replaces_manual_inflow_sensitivity_with_engine() -> None:
     html = adapt_strategy_template(DEFAULT_STRATEGY_TEMPLATE.read_text(encoding="utf-8"))
 
-    assert 'const INFLOW_MODEL={"version":"inflow-structural-v1"' in html
+    assert (
+        'const INFLOW_MODEL=data.strategy?.inflow_prediction||'
+        '{"version":"inflow-structural-v1"' in html
+    )
     assert '"calibration_status":"uncalibrated"' in html
     assert '"coefficient_provenance":"uncalibrated_stress_assumptions"' in html
+    assert '"cost_metric":"simple_surface_interest_total_delta"' in html
     assert "수신금액 예측 엔진" in html
     assert 'id="baseline-new"' in html
     assert 'id="maturity-amount"' in html
@@ -96,7 +100,10 @@ def test_strategy_template_adapter_replaces_manual_inflow_sensitivity_with_engin
     assert "function predictInflow" in html
     assert "relativeChange=proposedGap-currentGap" in html
     assert "Math.exp(logEffect)" in html
-    assert "logistic(rollLogit)" in html
+    assert "Math.abs(rateSteps)<=1e-12?p0:logistic(rollLogit)" in html
+    assert "baselineCost=baselineTotal*ownRate/100*termFactor" in html
+    assert "predictedCost=total*proposed/100*termFactor" in html
+    assert "cost=predictedCost-baselineCost" in html
     assert "FTP 미반영" in html
     assert "내부 수신실적 계수가 아직 미보정" in html
     assert 'id="baseline"' not in html
