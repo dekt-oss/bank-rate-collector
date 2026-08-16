@@ -12,10 +12,7 @@ from unittest.mock import patch
 
 import pytest
 
-from rate_monitor.services.inflow_prediction_service import (
-    predict_range,
-    public_model_config,
-)
+from rate_monitor.services.inflow_prediction_service import predict_range
 from tests.strategy_output_helper import built_strategy_html
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -83,11 +80,36 @@ def _extract_js_function(html: str, name: str) -> str:
     start = html.find(marker)
     assert start >= 0, f"빌드 산출 HTML에서 JS 함수 marker를 찾지 못했습니다: {name}"
 
-    opening = html.find("{", start)
-    assert opening >= 0, f"JS 함수 여는 중괄호를 찾지 못했습니다: {name}"
+    signature_opening = html.find("(", start)
+    paren_depth = 0
+    quote: str | None = None
+    escaped = False
+    opening = -1
+    for position in range(signature_opening, len(html)):
+        char = html[position]
+        if quote is not None:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == quote:
+                quote = None
+            continue
+
+        if char in {'"', "'", "`"}:
+            quote = char
+        elif char == "(":
+            paren_depth += 1
+        elif char == ")":
+            paren_depth -= 1
+            if paren_depth == 0:
+                opening = html.find("{", position + 1)
+                break
+
+    assert opening >= 0, f"JS 함수 본문 여는 중괄호를 찾지 못했습니다: {name}"
 
     depth = 0
-    quote: str | None = None
+    quote = None
     escaped = False
     for position in range(opening, len(html)):
         char = html[position]
@@ -110,6 +132,20 @@ def _extract_js_function(html: str, name: str) -> str:
                 return html[start : position + 1]
 
     raise AssertionError(f"JS 함수 닫는 중괄호를 찾지 못했습니다: {name}")
+
+
+def _extract_inflow_model(html: str) -> dict:
+    marker = '<script id="rate-monitor-data" type="application/json">'
+    start = html.find(marker)
+    assert start >= 0, "빌드 산출 HTML에서 rate-monitor-data를 찾지 못했습니다"
+    start += len(marker)
+    end = html.find("</script>", start)
+    assert end >= 0, "빌드 산출 HTML의 rate-monitor-data 종료 marker가 없습니다"
+
+    payload = json.loads(html[start:end].replace("<\\/", "</"))
+    model = payload.get("strategy", {}).get("inflow_prediction")
+    assert isinstance(model, dict), "빌드 산출 HTML에 inflow_prediction 설정이 없습니다"
+    return model
 
 
 def _node_vector_args(vectors: list[dict]) -> list[dict]:
@@ -142,7 +178,7 @@ def _run_ui_functions_in_node(vectors: list[dict]) -> list[dict]:
         _extract_js_function(html, name)
         for name in ("logistic", "runInflowScenario", "predictInflow")
     ]
-    model_json = json.dumps(public_model_config(), ensure_ascii=False, separators=(",", ":"))
+    model_json = json.dumps(_extract_inflow_model(html), ensure_ascii=False, separators=(",", ":"))
     vectors_json = json.dumps(
         _node_vector_args(vectors),
         ensure_ascii=False,
