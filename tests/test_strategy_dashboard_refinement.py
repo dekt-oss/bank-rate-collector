@@ -56,6 +56,69 @@ def test_prediction_engine_explains_model_and_evidence_scope() -> None:
     assert "nttId=10081072" in html
 
 
+def test_information_flow_matches_market_to_planning_sequence() -> None:
+    html = _html()
+
+    kpis = html.index('class="grid kpis"')
+    market_flow = html.index('class="grid market-flow"')
+    primary = html.index('class="grid primary"')
+    interpretation = html.index('class="grid interpretation"')
+    planning = html.index('class="planning-zone"')
+
+    assert kpis < market_flow < primary < interpretation < planning
+    assert 'aria-label="시장 금리와 최근 변화 흐름"' in html
+    assert 'aria-label="시장 해석과 우대조건"' in html
+    assert 'aria-label="신상품 기획"' in html
+    assert '<details class="card changes" open>' in html
+    assert "최근 시장 변화 · 30일 방향과 주요 이벤트" in html
+
+
+def test_market_flow_adds_trend_and_change_direction_summary() -> None:
+    html = _html()
+
+    assert 'id="trend-mean-change"' in html
+    assert 'id="trend-max-change"' in html
+    assert 'id="trend-own-change"' in html
+    assert 'id="trend-premium"' in html
+    assert 'id="change-direction-copy"' in html
+    assert 'id="change-up-bar"' in html
+    assert 'id="change-down-bar"' in html
+    assert "function renderTrendEnhanced()" in html
+    assert "function renderChangesEnhanced()" in html
+    assert "renderChangesEnhanced();renderTrendEnhanced();" in html
+    assert "items.slice(0,12)" in html
+
+
+def test_market_insight_is_expanded_for_product_planning() -> None:
+    html = _html()
+
+    assert "금리·경쟁강도·당사 위치·지역·우대조건" in html
+    assert "function renderInsightsEnhanced()" in html
+    assert "시장 방향" in html
+    assert "경쟁 강도" in html
+    assert "당사 위치" in html
+    assert "지역 편차" in html
+    assert "우대조건 구조" in html
+    assert "기획 포인트 ·" in html
+    assert "renderInsightsEnhanced();updateSim()" in html
+
+
+def test_simulator_is_full_width_planning_zone_with_market_context() -> None:
+    html = _html()
+
+    assert "시장 흐름을 확인한 뒤 금리·우대·기간을 설계" in html
+    assert 'class="planning-strip"' in html
+    assert 'id="plan-flow"' in html
+    assert 'id="plan-market-max"' in html
+    assert 'id="plan-market-mean"' in html
+    assert 'id="plan-top10"' in html
+    assert 'id="plan-own"' in html
+    assert "function renderPlanningContext(comp,stats,own)" in html
+    assert "renderPlanningContext(comp,stats,own);" in html
+    assert ".planning-zone .simresults{grid-column:2;grid-row:1/3;" in html
+    assert ".planning-zone .prediction-panel{grid-column:1/-1}" in html
+
+
 def test_national_map_gives_more_width_to_map_and_offsets_labels() -> None:
     html = _html()
 
@@ -69,6 +132,8 @@ def test_national_map_gives_more_width_to_map_and_offsets_labels() -> None:
     )
     assert ".primary:not(.busan-focus) .node-label{font-size:14px" in html
     assert ".primary:not(.busan-focus) .node-rate{font-size:15px" in html
+    assert ".primary:not(.busan-focus) .mapcard{min-height:510px}" in html
+    assert ".primary:not(.busan-focus) .mapstage{height:420px}" in html
     assert 'const koreaLabelOffsets={"서울":[-28,-24,"end"]' in html
     assert '"부산":[30,10,"start"]' in html
     assert "preset=koreaLabelOffsets[x.region]" in html
