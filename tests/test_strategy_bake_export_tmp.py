@@ -1,11 +1,9 @@
-"""Stage A 베이크 baseline을 CI 로그로 정확히 회수하기 위한 일회성 테스트.
+"""Stage A 베이크 전 템플릿 문자열의 일회성 baseline 계약.
 
-최종 Stage A diff에서는 삭제한다.
+최종 Stage A에서는 빌드 산출 HTML 계약으로 대체하고 이 파일은 삭제한다.
 """
 
-import base64
 import hashlib
-import zlib
 
 from rate_monitor.services.site_service import (
     DEFAULT_STRATEGY_TEMPLATE,
@@ -13,11 +11,11 @@ from rate_monitor.services.site_service import (
 )
 from rate_monitor.services.strategy_contract_service import adapt_strategy_template
 
+_BASELINE_SHA256 = "2aa193e29048615e90771445644abcac001b3f5f1bdf08fbe07ce368ffc6c002"
 
-def test_export_baked_strategy_template() -> None:
+
+def test_current_adapter_chain_matches_bake_baseline() -> None:
     source = DEFAULT_STRATEGY_TEMPLATE.read_text(encoding="utf-8")
     baked = adapt_strategy_korea_map_template(adapt_strategy_template(source))
-    payload = base64.b64encode(zlib.compress(baked.encode("utf-8"), 9)).decode("ascii")
-    print("BAKE_SHA256=" + hashlib.sha256(baked.encode("utf-8")).hexdigest())
-    print("BAKE_ZLIB_BASE64=" + payload)
-    raise AssertionError("BAKE_EXPORT_ONLY")
+
+    assert hashlib.sha256(baked.encode("utf-8")).hexdigest() == _BASELINE_SHA256
