@@ -105,16 +105,24 @@ baseline_total = baseline_new_money + maturity_amount × p0
 incremental_total = predicted_total - baseline_total
 ```
 
-단순 표면이자비용 증감은 다음으로 계산한다.
+표면이자비용은 현재금리 baseline과 제안금리 예상수신 각각의 단순 이자를 먼저
+계산한 뒤 차이를 낸다. 제안금리의 `예상총수신 × 금리차`만 계산하면 새로 늘어난
+수신액 자체에 지급할 전체 이자를 누락하므로 사용하지 않는다.
 
 ```text
+term_factor = term_months / 12
+
+baseline_surface_interest
+ = baseline_total × current_own_rate / 100 × term_factor
+
+predicted_surface_interest
+ = predicted_total × proposed_rate / 100 × term_factor
+
 surface_interest_delta
- = predicted_total
- × (proposed_rate - current_own_rate) / 100
- × term_months / 12
+ = predicted_surface_interest - baseline_surface_interest
 ```
 
-단위는 억원이다. 금리를 내리면 음수(비용 절감)일 수 있다.
+단위는 억원이다. 금리·수신량 변화 조합에 따라 음수(비용 절감)일 수도 있다.
 
 이 값은 FTP, 유동성 프리미엄, 중도해지, 세금, 복리효과, 실제 평균잔존기간을
 반영한 조달원가가 아니다. UI에 `추가 표면이자비용`이라고 명시한다.
@@ -213,5 +221,6 @@ out-of-sample 검증에서 가장 안정적인 feature set을 선택하고, 모�
 - 재예치율은 항상 0~100%다.
 - 극단 rate-step에서도 신규자금 log-effect guardrail이 적용된다.
 - 기간에 따른 표면이자비용 단위가 맞다.
+- 표면이자비용 증감은 baseline 총이자와 제안 총이자의 차이여야 한다.
 - 기존 시장순위·TOP10·지도·부산 drill-down 계약을 유지한다.
 - 전체 CI와 Strategy Preview build가 통과한다.
