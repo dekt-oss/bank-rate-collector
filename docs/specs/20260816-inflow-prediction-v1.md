@@ -88,14 +88,21 @@ predicted_new_money = baseline_new_money × exp(log_effect)
 
 ```text
 p0 = current_rollover_rate / 100
-logit(p1) = logit(p0) + gamma_rollover × rate_steps
-p1 = logistic(logit(p1))
+
+if rate_steps == 0:
+    p1 = p0
+else:
+    logit_anchor = clamp(p0, 0.001, 0.999)
+    logit(p1) = logit(logit_anchor) + gamma_rollover × rate_steps
+    p1 = logistic(logit(p1))
 
 predicted_rollover = maturity_amount × p1
 ```
 
-입력 재예치율의 계산 안정성을 위해 내부적으로 0.1%~99.9% 범위로 clamp한다.
-화면 입력 자체는 0~100%를 허용한다.
+입력한 `p0` 자체는 clamp하지 않는다. 따라서 현재 재예치율이 정확히 0% 또는
+100%여도 금리변경이 0bp이면 baseline과 예측값이 정확히 그대로 유지된다.
+0.1%~99.9% clamp는 **금리가 실제로 변할 때 logit을 계산하기 위한 수치안정성
+anchor에만** 적용한다.
 
 ## 7. 총수신 및 비용
 
@@ -216,6 +223,7 @@ out-of-sample 검증에서 가장 안정적인 feature set을 선택하고, 모�
 
 - Python 엔진과 UI가 동일한 rate-step / exponential / logistic 계약을 사용한다.
 - 0bp 변화에서는 신규자금·재예치율·총수신액이 baseline과 동일하다.
+- 재예치율 0%/100%도 0bp에서 정확히 보존한다.
 - +10bp에서 각 시나리오가 정의된 방향으로 반응한다.
 - 금리 인하시 신규자금과 재예치율이 반대 방향으로 움직인다.
 - 재예치율은 항상 0~100%다.
