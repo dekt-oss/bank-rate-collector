@@ -1,9 +1,9 @@
 """전략 화면 전용 stable product identity table 계약.
 
 공식 검색 화면의 발행 계약은 그대로 두고, 전략 Release Gate가 켜진 빌드에서만
-canonical ``product_id``를 table.json에 덧붙인다. 전략 화면은 이 stable id로
-상품 대표값을 묶는다. 표현 계층은 ``web/templates/strategy.html``이 직접 소유한다.
-Stage A 이후 이 모듈은 HTML 표현 치환을 수행하지 않는다.
+canonical table에서 전략 비교군을 필터한 뒤 ``product_id``를 덧붙인다. 전략 화면은
+이 stable id로 상품 대표값을 묶는다. 표현 계층은 ``web/templates/strategy.html``이
+직접 소유한다. Stage A 이후 이 모듈은 HTML 표현 치환을 수행하지 않는다.
 """
 
 import sqlite3
@@ -38,6 +38,38 @@ def _row_key(table: dict[str, Any], row: list[Any]) -> tuple[Any, ...]:
     return tuple(
         _decode(table, name, row[columns[name]]) for name in _IDENTITY_KEY_COLUMNS
     )
+
+
+def slice_strategy_table(table: dict[str, Any]) -> dict[str, Any]:
+    """canonical table에서 Stage B 전략 universe 행만 그대로 고른다.
+
+    값 변환·집계·재정렬을 하지 않는다. columns/lookups는 canonical table 계약을
+    그대로 유지하고 rows만 저축은행 정기예금 6/12/24/36개월로 제한한다.
+    """
+    columns = list(table.get("columns") or [])
+    source_columns = {name: index for index, name in enumerate(columns)}
+    required = {"sector", "product_type", "term_months"}
+    missing = sorted(required.difference(source_columns))
+    if missing:
+        raise DashboardBuildError(
+            "전략 slice에 필요한 table 열이 없다: " + ", ".join(missing)
+        )
+
+    rows = []
+    for row in table.get("rows") or []:
+        sector = _decode(table, "sector", row[source_columns["sector"]])
+        product_type = _decode(
+            table, "product_type", row[source_columns["product_type"]]
+        )
+        term = row[source_columns["term_months"]]
+        if (
+            sector == "savings_bank"
+            and product_type == "term_deposit"
+            and term in _STRATEGY_TERMS
+        ):
+            rows.append(row)
+
+    return {**table, "rows": rows}
 
 
 def _product_id_index(db_path: Path) -> dict[tuple[Any, ...], str | None]:
@@ -80,7 +112,7 @@ def _product_id_index(db_path: Path) -> dict[tuple[Any, ...], str | None]:
 def augment_strategy_table(
     db_path: Path, table: dict[str, Any]
 ) -> tuple[dict[str, Any], dict[str, int]]:
-    """전략 빌드의 table에 압축 ``product_id`` 열을 추가한다.
+    """전략 slice에 압축 ``product_id`` 열을 추가한다.
 
     검색 화면의 기본 빌드에서는 호출하지 않는다. 전략 비교 universe에 해당하는
     저축은행 정기예금 6/12/24/36개월 행이 stable id와 매칭되지 않으면 build를
