@@ -1,0 +1,55 @@
+from pathlib import Path
+
+path = Path("web/templates/strategy.html")
+text = path.read_text(encoding="utf-8")
+
+replacements = [
+    (
+        'let allRows=[],products12=[],simTerm=12,mapMode="korea";',
+        'let allRows=[],products12=[],simTerm=12,mapMode="korea";\n'
+        'const aggregateCache=new Map;',
+    ),
+    (
+        '''function aggregateProducts(term){
+  const m=new Map;
+  for(const r of allRows){
+    if(r.sector!=="savings_bank"||r.type!=="term_deposit"||r.term!==term||!Number.isFinite(r.max))continue;
+    const key=`${r.productId}\\0${term}`;
+    let p=m.get(key);
+    if(!p){p={institution:r.institution,product:r.product,term,region:region(r.region),district:r.district||null,max:-Infinity,base:null,sourceId:null,sourceEffectiveAt:null,prefKnown:false,tags:new Set,tagLatest:new Map};m.set(key,p)}
+    if(r.prefStatus==="present"){p.prefKnown=true;const prefDate=String(r.sourceEffectiveAt||"");String(r.prefTags).split(/\\s+/).filter(Boolean).forEach(x=>{p.tags.add(x);if(prefDate>String(p.tagLatest.get(x)||""))p.tagLatest.set(x,prefDate)})}
+    const freshness=String(r.sourceEffectiveAt||""),oldFreshness=String(p.sourceEffectiveAt||"");
+    if(r.max>p.max||(r.max===p.max&&freshness>oldFreshness)){p.max=r.max;p.base=r.base;p.sourceId=r.sourceId;p.sourceEffectiveAt=r.sourceEffectiveAt;p.region=region(r.region)||p.region;p.district=r.district||p.district}
+  }
+  return[...m.values()].sort((a,b)=>b.max-a.max||String(a.institution).localeCompare(String(b.institution),"ko")||String(a.product).localeCompare(String(b.product),"ko"))
+}''',
+        '''function aggregateProducts(term){
+  if(aggregateCache.has(term))return aggregateCache.get(term);
+  const m=new Map;
+  for(const r of allRows){
+    if(r.sector!=="savings_bank"||r.type!=="term_deposit"||r.term!==term||!Number.isFinite(r.max))continue;
+    const key=`${r.productId}\\0${term}`;
+    let p=m.get(key);
+    if(!p){p={institution:r.institution,product:r.product,term,region:region(r.region),district:r.district||null,max:-Infinity,base:null,sourceId:null,sourceEffectiveAt:null,prefKnown:false,tags:new Set,tagLatest:new Map};m.set(key,p)}
+    if(r.prefStatus==="present"){p.prefKnown=true;const prefDate=String(r.sourceEffectiveAt||"");String(r.prefTags).split(/\\s+/).filter(Boolean).forEach(x=>{p.tags.add(x);if(prefDate>String(p.tagLatest.get(x)||""))p.tagLatest.set(x,prefDate)})}
+    const freshness=String(r.sourceEffectiveAt||""),oldFreshness=String(p.sourceEffectiveAt||"");
+    if(r.max>p.max||(r.max===p.max&&freshness>oldFreshness)){p.max=r.max;p.base=r.base;p.sourceId=r.sourceId;p.sourceEffectiveAt=r.sourceEffectiveAt;p.region=region(r.region)||p.region;p.district=r.district||p.district}
+  }
+  const products=[...m.values()].sort((a,b)=>b.max-a.max||String(a.institution).localeCompare(String(b.institution),"ko")||String(a.product).localeCompare(String(b.product),"ko"));
+  aggregateCache.set(term,products);
+  return products;
+}''',
+    ),
+    (
+        'allRows=expand(await res.json());renderMarket();renderKoreaMap();renderPrefs();renderTermStrip();renderInsightsEnhanced();updateSim()',
+        'allRows=expand(await res.json());aggregateCache.clear();[6,12,24,36].forEach(aggregateProducts);renderMarket();renderKoreaMap();renderPrefs();renderTermStrip();renderInsightsEnhanced();updateSim()',
+    ),
+]
+
+for old, new in replacements:
+    count = text.count(old)
+    if count != 1:
+        raise SystemExit(f"rewrite marker count must be 1, got {count}: {old[:60]!r}")
+    text = text.replace(old, new, 1)
+
+path.write_text(text, encoding="utf-8")
