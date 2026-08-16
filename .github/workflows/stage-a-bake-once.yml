@@ -1,0 +1,122 @@
+name: Stage A bake once
+
+on:
+  push:
+    branches: ["feat/strategy-dashboard-v2-bake"]
+    paths:
+      - ".github/workflows/stage-a-bake-once.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  bake:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/strategy-dashboard-v2-bake
+      - uses: astral-sh/setup-uv@v5
+      - run: uv python install 3.12
+      - run: uv sync --locked
+      - name: Bake final strategy template and remove presentation adapters
+        run: |
+          uv run python - <<'PY'
+          from hashlib import sha256
+          from pathlib import Path
+
+          from rate_monitor.services.site_service import (
+              DEFAULT_STRATEGY_TEMPLATE,
+              adapt_strategy_korea_map_template,
+          )
+          from rate_monitor.services.strategy_contract_service import adapt_strategy_template
+
+          expected = "2aa193e29048615e90771445644abcac001b3f5f1bdf08fbe07ce368ffc6c002"
+          raw = DEFAULT_STRATEGY_TEMPLATE.read_text(encoding="utf-8")
+          baked = adapt_strategy_korea_map_template(adapt_strategy_template(raw))
+          actual = sha256(baked.encode("utf-8")).hexdigest()
+          if actual != expected:
+              raise SystemExit(f"bake baseline mismatch: {actual} != {expected}")
+          DEFAULT_STRATEGY_TEMPLATE.write_text(baked, encoding="utf-8")
+
+          contract_path = Path("src/rate_monitor/services/strategy_contract_service.py")
+          contract = contract_path.read_text(encoding="utf-8")
+          body_start = contract.index("import sqlite3")
+          body_end = contract.index("\ndef _replace_once")
+          body = contract[body_start:body_end]
+          body = body.replace(
+              "from rate_monitor.services.inflow_prediction_service import public_model_config\n",
+              "",
+          )
+          body = body.replace(
+              "from rate_monitor.services.strategy_refinement_service import "
+              "adapt_strategy_refinements\n",
+              "",
+          )
+          contract_path.write_text(
+              '"""전략 화면 전용 stable product identity table 계약.\n\n'
+              '공식 검색 화면의 발행 계약은 그대로 두고, 전략 Release Gate가 켜진 '\
+              '빌드에서만\ncanonical ``product_id``를 table.json에 덧붙인다. '\
+              '전략 화면은 이 stable id로\n상품 대표값을 묶는다. 표현 계층은 '\
+              '``web/templates/strategy.html``이 직접 소유한다.\n"""\n\n'
+              + body.rstrip()
+              + "\n",
+              encoding="utf-8",
+          )
+
+          site_path = Path("src/rate_monitor/services/site_service.py")
+          site = site_path.read_text(encoding="utf-8")
+          old_import = (
+              "from rate_monitor.services.strategy_contract_service import (\n"
+              "    adapt_strategy_template,\n"
+              "    augment_strategy_table,\n"
+              ")\n"
+          )
+          new_import = (
+              "from rate_monitor.services.strategy_contract_service import "
+              "augment_strategy_table\n"
+          )
+          if site.count(old_import) != 1:
+              raise SystemExit("strategy contract import marker mismatch")
+          site = site.replace(old_import, new_import, 1)
+
+          constants_start = site.index(
+              "# 전국 지도는 template의 데이터/상호작용 계약과 실제 행정경계 geometry를 분리한다."
+          )
+          constants_end = site.index("# 화면이 받아 가는 금리표.", constants_start)
+          site = site[:constants_start] + site[constants_end:]
+
+          adapter_start = site.index("\ndef adapt_strategy_korea_map_template")
+          adapter_end = site.index("\ndef split_summary", adapter_start)
+          site = site[:adapter_start] + site[adapter_end:]
+
+          old_build = (
+              "        strategy_template_text = adapt_strategy_template(\n"
+              "            strategy_template_path.read_text(encoding=\"utf-8\")\n"
+              "        )\n"
+              "        strategy_template_text = adapt_strategy_korea_map_template(strategy_template_text)\n"
+          )
+          new_build = (
+              "        strategy_template_text = strategy_template_path.read_text(encoding=\"utf-8\")\n"
+          )
+          if site.count(old_build) != 1:
+              raise SystemExit("strategy build adapter marker mismatch")
+          site = site.replace(old_build, new_build, 1)
+          for forbidden in (
+              "adapt_strategy_template",
+              "adapt_strategy_korea_map_template",
+              "_STRATEGY_KOREA_COORDS_OLD",
+          ):
+              if forbidden in site:
+                  raise SystemExit(f"presentation adapter remained in site_service: {forbidden}")
+          site_path.write_text(site, encoding="utf-8")
+          PY
+          git rm src/rate_monitor/services/strategy_refinement_service.py
+          git rm tests/test_strategy_bake_export_tmp.py
+      - name: Commit baked source
+        run: |
+          git add web/templates/strategy.html src/rate_monitor/services/site_service.py src/rate_monitor/services/strategy_contract_service.py
+          git -c user.name="github-actions[bot]" \
+              -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+              commit -m "refactor: 전략 대시보드 UI 어댑터 베이크"
+          git push origin HEAD:feat/strategy-dashboard-v2-bake
