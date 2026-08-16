@@ -3,6 +3,7 @@
 공식 검색 화면의 발행 계약은 그대로 두고, 전략 Release Gate가 켜진 빌드에서만
 canonical ``product_id``를 table.json에 덧붙인다. 전략 화면은 이 stable id로
 상품 대표값을 묶는다. 표현 계층은 ``web/templates/strategy.html``이 직접 소유한다.
+Stage A 이후 이 모듈은 HTML 표현 치환을 수행하지 않는다.
 """
 
 import sqlite3
