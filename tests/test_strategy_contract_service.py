@@ -1,7 +1,10 @@
 import sqlite3
 from pathlib import Path
 
-from rate_monitor.services.strategy_contract_service import augment_strategy_table
+from rate_monitor.services.strategy_contract_service import (
+    augment_strategy_table,
+    slice_strategy_table,
+)
 from tests.strategy_output_helper import built_strategy_html
 
 
@@ -107,6 +110,31 @@ def test_strategy_build_contains_structural_inflow_engine_contract() -> None:
     assert 'id="baseline"' not in html
     assert 'id="sensitivity"' not in html
     assert "가정 기반 예상 월 수신액" not in html
+
+
+def test_strategy_slice_keeps_only_frozen_universe_without_transforming_rows() -> None:
+    table = {
+        "columns": ["sector", "product_type", "term_months"],
+        "lookups": {
+            "sector": ["savings_bank", "credit_union"],
+            "product_type": ["term_deposit", "installment_savings"],
+        },
+        "rows": [
+            [0, 0, 6],
+            [0, 0, 12],
+            [0, 0, 24],
+            [0, 0, 36],
+            [0, 0, 60],
+            [1, 0, 12],
+            [0, 1, 12],
+        ],
+    }
+
+    sliced = slice_strategy_table(table)
+
+    assert sliced["columns"] is table["columns"]
+    assert sliced["lookups"] is table["lookups"]
+    assert sliced["rows"] == table["rows"][:4]
 
 
 def test_strategy_table_adds_compressed_stable_product_id(tmp_path: Path) -> None:
