@@ -39,6 +39,7 @@ def test_public_config_marks_coefficients_as_uncalibrated_stress_assumptions() -
     assert config["coefficient_provenance"] == "uncalibrated_stress_assumptions"
     assert config["rate_step_percentage_point"] == 0.10
     assert config["amount_unit"] == "KRW_100M"
+    assert config["cost_metric"] == "simple_surface_interest_total_delta"
     assert [scenario["key"] for scenario in config["scenarios"]] == [
         "low",
         "base",
@@ -58,6 +59,19 @@ def test_zero_rate_change_preserves_baseline_new_money_and_rollover() -> None:
     assert result["predicted_total"] == 220.0
     assert result["incremental_total"] == 0
     assert result["surface_interest_delta"] == 0
+
+
+@pytest.mark.parametrize("rollover_rate", [0.0, 100.0])
+def test_zero_rate_change_preserves_exact_rollover_probability_boundaries(
+    rollover_rate: float,
+) -> None:
+    result = _predict(current_rollover_rate_pct=rollover_rate)
+
+    assert result["rate_steps_10bp"] == 0
+    assert result["baseline_rollover_rate_pct"] == rollover_rate
+    assert result["predicted_rollover_rate_pct"] == rollover_rate
+    assert result["predicted_rollover"] == pytest.approx(200.0 * rollover_rate / 100.0)
+    assert result["incremental_total"] == 0
 
 
 def test_plus_10bp_raises_new_money_and_rollover_in_base_scenario() -> None:
@@ -117,6 +131,17 @@ def test_new_money_log_effect_has_an_explicit_guardrail() -> None:
         math.exp(MAX_ABS_NEW_MONEY_LOG_EFFECT), abs=1e-6
     )
     assert 0 <= result["predicted_rollover_rate_pct"] <= 100
+
+
+def test_surface_interest_delta_is_difference_between_proposed_and_baseline_totals() -> None:
+    result = _predict(proposed_rate=3.60)
+
+    assert result["surface_interest_delta"] == pytest.approx(
+        result["predicted_surface_interest"] - result["baseline_surface_interest"],
+        abs=1e-4,
+    )
+    naive_rate_only_delta = result["predicted_total"] * (3.60 - 3.50) / 100
+    assert result["surface_interest_delta"] > naive_rate_only_delta
 
 
 def test_surface_interest_delta_respects_term_month_unit() -> None:
