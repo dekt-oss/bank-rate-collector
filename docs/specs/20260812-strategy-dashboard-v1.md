@@ -220,8 +220,10 @@ site-public/
 이 상태에서는:
 
 - `strategy.html`을 만들지 않는다.
+- `data/strategy-table.json`을 만들지 않는다.
 - `index.html`에 전략 대시보드 링크를 넣지 않는다.
-- 같은 출력 디렉터리에 과거 `strategy.html`이 남아 있으면 삭제한다.
+- 같은 출력 디렉터리에 과거 `strategy.html` 또는 `data/strategy-table.json`이
+  남아 있으면 삭제한다.
 
 따라서 기능 코드가 `main`에 존재하는 것만으로 전략 화면을 공개하지 않는다.
 
@@ -238,11 +240,18 @@ site-public/
   index.html
   strategy.html
   data/table.json
+  data/strategy-table.json
   ...
 ```
 
-두 HTML은 같은 lightweight page data와 같은 `data/table.json`을 사용한다.
-`strategy.html`에 전체 금리표를 인라인하지 않는다.
+두 HTML은 같은 canonical 빌드에서 파생된 lightweight page data를 공유한다.
+`index.html`은 기존 `data/table.json`을 그대로 사용하고, `strategy.html`은
+`data/table.json`에서 **저축은행·정기예금·6/12/24/36개월 행만 필터한**
+`data/strategy-table.json`을 사용한다. 전략 slice는 별도 수집·DB 조회·값 변환·
+집계 결과가 아니며 기존 압축 배열 `{columns, lookups, rows}` 형식과 원자료 값을
+그대로 유지한다. stable `product_id` 증강도 기존 전략 데이터 계약을 그대로 따른다.
+
+`strategy.html`에 전체 금리표나 전략 slice를 인라인하지 않는다.
 
 ### 개발 Preview
 
@@ -264,14 +273,14 @@ Preview workflow는:
 
 - [ ] 기본 공식 빌드에서는 `strategy.html`과 전략 링크가 생성되지 않는다.
 - [ ] Preview/release gate ON 빌드에서는 `strategy.html`이 생성된다.
-- [ ] OFF 빌드는 이전 실행의 stale `strategy.html`도 제거한다.
+- [ ] OFF 빌드는 이전 실행의 stale `strategy.html`과 `data/strategy-table.json`도 제거한다.
 - [ ] 기존 `index.html` 검색·조회 기능을 그대로 유지한다.
 - [ ] gate ON 상태에서 상단에서 두 화면을 왕복할 수 있다.
-- [ ] 전략 화면이 실제 `table.json`으로 경쟁사 TOP 5와 시장 순위를 계산한다.
+- [ ] 전략 화면이 실제 `data/strategy-table.json`으로 경쟁사 TOP 5와 시장 순위를 계산한다.
 - [ ] 최근 30일 시장 변화 집계는 DB 변경이력에서 계산한다.
 - [ ] 같은 run·상품·전후금리의 variant 변경은 상품 이벤트 1건으로 집계한다.
 - [ ] 수신액은 사용자 가정 없이는 숫자를 만들지 않는다.
-- [ ] `strategy.html`에도 전체 금리표가 인라인되지 않는다.
+- [ ] `strategy.html`에도 전체 금리표나 전략 slice가 인라인되지 않는다.
 - [ ] Preview는 canonical 운영 DB를 읽기만 하고 별도 preview branch만 쓴다.
 - [ ] 기존 site service·UI 테스트와 신규 전략 화면 테스트가 통과한다.
 - [ ] CI lint/test가 통과한다.

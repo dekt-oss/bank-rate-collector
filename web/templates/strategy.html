@@ -116,6 +116,7 @@ const n=v=>v==null||v===""?null:Number(v);
 const esc=v=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const OUR_INSTITUTION="고려저축은행";const INFLOW_MODEL=data.strategy?.inflow_prediction||{"version":"inflow-structural-v1","calibration_status":"uncalibrated","rate_step_percentage_point":0.1,"baseline_anchor":"current_our_max_rate","relative_market_reference":"market_top10_rate","max_abs_new_money_log_effect":1.5,"rollover_probability_guardrail":{"min":0.001,"max":0.999},"scenarios":[{"key":"low","label":"저민감","new_money_log_change_per_10bp":0.02,"rollover_log_odds_change_per_10bp":0.04},{"key":"base","label":"기준","new_money_log_change_per_10bp":0.05,"rollover_log_odds_change_per_10bp":0.08},{"key":"high","label":"고민감","new_money_log_change_per_10bp":0.1,"rollover_log_odds_change_per_10bp":0.16}],"amount_unit":"KRW_100M","rate_unit":"percent","term_unit":"month","cost_metric":"simple_surface_interest_total_delta","coefficient_provenance":"uncalibrated_stress_assumptions"};
 let allRows=[],products12=[],simTerm=12,mapMode="korea";
+const aggregateCache=new Map;
 const coords={"서울":[261,132],"인천":[210,158],"경기":[315,190],"강원":[405,124],"충북":[353,260],"충남":[245,289],"세종":[290,280],"대전":[305,320],"경북":[455,314],"대구":[436,385],"울산":[513,422],"부산":[494,470],"경남":[402,449],"전북":[276,401],"광주":[241,472],"전남":[255,520],"제주":[207,633]};
 const koreaLabelOffsets={"서울":[-28,-24,"end"],"인천":[-30,4,"end"],"경기":[28,-2,"start"],"강원":[28,-12,"start"],"충북":[30,-12,"start"],"충남":[-32,-12,"end"],"세종":[-18,18,"end"],"대전":[-30,10,"end"],"경북":[30,-8,"start"],"대구":[28,6,"start"],"울산":[28,-4,"start"],"부산":[30,10,"start"],"경남":[-34,12,"end"],"전북":[-32,-6,"end"],"광주":[-34,4,"end"],"전남":[-34,18,"end"],"제주":[30,0,"start"]};
 // 부산 경계: StatGarten/maps(MIT), 통계청 SGIS 2020 기반. docs/third-party/statgarten-maps.md 참조.
@@ -128,6 +129,7 @@ function expand(t){
   return(t.rows||[]).map(r=>({sector:look("sector",r[c.sector]),institution:look("institution",r[c.institution]),region:look("region",r[c.region]),district:look("district",r[c.district]),product:look("product",r[c.product]),productId:look("product_id",r[c.product_id]),type:look("product_type",r[c.product_type]),term:n(r[c.term_months]),base:n(r[c.base_rate]),max:n(r[c.max_rate]),sourceId:look("source_id",r[c.source_id]),sourceEffectiveAt:look("source_effective_at",r[c.source_effective_at]),prefStatus:look("preference_status",r[c.preference_status]),prefTags:look("preference_tags",r[c.preference_tags])||""}))
 }
 function aggregateProducts(term){
+  if(aggregateCache.has(term))return aggregateCache.get(term);
   const m=new Map;
   for(const r of allRows){
     if(r.sector!=="savings_bank"||r.type!=="term_deposit"||r.term!==term||!Number.isFinite(r.max))continue;
@@ -138,7 +140,9 @@ function aggregateProducts(term){
     const freshness=String(r.sourceEffectiveAt||""),oldFreshness=String(p.sourceEffectiveAt||"");
     if(r.max>p.max||(r.max===p.max&&freshness>oldFreshness)){p.max=r.max;p.base=r.base;p.sourceId=r.sourceId;p.sourceEffectiveAt=r.sourceEffectiveAt;p.region=region(r.region)||p.region;p.district=r.district||p.district}
   }
-  return[...m.values()].sort((a,b)=>b.max-a.max||String(a.institution).localeCompare(String(b.institution),"ko")||String(a.product).localeCompare(String(b.product),"ko"))
+  const products=[...m.values()].sort((a,b)=>b.max-a.max||String(a.institution).localeCompare(String(b.institution),"ko")||String(a.product).localeCompare(String(b.product),"ko"));
+  aggregateCache.set(term,products);
+  return products;
 }
 function median(a){if(!a.length)return null;const s=[...a].sort((x,y)=>x-y),m=Math.floor(s.length/2);return s.length%2?s[m]:(s[m-1]+s[m])/2}
 function mean(a){return a.length?a.reduce((x,y)=>x+y,0)/a.length:null}
@@ -414,7 +418,7 @@ function pair(rid,nid){const r=$(rid),num=$(nid);r.addEventListener("input",()=>
 function setupSegments(){document.querySelectorAll("#term-segment button").forEach(btn=>btn.addEventListener("click",()=>{document.querySelectorAll("#term-segment button").forEach(x=>x.classList.remove("active"));btn.classList.add("active");simTerm=Number(btn.dataset.term);updateSim()}));$("map-back").addEventListener("click",resetMap)}
 async function boot(){
   renderHealth();renderChangesEnhanced();renderTrendEnhanced();const d=data.generated_at?new Date(data.generated_at):null;$("time").textContent=d&&!Number.isNaN(d.getTime())?`기준 ${d.toLocaleString("ko-KR",{month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit"})}`:"데이터 시각 미확인";
-  try{const res=await fetch(data.table_url,{cache:"no-store"});if(!res.ok)throw new Error(`금리표 HTTP ${res.status}`);allRows=expand(await res.json());renderMarket();renderKoreaMap();renderPrefs();renderTermStrip();renderInsightsEnhanced();updateSim()}catch(err){$("error").hidden=false;$("error").textContent=`금리표를 불러오지 못했습니다. ${err instanceof Error?err.message:String(err)}`}
+  try{const res=await fetch(data.table_url,{cache:"no-store"});if(!res.ok)throw new Error(`금리표 HTTP ${res.status}`);allRows=expand(await res.json());aggregateCache.clear();[6,12,24,36].forEach(aggregateProducts);renderMarket();renderKoreaMap();renderPrefs();renderTermStrip();renderInsightsEnhanced();updateSim()}catch(err){$("error").hidden=false;$("error").textContent=`금리표를 불러오지 못했습니다. ${err instanceof Error?err.message:String(err)}`}
 }
 pair("base-r","base-n");pair("bonus-r","bonus-n");["baseline-new","maturity-amount","rollover-rate"].forEach(id=>$(id).addEventListener("input",updateSim));$("prediction-toggle").addEventListener("click",togglePredictionPanel);setupSegments();boot();
 })();
