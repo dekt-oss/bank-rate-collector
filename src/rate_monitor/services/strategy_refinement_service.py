@@ -622,7 +622,8 @@ function renderInsightsEnhanced(){
     {icon:"⌁",tag:"경쟁 강도",
       title:Number.isFinite(premium)?`시장 상단 프리미엄 ${formatBp(premium)}`:"상단 격차 계산 중",
       text:Number.isFinite(stats.top10)&&Number.isFinite(stats.mean)
-        ?`시장 최고 ${stats.max.toFixed(2)}% · TOP10 ${stats.top10.toFixed(2)}% · 평균 ${stats.mean.toFixed(2)}%`
+        ?`시장 최고 ${stats.max.toFixed(2)}% · TOP10 ${stats.top10.toFixed(2)}%`
+          +` · 평균 ${stats.mean.toFixed(2)}%`
         :"현재 비교상품이 필요합니다.",
       action:Number.isFinite(premium)&&premium>=.30
         ?"최고금리 1등 추격 비용이 큰 구간이므로 TOP10 진입선 중심 시나리오를 우선 비교합니다."
@@ -635,15 +636,20 @@ function renderInsightsEnhanced(){
         :"12개월 당사 최고금리 비교가 필요합니다.",
       action:"현재금리 대비 5bp·10bp·15bp 안을 하단 시뮬레이터에서 순위와 비용으로 비교합니다."},
     {icon:"◇",tag:"지역 편차",
-      title:Number.isFinite(regionalSpread)?`지역 평균 편차 ${formatBp(regionalSpread)}`:"지역 데이터 확인 중",
+      title:Number.isFinite(regionalSpread)
+        ?`지역 평균 편차 ${formatBp(regionalSpread)}`
+        :"지역 데이터 확인 중",
       text:strongest&&weakest
-        ?`${strongest.region} ${strongest.rate.toFixed(2)}% ↔ ${weakest.region} ${weakest.rate.toFixed(2)}%`
+        ?`${strongest.region} ${strongest.rate.toFixed(2)}% ↔ `
+          +`${weakest.region} ${weakest.rate.toFixed(2)}%`
         :"본점 소재지 정보가 있는 비교상품이 필요합니다.",
-      action:"본점 소재지 참고값이며 판매 가능 지역으로 해석하지 않고 지역 경쟁강도 참고에만 사용합니다."},
+      action:"본점 소재지 참고값이며 판매 가능 지역으로 해석하지 않고 "
+        +"지역 경쟁강도 참고에만 사용합니다."},
     {icon:"≡",tag:"우대조건 구조",
       title:topPref?`${topPref.label} ${topPref.ratio.toFixed(0)}%`:"우대조건 데이터 확인 중",
       text:topPref
-        ?`조건 기재 상품 기준${secondPref?` · ${secondPref.label} ${secondPref.ratio.toFixed(0)}%`:""}`
+        ?`조건 기재 상품 기준${secondPref
+          ?` · ${secondPref.label} ${secondPref.ratio.toFixed(0)}%`:""}`
         :"표준 분류 가능한 우대조건이 필요합니다.",
       action:"보편 조건과 차별 조건을 분리해 기본금리와 우대금리의 역할을 설계합니다."}
   ];
@@ -656,7 +662,8 @@ function renderInsightsEnhanced(){
 function renderPlanningContext(comp,stats,own){
   const flow=marketDirection(data.strategy?.market_changes||{});
   $("plan-flow").textContent=flow.label;
-  $("plan-flow-note").textContent=`30일 상승 ${fmt.format(flow.up)} · 하락 ${fmt.format(flow.down)}`;
+  $("plan-flow-note").textContent=`30일 상승 ${fmt.format(flow.up)}`
+    +` · 하락 ${fmt.format(flow.down)}`;
   $("plan-market-max").textContent=Number.isFinite(stats.max)?`${stats.max.toFixed(2)}%`:"—";
   $("plan-market-max-note").textContent=`${simTerm}개월 ${fmt.format(comp.length)}개 비교상품`;
   $("plan-market-mean").textContent=Number.isFinite(stats.mean)?`${stats.mean.toFixed(2)}%`:"—";
