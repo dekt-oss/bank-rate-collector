@@ -13,7 +13,9 @@ from typing import Any
 from rate_monitor.services.dashboard_service import DashboardBuildError
 
 PRODUCT_ID_COLUMN = "product_id"
-_STRATEGY_TERMS = frozenset({6, 12, 24, 36})
+STRATEGY_SECTOR = "savings_bank"
+STRATEGY_PRODUCT_TYPE = "term_deposit"
+STRATEGY_TERMS = frozenset({6, 12, 24, 36})
 _IDENTITY_KEY_COLUMNS = (
     "source_id",
     "institution",
@@ -63,9 +65,9 @@ def slice_strategy_table(table: dict[str, Any]) -> dict[str, Any]:
         )
         term = row[source_columns["term_months"]]
         if (
-            sector == "savings_bank"
-            and product_type == "term_deposit"
-            and term in _STRATEGY_TERMS
+            sector == STRATEGY_SECTOR
+            and product_type == STRATEGY_PRODUCT_TYPE
+            and term in STRATEGY_TERMS
         ):
             rows.append(row)
 
@@ -154,9 +156,9 @@ def augment_strategy_table(
             )
             term = row[source_columns["term_months"]]
             if (
-                sector == "savings_bank"
-                and product_type == "term_deposit"
-                and term in _STRATEGY_TERMS
+                sector == STRATEGY_SECTOR
+                and product_type == STRATEGY_PRODUCT_TYPE
+                and term in STRATEGY_TERMS
             ):
                 target_unmatched += 1
         rows.append(row)
