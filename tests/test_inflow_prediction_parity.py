@@ -169,7 +169,11 @@ def _node_vector_args(vectors: list[dict]) -> list[dict]:
     return converted
 
 
-def _run_ui_functions_in_node(vectors: list[dict]) -> list[dict]:
+def _run_ui_functions_in_node(
+    vectors: list[dict],
+    *,
+    deliberate_new_money_drift: bool = False,
+) -> list[dict]:
     node = shutil.which("node")
     assert node is not None, "Stage C parity 검증에는 node 실행환경이 필수입니다"
 
@@ -178,6 +182,12 @@ def _run_ui_functions_in_node(vectors: list[dict]) -> list[dict]:
         _extract_js_function(html, name)
         for name in ("logistic", "runInflowScenario", "predictInflow")
     ]
+    if deliberate_new_money_drift:
+        drift_from = "scenario.new_money_log_change_per_10bp*rateSteps"
+        drift_to = "(scenario.new_money_log_change_per_10bp+0.001)*rateSteps"
+        assert drift_from in functions[1], "deliberate drift probe marker가 없습니다"
+        functions[1] = functions[1].replace(drift_from, drift_to, 1)
+
     model_json = json.dumps(_extract_inflow_model(html), ensure_ascii=False, separators=(",", ":"))
     vectors_json = json.dumps(
         _node_vector_args(vectors),
@@ -265,6 +275,21 @@ def test_built_ui_javascript_matches_python_and_golden_vectors() -> None:
             actual,
             python_by_name[name],
             context=f"python-js.{name}",
+        )
+
+
+def test_parity_guard_rejects_deliberate_one_sided_js_drift() -> None:
+    vector = next(vector for vector in _load_vectors() if vector["name"] == "plus_10bp_12m")
+    js_result = _run_ui_functions_in_node(
+        [vector],
+        deliberate_new_money_drift=True,
+    )[0]
+
+    with pytest.raises(AssertionError, match="javascript-drift.plus_10bp_12m"):
+        _assert_contract(
+            js_result["actual"],
+            vector["expected"],
+            context="javascript-drift.plus_10bp_12m",
         )
 
 
