@@ -1,19 +1,10 @@
-"""전략 대시보드 후행 UI refinement 계약."""
+"""전략 대시보드 최종 build 산출물의 UI refinement 계약."""
 
-from rate_monitor.services.site_service import (
-    DEFAULT_STRATEGY_TEMPLATE,
-    adapt_strategy_korea_map_template,
-)
-from rate_monitor.services.strategy_contract_service import adapt_strategy_template
-
-
-def _html() -> str:
-    text = adapt_strategy_template(DEFAULT_STRATEGY_TEMPLATE.read_text(encoding="utf-8"))
-    return adapt_strategy_korea_map_template(text)
+from tests.strategy_output_helper import built_strategy_html
 
 
 def test_prediction_engine_is_hidden_until_explicit_button_click() -> None:
-    html = _html()
+    html = built_strategy_html()
 
     assert 'id="prediction-toggle"' in html
     assert 'aria-expanded="false"' in html
@@ -32,7 +23,7 @@ def test_prediction_engine_is_hidden_until_explicit_button_click() -> None:
 
 
 def test_prediction_engine_explains_model_and_evidence_scope() -> None:
-    html = _html()
+    html = built_strategy_html()
 
     assert "쉽게 보면" in html
     assert "새로 들어오는 돈과 만기 후 남는 돈을 섞지 않습니다" in html
@@ -57,7 +48,7 @@ def test_prediction_engine_explains_model_and_evidence_scope() -> None:
 
 
 def test_information_flow_matches_market_to_planning_sequence() -> None:
-    html = _html()
+    html = built_strategy_html()
 
     kpis = html.index('class="grid kpis"')
     market_flow = html.index('class="grid market-flow"')
@@ -74,7 +65,7 @@ def test_information_flow_matches_market_to_planning_sequence() -> None:
 
 
 def test_market_flow_adds_trend_and_change_direction_summary() -> None:
-    html = _html()
+    html = built_strategy_html()
 
     assert 'id="trend-mean-change"' in html
     assert 'id="trend-max-change"' in html
@@ -90,7 +81,7 @@ def test_market_flow_adds_trend_and_change_direction_summary() -> None:
 
 
 def test_market_insight_is_expanded_for_product_planning() -> None:
-    html = _html()
+    html = built_strategy_html()
 
     assert "금리·경쟁강도·당사 위치·지역·우대조건" in html
     assert "function renderInsightsEnhanced()" in html
@@ -104,7 +95,7 @@ def test_market_insight_is_expanded_for_product_planning() -> None:
 
 
 def test_simulator_is_full_width_planning_zone_with_market_context() -> None:
-    html = _html()
+    html = built_strategy_html()
 
     assert "시장 흐름을 확인한 뒤 금리·우대·기간을 설계" in html
     assert 'class="planning-strip"' in html
@@ -120,7 +111,7 @@ def test_simulator_is_full_width_planning_zone_with_market_context() -> None:
 
 
 def test_national_map_gives_more_width_to_map_and_offsets_labels() -> None:
-    html = _html()
+    html = built_strategy_html()
 
     assert (
         ".primary:not(.busan-focus){grid-template-columns:minmax(470px,.86fr) "
@@ -142,7 +133,7 @@ def test_national_map_gives_more_width_to_map_and_offsets_labels() -> None:
 
 
 def test_national_map_refinement_does_not_change_busan_focus_contract() -> None:
-    html = _html()
+    html = built_strategy_html()
 
     assert (
         ".primary.busan-focus{grid-template-columns:minmax(720px,1.45fr)"
