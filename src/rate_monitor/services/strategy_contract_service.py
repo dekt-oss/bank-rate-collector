@@ -16,6 +16,7 @@ from typing import Any
 
 from rate_monitor.services.dashboard_service import DashboardBuildError
 from rate_monitor.services.inflow_prediction_service import public_model_config
+from rate_monitor.services.strategy_refinement_service import adapt_strategy_refinements
 
 PRODUCT_ID_COLUMN = "product_id"
 _STRATEGY_TERMS = frozenset({6, 12, 24, 36})
@@ -423,4 +424,4 @@ def adapt_strategy_template(template_text: str) -> str:
         'rateText.setAttribute("y",(y+12).toFixed(1));',
         "busan_focus.rate_spacing",
     )
-    return _adapt_inflow_prediction(text)
+    return adapt_strategy_refinements(_adapt_inflow_prediction(text))
