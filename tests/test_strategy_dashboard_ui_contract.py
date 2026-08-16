@@ -1,15 +1,14 @@
-"""전략 대시보드 HTML의 핵심 의사결정·실데이터 UI 계약."""
+"""전략 대시보드 최종 HTML의 핵심 의사결정·실데이터 UI 계약."""
 
 from pathlib import Path
 
-from rate_monitor.services.site_service import adapt_strategy_korea_map_template
+from tests.strategy_output_helper import built_strategy_html
 
-TEMPLATE = Path("web/templates/strategy.html")
 KOREA_MAP = Path("web/assets/korea-sido.svg")
 
 
 def _html() -> str:
-    return adapt_strategy_korea_map_template(TEMPLATE.read_text(encoding="utf-8"))
+    return built_strategy_html()
 
 
 def test_strategy_dashboard_has_one_kpi_row_without_legacy_briefing() -> None:
@@ -55,10 +54,11 @@ def test_strategy_dashboard_uses_product_representatives_for_market_metrics() ->
     html = _html()
 
     assert "function aggregateProducts(term)" in html
-    assert 'const key=`${r.institution}\\0${r.product}\\0${term}`' in html
+    assert 'const key=`${r.productId}\\0${term}`' in html
     assert "r.max>p.max" in html
     assert "products12=aggregateProducts(12)" in html
     assert "ratesStats(products12)" in html
+    assert 'productId:look("product_id"' in html
 
 
 def test_strategy_dashboard_uses_real_national_and_busan_boundaries() -> None:
@@ -178,7 +178,7 @@ def test_simulator_has_no_preference_condition_selector() -> None:
     assert "우대조건 트렌드" in html
     assert 'prefStatus:look("preference_status",r[c.preference_status])' in html
     assert 'prefTags:look("preference_tags",r[c.preference_tags])' in html
-    assert "기본금리·우대금리·가입기간만 입력" in html
+    assert "시장 흐름을 확인한 뒤 금리·우대·기간을 설계" in html
     assert 'id="term-segment"' in html
     assert "우대조건 수" not in html
     assert 'id="condition-segment"' not in html
@@ -203,17 +203,22 @@ def test_strategy_dashboard_keeps_three_historical_rate_lines() -> None:
 def test_strategy_dashboard_keeps_scenario_safety_language() -> None:
     html = _html()
 
-    assert "가정 기반 예상 월 수신액" in html
-    assert "내부 실적 기반 예측모형이 아닙니다" in html
+    assert "수신금액 예측 엔진" in html
+    assert "내부 실적 미보정" in html
+    assert "내부 수신실적 계수가 아직 미보정" in html
+    assert "민감도 스트레스 결과" in html
     assert "실제 유입을 보장하지 않습니다" in html
-    assert 'baselineRaw!==""' in html
-    assert 'sensitivityRaw!==""' in html
+    assert 'id="baseline-new"' in html
+    assert 'id="maturity-amount"' in html
+    assert 'id="rollover-rate"' in html
+    assert 'id="baseline"' not in html
+    assert 'id="sensitivity"' not in html
 
 
 def test_market_change_detail_stays_deduplicated_and_secondary() -> None:
     html = _html()
 
-    assert "<details class=\"card changes\">" in html
+    assert '<details class="card changes" open>' in html
     assert "동일 상품 variant 동시 변경은 상품 이벤트 1건으로 집계" in html
     assert "affected_variant_count" in html
     assert "variant_count" in html

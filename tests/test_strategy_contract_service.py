@@ -1,11 +1,8 @@
 import sqlite3
 from pathlib import Path
 
-from rate_monitor.services.site_service import DEFAULT_STRATEGY_TEMPLATE
-from rate_monitor.services.strategy_contract_service import (
-    adapt_strategy_template,
-    augment_strategy_table,
-)
+from rate_monitor.services.strategy_contract_service import augment_strategy_table
+from tests.strategy_output_helper import built_strategy_html
 
 
 def _identity_db(path: Path) -> Path:
@@ -71,8 +68,9 @@ def _table() -> dict:
     }
 
 
-def test_strategy_template_adapter_uses_stable_id_and_reference_date() -> None:
-    html = adapt_strategy_template(DEFAULT_STRATEGY_TEMPLATE.read_text(encoding="utf-8"))
+def test_strategy_build_uses_stable_id_and_reference_date() -> None:
+    html = built_strategy_html()
+
     assert 'productId:look("product_id"' in html
     assert 'const key=`${r.productId}\\0${term}`;' in html
     assert "const key=r.productId?" not in html
@@ -82,8 +80,8 @@ def test_strategy_template_adapter_uses_stable_id_and_reference_date() -> None:
     assert "최신 공시기준일" not in html
 
 
-def test_strategy_template_adapter_replaces_manual_inflow_sensitivity_with_engine() -> None:
-    html = adapt_strategy_template(DEFAULT_STRATEGY_TEMPLATE.read_text(encoding="utf-8"))
+def test_strategy_build_contains_structural_inflow_engine_contract() -> None:
+    html = built_strategy_html()
 
     assert (
         'const INFLOW_MODEL=data.strategy?.inflow_prediction||'
