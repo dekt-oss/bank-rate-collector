@@ -164,7 +164,10 @@ def _adapt_inflow_prediction(text: str) -> str:
     text = _replace_once(
         text,
         'const OUR_INSTITUTION="고려저축은행";',
-        f'const OUR_INSTITUTION="고려저축은행";const INFLOW_MODEL={model_json};',
+        (
+            'const OUR_INSTITUTION="고려저축은행";'
+            f'const INFLOW_MODEL=data.strategy?.inflow_prediction||{model_json};'
+        ),
         "inflow_model.config",
     )
     text = _replace_once(
@@ -252,7 +255,7 @@ def _adapt_inflow_prediction(text: str) -> str:
         '<small>현재 금리 baseline 대비</small></div>'
         '<div class="simresult"><span>추가 표면이자비용</span>'
         '<b id="inflow-cost">입력 필요</b>'
-        '<small>FTP 미반영 · 선택기간 단순계산</small></div></div>\n      '
+        '<small>현재 총이자 대비 · FTP 미반영</small></div></div>\n      '
         '<p class="model-detail" id="inflow-model-detail">당사 현재금리와 시장 상위10%선을 '
         '확인한 뒤 계산합니다.</p>\n      '
         '<p class="warning">예측엔진 v1은 내부 수신실적 계수가 아직 미보정된 구조모형입니다. '
@@ -268,11 +271,15 @@ def _adapt_inflow_prediction(text: str) -> str:
         'proposedGap=proposed-top10,relativeChange=proposedGap-currentGap,rateSteps=relativeChange/step,'
         'maxLog=INFLOW_MODEL.max_abs_new_money_log_effect,rawLog=scenario.new_money_log_change_per_10bp*rateSteps,'
         'logEffect=Math.max(-maxLog,Math.min(maxLog,rawLog)),newMoney=baseline*Math.exp(logEffect),'
-        'guard=INFLOW_MODEL.rollover_probability_guardrail,p0=Math.max(guard.min,Math.min(guard.max,rollover/100)),'
-        'rollLogit=Math.log(p0/(1-p0))+scenario.rollover_log_odds_change_per_10bp*rateSteps,'
-        'p1=logistic(rollLogit),renewal=maturity*p1,baselineTotal=baseline+maturity*p0,total=newMoney+renewal,'
-        'delta=total-baselineTotal,cost=total*(proposed-ownRate)/100*(term/12);'
-        'return{currentGap,proposedGap,relativeChange,rateSteps,newMoney,p1,renewal,baselineTotal,total,delta,cost}}\n'
+        'guard=INFLOW_MODEL.rollover_probability_guardrail,p0=rollover/100,'
+        'anchor=Math.max(guard.min,Math.min(guard.max,p0)),'
+        'rollLogit=Math.log(anchor/(1-anchor))+scenario.rollover_log_odds_change_per_10bp*rateSteps,'
+        'p1=Math.abs(rateSteps)<=1e-12?p0:logistic(rollLogit),renewal=maturity*p1,'
+        'baselineTotal=baseline+maturity*p0,total=newMoney+renewal,delta=total-baselineTotal,'
+        'termFactor=term/12,baselineCost=baselineTotal*ownRate/100*termFactor,'
+        'predictedCost=total*proposed/100*termFactor,cost=predictedCost-baselineCost;'
+        'return{currentGap,proposedGap,relativeChange,rateSteps,newMoney,p1,renewal,baselineTotal,total,delta,'
+        'baselineCost,predictedCost,cost}}\n'
         'function predictInflow(args){const results=INFLOW_MODEL.scenarios.map(s=>runInflowScenario({...args,scenario:s})),'
         'baseIndex=INFLOW_MODEL.scenarios.findIndex(s=>s.key==="base"),base=results[baseIndex>=0?baseIndex:0],'
         'totals=results.map(x=>x.total);return{base,minTotal:Math.min(...totals),maxTotal:Math.max(...totals)}}\n'
