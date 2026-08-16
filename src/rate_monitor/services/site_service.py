@@ -9,15 +9,16 @@
 
 그래서 여기서는 화면과 데이터를 나눈다.
 
-    index.html      가볍다. 요약과 조회 UI만 들어 있다
-    strategy.html   같은 데이터를 읽는 전략 대시보드·시뮬레이션 실험 화면
-    data/table.json 금리표. 화면이 열린 뒤 따로 받는다 (압축 배열 형태)
-    data/rates.csv  사람이 받아가는 파일. 버튼이 이 파일을 그냥 가리킨다
-    data/rates.json 같은 내용의 JSON
+    index.html               가볍다. 요약과 조회 UI만 들어 있다
+    strategy.html            전략 대시보드·시뮬레이션 실험 화면
+    data/table.json          검색·조회용 전체 금리표 (압축 배열 형태)
+    data/strategy-table.json 전략 화면용 canonical 파생 slice
+    data/rates.csv           사람이 받아가는 파일. 버튼이 이 파일을 그냥 가리킨다
+    data/rates.json          같은 내용의 JSON
 
 전략 화면은 코드가 존재하는 것과 공개되는 것을 분리한다. 기본 빌드에서는
-`strategy.html`도 헤더 링크도 만들지 않는다. Preview나 실제 공개 시점에만
-`RATE_MONITOR_STRATEGY_DASHBOARD=1`을 명시해 켠다.
+`strategy.html`도 헤더 링크도 전략 전용 slice도 만들지 않는다. Preview나 실제
+공개 시점에만 `RATE_MONITOR_STRATEGY_DASHBOARD=1`을 명시해 켠다.
 
 화면이 쓰는 `table.json`과 사람이 받는 `rates.json`은 **다른 파일이다.**
 앞은 조회표 색인이 든 압축 배열이고 뒤는 한 행이 한 객체인 형태다. 한때 둘
@@ -45,7 +46,10 @@ from rate_monitor.services.dashboard_service import (
     DashboardBuildError,
     build_summary,
 )
-from rate_monitor.services.strategy_contract_service import augment_strategy_table
+from rate_monitor.services.strategy_contract_service import (
+    augment_strategy_table,
+    slice_strategy_table,
+)
 from rate_monitor.services.strategy_service import build_strategy_summary
 
 DEFAULT_TEMPLATE = Path("web/templates/site.html")
@@ -59,6 +63,7 @@ _TRUE_VALUES = frozenset({"1", "true", "yes", "on"})
 
 # 화면이 받아 가는 금리표. 내보내기 파일과 이름이 겹치면 안 된다.
 TABLE_FILE = "data/table.json"
+STRATEGY_TABLE_FILE = "data/strategy-table.json"
 
 # 기존 검색·조회 템플릿은 안정화된 거대한 단일 HTML이다. 실험 화면 하나를
 # 붙이려고 그 DOM을 다시 구성하지 않는다. 빌드 산출물의 기존 액션 영역에
@@ -192,6 +197,20 @@ def _add_strategy_nav(html: str) -> str:
     )
 
 
+def _write_table(out_dir: Path, relative_path: str, table: dict[str, Any]) -> tuple[Path, Path]:
+    """압축 배열 table과 gzip companion을 같은 방식으로 쓴다."""
+    table_path = out_dir / relative_path
+    table_path.parent.mkdir(parents=True, exist_ok=True)
+    table_path.write_text(
+        json.dumps(table, ensure_ascii=False, separators=(",", ":")),
+        encoding="utf-8",
+    )
+    gz_path = table_path.with_suffix(".json.gz")
+    with table_path.open("rb") as src, gzip.open(gz_path, "wb", compresslevel=9) as dst:
+        shutil.copyfileobj(src, dst)
+    return table_path, gz_path
+
+
 def build_site(
     db_path: Path,
     template_path: Path = DEFAULT_TEMPLATE,
@@ -207,28 +226,38 @@ def build_site(
 
     전략 화면은 기본 OFF다. `strategy_template_path`를 직접 주거나
     `RATE_MONITOR_STRATEGY_DASHBOARD=1`일 때만 `strategy.html`과 검색 화면의
-    이동 링크를 발행한다. 따라서 구현을 main에 합쳐도 공개 플래그를 켜기
-    전까지 기존 공식 화면 산출물은 그대로다.
+    이동 링크 및 전략 전용 slice를 발행한다. 따라서 구현을 main에 합쳐도 공개
+    플래그를 켜기 전까지 기존 공식 화면 산출물은 그대로다.
     """
     if strategy_template_path is None and strategy_dashboard_enabled():
         strategy_template_path = DEFAULT_STRATEGY_TEMPLATE
 
     summary = build_summary(db_path)
     page_data, table = split_summary(summary)
+    strategy_table: dict[str, Any] | None = None
     strategy_table_contract: dict[str, int] | None = None
     if strategy_template_path is not None:
-        table, strategy_table_contract = augment_strategy_table(db_path, table)
+        strategy_source = slice_strategy_table(table)
+        strategy_table, strategy_table_contract = augment_strategy_table(
+            db_path, strategy_source
+        )
 
     out_dir.mkdir(parents=True, exist_ok=True)
     # OFF로 되돌린 뒤 같은 out_dir을 재사용하는 경우 과거 실험 산출물이 남으면
-    # release gate를 우회한다. 빌드 시작 시 strategy HTML/asset을 함께 지운다.
+    # release gate를 우회한다. 빌드 시작 시 strategy HTML/asset/slice를 함께 지운다.
     strategy_path = out_dir / STRATEGY_FILE
     strategy_map_path = out_dir / STRATEGY_MAP_FILE
+    strategy_table_path = out_dir / STRATEGY_TABLE_FILE
+    strategy_table_gz_path = strategy_table_path.with_suffix(".json.gz")
     if strategy_template_path is None:
-        if strategy_path.exists():
-            strategy_path.unlink()
-        if strategy_map_path.exists():
-            strategy_map_path.unlink()
+        for stale in (
+            strategy_path,
+            strategy_map_path,
+            strategy_table_path,
+            strategy_table_gz_path,
+        ):
+            if stale.exists():
+                stale.unlink()
 
     # 이전 실행이 남긴 내려받기 파일을 지운다. 압축 여부가 크기에 따라
     # 바뀌므로, 안 지우면 부산 때의 rates.json과 전국 때의 rates.json.gz가
@@ -238,19 +267,22 @@ def build_site(
     data_dir = out_dir / "data"
     data_dir.mkdir(parents=True, exist_ok=True)
 
-    # 금리표. 화면이 열린 뒤 받는다.
-    table_path = out_dir / TABLE_FILE
-    table_path.write_text(
-        json.dumps(table, ensure_ascii=False, separators=(",", ":")),
-        encoding="utf-8",
-    )
-    # gzip도 함께 둔다. 정적 호스팅이 알아서 골라 주는 경우가 많고,
-    # 안 골라줘도 화면이 직접 받을 수 있다.
-    gz_path = table_path.with_suffix(".json.gz")
-    with table_path.open("rb") as src, gzip.open(gz_path, "wb", compresslevel=9) as dst:
-        shutil.copyfileobj(src, dst)
-
+    # 검색·조회용 canonical 금리표. 전략 gate와 관계없이 기존 bytes를 유지한다.
+    table_path, gz_path = _write_table(out_dir, TABLE_FILE, table)
     files = [str(table_path.relative_to(out_dir)), str(gz_path.relative_to(out_dir))]
+
+    # 전략 전용 slice는 gate ON일 때만 발행한다. 별도 수집/DB 조회 결과가 아니라
+    # 위 canonical table의 계약상 필터 + stable product_id 증강이다.
+    if strategy_table is not None:
+        strategy_table_path, strategy_table_gz_path = _write_table(
+            out_dir, STRATEGY_TABLE_FILE, strategy_table
+        )
+        files.extend(
+            [
+                str(strategy_table_path.relative_to(out_dir)),
+                str(strategy_table_gz_path.relative_to(out_dir)),
+            ]
+        )
 
     # 사람이 받아가는 파일. 이름을 고정해 화면이 가리킬 수 있게 한다.
     downloads: dict[str, dict[str, Any]] = {}
@@ -292,8 +324,12 @@ def build_site(
     files.insert(0, "index.html")
 
     if strategy_template_path is not None:
+        if strategy_table is None:
+            raise DashboardBuildError("전략 화면은 전략 전용 table slice가 필요하다")
         strategy_page_data = {
             **page_data,
+            "table_url": STRATEGY_TABLE_FILE,
+            "table_rows": len(strategy_table.get("rows") or []),
             "strategy": build_strategy_summary(db_path),
             "strategy_table_contract": strategy_table_contract,
         }
@@ -361,10 +397,12 @@ def _verify(html: str, page_data: dict[str, Any]) -> None:
 
 
 def _verify_strategy(html: str, page_data: dict[str, Any]) -> None:
-    """전략 화면이 기존 데이터 계약을 우회하지 않는지 검증한다."""
+    """전략 화면이 canonical 파생 slice 계약을 우회하지 않는지 검증한다."""
     parsed = _inline_payload(html)
-    if parsed.get("table_url") != TABLE_FILE:
-        raise DashboardBuildError("전략 화면이 canonical table.json을 가리키지 않는다")
+    if parsed.get("table_url") != STRATEGY_TABLE_FILE:
+        raise DashboardBuildError("전략 화면이 strategy-table.json을 가리키지 않는다")
+    if parsed.get("table_rows") != page_data.get("table_rows"):
+        raise DashboardBuildError("전략 화면 slice 행 수가 page data와 다르다")
     if parsed.get("totals") != page_data.get("totals"):
         raise DashboardBuildError("전략 화면 집계값이 summary와 다르다")
     if "strategy" not in parsed:
