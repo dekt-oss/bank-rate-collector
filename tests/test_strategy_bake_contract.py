@@ -1,15 +1,14 @@
-"""Stage A 베이크 전 어댑터 출력과 새 source template의 바이트 계약."""
+"""Stage A 베이크 이후 source template 단일 진실원 계약."""
 
-import hashlib
+from pathlib import Path
 
 from rate_monitor.services.site_service import DEFAULT_STRATEGY_TEMPLATE
 
-_PRE_BAKE_ADAPTER_OUTPUT_SHA256 = (
-    "2aa193e29048615e90771445644abcac001b3f5f1bdf08fbe07ce368ffc6c002"
-)
 
+def test_baked_strategy_template_remains_direct_source_of_truth() -> None:
+    html = DEFAULT_STRATEGY_TEMPLATE.read_text(encoding="utf-8")
 
-def test_baked_strategy_template_is_byte_identical_to_pre_bake_adapter_output() -> None:
-    actual = hashlib.sha256(DEFAULT_STRATEGY_TEMPLATE.read_bytes()).hexdigest()
-
-    assert actual == _PRE_BAKE_ADAPTER_OUTPUT_SHA256
+    assert "수신상품 전략 대시보드" in html
+    assert "function aggregateProducts" in html
+    assert 'viewBox="130 -5 450 675" role="img"' in html
+    assert not Path("src/rate_monitor/services/strategy_refinement_service.py").exists()
