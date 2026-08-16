@@ -15,6 +15,7 @@ from rate_monitor.services.dashboard_service import DATA_END, DATA_MARKER
 from rate_monitor.services.site_service import (
     DEFAULT_STRATEGY_TEMPLATE,
     STRATEGY_ENABLED_ENV,
+    STRATEGY_MAP_FILE,
     build_site,
 )
 from rate_monitor.services.strategy_service import build_strategy_summary
@@ -65,6 +66,9 @@ def test_strategy_release_gate_is_off_by_default(
     out = tmp_path / "site-public"
     out.mkdir()
     (out / "strategy.html").write_text("stale preview", encoding="utf-8")
+    stale_map = out / STRATEGY_MAP_FILE
+    stale_map.parent.mkdir(parents=True)
+    stale_map.write_text("stale map", encoding="utf-8")
     monkeypatch.delenv(STRATEGY_ENABLED_ENV, raising=False)
 
     manifest = build_site(db, out_dir=out)
@@ -72,7 +76,9 @@ def test_strategy_release_gate_is_off_by_default(
 
     assert (out / "index.html").exists()
     assert not (out / "strategy.html").exists()
+    assert not stale_map.exists()
     assert "strategy.html" not in manifest.files
+    assert STRATEGY_MAP_FILE not in manifest.files
     assert 'href="strategy.html"' not in index_html
 
 
@@ -86,8 +92,10 @@ def test_release_gate_builds_strategy_page_without_replacing_index(
 
     assert (out / "index.html").exists()
     assert (out / "strategy.html").exists()
+    assert (out / STRATEGY_MAP_FILE).exists()
     assert "index.html" in manifest.files
     assert "strategy.html" in manifest.files
+    assert STRATEGY_MAP_FILE in manifest.files
 
     index_html = (out / "index.html").read_text(encoding="utf-8")
     strategy_html = (out / "strategy.html").read_text(encoding="utf-8")
@@ -101,6 +109,10 @@ def test_release_gate_builds_strategy_page_without_replacing_index(
     assert "우대조건 트렌드" in strategy_html
     assert "기간별 금리 추이" in strategy_html
     assert "시장 인사이트" in strategy_html
+    assert 'href="assets/korea-sido.svg"' in strategy_html
+    assert 'viewBox="130 -5 450 675" role="img"' in strategy_html
+    assert 'setAttribute("viewBox","130 -5 450 675")' in strategy_html
+    assert "M335 31C383" not in strategy_html
 
 
 def test_strategy_page_reuses_canonical_table_without_inlining_rows(
@@ -226,7 +238,7 @@ def test_market_changes_collapse_identical_variant_moves_to_one_product_event(
     assert summary["rate_trend"]["points"] == []
 
 
-def test_inflow_ui_requires_explicit_assumptions_and_never_claims_prediction(
+def test_inflow_ui_uses_structural_prediction_engine_with_explicit_uncalibrated_state(
     collected_db, tmp_path
 ) -> None:
     db, _, _ = collected_db
@@ -234,12 +246,24 @@ def test_inflow_ui_requires_explicit_assumptions_and_never_claims_prediction(
     build_site(db, out_dir=out, strategy_template_path=DEFAULT_STRATEGY_TEMPLATE)
     strategy_html = (out / "strategy.html").read_text(encoding="utf-8")
 
-    assert "가정 기반 예상 월 수신액" in strategy_html
-    assert "가정 입력 필요" in strategy_html
-    assert "내부 실적 기반 예측모형이 아닙니다" in strategy_html
+    assert "수신금액 예측 엔진" in strategy_html
+    assert "내부 실적 미보정" in strategy_html
+    assert "민감도 스트레스 결과" in strategy_html
     assert "실제 유입을 보장하지 않습니다" in strategy_html
-    assert 'baselineRaw!==""' in strategy_html
-    assert 'sensitivityRaw!==""' in strategy_html
+    assert 'id="baseline-new"' in strategy_html
+    assert 'id="maturity-amount"' in strategy_html
+    assert 'id="rollover-rate"' in strategy_html
+    assert 'id="inflow-new"' in strategy_html
+    assert 'id="inflow-rollover"' in strategy_html
+    assert 'id="inflow-total"' in strategy_html
+    assert 'id="inflow-range"' in strategy_html
+    assert 'id="inflow-cost"' in strategy_html
+    assert "const INFLOW_MODEL=" in strategy_html
+    assert "function runInflowScenario" in strategy_html
+    assert "function predictInflow" in strategy_html
+    assert 'id="baseline"' not in strategy_html
+    assert 'id="sensitivity"' not in strategy_html
+    assert "가정 기반 예상 월 수신액" not in strategy_html
 
 
 def test_simulator_term_buttons_and_actual_term_summary_are_present(

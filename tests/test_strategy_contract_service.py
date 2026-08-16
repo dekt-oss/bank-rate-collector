@@ -82,6 +82,35 @@ def test_strategy_template_adapter_uses_stable_id_and_reference_date() -> None:
     assert "최신 공시기준일" not in html
 
 
+def test_strategy_template_adapter_replaces_manual_inflow_sensitivity_with_engine() -> None:
+    html = adapt_strategy_template(DEFAULT_STRATEGY_TEMPLATE.read_text(encoding="utf-8"))
+
+    assert (
+        'const INFLOW_MODEL=data.strategy?.inflow_prediction||'
+        '{"version":"inflow-structural-v1"' in html
+    )
+    assert '"calibration_status":"uncalibrated"' in html
+    assert '"coefficient_provenance":"uncalibrated_stress_assumptions"' in html
+    assert '"cost_metric":"simple_surface_interest_total_delta"' in html
+    assert "수신금액 예측 엔진" in html
+    assert 'id="baseline-new"' in html
+    assert 'id="maturity-amount"' in html
+    assert 'id="rollover-rate"' in html
+    assert "function runInflowScenario" in html
+    assert "function predictInflow" in html
+    assert "relativeChange=proposedGap-currentGap" in html
+    assert "Math.exp(logEffect)" in html
+    assert "Math.abs(rateSteps)<=1e-12?p0:logistic(rollLogit)" in html
+    assert "baselineCost=baselineTotal*ownRate/100*termFactor" in html
+    assert "predictedCost=total*proposed/100*termFactor" in html
+    assert "cost=predictedCost-baselineCost" in html
+    assert "FTP 미반영" in html
+    assert "내부 수신실적 계수가 아직 미보정" in html
+    assert 'id="baseline"' not in html
+    assert 'id="sensitivity"' not in html
+    assert "가정 기반 예상 월 수신액" not in html
+
+
 def test_strategy_table_adds_compressed_stable_product_id(tmp_path: Path) -> None:
     db = _identity_db(tmp_path / "identity.sqlite3")
     table, stats = augment_strategy_table(db, _table())
