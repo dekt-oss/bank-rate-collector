@@ -1,12 +1,16 @@
-# 상호금융 최고금리 공통화·전략 확장 — Claude Review Work Order
+# 상호금융 최고금리 공통화·전략 확장 — Claude Review Work Order v2
 
 ```yaml
 document_type: review_work_order
-status: pending_claude_review
+status: changes_applied_pending_re_review
 created_at: 2026-08-17
+updated_at: 2026-08-17
 target_repository: dekt-oss/bank-rate-collector
 base_commit: 89312caabe8caae7326a03028ef9d4c551ca1496
 issue: 108
+review_pr: 116
+review_comment: 5313512589
+review_verdict: CHANGE_REQUESTED
 depends_on:
   - PR_113_merged
   - PR_114_merged
@@ -15,55 +19,62 @@ risk:
   - financial_rate_semantics
   - external_source_collection
   - stable_identity
+  - shared_canonical_consumers
   - cross_sector_comparison
   - geography_scope
 implementation_blocked: true
 release_gate_change: false
 ```
 
-> 이 문서는 **구현 명령이 아니라 Claude 검토용 작업명세**다.
-> Claude가 현재 코드·원천·데이터 계약을 다시 검증하고 `APPROVE` 또는 `CHANGE REQUESTED`를 남기기 전에는 아래 Stage F/G/H 구현을 시작하지 않는다.
-> Claude 리뷰 후에도 실제 구현 시작은 발주자의 명시적 승인 이후다.
+> 이 문서는 PR #116의 Claude `CHANGE REQUESTED` 리뷰를 반영한 **재검토용 계약 문서**다.
+> 현재 허용되는 다음 단계는 문서 재리뷰뿐이다.
+> 재리뷰가 통과되기 전에는 Stage F/G/H 구현을 시작하지 않는다.
+> 재리뷰가 통과되더라도 Stage G/H는 각 Entry Gate와 발주자 승인을 별도로 통과해야 한다.
 
 ---
 
-## 1. 이번 문서의 목적
+## 1. 결론과 현재 Gate
 
-Issue #108의 상호금융 전략 확장을 다음 세 단계로 분리한다.
+장기 제품 목표는 유지한다.
 
-1. **Stage F — 공식 원천에서 최고금리 의미를 증명**
-   - 새마을금고(`kfcc`)
-   - 농·축협(`nh_local`)
-   - 신협(`cu`)은 현재 동작하는 참고 계약으로 사용
-2. **Stage G — 증명된 업권만 collector/canonical `max_rate` 계약을 확장**
-3. **Stage H — 세 업권의 `max_rate`가 동일 금융 의미를 만족한 뒤 전략 대시보드의 상호금융/혼합 mode를 구현**
+> **가능한 업권에서는 전략 비교의 기본 금리축을 evidence-backed `max_rate`로 통일한다.**
 
-핵심 사용자 결정은 다음과 같다.
+단 다음은 금지한다.
 
-> **전략 비교의 최종 기본 금리축은 가능한 한 업권 전체에서 `최고금리`로 통일한다.**
->
-> 다만 현재 값이 없다는 이유로 `base_rate`를 `max_rate`처럼 대체하지 않는다. 공식 원천에서 동일 상품·기간·적용범위의 실제 최고금리를 증명하고 정규화한 후 사용한다.
+- `max_rate ?? base_rate`를 최고금리로 표시
+- 공식 linkage 없는 우대금리 산술 합산
+- 이름 기반 product/institution fallback
+- NH 조합명을 이름 prefix로 추정·병합
+- coverage가 없는 업권을 포함된 것처럼 보이는 통합 랭킹
+
+현재 판정:
+
+| Stage | 상태 | 이유 |
+|---|---|---|
+| 문서 계약 | **재리뷰 필요** | Claude blocking 4건 및 correction 10건 반영 후 재검토 |
+| Stage F source evidence | **GO with CHANGE → 재리뷰 후 착수 가능** | read-only 조사. KFCC/NH/CU 과제 재정의 |
+| Stage G KFCC | **BLOCKED** | 현 중앙 공시는 기본이율(우대이율 제외)만 제공 |
+| Stage G NH local | **BLOCKED** | 공통 최고금리 필드 부재, 채널 variant 계약 미확정 |
+| Stage H strategy expansion | **BLOCKED** | Stage G 결과 및 coverage/단위/지도 계약 미확정 |
+| Production Release Gate | **OFF 유지** | 변경 금지 |
 
 ---
 
-## 2. 현재 main 기준점
+## 2. 기준점과 기존 Evidence
 
-현재 main 기준 SHA:
+main 기준 SHA:
 
 ```text
 89312caabe8caae7326a03028ef9d4c551ca1496
 ```
 
-완료 상태:
+완료:
 
-- PR #113 — Issue #108 요구 1·2 UI 후속: merged
-- PR #114 — 상호금융 Strategy Evidence Gate: merged
-- PR #115 — strategy stable `product_id` 직접 전달: merged
-- Production 전략 Release Gate: **여전히 OFF 유지**
+- PR #113 — Issue #108 UX 후속 merged
+- PR #114 — 상호금융 Evidence Gate merged
+- PR #115 — strategy stable `product_id` 직접 전달 merged
 
-### 2.1 PR #114에서 확인된 Production 금리 coverage
-
-대상은 `term_deposit`, 6/12/24/36개월이다.
+PR #114 기준 `term_deposit`, 6/12/24/36개월 coverage:
 
 | 업권 | 대상 행 | `base_rate` | `max_rate` |
 |---|---:|---:|---:|
@@ -71,36 +82,19 @@ Issue #108의 상호금융 전략 확장을 다음 세 단계로 분리한다.
 | 신협 `cu` | 15,178 | 100% | **100%** |
 | 농·축협 `nh_local` | 73,020 | 100% | **0%** |
 
-따라서 현재 canonical 데이터에서 아래 fallback은 계속 금지한다.
+> 행수는 snapshot 시점에 따라 이동할 수 있다. Claude 리뷰가 확인한 최신 preview에서는 CU가 15,200행이었다. 계약 판단은 특정 행수보다 source semantics와 coverage 비율을 우선한다.
 
-```python
-max_rate if max_rate is not None else base_rate
-```
+PR #115 이후 strategy target은 stable `product_id`를 DB query 시점부터 직접 운반한다.
 
-이 식은 신협에는 최고 우대금리, 새마을금고/농·축협에는 기본금리를 넣어 하나의 “최고금리” 랭킹에서 서로 다른 금융 의미를 섞는다.
+- KFCC target `product_id NULL = 0`
+- NH local target `product_id NULL = 0`
+- public canonical table에는 internal ID를 노출하지 않음
 
-### 2.2 PR #115 이후 stable identity 상태
-
-PR #114에서 발생했던 strategy display-key 미매칭:
-
-- `kfcc`: 2,175행
-- `nh_local`: 1,335행
-
-은 persisted identity 누락이 아니라 표시명 기반 재조인의 ambiguity였다.
-
-PR #115에서 Strategy build가 DB의 실제 `products.id`를 internal `product_id`로 직접 운반하도록 수정했다.
-
-Production read-only 검증 결과:
-
-- KFCC 대상 24,464행: `product_id NULL = 0`
-- NH local 대상 73,020행: `product_id NULL = 0`
-- public canonical table: internal ID OFF/ON 직렬화 동일
-
-따라서 **identity는 Stage F/H의 blocker에서 제거**한다. 이름 fallback이나 entity merge는 다시 추가하지 않는다.
+따라서 이번 후속에서 이름 fallback이나 entity merge를 다시 도입하지 않는다.
 
 ---
 
-## 3. 목표 금리 계약
+## 3. 공통 금리 계약
 
 ### 3.1 `base_rate`
 
@@ -108,38 +102,56 @@ Production read-only 검증 결과:
 
 ### 3.2 `max_rate`
 
-전략 비교에서 사용할 `max_rate`는 다음 조건을 모두 만족해야 한다.
+전략 비교에 사용할 `max_rate`는 다음 조건을 만족해야 한다.
 
 1. 공식 또는 프로젝트가 승인한 1차 원천에서 확인 가능
-2. 동일 상품 또는 stable product identity와 연결 가능
+2. 동일 상품/stable product identity와 연결 가능
 3. 동일 가입기간과 연결 가능
-4. 동일 기관/점포/rate scope와 연결 가능
-5. 우대조건이 있다면 어떤 우대가 해당 최고금리를 구성하는지 근거가 남음
-6. 수집 시점/공시 시점이 추적 가능
-7. raw artifact 또는 source evidence로 재현 가능
+4. 동일 기관·점포·rate scope와 연결 가능
+5. **원천이 우대 구성 또는 우대 적용대상을 제공하면 그 내용을 보존한다. 원천이 우대 구성을 설명하지 않더라도 공식 `최고금리` 필드를 직접 제공하면 이 조건은 충족된 것으로 본다.**
+6. 수집 시점 또는 공시 시점이 추적 가능
+7. raw artifact/source evidence로 재현 가능
 
-### 3.3 허용되는 `max_rate == base_rate`
+이 정의는 CU처럼 `highRate`를 공식 필드로 제공하지만 `prefCondMemo='없음'`일 수 있는 source를 허용한다.
 
-`max_rate`가 `base_rate`와 같은 숫자인 경우 자체는 문제가 아니다.
+### 3.3 `max_rate == base_rate`
 
-다만 아래 중 하나가 공식 원천으로 증명되어야 한다.
+숫자가 같다는 사실 자체는 문제가 아니다. 두 경로를 구분한다.
 
-- 원천이 해당 필드를 최종/최고 적용금리로 정의하고 그 값이 기본금리와 동일함
-- 해당 상품/기간에는 추가 우대가 없고 공시된 기본금리가 실제 최대 적용금리임을 원천 계약이 명확히 보장함
+#### A. 공식 최고금리 필드 직접 제공
 
-즉 **UI/집계 단계의 fallback은 금지**하지만, source parser/normalizer가 공식 의미를 증명한 뒤 `max_rate=base_rate`로 정규화하는 것은 허용할 수 있다.
+원천이 `max/high rate` 필드를 직접 제공한다면 그 값이 base와 같아도 그대로 저장한다. 이는 fallback이 아니다.
 
-### 3.4 금지되는 추론
+CU가 reference case다.
 
-아래는 공식 linkage 없이 하지 않는다.
+#### B. 최고금리 필드가 없고 추가 우대 없음이 공식적으로 보장됨
+
+이론상 `max_rate=base_rate` 정규화를 허용할 수 있으나, **현재 검증된 KFCC/NH/CU 중 이 경로를 사용할 수 있는 업권은 없다.**
+
+특히 KFCC 중앙 공시는 `기본이율(우대이율 제외)`를 명시하므로 이 경로 사용을 금지한다.
+
+### 3.4 원천 선언 기반 계산의 제한적 허용
+
+공식 원천이 우대의 대상상품·기간·채널·적용식을 스스로 명시하는 경우에만 계산형 `max_rate`를 검토할 수 있다.
+
+예:
 
 ```text
-기본금리 3.0%
-+ 다른 행/문구의 우대금리 0.4%
-= 최고금리 3.4%
+대상상품 A/B
+대상기간 1~12개월
+인터넷 가입 전용
+상품별 금리 + 0.1%p
 ```
 
-우대가 정확히 같은 상품·기간·점포·가입조건에 적용된다는 근거가 없으면 `max_rate`는 NULL로 둔다.
+이 경우에도 다음을 모두 맞춰야 한다.
+
+- stable product
+- 기간
+- 기관/점포
+- join channel
+- effective date
+
+채널 한정 우대는 기존 창구 variant의 `max_rate`에 합치지 않고 **별도 `join_channel` variant**로 취급한다.
 
 ---
 
@@ -147,472 +159,476 @@ Production read-only 검증 결과:
 
 ## 4. 목적
 
-새마을금고와 농·축협에서 **실제 최고금리를 수집할 수 있는 공식 데이터 경로가 존재하는지** 먼저 증명한다.
+Stage F는 collector 수정이 아니라 **read-only source evidence**다.
 
-이 단계는 원칙적으로 **read-only 조사**다. collector/DB/화면을 변경하지 않는다.
+목표:
 
-## 5. 조사 대상
+- KFCC: 현 endpoint가 아닌 대체 공식 최고금리 source 존재 여부 발굴
+- NH local: 우대 행의 전수 구조와 채널 variant 가능성 검증
+- CU: reference contract 보강 및 6개월 0건 원인 확인
 
-### 5.1 새마을금고 `kfcc`
+DB·collector·Production 데이터·Release Gate는 변경하지 않는다.
 
-현재 확인해야 할 질문:
+## 5. 업권별 조사 계약
 
-1. 현재 collector가 읽는 중앙 금리조회가 기본이율만 제공하는가?
-2. 같은 공식 도메인/응답/API/상품상세에 우대금리 또는 최고금리가 별도로 존재하는가?
-3. 그 값이 금고·상품·기간 단위로 현재 canonical variant와 안정적으로 연결 가능한가?
-4. 우대조건 원문도 함께 추적할 수 있는가?
-5. 지점/금고별 차이가 있을 때 `rate_scope`는 무엇이어야 하는가?
+### 5.1 KFCC / 새마을금고
 
-### 5.2 농·축협 `nh_local`
+Claude 리뷰에서 이미 확인한 fact:
 
-현재 확인해야 할 질문:
+- 현 collector: `/map/list.do` + `/map/goods_19.do`
+- `goods_19.do`는 기본이율 표를 제공
+- 상품 설명은 `기본이율(우대이율 제외)`를 명시
+- 공식 최고금리 필드가 확인되지 않음
+- 현 parser는 `max_rate=None`
 
-1. 현재 점포별 기본금리 수집 경로와 최고/우대금리 원천이 동일한가?
-2. 별도의 우대금리 행/상품이 실제로 “같은 상품의 우대”인지, 독립 상품인지 구분 가능한가?
-3. 조합/점포/상품/기간을 연결하는 안정적인 source key가 있는가?
-4. 최고금리를 점포 단위로 적용해야 하는지 institution 단위인지 증명 가능한가?
-5. 우대조건 원문과 최고금리의 관계를 raw artifact에서 재현할 수 있는가?
+따라서 Stage F 질문을 다음으로 재정의한다.
 
-### 5.3 신협 `cu` — Reference Contract
+1. 금고 개별 공식 홈페이지, MG더뱅킹/공식 공시 등 **대체 공식 source**에 최고/우대금리가 존재하는가?
+2. 해당 source를 금고·상품·기간과 stable하게 연결할 공식 key가 있는가?
+3. 우대조건/가입자격/채널/rate scope를 함께 추적 가능한가?
+4. raw artifact와 effective date를 재현 가능한가?
+5. 대체 source가 없다면 KFCC `max_rate`는 계속 unsupported로 유지한다.
 
-신협은 현재 `max_rate` coverage 100%이므로 다음을 reference로 확인한다.
+현 `goods_19.do`만으로 `max_rate=base_rate`를 생성하는 구현은 **NO-GO**다.
 
-- adapter의 `provides_max_rate=True` 의미
-- source field → normalized `max_rate` 경로
-- base/max/우대조건 연결 방식
-- rate scope / geo basis
-- raw artifact traceability
+### 5.2 NH local / 농·축협
 
-**신협 구현을 복제하라는 의미는 아니다.** 세 업권의 원천 구조가 실제로 같은지 비교 기준으로만 사용한다.
+Claude 리뷰에서 확인한 현재 구조:
 
-## 6. Stage F 산출물
+- 전국 점포 목록 + 점포별 거치식 상세
+- `max_rate=None`
+- e-joy 인터넷예금 우대 0.1% 같은 우대가 별도 행으로 존재할 수 있음
+- 해당 우대는 채널 한정이며 기존 창구 행의 max로 합치는 것이 안전하지 않음
 
-업권별로 최소 아래 evidence matrix를 작성한다.
+Stage F에서 확인한다.
+
+1. 전 점포에서 우대 행의 형태·대상상품 산문·기간·값이 얼마나 일관적인가?
+2. 우대 행이 선언하는 대상상품을 stable product와 결정론적으로 매칭 가능한가?
+3. `join_channel=internet` 별도 variant 계약으로 표현 가능한가?
+4. 점포별 우대 행 존재/값 차이를 전수 또는 충분한 evidence로 분류 가능한가?
+5. `smartmarket.nonghyup.com` 등 다른 공식 source가 존재하는가? 접근 불가 시 미검증으로 남긴다.
+6. 공식 linkage가 불충분하면 공통 `max_rate`를 만들지 않는다.
+
+### 5.3 CU / 신협 reference
+
+CU는 공식 source의 `baseRate`, `highRate`, `prefCondMemo`, `pubiBeginDate`를 직접 제공하는 reference case다.
+
+Stage F에서 추가 확인한다.
+
+1. `provides_max_rate=True`의 실제 source contract를 문서화
+2. `max_rate > base_rate`이지만 preference text가 `없음`인 경우가 공식 source semantics상 허용됨을 명시
+3. **6개월 target 0건의 원천측 원인 규명**
+4. `source_query_region`의 지역 의미와 district 불가 계약 재확인
+
+## 6. Stage F Evidence Matrix
+
+업권별 최소 다음을 기록한다.
 
 | 필드 | 설명 |
 |---|---|
-| source | 공식 원천/endpoint/page |
-| source field | 실제 원천 필드 또는 구조 |
+| source | 공식 endpoint/page/channel |
+| source field | 실제 필드/표 구조 |
 | product key | 상품 연결 key |
 | institution/outlet key | 기관/점포 연결 key |
 | term key | 기간 연결 key |
 | base rate | 기본금리 의미 |
-| preferential component | 우대 구성값 존재 여부 |
-| max rate | 최고금리 직접 제공/계산 가능 여부 |
-| calculation rule | 원천이 보장하는 경우에만 계산식 |
-| preference text | 조건 원문 추적 가능 여부 |
-| rate scope | institution / outlet / 기타 |
-| effective date | 공시/적용 시점 |
-| raw trace | raw artifact로 재현 가능한지 |
-| coverage | Production 대상 대비 확보율 |
-| ambiguity | 같은 key가 여러 상품/점포를 가리키는지 |
-
-### 6.1 필수 샘플 검증
-
-각 업권에서 최소 다음 유형을 직접 대조한다.
-
-- 고금리 상품
-- 일반 정기예금
-- 우대조건 있음
-- 우대조건 없음 또는 최고=기본 가능 사례
-- 6/12/24/36개월 중 존재하는 기간
-- 서로 다른 기관/점포
-
-단순 HTML 문자열 존재 확인만으로 GO 판정하지 않는다.
+| preferential component | 우대 구성 존재 여부 |
+| max rate | 직접 제공/공식 계산/unsupported |
+| calculation rule | 원천이 보장하는 경우만 |
+| join channel | 창구/인터넷/비대면 등 |
+| preference text | 제공 여부 및 보존 방식 |
+| rate scope | institution / outlet / query-region 등 |
+| effective date | 공시일/조회기준일/조회일 |
+| raw trace | raw artifact 재현 여부 |
+| coverage | 대상행 대비 max 확보율 |
+| missing class | 미제공 / 미수집 / 공시없음 |
+| ambiguity | key 다중매칭 여부 |
 
 ## 7. Stage F Go/No-Go
 
 ### GO
 
-업권의 `max_rate`를 stable product/variant에 공식적으로 연결할 수 있고 raw evidence가 재현 가능하다.
+공식 source가 stable product·기간·scope·채널과 연결되는 최고금리를 제공하며 raw evidence가 재현 가능.
 
 ### CONDITIONAL GO
 
-일부 상품군만 정확한 최고금리 linkage가 가능하다.
+특정 상품군/채널만 안전하게 지원 가능.
 
-이 경우:
-
-- 지원 상품군을 명시적으로 제한하거나
-- row-level `max_rate` coverage를 표출하는 설계를 먼저 확정한다.
+- 지원 universe를 명시적으로 제한
+- coverage와 결측 사유를 표출
+- 기존 variant에 조용히 합치지 않음
 
 ### NO-GO
 
-우대/최고금리는 보이지만 같은 상품·기간·기관/점포와 안전하게 연결할 수 없다.
-
-NO-GO 업권에는 `max_rate`를 추정해서 채우지 않는다.
+최고/우대 값은 보이지만 product·term·scope·channel과 안전하게 연결할 수 없음.
 
 ---
 
-# Stage G — Collector `max_rate` 계약 확장
+# Stage G — Collector / Canonical `max_rate` 확장
 
 ## 8. Entry Gate
 
-Stage G는 **Stage F에서 해당 업권이 GO 또는 명시적 CONDITIONAL GO**를 받은 경우에만 시작한다.
+업권별 Stage F가 GO 또는 명시적 CONDITIONAL GO여야 한다.
 
-Claude review에서 Stage F 자체가 불충분하다고 판단하면 Stage G를 시작하지 않는다.
+현재:
+
+- KFCC: **BLOCKED**
+- NH local: **BLOCKED**
+- CU: existing reference
 
 ## 9. 구현 원칙
 
-### 9.1 기존 schema 우선
+### 9.1 shared canonical contract
 
-현재 canonical에 `max_rate` 필드가 이미 존재하므로 가능한 경우 기존 모델을 재사용한다.
+`max_rate`는 전략 화면 전용 필드가 아니다. public 검색 화면·benchmark·dashboard가 공유하는 canonical 계약이다.
 
-DB schema/migration 변경이 필요하다는 결론이 나오면 자동으로 범위를 넓히지 않고 별도 High-risk migration 작업으로 분리한다.
+따라서 Stage G는 collector 변경만으로 완료할 수 없다.
 
-### 9.2 Source semantics를 adapter가 소유
+### 9.2 `provides_max_rate`
 
-- adapter/parser가 source field 의미를 해석
-- normalized record에 evidence-backed `max_rate` 저장
-- 화면이나 strategy service에서 계산하지 않음
+현재 관례적 adapter class attribute 수준인 `provides_max_rate`를 Stage G에서 명시적 capability contract로 문서화/검증한다.
 
-### 9.3 `provides_max_rate`
+단순히 일부 행에 max 값이 생겼다는 이유로 capability를 true로 올리지 않는다.
 
-해당 adapter의 capability 플래그는 실제 source contract가 증명된 뒤에만 변경한다.
+### 9.3 Historical data
 
-단순히 일부 행에 숫자를 넣었다고 `provides_max_rate=True`로 올리지 않는다.
+기본은 신규 정상 run부터 적용한다.
 
-### 9.4 우대조건과의 연결
+과거 raw artifact에 최고금리 정보가 없으면 backfill하지 않는다.
 
-가능하면 함께 보존한다.
+backfill은 **새 공식 source 자체가 과거 공시 이력을 제공하고 해당 시점·상품 linkage를 결정론적으로 재현할 수 있는 경우에만** 별도 작업으로 검토한다.
 
-```text
-base_rate
-max_rate
-raw_preference_text
-normalized preference tags/status
-source/effective date
-```
+## 10. Stage G Verification Gate — downstream consumer audit 필수
 
-`raw_preference_text`가 없더라도 최고금리가 공식 필드로 직접 제공되면 사용할 수 있다. 반대로 우대 문구만 있고 최종 최고금리를 안전하게 계산할 수 없으면 `max_rate`를 만들지 않는다.
+각 Stage G PR은 source/parser test 외에 **기존 모든 `max_rate` consumer를 감사**해야 한다.
 
-### 9.5 Historical data
+최소 감사 대상:
 
-기존 historical observation을 임의 rewrite하지 않는다.
+- `web/templates/site.html`
+  - `rateOf = r.max` 기반 필터/순위/백분위
+  - 평균/중앙값
+  - 히스토그램
+  - 지역/구 집계
+  - `r.max == null`에 의존하는 우대조건 `원천 미제공` 표기
+- `dashboard_service.py`
+  - sector benchmark
+  - `MAX(o.max_rate)` 기반 `max_rate_top`
+- `validation_service.py`
+  - kfcc 전용 max-rate hardcode 검사
+- `tests/test_gate_contract.py`
+  - `without == {"kfcc", "nh_local"}` 고정 계약
 
-기본안:
-
-- 새 collector contract 적용 이후 신규 정상 run부터 `max_rate` 확보
-- 과거 raw artifact로 결정론적 재생성이 가능하고 실제 필요성이 있을 때만 별도 backfill 계획 수립
-
-## 10. Stage G Verification Gate
-
-업권별로 최소 확인한다.
+필수 evidence:
 
 1. parser/adapter fixture test
-2. 정상/결측/우대없음/다중기간 테스트
-3. 잘못된 product/term cross-join 방지 테스트
+2. 정상/결측/우대없음/다중기간/다중채널 test
+3. product/term/channel cross-join 방지 test
 4. raw artifact traceability
 5. collection idempotency
-6. full `pytest`
-7. `ruff`
+6. `ruff`
+7. full `pytest`
 8. migration model consistency
-9. Production read-only 또는 shadow collection evidence
-10. 공식 원천 spot-check와 canonical 값 대조
+9. shadow/read-only Production evidence
+10. 공식 source spot-check와 canonical 값 대조
+11. **Stage G 적용 전/후 public 검색 화면 및 dashboard OFF/ON diff**
+12. 우대조건 `미제공 != 없음` 의미 보존 검증
+13. benchmark/ranking denominator 변화 보고
 
-### 10.1 필수 invariant
-
-```text
-base_rate <= max_rate
-```
-
-는 일반적인 sanity check로 사용하되, 이 수식만으로 source correctness를 판정하지 않는다.
-
-### 10.2 Coverage 보고
-
-최종적으로 업권·기간별로 아래를 보고한다.
-
-```text
-rows
-base_rate_non_null
-max_rate_non_null
-max_rate_coverage
-source_effective_at freshness
-warnings/errors
-```
-
-coverage가 100%가 아니면 그 이유를 상품군/원천 구조별로 분류한다.
+Stage G PR은 downstream 변화가 의도된 것인지 명시적으로 승인받기 전 merge하지 않는다.
 
 ---
 
-# Stage H — 전략 대시보드 상호금융 확장
+# Stage H — 전략 대시보드 업권 확장
 
 ## 11. Entry Gate
 
-Stage H는 다음이 모두 충족돼야 시작한다.
+다음이 모두 필요하다.
 
-1. PR #115 stable identity direct transport가 main에 존재 — **완료**
-2. `cu`, `kfcc`, `nh_local`의 최고금리 semantic 판정 완료
-3. 통합 대상 업권에서 비교 가능한 `max_rate` coverage가 충분하다는 Evidence Gate 통과
-4. sector별 geography/rate scope 차이 처리 계약 확정
-5. Claude review `APPROVE`
-6. 발주자 구현 승인
+1. stable `product_id` direct transport — 완료
+2. 각 업권 max-rate semantic 판정
+3. 편입 업권의 capability/coverage 계약 확정
+4. ranking denominator 확정
+5. geography/availability/freshness 계약 확정
+6. slice payload 비용 재측정
+7. 문서 재리뷰 APPROVE
+8. 발주자 구현 승인
 
-## 12. 사용자 목표 UI
+## 12. Mode / coverage 계약
 
-상위 mode:
+후보 UI:
 
 ```text
 [저축은행]
 [상호금융]
 [저축은행 + 상호금융]
+
+상호금융 세부:
+[신협] [새마을금고] [농·축협]
 ```
 
-`상호금융` 내부는 기본적으로 다음 세 업권을 포함한다.
+### 12.1 최고금리 mode에서 coverage 0%
 
-```text
-☑ 신협
-☑ 새마을금고
-☑ 농·축협
-```
+`max_rate` coverage가 **0%인 업권은 최고금리 mode에서 선택 불가(disabled)** 처리하고 `최고금리 미수집/미지원` 상태를 명시한다.
 
-세부 체크를 개별 ON/OFF할 수 있어야 한다.
+따라서 현재 데이터 상태라면 `상호금융` 최고금리 mode에서 KFCC/NH를 선택된 것처럼 보이게 해서는 안 된다.
 
-기본값은 상호금융 mode 선택 시 세 업권 모두 선택된 상태를 후보로 한다. Claude는 실제 UX/데이터 coverage 관점에서 이 기본값이 안전한지 검토한다.
+### 12.2 partial coverage
 
-## 13. 공통 랭킹 기준
+100% coverage를 절대 Gate로 요구하지 않는다.
 
-최종 목표는 다음이다.
+편입을 위한 최소 계약:
 
-> **선택된 모든 업권의 TOP5/TOP10/KPI는 evidence-backed `max_rate`를 공통 금리축으로 사용한다.**
+1. 해당 adapter의 `provides_max_rate` capability가 공식 source로 증명됨
+2. sector/term별 coverage가 데이터와 UI에 표시됨
+3. 결측을 `미제공 / 미수집 / 공시없음`으로 구분
+4. base-rate fallback 금지
 
-금지:
+**partial coverage 허용 임계값은 아직 확정하지 않는다.** Stage H 착수 전 발주자가 명시적으로 정한다.
 
-```text
-업권 A: max_rate
-업권 B: base_rate fallback
-업권 C: 추정 우대 합산값
-```
-
-### 13.1 결측 처리
-
-`max_rate`가 없는 행은 최고금리 랭킹에서 `base_rate`로 대체하지 않는다.
-
-대신 최소한:
-
-- 비교가능 상품 수
-- max_rate coverage
-- 미제공/미수집/공시없음 구분
-
-을 UI 또는 데이터 contract에 남긴다.
-
-## 14. Representative product / denominator
-
-기존 display name으로 대표상품을 묶지 않는다.
-
-PR #115의 stable `product_id`를 기준으로 같은 상품의 여러 행/채널/관측을 안전하게 그룹핑한다.
-
-Claude는 다음을 재검토한다.
-
-- 상품 대표 최고금리를 `MAX(max_rate)`로 잡는 것이 각 업권 rate scope에서 타당한가
-- outlet 단위 농·축협에서 같은 product_id의 여러 점포를 하나의 “상품 대표값”으로 합쳐도 되는가
-- 기관 TOP5와 상품 TOP5의 denominator를 별도로 둬야 하는가
-
-이 결론 없이 TOP5 계산을 구현하지 않는다.
-
-## 15. Geography / Map Contract
-
-PR #114 evidence:
-
-| 업권 | 현재 geo/rate 의미 |
-|---|---|
-| 새마을금고 | 실제 주소 기반 / institution rate |
-| 신협 | source query region / institution rate |
-| 농·축협 | 실제 점포 주소 기반 / outlet rate |
-
-따라서 지도는 단순 row append로 합치지 않는다.
-
-필수 원칙:
-
-- `geo_basis`를 집계에 보존
-- query region과 실제 outlet address를 같은 district 정밀도로 취급하지 않음
-- 부산 구 단위 drill-down은 해당 업권에서 district 근거가 있는 경우만 활성화
-- 업권별 coverage가 다른 경우 동일한 “전국 평균”처럼 보이지 않게 함
-
-## 16. 기간 coverage
-
-PR #114 당시 신협 6개월은 대상 데이터가 0건이었다.
-
-Stage H 구현 시:
-
-- 0건을 다른 기간 값으로 보간하지 않음
-- 버튼을 조용히 숨겨 사용자가 coverage 차이를 모르게 하지 않음
-- `공시/수집 0건` 또는 동등한 명시적 상태를 사용
-
-Stage G 후 최신 Production 데이터로 다시 측정한다.
-
-## 17. Freshness / Availability
-
-상호금융 mode에는 업권별로 최소 다음 상태가 필요하다.
-
-- 마지막 정상 수집/공시 시점
-- comparison coverage
-- warning/error 상태
-- `availability_scope`
-- `geo_basis`
-
-단순 금리순 TOP5가 곧 “모든 사용자가 가입 가능한 TOP5”라는 표현은 사용하지 않는다.
+기본 전체선택은 **그 시점의 coverage Gate를 통과한 업권에만** 적용한다.
 
 ---
 
-# 18. 구현 분할 권고
+## 13. Ranking / denominator 계약
 
-Claude가 다른 dependency를 발견하지 않는다는 전제에서 향후 PR은 최소 다음처럼 분리한다.
+### 13.1 NH local의 실제 비교 단위
+
+현재 NH parser는 `source_institution_key == source_outlet_key == brc`이며 발행 데이터에서도 institution과 outlet이 1:1이다.
+
+따라서 현 계약에서 NH의 `institution`은 사실상 **점포**다.
+
+필수 원칙:
+
+- UI/문서에서 NH 단위를 `기관·점포` 또는 동등하게 정직하게 표시
+- NH를 조합 단위로 이름 prefix 병합하지 않음
+- 조합 단위 대표화는 공식 parent/cooperative identifier 확보 전 금지
+- NH의 점포×상품 분모가 타 업권 기관×상품 분모보다 훨씬 크다는 사실을 통합 KPI에 반영
+
+### 13.2 통합 TOP5 기본 단위
+
+현 권고 기본값:
+
+> **기관 대표 TOP5**를 기본으로 하되 NH는 `기관·점포`임을 명시하고 업권별 비교상품 수/coverage를 병기한다.
+
+- institution-rate 업권: 기관의 비교대상 상품 중 `MAX(max_rate)`를 대표값으로 검토 가능
+- NH: 점포가 기관이므로 점포 대표값으로 해석
+- 상품 TOP5는 통합 기본 랭킹으로 사용하지 않음 — NH 반복 분모가 지배할 수 있음
+- 점포 TOP5는 NH 내부 drill-down 전용
+
+Stage H 구현 전에 최신 production으로 denominator를 재측정하고 왜곡을 다시 검증한다.
+
+---
+
+## 14. Geography 계약
+
+업권별 현재 의미가 다르다.
+
+| 업권 | 지역/rate 의미 |
+|---|---|
+| 저축은행 | 본점 소재지 기반 공시 |
+| KFCC | 실제 주소 기반 / institution rate |
+| CU | source query region / institution rate |
+| NH local | 실제 점포 주소 / outlet(=현 institution) rate |
+
+금지:
+
+- 서로 다른 `geo_basis`를 하나의 지역 평균으로 합산
+- CU query-region을 실제 district 주소처럼 사용
+- 본점 소재지와 점포 주소를 같은 의미의 부산 구 지도 값으로 합산
+
+허용 방향:
+
+- `geo_basis`를 집계·UI에 보존
+- CU는 `조회조건 기준` 별도 layer
+- district drill-down은 실제 district evidence가 있는 업권만
+- 본점/점포/조회조건은 layer 또는 명시적 basis badge로 구분
+
+---
+
+## 15. Availability / 상품구조 계약
+
+통합 최고금리는 곧 모든 사용자의 실가입 가능 최고금리를 뜻하지 않는다.
+
+필수:
+
+- `availability_scope` filter 또는 badge
+- KFCC `workplace_members` 등 자격제한 표기
+- 비대면/인터넷 전용 variant의 channel badge
+- Block예금 등 구간·회전식 특수구조 상품은 일반 정기예금과 동일 의미로 랭킹 가능한지 별도 evidence
+
+특수구조 원천 의미가 미검증이면 일반 TOP5에 조용히 포함하지 않는다.
+
+---
+
+## 16. Freshness 계약
+
+`source_effective_at`의 의미가 업권별로 동일하지 않다.
+
+예:
+
+- 저축은행: 상품별 공시일
+- KFCC: 조회기준일 성격
+- CU: `pubiBeginDate`
+- NH: 원천 공시일 미제공 시 조회일 성격
+
+따라서 UI에서 모두를 동일한 `최신 공시일`로 부르지 않는다.
+
+업권별로 `공시일 / 적용일 / 조회기준일 / 조회일` 의미를 구분해 표시한다.
+
+---
+
+## 17. Payload / 성능 Gate
+
+기존 strategy slice는 저축은행 중심의 약 1.9k행 규모였다.
+
+Claude 리뷰 추산상 세 상호금융 업권을 단순 포함하면 약 114k행 수준으로 약 60배 증가할 수 있다.
+
+PR-H1 전에 최신 production으로 반드시 재측정한다.
+
+- strategy-table row count/bytes
+- build time
+- browser parse time
+- client-side filter/aggregation cost
+- mobile memory/interaction 비용
+
+필요하면 server/build-time preaggregation 또는 sector별 payload 분리를 설계한다.
+
+---
+
+# 18. PR 분할
+
+### PR-doc — 현재 PR #116
+
+- Claude Contract corrections 10건 반영
+- 재리뷰 APPROVE 확보
+- 코드 변경 없음
 
 ### PR-F — Source Evidence only
 
-- 공식 원천 조사
-- Production read-only evidence
-- `kfcc`/`nh_local` max-rate semantics Go/No-Go 문서
-- **코드 변경 없음**
+- KFCC: 대체 공식 source 발굴
+- NH: 우대 행 전수 구조 + channel variant feasibility
+- CU: 6개월 0건 원인
+- code/DB 변경 없음
 
 ### PR-G1 — KFCC max_rate
 
-- GO일 때만 adapter/parser contract 변경
-- tests + shadow/prod evidence
+현재 **BLOCKED**.
 
-### PR-G2 — NH local max_rate
+대체 공식 source가 GO일 때만 시작.
 
-- GO일 때만 adapter/parser contract 변경
-- tests + shadow/prod evidence
+- collector/parser contract
+- downstream consumer audit
+- validation/gate tests 갱신
+- shadow/production evidence
+
+### PR-G2 — NH local max_rate/channel variant
+
+현재 **BLOCKED**.
+
+- source-declared 우대 linkage가 안전할 때만
+- 인터넷/비대면 channel variant 분리
+- downstream consumer audit
+- shadow/production evidence
 
 ### PR-H1 — strategy data contract expansion
 
 - sector universe
-- stable product_id 유지
-- metric/coverage/freshness contract
-- UI 변경 최소화
+- coverage/missing classification
+- availability/freshness/geo basis
+- denominator
+- payload 재측정 및 성능 설계
 
-### PR-H2 — mode selector + 상호금융 세부 체크
+### PR-H2 — mode selector
 
 - 저축은행 / 상호금융 / 통합
 - 신협 / 새마을금고 / 농·축협
+- coverage Gate 기반 enable/disable/default
 
-### PR-H3 — 지도/KPI/TOP5 sector-aware refinement
+### PR-H3 — 지도/KPI/TOP5
 
-- 최고금리 공통 기준
-- geography basis
+- 최고금리 공통축
+- 기관·점포 단위 의미
+- geography layers
 - availability/freshness 표출
 
-각 PR은 앞 단계 merge 후 최신 main에서 시작한다. stacked PR을 기본값으로 사용하지 않는다.
+각 PR은 선행 PR merge 후 최신 main에서 시작한다. stacked PR을 기본값으로 사용하지 않는다.
 
 ---
 
-# 19. FREEZE / 금지사항
+# 19. FREEZE
 
-Claude review와 발주자 승인 전:
+재리뷰 및 발주자 승인 전:
 
+- Stage F 실행 금지
 - collector 변경 금지
 - DB/schema/migration 변경 금지
-- 전략 universe 확대 금지
+- strategy universe 확대 금지
 - `max_rate ?? base_rate` fallback 금지
-- 우대 문구 임의 산술 합산 금지
-- institution/product identity merge 금지
-- canonical name fallback 금지
+- 임의 우대금리 합산 금지
+- identity/name fallback 금지
+- NH 조합명 추정 grouping 금지
+- public 검색 화면 의미 변경 금지
 - Production Release Gate ON 금지
-- 현재 저축은행 전략 계산식/예측엔진 변경 금지
 
 ---
 
-# 20. Claude에게 요청할 Review Scope
+# 20. Claude 재리뷰 체크리스트
 
-Claude는 이 문서를 단순 문장 리뷰하지 말고 **최신 main 코드와 Production 계약을 기준으로 반증 시도**한다.
+이번 재리뷰에서는 전체 조사 재실행보다 **CHANGE REQUESTED 10건이 계약에 정확히 흡수됐는지**를 우선 검증한다.
 
-최소 확인사항:
+필수 확인:
 
-1. `kfcc`, `nh_local`, `cu` collector/parser의 실제 source path
-2. `provides_max_rate` capability의 현재 사용처와 부작용
-3. `base_rate` / `max_rate`가 DB에 저장되는 실제 execution path
-4. raw artifact에서 상품·기간·기관/점포 linkage를 재현 가능한지
-5. PR #115의 stable product ID transport가 상호금융 universe에도 안전한지
-6. product representative / TOP5 denominator 정의의 함정
-7. outlet-rate와 institution-rate를 혼합할 때 생기는 왜곡
-8. 신협 6개월 및 기타 coverage gap 처리
-9. historical backfill 필요 여부
-10. 기존 public `data/table.json` 계약 및 검색 화면 회귀 가능성
-11. Strategy Preview / Vercel / Release Gate 경로
-12. Stage F→G→H 순서가 실제 dependency graph와 맞는지
+1. §3.2 우대조건 요구가 CU 공식 highRate contract와 모순되지 않는가
+2. Stage G downstream consumer audit가 충분한가
+3. `site.html` 우대 표기에서 `미제공 != 없음`을 보존하도록 Gate가 잡혔는가
+4. coverage 0 업권이 최고금리 mode에 포함된 것처럼 보일 가능성이 제거됐는가
+5. partial coverage를 100% 강제하지 않으면서 축 혼합을 막는가
+6. NH institution=outlet 1:1 구조가 ranking/label에 정확히 반영됐는가
+7. KFCC 과제가 대체 공식 source 발굴로 바뀌었는가
+8. NH e-joy형 우대가 기존 행의 max가 아닌 channel variant 후보로 정의됐는가
+9. freshness 비대칭, CU 6개월 0건, payload 증가가 후속 Gate에 포함됐는가
+10. Stage G/H가 여전히 BLOCKED인가
 
-## 20.1 Claude Review 결과 형식
-
-아래 형식으로 답변한다.
+결과 형식:
 
 ```markdown
-# Review verdict
+# Re-review verdict
 APPROVE | CHANGE REQUESTED
 
 ## Blocking findings
 - ...
 
-## Non-blocking findings
-- ...
-
-## Source-semantic findings
-### KFCC
+## Contract correction verification
+1. PASS / FAIL — ...
 ...
-### NH local
-...
-### CU reference
-...
+10. PASS / FAIL — ...
 
-## Contract corrections
-- ...
-
-## Recommended PR decomposition
+## Remaining owner decisions
+- partial coverage enablement threshold
 - ...
 
 ## Final go/no-go
-- Stage F: GO / CHANGE
-- Stage G KFCC: GO / BLOCKED
-- Stage G NH: GO / BLOCKED
-- Stage H: GO / BLOCKED
+- PR-doc: MERGEABLE / BLOCKED
+- Stage F: GO / BLOCKED
+- Stage G KFCC: BLOCKED / GO
+- Stage G NH: BLOCKED / GO
+- Stage H: BLOCKED / GO
 ```
 
-**Blocking finding이 하나라도 있으면 구현을 시작하지 않는다.**
+Blocking finding이 하나라도 있으면 APPROVE하지 않는다.
 
 ---
 
-# 21. Claude가 특히 판단해야 할 미확정 사항
+# 21. 완료 판정
 
-이 문서에서 임의로 확정하지 않고 reviewer 판단을 요청한다.
-
-### Q1. `max_rate` coverage Gate
-
-상호금융 통합 랭킹을 열기 위한 sector별 coverage를 반드시 100%로 요구할지, 명시적 coverage UI를 전제로 일부 결측을 허용할지.
-
-### Q2. `max_rate == base_rate` 정규화
-
-공식 원천에 별도 최고금리 필드가 없지만 “추가 우대 없음”을 결정론적으로 증명할 수 있는 경우 `max_rate=base_rate`로 저장하는 계약이 안전한지.
-
-### Q3. NH outlet rate 대표화
-
-농·축협의 점포별 금리에서 같은 stable product의 여러 outlet 중 최고값을 상품 대표 `max_rate`로 사용할지, outlet 자체를 전략 비교 단위로 유지할지.
-
-### Q4. 통합 TOP5의 단위
-
-금융기관 TOP5 / 상품 TOP5 / 점포 TOP5를 명확히 분리해야 하는지.
-
-### Q5. Historical backfill
-
-새로운 최고금리 source contract 확보 후 과거 raw artifact를 재처리할 가치가 있는지, 신규 run부터 시작하는 것이 더 안전한지.
-
----
-
-# 22. 완료 판정
-
-이 문서 자체의 완료 조건은 **Claude 리뷰를 받을 준비가 된 상태**까지다.
-
-현재 단계에서 하지 않는 것:
-
-- Stage F 실제 외부 source 조사 실행
-- Stage G collector 구현
-- Stage H UI/집계 구현
-- Release Gate 변경
-
-다음 진행은:
+이 문서의 현재 완료 조건:
 
 ```text
-이 문서 Claude review
-→ review 반영해 문서/계약 수정
+Claude CHANGE REQUESTED 10건 반영
+→ Claude 재리뷰
+→ APPROVE 시 PR #116 문서 merge 후보
 → 발주자 승인
-→ Stage F부터 순차 진행
+→ Stage F read-only evidence 시작
 ```
+
+현재 **Stage F/G/H 구현은 시작하지 않는다.**
