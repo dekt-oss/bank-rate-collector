@@ -42,13 +42,14 @@ replace(
 )
 replace(
     "tests/test_strategy_stage_e_ux.py",
-    "6·12·24·36개월 현재 평균 + 최근 정상 수집일 12개월 시장 최고 / 평균 / ",
-    "현재 평균은 선택 업권 기준 · 이력 추이는 저축은행 정상 수집일 기준",
-)
-replace(
-    "tests/test_strategy_stage_e_ux.py",
-    "고려저축은행 최고금리' in html",
-    "' in html",
+    """    assert (
+        '6·12·24·36개월 현재 평균 + 최근 정상 수집일 12개월 시장 최고 / 평균 / '
+        '고려저축은행 최고금리' in html
+    )""",
+    """    assert (
+        "현재 평균은 선택 업권 기준 · 이력 추이는 저축은행 정상 수집일 기준"
+        in html
+    )""",
 )
 
 print("updated H2 legacy contract tests")
