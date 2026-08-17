@@ -9,6 +9,7 @@ on:
       - "web/assets/**"
       - "src/rate_monitor/services/site_service.py"
       - "src/rate_monitor/services/strategy_contract_service.py"
+      - "src/rate_monitor/services/strategy_refinement_service.py"
       - "src/rate_monitor/services/strategy_service.py"
       - "src/rate_monitor/services/inflow_prediction_service.py"
       - "src/rate_monitor/domain/preference_taxonomy.py"
