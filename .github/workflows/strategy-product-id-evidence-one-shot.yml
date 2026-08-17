@@ -1,0 +1,93 @@
+name: Strategy product id evidence one-shot
+
+on:
+  push:
+    branches: ["fix/strategy-stable-product-id"]
+    paths:
+      - ".github/workflows/strategy-product-id-evidence-one-shot.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  evidence:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv python install 3.12 && uv sync --locked
+      - name: Restore production read-only copy
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+          R2_REGION: ${{ vars.R2_REGION }}
+        run: |
+          set -euo pipefail
+          mkdir -p work evidence
+          uv run rate-monitor storage restore --dest work/rate_monitor.sqlite3
+          RATE_MONITOR_DB_URL=sqlite+pysqlite:///${{ github.workspace }}/work/rate_monitor.sqlite3 uv run alembic upgrade head
+      - name: Verify direct ID transport and public bytes
+        run: |
+          uv run python - <<'PY'
+          import json
+          from collections import Counter
+          from pathlib import Path
+
+          from rate_monitor.services.dashboard_service import build_summary
+          from rate_monitor.services.site_service import _without_internal_product_id
+          from rate_monitor.services.strategy_contract_service import _decode
+
+          db = Path('work/rate_monitor.sqlite3')
+          plain = build_summary(db)['table']
+          internal = build_summary(db, include_product_id=True)['table']
+          assert 'product_id' not in plain['columns']
+          assert 'product_id' in internal['columns']
+
+          stripped = _without_internal_product_id(internal)
+          plain_bytes = json.dumps(plain, ensure_ascii=False, separators=(',', ':')).encode()
+          stripped_bytes = json.dumps(stripped, ensure_ascii=False, separators=(',', ':')).encode()
+          assert plain_bytes == stripped_bytes, 'public canonical table changed when internal product_id was enabled'
+
+          cols = {name: i for i, name in enumerate(internal['columns'])}
+          pid_lookup = internal['lookups']['product_id']
+          sectors = {'kfcc', 'nh_local'}
+          terms = {6, 12, 24, 36}
+          counts = Counter()
+          unique_ids = {sector: set() for sector in sectors}
+          for row in internal['rows']:
+              sector = _decode(internal, 'sector', row[cols['sector']])
+              ptype = _decode(internal, 'product_type', row[cols['product_type']])
+              term = row[cols['term_months']]
+              if sector not in sectors or ptype != 'term_deposit' or term not in terms:
+                  continue
+              counts[f'{sector}_rows'] += 1
+              encoded_id = row[cols['product_id']]
+              if encoded_id is None:
+                  counts[f'{sector}_null'] += 1
+                  continue
+              unique_ids[sector].add(pid_lookup[encoded_id])
+
+          result = {
+              'public_bytes_identical': True,
+              'kfcc_rows': counts['kfcc_rows'],
+              'kfcc_null_product_id': counts['kfcc_null'],
+              'kfcc_unique_product_ids': len(unique_ids['kfcc']),
+              'nh_local_rows': counts['nh_local_rows'],
+              'nh_local_null_product_id': counts['nh_local_null'],
+              'nh_local_unique_product_ids': len(unique_ids['nh_local']),
+          }
+          assert result['kfcc_rows'] > 0 and result['nh_local_rows'] > 0
+          assert result['kfcc_null_product_id'] == 0
+          assert result['nh_local_null_product_id'] == 0
+          Path('evidence/strategy-product-id.json').write_text(
+              json.dumps(result, ensure_ascii=False, indent=2), encoding='utf-8'
+          )
+          print(json.dumps(result, ensure_ascii=False, indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: strategy-product-id-evidence
+          path: evidence/strategy-product-id.json
