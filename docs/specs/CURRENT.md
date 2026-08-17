@@ -40,6 +40,9 @@ warning 관측성, source freshness, 업권 용어를 안정화하는 작업 범
 
 | 문서 | 상태 | 비고 |
 |---|---|---|
+| [`20260817-mutual-finance-stage-g-entry-census.md`](20260817-mutual-finance-stage-g-entry-census.md) | **decision/evidence-gate** | 최신 전국 공식 raw 전수 census. NH local G2는 ENTRY GO, KFCC G1은 deterministic official-site linkage 부재로 BLOCKED 유지 |
+| [`20260817-mutual-finance-max-rate-stage-f-evidence.md`](20260817-mutual-finance-max-rate-stage-f-evidence.md) | **decision/evidence-gate** | 상호금융 최고금리 Stage F source evidence. CU GO, KFCC/NH conditional evidence |
+| [`20260817-mutual-finance-max-rate-claude-review.md`](20260817-mutual-finance-max-rate-claude-review.md) | **work-order/review** | 상호금융 최고금리 F→G→H staged work order와 canonical/shared-contract 검증 규칙 |
 | [`20260817-strategy-stable-product-id.md`](20260817-strategy-stable-product-id.md) | **implementation** | 상호금융 strategy display-key 충돌을 stable `product_id` 직접 전달로 해소. public table 계약 보존 |
 | [`20260817-strategy-mutual-finance-evidence.md`](20260817-strategy-mutual-finance-evidence.md) | **decision/evidence-gate** | 상호금융 전략 확장 전 최고금리·지역·coverage·identity Evidence Gate |
 | [`20260817-strategy-dashboard-issue108-ux.md`](20260817-strategy-dashboard-issue108-ux.md) | **implementation** | Issue #108 요구 1·2: 기타 원문 drill-down·인사이트 선배치·전국 지도/TOP5 밀도 축소 |
