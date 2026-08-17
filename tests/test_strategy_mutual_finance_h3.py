@@ -34,7 +34,11 @@ def test_h3_geography_uses_separate_savings_and_cu_layers() -> None:
     assert 'id="map-layer-tabs"' in html
     assert 'key==="savings_bank"?"저축은행 본점":key==="cu"?"신협 조회지역"' in html
     assert "function geoProducts(sector,term=12)" in html
-    assert '`${sector}\\0${r.productId}\\0${term}\\0${expectedBasis}\\0${geo}\\0${district}`' in html
+    geo_key = (
+        '`${sector}\\0${r.productId}\\0${term}\\0'
+        '${expectedBasis}\\0${geo}\\0${district}`'
+    )
+    assert geo_key in html
     assert 'geoSector?regionAverages(geoProducts(geoSector,12)):[]' in html
     assert "서로 다른 geography basis는 같은 지역 평균으로 합치지 않습니다." in html
 
