@@ -167,6 +167,26 @@ def split_summary(summary: dict[str, Any]) -> tuple[dict[str, Any], dict[str, An
     return page, table
 
 
+def _without_internal_product_id(table: dict[str, Any]) -> dict[str, Any]:
+    """Strategy build용 stable id를 public canonical table에서 제거한다.
+
+    product_id는 전략 slice가 DB identity를 잃지 않도록 잠시 운반하는 내부 열이다.
+    검색·조회용 ``data/table.json``에는 노출하지 않는다.
+    """
+    columns = list(table.get("columns") or [])
+    if "product_id" not in columns:
+        return table
+    product_id_index = columns.index("product_id")
+    public_columns = [c for c in columns if c != "product_id"]
+    lookups = dict(table.get("lookups") or {})
+    lookups.pop("product_id", None)
+    rows = [
+        [*row[:product_id_index], *row[product_id_index + 1 :]]
+        for row in table.get("rows") or []
+    ]
+    return {**table, "columns": public_columns, "lookups": lookups, "rows": rows}
+
+
 def render(template_text: str, page_data: dict[str, Any]) -> str:
     """템플릿의 단일 주입 지점에 화면용 데이터만 인라인한다."""
     start = template_text.find(DATA_MARKER)
@@ -232,15 +252,18 @@ def build_site(
     if strategy_template_path is None and strategy_dashboard_enabled():
         strategy_template_path = DEFAULT_STRATEGY_TEMPLATE
 
-    summary = build_summary(db_path)
-    page_data, table = split_summary(summary)
+    summary = build_summary(
+        db_path, include_product_id=strategy_template_path is not None
+    )
+    page_data, table_with_internal_id = split_summary(summary)
     strategy_table: dict[str, Any] | None = None
     strategy_table_contract: dict[str, int] | None = None
     if strategy_template_path is not None:
-        strategy_source = slice_strategy_table(table)
+        strategy_source = slice_strategy_table(table_with_internal_id)
         strategy_table, strategy_table_contract = augment_strategy_table(
             db_path, strategy_source
         )
+    table = _without_internal_product_id(table_with_internal_id)
 
     out_dir.mkdir(parents=True, exist_ok=True)
     # OFF로 되돌린 뒤 같은 out_dir을 재사용하는 경우 과거 실험 산출물이 남으면
