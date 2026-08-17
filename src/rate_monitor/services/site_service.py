@@ -252,8 +252,10 @@ def build_site(
     if strategy_template_path is None and strategy_dashboard_enabled():
         strategy_template_path = DEFAULT_STRATEGY_TEMPLATE
 
-    summary = build_summary(
-        db_path, include_product_id=strategy_template_path is not None
+    summary = (
+        build_summary(db_path, include_product_id=True)
+        if strategy_template_path is not None
+        else build_summary(db_path)
     )
     page_data, table_with_internal_id = split_summary(summary)
     strategy_table: dict[str, Any] | None = None

@@ -293,8 +293,11 @@ def build_rate_table(
     `rows`의 각 항목은 `columns` 순서를 따르고, 조회표가 있는 열은 그 표의
     색인이 들어간다.
     """
+    output_columns = (
+        *TABLE_COLUMNS, "product_id"
+    ) if include_product_id else TABLE_COLUMNS
     if not run_ids:
-        return {"columns": list(TABLE_COLUMNS), "lookups": {}, "rows": []}
+        return {"columns": list(output_columns), "lookups": {}, "rows": []}
 
     placeholders = ",".join("?" for _ in run_ids)
     excluded = reference_sectors()
@@ -372,9 +375,6 @@ def build_rate_table(
                "preference_status", "preference_tags")
     if include_product_id:
         indexed = (*indexed, "product_id")
-    output_columns = (
-        *TABLE_COLUMNS, "product_id"
-    ) if include_product_id else TABLE_COLUMNS
     lookups: dict[str, list[Any]] = {name: [] for name in indexed}
     positions: dict[str, dict[Any, int]] = {name: {} for name in indexed}
 
