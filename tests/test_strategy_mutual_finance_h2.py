@@ -1,11 +1,6 @@
-from pathlib import Path
-
-
-TEMPLATE = Path("web/templates/strategy.html")
-
-
 def _html() -> str:
-    return TEMPLATE.read_text(encoding="utf-8")
+    with open("web/templates/strategy.html", encoding="utf-8") as handle:
+        return handle.read()
 
 
 def test_h2_exposes_three_market_modes_and_sector_capabilities() -> None:
