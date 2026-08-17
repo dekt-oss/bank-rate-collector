@@ -12,8 +12,8 @@ def replace(path: str, old: str, new: str, *, expected: int = 1) -> None:
 
 replace(
     "tests/test_strategy_contract_service.py",
-    'r.productId}\\\\0${term}',
-    'r.sector}\\\\0${r.productId}\\\\0${term}',
+    r'r.productId}\\0${term}',
+    r'r.sector}\\0${r.productId}\\0${term}',
 )
 replace(
     "tests/test_strategy_dashboard.py",
@@ -22,8 +22,8 @@ replace(
 )
 replace(
     "tests/test_strategy_dashboard_refinement.py",
-    'aria-label=\\"시장 금리와 최근 변화 흐름\\"',
-    'aria-label=\\"저축은행 시장 금리와 최근 변화 흐름\\"',
+    'aria-label="시장 금리와 최근 변화 흐름"',
+    'aria-label="저축은행 시장 금리와 최근 변화 흐름"',
 )
 replace(
     "tests/test_strategy_dashboard_refinement.py",
@@ -32,8 +32,8 @@ replace(
 )
 replace(
     "tests/test_strategy_dashboard_ui_contract.py",
-    'r.productId}\\\\0${term}',
-    'r.sector}\\\\0${r.productId}\\\\0${term}',
+    r'r.productId}\\0${term}',
+    r'r.sector}\\0${r.productId}\\0${term}',
 )
 replace(
     "tests/test_strategy_dashboard_ui_contract.py",
