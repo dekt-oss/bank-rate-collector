@@ -289,7 +289,7 @@ def extract_ejoy_options(
         )
 
     ordered = sorted(options, key=lambda option: int(option["lower_months"]))
-    for previous, current in zip(ordered, ordered[1:]):
+    for previous, current in zip(ordered, ordered[1:], strict=False):
         left = (int(previous["lower_months"]), previous["upper_months"])
         right = (int(current["lower_months"]), current["upper_months"])
         if _intervals_overlap(left, right):
@@ -339,7 +339,7 @@ def _validated_ejoy_options(
         return []
 
     options.sort(key=lambda option: option.lower_months)
-    for previous, current in zip(options, options[1:]):
+    for previous, current in zip(options, options[1:], strict=False):
         if _intervals_overlap(
             (previous.lower_months, previous.upper_months),
             (current.lower_months, current.upper_months),
