@@ -1,0 +1,251 @@
+name: Mutual finance strategy evidence one-shot
+
+on:
+  push:
+    branches: ["analysis/strategy-mutual-finance-evidence"]
+    paths:
+      - ".github/workflows/mutual-finance-evidence-one-shot.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  evidence:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Set up Python
+        run: uv python install 3.12
+      - name: Sync dependencies
+        run: uv sync --locked
+      - name: Restore current production database to local read-only copy
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+          R2_REGION: ${{ vars.R2_REGION }}
+        run: |
+          set -euo pipefail
+          mkdir -p work evidence
+          BACKEND=$(uv run python -c "from pathlib import Path; from rate_monitor.services.storage_service import load_backend; print(load_backend(Path('config/storage.yaml')).backend.value)")
+          echo "evidence source backend=$BACKEND"
+          if [ "$BACKEND" = "r2" ]; then
+            uv run rate-monitor storage restore --dest work/rate_monitor.sqlite3
+          else
+            git fetch origin rate-data --depth=1
+            git checkout origin/rate-data -- latest/rate_monitor.sqlite3.gz
+            gunzip -c latest/rate_monitor.sqlite3.gz > work/rate_monitor.sqlite3
+            rm -rf latest
+          fi
+          test -s work/rate_monitor.sqlite3
+      - name: Apply migrations to local evidence copy
+        env:
+          RATE_MONITOR_DB_URL: sqlite+pysqlite:///${{ github.workspace }}/work/rate_monitor.sqlite3
+        run: uv run alembic upgrade head
+      - name: Build canonical table from production copy
+        run: |
+          uv run rate-monitor build-site --db work/rate_monitor.sqlite3 --template web/templates/site.html --out evidence/site
+          test -s evidence/site/data/table.json
+      - name: Analyze mutual-finance comparability and coverage
+        run: |
+          python - <<'PY'
+          import json
+          import sqlite3
+          from collections import Counter, defaultdict
+          from pathlib import Path
+
+          sectors = ("kfcc", "cu", "nh_local")
+          terms = {6, 12, 24, 36}
+          packed = json.loads(Path("evidence/site/data/table.json").read_text(encoding="utf-8"))
+          cols = {name: i for i, name in enumerate(packed["columns"])}
+          lookups = packed.get("lookups") or {}
+
+          def val(row, name):
+              if name not in cols:
+                  return None
+              raw = row[cols[name]]
+              if name in lookups and raw is not None:
+                  return lookups[name][raw]
+              return raw
+
+          rows = []
+          for row in packed["rows"]:
+              sector = val(row, "sector")
+              if sector not in sectors:
+                  continue
+              if val(row, "product_type") != "term_deposit":
+                  continue
+              term = val(row, "term_months")
+              if term not in terms:
+                  continue
+              rows.append({name: val(row, name) for name in (
+                  "sector", "source_id", "institution", "product", "product_id",
+                  "term_months", "base_rate", "max_rate", "rate_scope",
+                  "availability_scope", "geo_basis", "region", "district",
+                  "join_channel", "interest_method", "source_effective_at",
+              )})
+
+          report = {"generated_from_rows": len(rows), "sectors": {}, "runs": {}}
+          md = [
+              "# 상호금융 전략 비교 Production Evidence",
+              "",
+              "- 대상: kfcc / cu / nh_local",
+              "- 상품: term_deposit",
+              "- 기간: 6 / 12 / 24 / 36개월",
+              "- 입력: 현재 production DB를 복원한 로컬 copy의 canonical table",
+              "",
+          ]
+
+          for sector in sectors:
+              sr = [r for r in rows if r["sector"] == sector]
+              term_counts = Counter(r["term_months"] for r in sr)
+              rate_scope = Counter(r["rate_scope"] for r in sr)
+              availability_scope = Counter(r["availability_scope"] for r in sr)
+              geo_basis = Counter(r["geo_basis"] for r in sr)
+              regions = Counter(r["region"] for r in sr if r["region"])
+              districts = Counter(r["district"] for r in sr if r["district"])
+              source_ids = Counter(r["source_id"] for r in sr)
+              product_ids = {r["product_id"] for r in sr if r["product_id"]}
+              product_keys = {(r["institution"], r["product"]) for r in sr}
+              effective = sorted({str(r["source_effective_at"]) for r in sr if r["source_effective_at"]})
+              max_present = sum(r["max_rate"] is not None for r in sr)
+              base_present = sum(r["base_rate"] is not None for r in sr)
+
+              # 12개월 상품 대표. max-only와 max→base fallback을 나란히 보여
+              # 동일 "최고금리" 랭킹으로 합쳤을 때 생기는 의미 차이를 드러낸다.
+              reps = {}
+              for r in (x for x in sr if x["term_months"] == 12):
+                  key = r["product_id"] or (r["institution"], r["product"])
+                  score = r["max_rate"] if r["max_rate"] is not None else r["base_rate"]
+                  old = reps.get(key)
+                  old_score = None if old is None else (
+                      old["max_rate"] if old["max_rate"] is not None else old["base_rate"]
+                  )
+                  if score is not None and (old is None or old_score is None or score > old_score):
+                      reps[key] = r
+              fallback_top = sorted(
+                  reps.values(),
+                  key=lambda r: -float(r["max_rate"] if r["max_rate"] is not None else r["base_rate"]),
+              )[:10]
+              max_only = [r for r in reps.values() if r["max_rate"] is not None]
+              max_only = sorted(max_only, key=lambda r: -float(r["max_rate"]))[:10]
+
+              evidence = {
+                  "rows": len(sr),
+                  "institutions": len({r["institution"] for r in sr}),
+                  "product_ids": len(product_ids),
+                  "institution_product_keys": len(product_keys),
+                  "term_counts": dict(sorted(term_counts.items())),
+                  "base_rate_present": base_present,
+                  "max_rate_present": max_present,
+                  "max_rate_present_pct": round(max_present / len(sr) * 100, 2) if sr else 0,
+                  "rate_scope": dict(rate_scope),
+                  "availability_scope": dict(availability_scope),
+                  "geo_basis": dict(geo_basis),
+                  "region_nonnull_rows": sum(bool(r["region"]) for r in sr),
+                  "district_nonnull_rows": sum(bool(r["district"]) for r in sr),
+                  "region_distinct": len(regions),
+                  "district_distinct": len(districts),
+                  "source_ids": dict(source_ids),
+                  "source_effective_min": effective[0] if effective else None,
+                  "source_effective_max": effective[-1] if effective else None,
+                  "top12_max_only": [
+                      [r["institution"], r["product"], r["max_rate"]] for r in max_only
+                  ],
+                  "top12_fallback_max_else_base": [
+                      [
+                          r["institution"], r["product"],
+                          r["max_rate"] if r["max_rate"] is not None else r["base_rate"],
+                          "max_rate" if r["max_rate"] is not None else "base_rate",
+                      ]
+                      for r in fallback_top
+                  ],
+              }
+              report["sectors"][sector] = evidence
+              md += [
+                  f"## {sector}",
+                  "",
+                  f"- rows: {evidence['rows']:,}",
+                  f"- institutions: {evidence['institutions']:,}",
+                  f"- stable product_id: {evidence['product_ids']:,}",
+                  f"- terms: {evidence['term_counts']}",
+                  f"- base_rate present: {base_present:,}/{len(sr):,}",
+                  f"- max_rate present: {max_present:,}/{len(sr):,} ({evidence['max_rate_present_pct']}%)",
+                  f"- rate_scope: {evidence['rate_scope']}",
+                  f"- availability_scope: {evidence['availability_scope']}",
+                  f"- geo_basis: {evidence['geo_basis']}",
+                  f"- region rows: {evidence['region_nonnull_rows']:,}; district rows: {evidence['district_nonnull_rows']:,}",
+                  f"- source_effective: {evidence['source_effective_min']} ~ {evidence['source_effective_max']}",
+                  "",
+              ]
+
+          conn = sqlite3.connect("work/rate_monitor.sqlite3")
+          conn.row_factory = sqlite3.Row
+          for source in sectors:
+              recent = conn.execute(
+                  """
+                  SELECT source_id,status,started_at,finished_at,raw_count,parsed_count,
+                         valid_count,warning_count,error_count,query_context_json
+                  FROM collection_runs
+                  WHERE source_id=?
+                  ORDER BY started_at DESC
+                  LIMIT 5
+                  """,
+                  (source,),
+              ).fetchall()
+              report["runs"][source] = [dict(r) for r in recent]
+              md += [f"### 최근 collection_runs · {source}", ""]
+              for r in recent:
+                  md.append(
+                      f"- {r['started_at']} | {r['status']} | valid={r['valid_count']} | "
+                      f"errors={r['error_count']} | context={r['query_context_json']}"
+                  )
+              md.append("")
+
+          # source_entity_links의 active source key uniqueness를 production DB에서 재확인.
+          identity = {}
+          for source in sectors:
+              dup = conn.execute(
+                  """
+                  SELECT entity_type, source_entity_key, COUNT(*) c
+                  FROM source_entity_links
+                  WHERE source_id=? AND valid_to IS NULL
+                  GROUP BY entity_type, source_entity_key
+                  HAVING COUNT(*) > 1
+                  """,
+                  (source,),
+              ).fetchall()
+              counts = conn.execute(
+                  """
+                  SELECT entity_type, COUNT(*) c
+                  FROM source_entity_links
+                  WHERE source_id=? AND valid_to IS NULL
+                  GROUP BY entity_type
+                  """,
+                  (source,),
+              ).fetchall()
+              identity[source] = {
+                  "active_links": {r["entity_type"]: r["c"] for r in counts},
+                  "duplicate_active_source_keys": len(dup),
+              }
+          report["identity"] = identity
+          md += ["## Stable identity", "", f"```json\n{json.dumps(identity, ensure_ascii=False, indent=2)}\n```", ""]
+
+          Path("evidence/mutual-finance.json").write_text(
+              json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
+          )
+          Path("evidence/mutual-finance.md").write_text("\n".join(md), encoding="utf-8")
+          print("\n".join(md))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mutual-finance-evidence
+          path: |
+            evidence/mutual-finance.json
+            evidence/mutual-finance.md
