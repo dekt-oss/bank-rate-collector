@@ -22,7 +22,8 @@ STRATEGY_SECTOR = "savings_bank"  # 기존 caller 호환용 기본 업권
 STRATEGY_PRODUCT_TYPE = "term_deposit"
 STRATEGY_TERMS = frozenset({6, 12, 24, 36})
 STRATEGY_CANDIDATE_SECTORS = ("savings_bank", "cu", "kfcc", "nh_local")
-STRATEGY_MAX_RATE_ENABLED_SECTORS = frozenset({"savings_bank", "cu"})
+STRATEGY_MAX_RATE_ENABLED_SECTORS = frozenset({"savings_bank", "cu", "nh_local"})
+STRATEGY_MAX_ONLY_PUBLISHED_SECTORS = frozenset({"nh_local"})
 STRATEGY_SECTOR_LABELS = {
     "savings_bank": "저축은행",
     "cu": "신협",
@@ -33,16 +34,12 @@ STRATEGY_MAX_RATE_EVIDENCE = {
     "savings_bank": "existing_savings_bank_max_rate_contract",
     "cu": "official_high_rate_same_product_term_institution",
     "kfcc": "individual_official_max_rate_exists_but_registry_linkage_unproven",
-    "nh_local": "preferential_component_product_channel_linkage_unproven",
+    "nh_local": "official_ejoy_same_brc_product_term_interval_internet_variant",
 }
 STRATEGY_BLOCK_REASONS = {
     "kfcc": (
         "중앙 공시는 기본이율 중심이며 개별 금고 공식 최고금리 페이지와 "
         "gmgo_cd의 전국 결정론적 연결이 아직 증명되지 않음"
-    ),
-    "nh_local": (
-        "e-joy 인터넷 우대행은 확인됐지만 stable product·기간·인터넷 채널에 "
-        "대한 결정론적 linkage가 아직 증명되지 않음"
     ),
 }
 _IDENTITY_KEY_COLUMNS = (
@@ -218,9 +215,10 @@ def strategy_universe_metadata(table: dict[str, Any]) -> dict[str, Any]:
 def slice_strategy_table(table: dict[str, Any]) -> dict[str, Any]:
     """canonical table에서 evidence-backed 전략 payload 행만 고른다.
 
-    Stage H1에서는 저축은행과 신협(CU)만 실제 payload에 포함한다. KFCC/NH는
-    ``strategy_universe`` metadata에 coverage/차단 사유만 남긴다. 값 변환·금리
-    fallback을 하지 않으며 canonical columns/lookups 계약은 그대로 유지한다.
+    Stage G2 evidence가 열린 농·축협(NH local)도 strategy capability에 포함한다.
+    다만 NH는 기본행·e-joy 원천행까지 payload를 중복 확장하지 않고 evidence-backed
+    ``max_rate``가 있는 internet variant만 싣는다. KFCC는 metadata에 차단 사유만
+    남긴다. 값 변환·금리 fallback은 하지 않는다.
     """
     columns = list(table.get("columns") or [])
     source_columns = {name: index for index, name in enumerate(columns)}
@@ -232,6 +230,7 @@ def slice_strategy_table(table: dict[str, Any]) -> dict[str, Any]:
         )
 
     universe = strategy_universe_metadata(table)
+    max_index = source_columns.get("max_rate")
     rows = []
     for row in table.get("rows") or []:
         sector = _decode(table, "sector", row[source_columns["sector"]])
@@ -244,6 +243,10 @@ def slice_strategy_table(table: dict[str, Any]) -> dict[str, Any]:
             and product_type == STRATEGY_PRODUCT_TYPE
             and term in STRATEGY_TERMS
         ):
+            if sector in STRATEGY_MAX_ONLY_PUBLISHED_SECTORS and (
+                max_index is None or not _rate_present(row[max_index])
+            ):
+                continue
             rows.append(row)
 
     return {**table, "rows": rows, "strategy_universe": universe}
