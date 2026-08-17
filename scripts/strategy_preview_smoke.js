@@ -15,6 +15,7 @@ function cleanNumber(value) {
 }
 
 async function waitForDashboard(page) {
+  await page.route("**/favicon.ico", (route) => route.fulfill({ status: 204, body: "" }));
   const response = await page.goto(`${baseUrl}/strategy.html`, { waitUntil: "networkidle" });
   invariant(response && response.ok(), `strategy.html HTTP ${response ? response.status() : "no response"}`);
   await page.waitForFunction(
