@@ -40,6 +40,8 @@ warning 관측성, source freshness, 업권 용어를 안정화하는 작업 범
 
 | 문서 | 상태 | 비고 |
 |---|---|---|
+| [`20260817-strategy-stable-product-id.md`](20260817-strategy-stable-product-id.md) | **implementation** | 상호금융 strategy display-key 충돌을 stable `product_id` 직접 전달로 해소. public table 계약 보존 |
+| [`20260817-strategy-mutual-finance-evidence.md`](20260817-strategy-mutual-finance-evidence.md) | **decision/evidence-gate** | 상호금융 전략 확장 전 최고금리·지역·coverage·identity Evidence Gate |
 | [`20260817-strategy-dashboard-issue108-ux.md`](20260817-strategy-dashboard-issue108-ux.md) | **implementation** | Issue #108 요구 1·2: 기타 원문 drill-down·인사이트 선배치·전국 지도/TOP5 밀도 축소 |
 | [`20260816-strategy-dashboard-v2-workorder.md`](20260816-strategy-dashboard-v2-workorder.md) | **draft/work-order** | 2026-08-16 설계 리뷰 반영 개선판 작업 명세. Stage A~E 순서와 인터페이스 계약 |
 | [`20260816-inflow-prediction-v1.md`](20260816-inflow-prediction-v1.md) | **experimental** | 수신금액 예측엔진 v1 구조모형. 계수는 내부 실적 미보정 스트레스 밴드 |

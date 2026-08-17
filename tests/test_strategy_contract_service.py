@@ -1,6 +1,9 @@
 import sqlite3
 from pathlib import Path
 
+import pytest
+
+from rate_monitor.services.dashboard_service import DashboardBuildError
 from rate_monitor.services.strategy_contract_service import (
     augment_strategy_table,
     slice_strategy_table,
@@ -151,3 +154,33 @@ def test_strategy_table_adds_compressed_stable_product_id(tmp_path: Path) -> Non
         assert conn.execute("SELECT COUNT(*) FROM rate_observations").fetchone()[0] == 1
     finally:
         conn.close()
+
+
+def test_strategy_table_accepts_pretransported_product_id_without_rejoin(tmp_path: Path) -> None:
+    table = {
+        "columns": ["sector", "product_id"],
+        "lookups": {
+            "sector": ["savings_bank"],
+            "product_id": ["p-direct"],
+        },
+        "rows": [[0, 0]],
+    }
+
+    augmented, stats = augment_strategy_table(tmp_path / "does-not-exist.sqlite3", table)
+
+    assert augmented is table
+    assert stats == {"matched": 1, "unmatched": 0}
+
+
+def test_strategy_table_rejects_null_pretransported_product_id(tmp_path: Path) -> None:
+    table = {
+        "columns": ["sector", "product_id"],
+        "lookups": {
+            "sector": ["savings_bank"],
+            "product_id": ["p-direct"],
+        },
+        "rows": [[0, 0], [0, None]],
+    }
+
+    with pytest.raises(DashboardBuildError, match="stable product_id.*1행"):
+        augment_strategy_table(tmp_path / "does-not-exist.sqlite3", table)

@@ -279,7 +279,7 @@ def _drop_duplicate_source_rows(records: list[dict[str, Any]]) -> list[dict[str,
 
 
 def build_rate_table(
-    conn: sqlite3.Connection, run_ids: list[str]
+    conn: sqlite3.Connection, run_ids: list[str], *, include_product_id: bool = False
 ) -> dict[str, Any]:
     """비교 화면이 쓸 전체 금리표.
 
@@ -293,8 +293,11 @@ def build_rate_table(
     `rows`의 각 항목은 `columns` 순서를 따르고, 조회표가 있는 열은 그 표의
     색인이 들어간다.
     """
+    output_columns = (
+        *TABLE_COLUMNS, "product_id"
+    ) if include_product_id else TABLE_COLUMNS
     if not run_ids:
-        return {"columns": list(TABLE_COLUMNS), "lookups": {}, "rows": []}
+        return {"columns": list(output_columns), "lookups": {}, "rows": []}
 
     placeholders = ",".join("?" for _ in run_ids)
     excluded = reference_sectors()
@@ -308,6 +311,7 @@ def build_rate_table(
         f"      {TABLE_SIDO_EXPR} AS region,"
         f"      {TABLE_DISTRICT_EXPR}   AS district,"
         "       p.name                  AS product,"
+        "       p.id                    AS product_id,"
         "       p.product_type          AS product_type,"
         "       v.term_months           AS term_months,"
         "       v.payment_method        AS payment_method,"
@@ -369,13 +373,15 @@ def build_rate_table(
                "join_channel", "availability_scope", "source_id",
                "source_effective_at", "geo_basis", "rate_scope", "preference",
                "preference_status", "preference_tags")
+    if include_product_id:
+        indexed = (*indexed, "product_id")
     lookups: dict[str, list[Any]] = {name: [] for name in indexed}
     positions: dict[str, dict[Any, int]] = {name: {} for name in indexed}
 
     rows: list[list[Any]] = []
     for record in raw:
         row: list[Any] = []
-        for column in TABLE_COLUMNS:
+        for column in output_columns:
             value = record[column]
             if column not in indexed:
                 # 금리는 0 패딩 문자열로 저장돼 있다. 화면에서 숫자로 쓰도록
@@ -392,7 +398,7 @@ def build_rate_table(
             row.append(table[value])
         rows.append(row)
 
-    return {"columns": list(TABLE_COLUMNS), "lookups": lookups, "rows": rows}
+    return {"columns": list(output_columns), "lookups": lookups, "rows": rows}
 
 
 # 참고카드가 쓰는 상품. 12개월 정기예금 하나다 (v4 §6.4).
@@ -754,7 +760,9 @@ def _stale_sources(conn: sqlite3.Connection) -> list[dict[str, Any]]:
     )
 
 
-def build_summary(db_path: Path) -> dict[str, Any]:
+def build_summary(
+    db_path: Path, *, include_product_id: bool = False
+) -> dict[str, Any]:
     """대시보드가 쓸 집계값. 전부 SQL에서 나온 실측이다."""
     conn = sqlite3.connect(db_path)
     conn.row_factory = None
@@ -990,7 +998,9 @@ def build_summary(db_path: Path) -> dict[str, Any]:
 
         stale_sources = _stale_sources(conn)
         collection_health = build_collection_health(conn)
-        table = build_rate_table(conn, run_ids)
+        table = build_rate_table(
+            conn, run_ids, include_product_id=include_product_id
+        )
         benchmarks = build_benchmarks(conn, run_ids)
     finally:
         conn.close()
