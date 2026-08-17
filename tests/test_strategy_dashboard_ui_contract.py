@@ -54,7 +54,7 @@ def test_strategy_dashboard_uses_product_representatives_for_market_metrics() ->
     html = _html()
 
     assert "function aggregateProducts(term)" in html
-    assert 'const key=`${r.productId}\\0${term}`' in html
+    assert 'const key=`${r.sector}\\0${r.productId}\\0${term}`' in html
     assert "r.max>p.max" in html
     assert "products12=aggregateProducts(12)" in html
     assert "ratesStats(products12)" in html
@@ -191,7 +191,7 @@ def test_simulator_has_no_preference_condition_selector() -> None:
 def test_strategy_dashboard_keeps_three_historical_rate_lines() -> None:
     html = _html()
 
-    assert "최근 정상 수집일 12개월 시장 최고 / 평균 / 고려저축은행 최고금리" in html
+    assert "현재 평균은 선택 업권 기준 · 이력 추이는 저축은행 정상 수집일 기준" in html
     assert "시장 최고</span>" in html
     assert "시장 평균</span>" in html
     assert "고려저축은행</span>" in html

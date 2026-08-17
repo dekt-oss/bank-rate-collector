@@ -161,7 +161,7 @@ def test_strategy_page_uses_canonical_derived_slice_without_inlining_rows(
         assert row[columns["term_months"]] in {6, 12, 24, 36}
 
     assert "const aggregateCache=new Map" in strategy_html
-    assert "if(aggregateCache.has(term))return aggregateCache.get(term)" in strategy_html
+    assert "if(aggregateCache.has(cacheKey))return aggregateCache.get(cacheKey)" in strategy_html
     assert "[6,12,24,36].forEach(aggregateProducts)" in strategy_html
 
 
