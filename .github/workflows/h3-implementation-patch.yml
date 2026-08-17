@@ -20,6 +20,19 @@ jobs:
           fetch-depth: 0
       - name: Apply deterministic H3 patch
         run: python scripts/patch_strategy_h3.py
+      - name: Update H2 empty-state assertion for H3 unit semantics
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("tests/test_strategy_mutual_finance_h2_empty_state.py")
+          text = path.read_text(encoding="utf-8")
+          old = '''    assert '$("institutions").textContent="기관 0곳"' in block'''
+          new = '''    assert '$("institutions").textContent=`${rankingEntityLabel()} 0곳`' in block'''
+          if text.count(old) != 1:
+              raise SystemExit("H2 empty-state assertion marker mismatch")
+          path.write_text(text.replace(old, new, 1), encoding="utf-8")
+          PY
       - name: Verify inline JavaScript syntax
         run: |
           python - <<'PY'
