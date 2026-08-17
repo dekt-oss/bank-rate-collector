@@ -348,6 +348,13 @@ class NhLocalAdapter:
         self._reset_retry_state()
         prefixes = self._load_prefixes(request)
         products = tuple(request.options.get("products") or DEFAULT_PRODUCTS)
+        # e-joy 우대행은 거치식 화면에 있고 적립식에도 적용된다. 거치식이
+        # 요청에 포함된 경우에만 먼저 받아 같은 BRC 안에서 evidence를 운반한다.
+        # 거치식이 빠진 custom 수집에서는 추가 요청을 만들지 않고 fail closed한다.
+        if ProductType.TERM_DEPOSIT in products:
+            products = (ProductType.TERM_DEPOSIT,) + tuple(
+                product for product in products if product != ProductType.TERM_DEPOSIT
+            )
         # 조회일이 곧 기준일이다. 원천이 별도 공시일을 주지 않는다 (정찰 §0.2).
         as_of = now_kst().date().isoformat()
 
@@ -402,6 +409,7 @@ class NhLocalAdapter:
                 # 원천이 조회를 무시하면 그만 받되, 받은 것은 돌려준다.
                 if guard.tripped:
                     break
+                ejoy_options: list[dict[str, Any]] = []
                 for product in products:
                     if requests_made >= MAX_REQUESTS:
                         raise SourceBlockedError(
@@ -429,19 +437,30 @@ class NhLocalAdapter:
                         body, where=f"brc={outlet.brc} screen={screen}", stream=screen
                     )
 
+                    ejoy_warnings: list[str] = []
+                    if product == ProductType.TERM_DEPOSIT:
+                        ejoy_options, ejoy_warnings = parser.extract_ejoy_options(
+                            body.decode("utf-8", "replace"), brc=outlet.brc
+                        )
+
+                    meta: dict[str, Any] = {
+                        "kind": "rate",
+                        "screen": screen,
+                        "product_type": product.value,
+                        "as_of": as_of,
+                        # 금리 화면에도 점포명은 있지만 주소는 없다.
+                        # 파서가 붙일 수 있게 명부 행을 실어 보낸다.
+                        "outlet": outlet._asdict(),
+                        # 같은 BRC의 거치식 공식 e-joy evidence만 전달한다.
+                        "ejoy_options": ejoy_options,
+                    }
+                    if ejoy_warnings:
+                        meta["ejoy_warnings"] = ejoy_warnings
                     artifacts.append(
                         self._artifact(
                             body,
                             filename=f"rate_{outlet.brc}_{screen}.html",
-                            meta={
-                                "kind": "rate",
-                                "screen": screen,
-                                "product_type": product.value,
-                                "as_of": as_of,
-                                # 금리 화면에도 점포명은 있지만 주소는 없다.
-                                # 파서가 붙일 수 있게 명부 행을 실어 보낸다.
-                                "outlet": outlet._asdict(),
-                            },
+                            meta=meta,
                         )
                     )
         self.fetch_note = guard.summary()
@@ -486,9 +505,11 @@ class NhLocalAdapter:
             return [], ([] if count else ["명부가 비어 있다"])
 
         outlet = NhOutlet(**meta["outlet"])
-        return parser.parse_detail(
+        rows, warnings = parser.parse_detail(
             html,
             outlet=outlet,
             product_type=ProductType(meta["product_type"]),
             as_of=date.fromisoformat(meta["as_of"]),
+            ejoy_options=meta.get("ejoy_options"),
         )
+        return rows, [*meta.get("ejoy_warnings", []), *warnings]

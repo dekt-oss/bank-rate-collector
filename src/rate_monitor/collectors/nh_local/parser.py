@@ -11,10 +11,12 @@ GET 두 번이다.
 """
 
 import re
+from dataclasses import replace
 from datetime import date
+from decimal import Decimal, InvalidOperation
 from hashlib import sha256
 from html import unescape
-from typing import NamedTuple
+from typing import Any, NamedTuple
 
 from rate_monitor.collectors.base import SchemaChangedError
 from rate_monitor.collectors.kfcc.parser import parse_term
@@ -49,6 +51,17 @@ _INQUIRY = re.compile(r"lfViewInquiry\(\s*'([^']+)'\s*,\s*'([^']*)'")
 # 명부 표를 알아보는 표식. 원천이 열을 바꾸면 여기서 걸린다.
 LIST_HEADERS = ("농&middot;축협 명", "주소", "전화번호")
 DETAIL_CAPTION = "금리 상세정보"
+
+EJOY_PRODUCT_NAME = "e-joy 인터넷예금 우대금리"
+EJOY_APPLICABILITY_NOTE = (
+    "- 대상예금 <거치식> 정기예탁금, 복리식 정기예탁금 "
+    "<적립식> 정기적금, 자유적립 적금, 자유로 부금 "
+    "- 상품별 금리 + 우대금리 적용"
+)
+EJOY_TARGET_PRODUCTS = frozenset(
+    {"정기예탁금", "복리식정기예탁금", "정기적금", "자유적립적금", "자유로부금"}
+)
+_TERM_MONTH = re.compile(r"(\d+)\s*개월")
 
 
 def _text(raw: str) -> str:
@@ -195,6 +208,158 @@ def parse_rate_table(html: str) -> list[RateEntry]:
     return entries
 
 
+class EjoyOption(NamedTuple):
+    lower_months: int
+    upper_months: int | None
+    add_rate: Decimal
+    source_brc: str
+    source_locator: str
+    source_record_hash: str
+
+
+def _ejoy_interval(term_raw: str) -> tuple[int, int | None] | None:
+    months = [int(value) for value in _TERM_MONTH.findall(term_raw)]
+    if "이상" not in term_raw or not months:
+        return None
+    lower = months[0]
+    upper = months[1] if "미만" in term_raw and len(months) >= 2 else None
+    if upper is not None and upper <= lower:
+        return None
+    return lower, upper
+
+
+def _intervals_overlap(
+    left: tuple[int, int | None], right: tuple[int, int | None]
+) -> bool:
+    left_lower, left_upper = left
+    right_lower, right_upper = right
+    left_end = left_upper if left_upper is not None else float("inf")
+    right_end = right_upper if right_upper is not None else float("inf")
+    return left_lower < right_end and right_lower < left_end
+
+
+def extract_ejoy_options(
+    html: str, *, brc: str
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """거치식 화면의 e-joy 우대행을 JSON-safe evidence로 옮긴다.
+
+    이름만 같다고 인정하지 않는다. Stage G census에서 전국 19,472행이
+    동일했던 대상상품/가산 문구, 기간구간, 숫자 금리를 모두 확인한다. 하나라도
+    계약에서 벗어나거나 기간이 겹치면 해당 BRC 전체를 fail closed한다.
+    """
+    options: list[dict[str, Any]] = []
+    warnings: list[str] = []
+
+    for index, entry in enumerate(parse_rate_table(html)):
+        if entry.product_name != EJOY_PRODUCT_NAME:
+            continue
+        interval = _ejoy_interval(entry.term_raw)
+        add_rate = parse_rate(entry.rate_raw)
+        if entry.note != EJOY_APPLICABILITY_NOTE:
+            warnings.append(f"e-joy 대상상품 문구 변경: brc={brc} index={index}")
+            return [], warnings
+        if interval is None or add_rate is None or add_rate < 0:
+            warnings.append(f"e-joy 기간/금리 해석 실패: brc={brc} index={index}")
+            return [], warnings
+
+        lower, upper = interval
+        locator = f"{brc}/{SCREEN_BY_PRODUCT[ProductType.TERM_DEPOSIT]}/{index}"
+        option_hash = sha256(
+            "|".join(
+                (
+                    brc,
+                    entry.product_name,
+                    entry.term_raw,
+                    entry.rate_raw,
+                    entry.note,
+                )
+            ).encode()
+        ).hexdigest()
+        options.append(
+            {
+                "product_name": EJOY_PRODUCT_NAME,
+                "note": EJOY_APPLICABILITY_NOTE,
+                "lower_months": lower,
+                "upper_months": upper,
+                "add_rate": str(add_rate),
+                "source_brc": brc,
+                "source_locator": locator,
+                "source_record_hash": option_hash,
+            }
+        )
+
+    ordered = sorted(options, key=lambda option: int(option["lower_months"]))
+    for previous, current in zip(ordered, ordered[1:]):
+        left = (int(previous["lower_months"]), previous["upper_months"])
+        right = (int(current["lower_months"]), current["upper_months"])
+        if _intervals_overlap(left, right):
+            warnings.append(f"e-joy 기간 중복: brc={brc}")
+            return [], warnings
+    return ordered, warnings
+
+
+def _validated_ejoy_options(
+    raw_options: list[dict[str, Any]] | None, *, brc: str
+) -> list[EjoyOption]:
+    if not raw_options:
+        return []
+
+    options: list[EjoyOption] = []
+    try:
+        for raw in raw_options:
+            if raw.get("product_name") != EJOY_PRODUCT_NAME:
+                return []
+            if raw.get("note") != EJOY_APPLICABILITY_NOTE:
+                return []
+            if str(raw.get("source_brc") or "") != brc:
+                return []
+            lower = int(raw["lower_months"])
+            upper_value = raw.get("upper_months")
+            upper = int(upper_value) if upper_value is not None else None
+            if lower < 0 or (upper is not None and upper <= lower):
+                return []
+            add_rate = Decimal(str(raw["add_rate"]))
+            if not add_rate.is_finite() or add_rate < 0:
+                return []
+            locator = str(raw["source_locator"])
+            record_hash = str(raw["source_record_hash"])
+            if not locator or not record_hash:
+                return []
+            options.append(
+                EjoyOption(
+                    lower_months=lower,
+                    upper_months=upper,
+                    add_rate=add_rate,
+                    source_brc=brc,
+                    source_locator=locator,
+                    source_record_hash=record_hash,
+                )
+            )
+    except (KeyError, TypeError, ValueError, InvalidOperation):
+        return []
+
+    options.sort(key=lambda option: option.lower_months)
+    for previous, current in zip(options, options[1:]):
+        if _intervals_overlap(
+            (previous.lower_months, previous.upper_months),
+            (current.lower_months, current.upper_months),
+        ):
+            return []
+    return options
+
+
+def _matching_ejoy_option(
+    options: list[EjoyOption], term_months: int
+) -> EjoyOption | None:
+    matches = [
+        option
+        for option in options
+        if term_months >= option.lower_months
+        and (option.upper_months is None or term_months < option.upper_months)
+    ]
+    return matches[0] if len(matches) == 1 else None
+
+
 def _interest_method(product_name: str, note: str) -> str:
     """원천이 직접 밝힌 근거만으로 단리·복리를 정한다.
 
@@ -246,6 +411,7 @@ def parse_detail(
     outlet: NhOutlet,
     product_type: ProductType,
     as_of: date,
+    ejoy_options: list[dict[str, Any]] | None = None,
 ) -> tuple[list[ParsedRateRow], list[str]]:
     """상세 화면 → 표준 행.
 
@@ -254,6 +420,9 @@ def parse_detail(
     """
     rows: list[ParsedRateRow] = []
     warnings: list[str] = []
+    validated_ejoy = _validated_ejoy_options(ejoy_options, brc=outlet.brc)
+    if ejoy_options and not validated_ejoy:
+        warnings.append(f"e-joy evidence metadata invalid: brc={outlet.brc}")
 
     for index, entry in enumerate(parse_rate_table(html)):
         term_months, term_days, term_error = parse_term(entry.term_raw)
@@ -273,56 +442,95 @@ def parse_detail(
             warnings.append(f"우대금리 행: {entry.product_name} ({entry.rate_raw})")
 
         locator = f"{outlet.brc}/{SCREEN_BY_PRODUCT[product_type]}/{index}"
-        rows.append(
-            ParsedRateRow(
-                source_id=SOURCE_ID,
-                source_role=SourceRole.SECONDARY_OFFICIAL,
-                trust_level=TrustLevel.OFFICIAL_DIRECT,
-                sector=Sector.NH_LOCAL,
-                source_institution_key=outlet.brc,
-                source_outlet_key=outlet.brc,
-                source_product_key=entry.product_name,
-                institution_name=outlet.name,
-                outlet_name=outlet.name,
-                institution_type=None,
-                # 지역은 저장 계층이 주소에서 뽑는다 (region_service). 여기서
-                # 또 자르면 규칙이 두 벌이 된다 (v4 §4).
-                sido=None,
-                sigungu=None,
-                address=outlet.address,
-                product_type=product_type.value,
-                product_name=entry.product_name,
-                term_months=term_months,
-                term_days=term_days,
-                join_channel=_join_channel(entry.product_name),
-                interest_method=_interest_method(entry.product_name, entry.note),
-                payment_method=None,
-                amount_min=None,
-                amount_max=None,
-                customer_scope=None,
-                # 지역 조합이라 아무나 가입할 수 있는 것이 아니다. 다만 그
-                # 조건을 원천이 밝히지 않으므로 단정하지 않는다.
-                availability_scope=AvailabilityScope.UNKNOWN,
-                # 금리가 점포 단위로 나온다. 조합마다 다르고 지점마다 다르다.
-                rate_scope=RateScope.OUTLET,
-                base_rate=rate,
-                # **최고 우대금리 열이 없다.** base_rate로 메우지 않는다
-                # (v4 §3.3).
-                max_rate=None,
-                preference_raw=entry.note,
-                source_row_ref=locator,
-                base_source_locator=locator,
-                source_record_hash=sha256(
-                    "|".join(
-                        (outlet.brc, entry.product_name, entry.term_raw, entry.rate_raw)
-                    ).encode()
-                ).hexdigest(),
-                source_effective_at=as_of,
-                validation_status=status,
-                validation_message=message,
-                extra={"note": entry.note, "interest_note": entry.interest_note},
-            )
+        base_hash = sha256(
+            "|".join(
+                (outlet.brc, entry.product_name, entry.term_raw, entry.rate_raw)
+            ).encode()
+        ).hexdigest()
+        base_row = ParsedRateRow(
+            source_id=SOURCE_ID,
+            source_role=SourceRole.SECONDARY_OFFICIAL,
+            trust_level=TrustLevel.OFFICIAL_DIRECT,
+            sector=Sector.NH_LOCAL,
+            source_institution_key=outlet.brc,
+            source_outlet_key=outlet.brc,
+            source_product_key=entry.product_name,
+            institution_name=outlet.name,
+            outlet_name=outlet.name,
+            institution_type=None,
+            # 지역은 저장 계층이 주소에서 뽑는다 (region_service). 여기서
+            # 또 자르면 규칙이 두 벌이 된다 (v4 §4).
+            sido=None,
+            sigungu=None,
+            address=outlet.address,
+            product_type=product_type.value,
+            product_name=entry.product_name,
+            term_months=term_months,
+            term_days=term_days,
+            join_channel=_join_channel(entry.product_name),
+            interest_method=_interest_method(entry.product_name, entry.note),
+            payment_method=None,
+            amount_min=None,
+            amount_max=None,
+            customer_scope=None,
+            # 지역 조합이라 아무나 가입할 수 있는 것이 아니다. 다만 그
+            # 조건을 원천이 밝히지 않으므로 단정하지 않는다.
+            availability_scope=AvailabilityScope.UNKNOWN,
+            # 금리가 점포 단위로 나온다. 조합마다 다르고 지점마다 다르다.
+            rate_scope=RateScope.OUTLET,
+            base_rate=rate,
+            # 일반 채널 행은 그대로 보존한다. e-joy가 공식적으로 연결되는
+            # 경우에도 이 행을 덮지 않고 별도 internet variant를 추가한다.
+            max_rate=None,
+            preference_raw=entry.note,
+            source_row_ref=locator,
+            base_source_locator=locator,
+            source_record_hash=base_hash,
+            source_effective_at=as_of,
+            validation_status=status,
+            validation_message=message,
+            extra={"note": entry.note, "interest_note": entry.interest_note},
         )
+        rows.append(base_row)
+
+        if (
+            entry.product_name in EJOY_TARGET_PRODUCTS
+            and rate is not None
+            and term_months is not None
+            and status != "error"
+        ):
+            option = _matching_ejoy_option(validated_ejoy, term_months)
+            if option is not None:
+                max_rate = rate + option.add_rate
+                internet_hash = sha256(
+                    (
+                        f"{base_hash}|{option.source_record_hash}|"
+                        f"internet|max={max_rate}"
+                    ).encode()
+                ).hexdigest()
+                internet_extra = dict(base_row.extra)
+                internet_extra.update(
+                    {
+                        "max_rate_method": "base_plus_source_declared_ejoy_add_rate",
+                        "ejoy_add_rate": str(option.add_rate),
+                        "ejoy_interval_lower_months": option.lower_months,
+                        "ejoy_interval_upper_months": option.upper_months,
+                        "base_source_record_hash": base_hash,
+                        "option_source_record_hash": option.source_record_hash,
+                    }
+                )
+                rows.append(
+                    replace(
+                        base_row,
+                        join_channel=JoinChannel.INTERNET.value,
+                        max_rate=max_rate,
+                        preference_raw=EJOY_APPLICABILITY_NOTE,
+                        source_row_ref=f"{locator}/internet",
+                        option_source_locator=option.source_locator,
+                        source_record_hash=internet_hash,
+                        extra=internet_extra,
+                    )
+                )
 
     return rows, warnings
 
