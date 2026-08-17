@@ -123,11 +123,20 @@ def _parse_percent(rate_raw: str) -> str | None:
     return match.group(1) if match else None
 
 
+def _supported_preference(entry: RateEntry) -> bool:
+    return (
+        entry.note == NH_PREFERENCE_NOTE
+        and _preference_interval(entry.term_raw) is not None
+        and _parse_percent(entry.rate_raw) is not None
+    )
+
+
 def audit_nh(path: Path) -> dict[str, Any]:
     by_brc: dict[str, dict[str, list[RateEntry]]] = defaultdict(
         lambda: defaultdict(list)
     )
     file_counts: Counter[str] = Counter()
+    file_brcs: set[str] = set()
     preference_notes: Counter[str] = Counter()
     preference_rates: Counter[str] = Counter()
     preference_intervals: Counter[str] = Counter()
@@ -138,6 +147,7 @@ def audit_nh(path: Path) -> dict[str, Any]:
             if match is None:
                 continue
             brc, screen = match.groups()
+            file_brcs.add(brc)
             file_counts[screen] += 1
             source = archive.read(member).decode("utf-8", "ignore")
             for entry in _rate_entries(source):
@@ -164,6 +174,7 @@ def audit_nh(path: Path) -> dict[str, Any]:
         intervals = [
             (_preference_interval(entry.term_raw), entry)
             for entry in preference_entries
+            if _supported_preference(entry)
         ]
         if preference_entries:
             preference_brcs.add(brc)
@@ -198,6 +209,7 @@ def audit_nh(path: Path) -> dict[str, Any]:
         intervals = [
             (_preference_interval(entry.term_raw), entry)
             for entry in products.get(NH_PREFERENCE_PRODUCT, [])
+            if _supported_preference(entry)
         ]
         for label, source_name in NH_TARGET_PRODUCTS.items():
             for target in products.get(source_name, []):
@@ -217,7 +229,9 @@ def audit_nh(path: Path) -> dict[str, Any]:
     return {
         "artifact": str(path),
         "detail_files": dict(sorted(file_counts.items())),
+        "unique_brc_in_detail_files": len(file_brcs),
         "unique_brc_with_any_parsed_rate": len(by_brc),
+        "empty_detail_brc": sorted(file_brcs - set(by_brc)),
         "preference": {
             "product_name": NH_PREFERENCE_PRODUCT,
             "row_count": sum(preference_notes.values()),
