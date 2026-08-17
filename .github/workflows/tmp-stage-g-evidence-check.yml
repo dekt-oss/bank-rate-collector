@@ -1,0 +1,73 @@
+name: Temporary Stage G evidence check
+
+on:
+  push:
+    branches: ["analysis/mutual-max-rate-stage-g-entry"]
+    paths:
+      - "scripts/stage_g_mutual_max_rate_census.py"
+      - "docs/specs/20260817-mutual-finance-stage-g-entry-census.md"
+      - ".github/workflows/tmp-stage-g-evidence-check.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  census:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download immutable official-source artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          curl -fL \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            https://api.github.com/repos/${{ github.repository }}/actions/artifacts/9269227044/zip \
+            -o nh.zip
+          curl -fL \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            https://api.github.com/repos/${{ github.repository }}/actions/artifacts/9271192722/zip \
+            -o kfcc.zip
+
+      - name: Reproduce Stage G census
+        run: |
+          set -euo pipefail
+          python scripts/stage_g_mutual_max_rate_census.py \
+            --nh-artifact nh.zip \
+            --kfcc-artifact kfcc.zip \
+            --output stage-g-census.json
+          python - <<'PY'
+          import json
+
+          data = json.load(open("stage-g-census.json", encoding="utf-8"))
+          nh = data["nh_local"]
+          kfcc = data["kfcc"]
+
+          assert nh["detail_files"] == {"SFDPW0163R": 4871, "SFDPW0164R": 4871}
+          assert nh["unique_brc_in_detail_files"] == 4871
+          assert nh["preference"]["row_count"] == 19472
+          assert nh["preference"]["brc_count"] == 4868
+          assert nh["preference"]["exact_expected_note_rows"] == 19472
+          assert nh["all_target_rows"] == 111370
+          assert nh["all_linkable_rows"] == 111359
+          assert nh["all_linkable_pct"] == 99.990123
+          assert nh["twelve_month_linkable_pct"] == 99.989672
+          assert sum(nh["ambiguous_rows"].values()) == 0
+          assert sum(nh["unmatched_rows"].values()) == 11
+
+          assert kfcc["regional_list_files"] == 17
+          assert kfcc["outlet_rows"] == 3111
+          assert kfcc["unique_gmgoCd"] == 1230
+          assert kfcc["url_like_values"] == 0
+
+          print("Stage G immutable artifact census: PASS")
+          PY
