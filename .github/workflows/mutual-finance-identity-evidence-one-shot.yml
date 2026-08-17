@@ -32,7 +32,7 @@ jobs:
           uv run rate-monitor build-site --db work/rate_monitor.sqlite3 --template web/templates/site.html --out evidence/site
       - name: Verify current strategy identity key against mutual-finance rows
         run: |
-          python - <<'PY'
+          uv run python - <<'PY'
           import json
           from collections import Counter, defaultdict
           from pathlib import Path
