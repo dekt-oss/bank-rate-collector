@@ -71,8 +71,8 @@ def test_mixed_term_and_history_card_has_truthful_title() -> None:
 
     assert '<h2>기간별 현재금리 · 12개월 시장 추이</h2>' in html
     assert (
-        '6·12·24·36개월 현재 평균 + 최근 정상 수집일 12개월 시장 최고 / 평균 / '
-        '고려저축은행 최고금리' in html
+        "현재 평균은 선택 업권 기준 · 이력 추이는 저축은행 정상 수집일 기준"
+        in html
     )
     assert '<h2>기간별 금리 추이</h2>' not in html
 

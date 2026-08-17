@@ -111,7 +111,7 @@ def test_strategy_build_uses_stable_id_and_reference_date() -> None:
     html = built_strategy_html()
 
     assert 'productId:look("product_id"' in html
-    assert 'const key=`${r.productId}\\0${term}`;' in html
+    assert 'const key=`${r.sector}\\0${r.productId}\\0${term}`;' in html
     assert "const key=r.productId?" not in html
     assert "tagLatest:new Map" in html
     assert "latestAt:latest.get(code)||null" in html

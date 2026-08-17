@@ -57,7 +57,7 @@ def test_information_flow_matches_market_to_planning_sequence() -> None:
     planning = html.index('class="planning-zone"')
 
     assert kpis < market_flow < interpretation < primary < planning
-    assert 'aria-label="시장 금리와 최근 변화 흐름"' in html
+    assert 'aria-label="저축은행 시장 금리와 최근 변화 흐름"' in html
     assert 'aria-label="시장 해석과 우대조건"' in html
     assert 'aria-label="신상품 기획"' in html
     assert '<details class="card changes" open>' in html
@@ -91,7 +91,7 @@ def test_market_insight_is_expanded_for_product_planning() -> None:
     assert "지역 편차" in html
     assert "우대조건 구조" in html
     assert "기획 포인트 ·" in html
-    assert "renderInsightsEnhanced();updateSim()" in html
+    assert "renderInsightsEnhanced();applyModeVisibility();updateSim()" in html
 
 
 def test_simulator_is_full_width_planning_zone_with_market_context() -> None:
