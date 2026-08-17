@@ -22,8 +22,8 @@ def test_h3_ranking_denominators_are_sector_namespaced_and_explicit() -> None:
     assert 'id="ranking-basis"' in html
     assert "sector + stable product 대표" in html
     assert 'id="top5-copy"' in html
-    assert "sectorRateScope(r.sector)" in html
-    assert "sectorAvailability(r.sector)" in html
+    assert "rateScopeText(r.rateScope)" in html
+    assert "availabilityText(r.availabilityScope)" in html
     assert "max_rate ?? base_rate" not in html
 
 
@@ -34,7 +34,7 @@ def test_h3_geography_uses_separate_savings_and_cu_layers() -> None:
     assert 'id="map-layer-tabs"' in html
     assert 'key==="savings_bank"?"저축은행 본점":key==="cu"?"신협 조회지역"' in html
     assert "function geoProducts(sector,term=12)" in html
-    assert '`${sector}\\0${r.productId}\\0${term}\\0${geo}\\0${district}`' in html
+    assert '`${sector}\\0${r.productId}\\0${term}\\0${expectedBasis}\\0${geo}\\0${district}`' in html
     assert 'geoSector?regionAverages(geoProducts(geoSector,12)):[]' in html
     assert "서로 다른 geography basis는 같은 지역 평균으로 합치지 않습니다." in html
 
@@ -57,3 +57,24 @@ def test_h3_mutual_only_keeps_map_but_still_locks_savings_bank_history_and_simul
     assert '$("market-flow").hidden=mutualOnly' in html
     assert '$("sim-form").hidden=mutualOnly' in html
     assert '$("trend-delta").hidden=!savingsOnly' in html
+
+
+def test_h3_top5_uses_row_level_scope_and_availability_evidence() -> None:
+    html = _html()
+
+    assert 'availabilityScope:look("availability_scope"' in html
+    assert 'geoBasis:look("geo_basis"' in html
+    assert 'rateScope:look("rate_scope"' in html
+    assert 'joinChannel:look("join_channel"' in html
+    assert "rateScopeText(r.rateScope)" in html
+    assert "availabilityText(r.availabilityScope)" in html
+    assert 'r.joinChannel?`가입채널 ${r.joinChannel}`:null' in html
+
+
+def test_h3_map_fails_safe_when_sector_has_multiple_geo_bases() -> None:
+    html = _html()
+
+    assert 'function hasSingleGeoBasis(key)' in html
+    assert 'bases.length!==1)return[]' in html
+    assert 'r.geoBasis!==expectedBasis' in html
+    assert '${expectedBasis}\\0${geo}' in html
