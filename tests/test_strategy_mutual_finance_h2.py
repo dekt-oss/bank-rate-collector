@@ -39,16 +39,6 @@ def test_h2_aggregates_only_active_evidence_backed_sectors() -> None:
     assert "max_rate ?? base_rate" not in html
 
 
-def test_h2_keeps_geography_savings_bank_only_until_h3() -> None:
-    html = _html()
-
-    assert 'products12.filter(x=>x.sector==="savings_bank")' in html
-    assert 'x.sector==="savings_bank"&&region(x.region)==="부산"' in html
-    assert 'id="map-card"' in html
-    assert '$("map-card").hidden=mutualOnly' in html
-    assert "전국 본점 소재지별 금리 분포" in html
-
-
 def test_h2_does_not_relabel_savings_history_as_mutual_history() -> None:
     html = _html()
 

@@ -74,7 +74,7 @@ def test_strategy_dashboard_uses_real_national_and_busan_boundaries() -> None:
     assert "지역별 상품 대표 최고금리의 평균" in html
     assert "function regionAverages(rows)" in html
     assert 'data-region="${esc(x.region)}"' in html
-    assert 'x.region==="부산"?"busan clickable"' in html
+    assert 'clickable=savings&&x.region==="부산"' in html
     assert "function renderKoreaMap()" in html
     assert "function showBusanMap()" in html
     assert "const BUSAN_BOUNDARY_SVG=" in html
