@@ -1,0 +1,48 @@
+name: H3 Adversarial Fix
+
+on:
+  push:
+    branches:
+      - feat/strategy-dashboard-mutual-finance-h3
+    paths:
+      - .github/h3_adversarial_fix.py
+      - .github/workflows/h3-adversarial-fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Apply H3 adversarial evidence fix
+        run: python .github/h3_adversarial_fix.py
+      - name: Verify inline JavaScript syntax
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          html = Path('web/templates/strategy.html').read_text(encoding='utf-8')
+          marker = '<script id="rate-monitor-data" type="application/json"></script>'
+          data_end = html.index(marker) + len(marker)
+          script_start = html.index('<script>', data_end) + len('<script>')
+          script_end = html.index('</script>', script_start)
+          Path('/tmp/strategy-h3.js').write_text(html[script_start:script_end], encoding='utf-8')
+          PY
+          node --check /tmp/strategy-h3.js
+      - name: Run H2/H3 strategy contract tests
+        run: |
+          pip install uv
+          uv sync --locked
+          uv run pytest -q tests/test_strategy_mutual_finance_h2.py tests/test_strategy_mutual_finance_h2_empty_state.py tests/test_strategy_mutual_finance_h3.py
+      - name: Remove one-off adversarial harness
+        run: rm .github/h3_adversarial_fix.py .github/workflows/h3-adversarial-fix.yml
+      - name: Commit evidence fix
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "fix: H3 행 단위 근거와 지도 basis 경계 강화"
+          git push origin HEAD:feat/strategy-dashboard-mutual-finance-h3
