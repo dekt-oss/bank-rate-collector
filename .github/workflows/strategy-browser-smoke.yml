@@ -1,0 +1,118 @@
+name: Strategy dashboard browser smoke
+
+on:
+  push:
+    branches: ["feat/strategy-dashboard-*"]
+    paths:
+      - "web/templates/strategy.html"
+      - "web/templates/site.html"
+      - "web/assets/**"
+      - "src/rate_monitor/services/site_service.py"
+      - "src/rate_monitor/services/strategy_contract_service.py"
+      - "src/rate_monitor/services/strategy_refinement_service.py"
+      - "src/rate_monitor/services/strategy_service.py"
+      - "src/rate_monitor/services/inflow_prediction_service.py"
+      - "src/rate_monitor/domain/preference_taxonomy.py"
+      - "config/**"
+      - "migrations/**"
+      - "alembic.ini"
+      - "pyproject.toml"
+      - "uv.lock"
+      - "scripts/strategy_preview_smoke.js"
+      - ".github/workflows/strategy-preview.yml"
+      - ".github/workflows/strategy-browser-smoke.yml"
+  workflow_dispatch:
+
+# Strategy Preview workflow가 만든 exact-source 정적 산출물을 실제 Chrome으로 검증한다.
+# 이전 source의 preview branch를 잘못 검사하지 않도록 preview-source.json의 SHA가
+# 현재 github.sha와 같아질 때까지 기다린 뒤 실행한다.
+concurrency:
+  group: strategy-dashboard-browser-smoke
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  browser-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Wait for exact Strategy Preview artifact
+        env:
+          EXPECTED_SOURCE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p work published
+          SOURCE_SHA=""
+          for attempt in $(seq 1 90); do
+            if git fetch --force origin \
+              +preview/strategy-dashboard:refs/remotes/origin/preview/strategy-dashboard \
+              --depth=1 >/dev/null 2>&1; then
+              if git show refs/remotes/origin/preview/strategy-dashboard:site-public/preview-source.json \
+                > work/preview-source.json 2>/dev/null; then
+                SOURCE_SHA=$(python - <<'PY'
+          import json
+          from pathlib import Path
+
+          path = Path("work/preview-source.json")
+          print(json.loads(path.read_text(encoding="utf-8")).get("source_sha") or "")
+          PY
+          )
+                echo "preview source attempt=$attempt sha=$SOURCE_SHA"
+                if [ "$SOURCE_SHA" = "$EXPECTED_SOURCE_SHA" ]; then
+                  break
+                fi
+              fi
+            fi
+            sleep 4
+          done
+          test "$SOURCE_SHA" = "$EXPECTED_SOURCE_SHA"
+          git archive refs/remotes/origin/preview/strategy-dashboard site-public | tar -x -C published
+          test -s published/site-public/strategy.html
+          test -s published/site-public/data/strategy-table.json
+
+      - name: Install Playwright runner
+        run: |
+          set -euo pipefail
+          command -v google-chrome
+          google-chrome --version
+          npm install --no-save --package-lock=false @playwright/test@1.61.1
+
+      - name: Run desktop and mobile browser smoke
+        env:
+          STRATEGY_PREVIEW_BASE_URL: http://127.0.0.1:4173
+        run: |
+          set -euo pipefail
+          python -m http.server 4173 --directory published/site-public \
+            > work/strategy-preview-http.log 2>&1 &
+          SERVER_PID=$!
+          trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT
+
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:4173/strategy.html >/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:4173/strategy.html >/dev/null
+          node scripts/strategy_preview_smoke.js
+
+      - name: Upload browser smoke evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: strategy-browser-smoke-${{ github.run_id }}
+          path: |
+            work/strategy-smoke-*.png
+            work/strategy-preview-http.log
+            work/preview-source.json
+          retention-days: 30
+          if-no-files-found: warn

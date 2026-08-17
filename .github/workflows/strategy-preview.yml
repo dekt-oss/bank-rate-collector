@@ -18,6 +18,8 @@ on:
       - "alembic.ini"
       - "pyproject.toml"
       - "uv.lock"
+      - "scripts/strategy_preview_smoke.js"
+      - ".github/workflows/strategy-browser-smoke.yml"
       - ".github/workflows/strategy-preview.yml"
   workflow_dispatch:
 
