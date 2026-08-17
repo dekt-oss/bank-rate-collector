@@ -7,6 +7,7 @@ from rate_monitor.services.dashboard_service import DashboardBuildError
 from rate_monitor.services.strategy_contract_service import (
     augment_strategy_table,
     slice_strategy_table,
+    strategy_universe_metadata,
 )
 from tests.strategy_output_helper import built_strategy_html
 
@@ -74,6 +75,38 @@ def _table() -> dict:
     }
 
 
+def _universe_table() -> dict:
+    return {
+        "columns": [
+            "sector",
+            "product_type",
+            "term_months",
+            "max_rate",
+            "geo_basis",
+            "rate_scope",
+            "availability_scope",
+            "source_effective_at",
+        ],
+        "lookups": {
+            "sector": ["savings_bank", "cu", "kfcc", "nh_local"],
+            "product_type": ["term_deposit", "installment_savings"],
+            "geo_basis": ["head_office", "source_query_region", "outlet_address"],
+            "rate_scope": ["institution", "outlet"],
+            "availability_scope": ["unknown", "local_members"],
+            "source_effective_at": ["2026-08-16", "2026-08-17"],
+        },
+        "rows": [
+            [0, 0, 12, 3.6, 0, 0, 0, 0],
+            [1, 0, 12, 4.0, 1, 0, 0, 1],
+            [1, 0, 24, 3.8, 1, 0, 0, 1],
+            [2, 0, 12, None, 2, 0, 1, 1],
+            [3, 0, 12, None, 2, 1, 0, 1],
+            [0, 0, 60, 9.9, 0, 0, 0, 1],
+            [1, 1, 12, 9.9, 1, 0, 0, 1],
+        ],
+    }
+
+
 def test_strategy_build_uses_stable_id_and_reference_date() -> None:
     html = built_strategy_html()
 
@@ -115,29 +148,41 @@ def test_strategy_build_contains_structural_inflow_engine_contract() -> None:
     assert "가정 기반 예상 월 수신액" not in html
 
 
-def test_strategy_slice_keeps_only_frozen_universe_without_transforming_rows() -> None:
-    table = {
-        "columns": ["sector", "product_type", "term_months"],
-        "lookups": {
-            "sector": ["savings_bank", "credit_union"],
-            "product_type": ["term_deposit", "installment_savings"],
-        },
-        "rows": [
-            [0, 0, 6],
-            [0, 0, 12],
-            [0, 0, 24],
-            [0, 0, 36],
-            [0, 0, 60],
-            [1, 0, 12],
-            [0, 1, 12],
-        ],
-    }
+def test_strategy_slice_publishes_only_evidence_backed_max_rate_sectors() -> None:
+    table = _universe_table()
 
     sliced = slice_strategy_table(table)
 
     assert sliced["columns"] is table["columns"]
     assert sliced["lookups"] is table["lookups"]
-    assert sliced["rows"] == table["rows"][:4]
+    assert sliced["rows"] == table["rows"][:3]
+    assert sliced["strategy_universe"]["published_sectors"] == ["savings_bank", "cu"]
+    assert sliced["strategy_universe"]["base_rate_fallback"] is False
+
+
+def test_strategy_universe_records_coverage_and_block_reasons() -> None:
+    universe = strategy_universe_metadata(_universe_table())
+    sectors = universe["sectors"]
+
+    assert universe["metric_basis"] == "max_rate"
+    assert sectors["savings_bank"]["state"] == "supported"
+    assert sectors["savings_bank"]["coverage_ratio"] == 1.0
+    assert sectors["cu"]["state"] == "supported"
+    assert sectors["cu"]["coverage_ratio"] == 1.0
+    assert sectors["cu"]["latest_source_effective_at"] == "2026-08-17"
+    assert sectors["cu"]["geo_basis"] == ["source_query_region"]
+    assert sectors["cu"]["terms"]["6"]["rows"] == 0
+    assert sectors["cu"]["terms"]["6"]["selectable"] is False
+
+    assert sectors["kfcc"]["state"] == "unsupported"
+    assert sectors["kfcc"]["max_rate_rows"] == 0
+    assert sectors["kfcc"]["selectable"] is False
+    assert "gmgo_cd" in sectors["kfcc"]["blocked_reason"]
+
+    assert sectors["nh_local"]["state"] == "unsupported"
+    assert sectors["nh_local"]["rate_scope"] == ["outlet"]
+    assert sectors["nh_local"]["selectable"] is False
+    assert "인터넷 채널" in sectors["nh_local"]["blocked_reason"]
 
 
 def test_strategy_table_adds_compressed_stable_product_id(tmp_path: Path) -> None:
