@@ -1,4 +1,5 @@
 import sqlite3
+from copy import deepcopy
 from pathlib import Path
 
 import pytest
@@ -156,7 +157,7 @@ def test_strategy_slice_publishes_only_evidence_backed_max_rate_sectors() -> Non
     assert sliced["columns"] is table["columns"]
     assert sliced["lookups"] is table["lookups"]
     assert sliced["rows"] == table["rows"][:3]
-    assert sliced["strategy_universe"]["published_sectors"] == ["savings_bank", "cu"]
+    assert sliced["strategy_universe"]["published_sectors"] == ["savings_bank", "cu", "nh_local"]
     assert sliced["strategy_universe"]["base_rate_fallback"] is False
 
 
@@ -179,10 +180,33 @@ def test_strategy_universe_records_coverage_and_block_reasons() -> None:
     assert sectors["kfcc"]["selectable"] is False
     assert "gmgo_cd" in sectors["kfcc"]["blocked_reason"]
 
-    assert sectors["nh_local"]["state"] == "unsupported"
+    assert sectors["nh_local"]["state"] == "no_max_rate_data"
+    assert sectors["nh_local"]["max_rate_capability"] is True
     assert sectors["nh_local"]["rate_scope"] == ["outlet"]
+    assert sectors["nh_local"]["geo_basis"] == ["outlet_address"]
     assert sectors["nh_local"]["selectable"] is False
-    assert "인터넷 채널" in sectors["nh_local"]["blocked_reason"]
+    assert sectors["nh_local"]["blocked_reason"] is None
+    assert sectors["nh_local"]["evidence"] == (
+        "official_ejoy_same_brc_product_term_interval_internet_variant"
+    )
+
+
+def test_strategy_nh_local_publishes_only_evidence_backed_max_rows() -> None:
+    table = deepcopy(_universe_table())
+    table["rows"][4][3] = 4.15
+    table["rows"].append([3, 0, 24, None, 2, 1, 0, 1])
+
+    sliced = slice_strategy_table(table)
+    nh_meta = sliced["strategy_universe"]["sectors"]["nh_local"]
+
+    assert nh_meta["state"] == "supported"
+    assert nh_meta["selectable"] is True
+    assert nh_meta["max_rate_rows"] == 1
+    assert nh_meta["rows"] == 2
+    assert nh_meta["coverage_ratio"] == 0.5
+    assert table["rows"][4] in sliced["rows"]
+    assert table["rows"][-1] not in sliced["rows"]
+    assert table["rows"][3] not in sliced["rows"]  # KFCC remains blocked
 
 
 def test_strategy_table_adds_compressed_stable_product_id(tmp_path: Path) -> None:

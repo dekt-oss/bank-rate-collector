@@ -32,7 +32,7 @@ def test_h3_geography_uses_separate_savings_and_cu_layers() -> None:
 
     assert 'mapSector="savings_bank"' in html
     assert 'id="map-layer-tabs"' in html
-    assert 'key==="savings_bank"?"저축은행 본점":key==="cu"?"신협 조회지역"' in html
+    assert 'key==="savings_bank"?"저축은행 본점":key==="cu"?"신협 조회지역":key==="nh_local"?"농·축협 점포"' in html
     assert "function geoProducts(sector,term=12)" in html
     geo_key = (
         '`${sector}\\0${r.productId}\\0${term}\\0'
@@ -90,3 +90,13 @@ def test_h3_ranking_rejects_missing_stable_product_identity() -> None:
     assert '||!r.productId)continue;' in html
     assert 'const key=`${r.sector}\\0${r.productId}\\0${term}`' in html
     assert 'r.productId||r.product' not in html
+
+
+def test_h3_nh_local_map_uses_outlet_address_without_busan_inference() -> None:
+    html = _html()
+
+    assert '["savings_bank","cu","nh_local"].includes(key)' in html
+    assert '"농·축협 점포 주소별 금리 분포"' in html
+    assert '"공식 점포 주소별 stable product 최고금리 관측 평균 · 가입 가능 지역으로 해석하지 않음"' in html
+    assert '`농·축협 · ${geoBasis} · SGIS 2020 시도 경계 · district 추정 없음`' in html
+    assert 'clickable=savings&&x.region==="부산"' in html
