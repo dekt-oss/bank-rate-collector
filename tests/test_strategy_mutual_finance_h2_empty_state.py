@@ -14,7 +14,7 @@ def test_h2_empty_market_scope_resets_kpis_before_return() -> None:
     assert '$("leader").textContent="비교 가능한 최고금리 없음"' in block
     assert '$("mean").textContent="—"' in block
     assert '$("count").textContent="0"' in block
-    assert '$("institutions").textContent="기관 0곳"' in block
+    assert '$("institutions").textContent=`${rankingEntityLabel()} 0곳`' in block
     assert '$("median").textContent="중앙값 —"' in block
     assert '$("top10").textContent="—"' in block
     assert '$("top10-note").textContent="비교상품 0개"' in block
