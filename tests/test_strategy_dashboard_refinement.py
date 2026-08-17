@@ -56,7 +56,7 @@ def test_information_flow_matches_market_to_planning_sequence() -> None:
     interpretation = html.index('class="grid interpretation"')
     planning = html.index('class="planning-zone"')
 
-    assert kpis < market_flow < primary < interpretation < planning
+    assert kpis < market_flow < interpretation < primary < planning
     assert 'aria-label="시장 금리와 최근 변화 흐름"' in html
     assert 'aria-label="시장 해석과 우대조건"' in html
     assert 'aria-label="신상품 기획"' in html
@@ -123,8 +123,8 @@ def test_national_map_gives_more_width_to_map_and_offsets_labels() -> None:
     )
     assert ".primary:not(.busan-focus) .node-label{font-size:14px" in html
     assert ".primary:not(.busan-focus) .node-rate{font-size:15px" in html
-    assert ".primary:not(.busan-focus) .mapcard{min-height:510px}" in html
-    assert ".primary:not(.busan-focus) .mapstage{height:420px}" in html
+    assert ".primary:not(.busan-focus) .mapcard{min-height:440px}" in html
+    assert ".primary:not(.busan-focus) .mapstage{height:350px}" in html
     assert 'const koreaLabelOffsets={"서울":[-28,-24,"end"]' in html
     assert '"부산":[30,10,"start"]' in html
     assert "preset=koreaLabelOffsets[x.region]" in html
