@@ -62,5 +62,15 @@ html_path.write_text(html, encoding="utf-8")
 
 test_path = Path("tests/test_strategy_mutual_finance_h3.py")
 test = test_path.read_text(encoding="utf-8")
+old_scope = '''    assert "sectorRateScope(r.sector)" in html\n    assert "sectorAvailability(r.sector)" in html'''
+new_scope = '''    assert "rateScopeText(r.rateScope)" in html\n    assert "availabilityText(r.availabilityScope)" in html'''
+if test.count(old_scope) != 1:
+    raise SystemExit("H3 row evidence assertion marker mismatch")
+test = test.replace(old_scope, new_scope, 1)
+old_geo_assert = '''    assert '`${sector}\\\\0${r.productId}\\\\0${term}\\\\0${geo}\\\\0${district}`' in html'''
+new_geo_assert = '''    assert '`${sector}\\\\0${r.productId}\\\\0${term}\\\\0${expectedBasis}\\\\0${geo}\\\\0${district}`' in html'''
+if test.count(old_geo_assert) != 1:
+    raise SystemExit("H3 geo key assertion marker mismatch")
+test = test.replace(old_geo_assert, new_geo_assert, 1)
 test += '''\n\ndef test_h3_top5_uses_row_level_scope_and_availability_evidence() -> None:\n    html = _html()\n\n    assert 'availabilityScope:look("availability_scope"' in html\n    assert 'geoBasis:look("geo_basis"' in html\n    assert 'rateScope:look("rate_scope"' in html\n    assert 'joinChannel:look("join_channel"' in html\n    assert "rateScopeText(r.rateScope)" in html\n    assert "availabilityText(r.availabilityScope)" in html\n    assert 'r.joinChannel?`가입채널 ${r.joinChannel}`:null' in html\n\n\ndef test_h3_map_fails_safe_when_sector_has_multiple_geo_bases() -> None:\n    html = _html()\n\n    assert 'function hasSingleGeoBasis(key)' in html\n    assert 'bases.length!==1)return[]' in html\n    assert 'r.geoBasis!==expectedBasis' in html\n    assert '${expectedBasis}\\\\0${geo}' in html\n'''
 test_path.write_text(test, encoding="utf-8")
