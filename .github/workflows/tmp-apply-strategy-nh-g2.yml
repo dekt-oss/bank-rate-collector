@@ -1,0 +1,37 @@
+name: Temporary apply Strategy NH G2
+
+on:
+  push:
+    branches: ["feat/strategy-dashboard-nh-local-g2"]
+    paths:
+      - "scripts/tmp_apply_strategy_nh_g2.py"
+      - ".github/workflows/tmp-apply-strategy-nh-g2.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/strategy-dashboard-nh-local-g2
+          fetch-depth: 0
+      - name: Apply deterministic patch
+        run: python scripts/tmp_apply_strategy_nh_g2.py
+      - name: Commit implementation
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            src/rate_monitor/services/strategy_contract_service.py \
+            web/templates/strategy.html \
+            scripts/strategy_preview_smoke.js \
+            tests/test_strategy_contract_service.py \
+            tests/test_strategy_mutual_finance_h3.py
+          git diff --cached --check
+          git commit -m "feat: 농축협 Strategy 최고금리 capability 활성화"
+          git push origin HEAD:feat/strategy-dashboard-nh-local-g2
