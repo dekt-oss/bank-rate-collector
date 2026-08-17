@@ -25,16 +25,16 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          curl -fL \
-            -H "Authorization: Bearer $GH_TOKEN" \
-            -H "Accept: application/vnd.github+json" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
+          common=(
+            --fail --location --retry 5 --retry-all-errors --retry-delay 3
+            -H "Authorization: Bearer $GH_TOKEN"
+            -H "Accept: application/vnd.github+json"
+            -H "X-GitHub-Api-Version: 2022-11-28"
+          )
+          curl "${common[@]}" \
             https://api.github.com/repos/${{ github.repository }}/actions/artifacts/9269227044/zip \
             -o nh.zip
-          curl -fL \
-            -H "Authorization: Bearer $GH_TOKEN" \
-            -H "Accept: application/vnd.github+json" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
+          curl "${common[@]}" \
             https://api.github.com/repos/${{ github.repository }}/actions/artifacts/9271192722/zip \
             -o kfcc.zip
 
