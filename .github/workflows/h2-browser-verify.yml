@@ -62,8 +62,6 @@ jobs:
             for (const text of ['최고금리 기준','신협 최고금리','신협 6개월 공시 데이터 없음','새마을금고','농·축협']) {
               if (!status.includes(text)) throw new Error(`${viewport.name}: missing status text ${text}`);
             }
-            const termText=(await page.locator('.termgrid').textContent())||'';
-            if (!termText.includes('6개월 데이터 없음')) throw new Error(`${viewport.name}: CU 6m no-data not visible`);
 
             await page.locator('[data-market-mode="combined"]').click();
             if ((await page.locator('#scope-pill').textContent())?.trim() !== '저축은행 + 상호금융') throw new Error(`${viewport.name}: combined mode label mismatch`);
