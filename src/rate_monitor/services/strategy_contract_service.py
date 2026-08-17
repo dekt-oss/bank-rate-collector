@@ -116,13 +116,21 @@ def augment_strategy_table(
 ) -> tuple[dict[str, Any], dict[str, int]]:
     """전략 slice에 압축 ``product_id`` 열을 추가한다.
 
-    검색 화면의 기본 빌드에서는 호출하지 않는다. 전략 비교 universe에 해당하는
-    저축은행 정기예금 6/12/24/36개월 행이 stable id와 매칭되지 않으면 build를
-    실패시킨다. 이름 기반 fallback으로 조용히 순위를 만드는 것보다 안전하다.
+    신규 site build는 DB query에서 stable id를 직접 운반한다. 과거 caller를 위해
+    display-key 재조인 경로는 남겨 두지만, 이미 ``product_id``가 있으면 재조인하지
+    않는다. 이 경우에도 null id는 즉시 build 실패다.
     """
     columns = list(table.get("columns") or [])
     if PRODUCT_ID_COLUMN in columns:
-        return table, {"matched": len(table.get("rows") or []), "unmatched": 0}
+        product_id_index = columns.index(PRODUCT_ID_COLUMN)
+        rows = table.get("rows") or []
+        unmatched = sum(row[product_id_index] is None for row in rows)
+        if unmatched:
+            raise DashboardBuildError(
+                "전략 비교상품 stable product_id 직접 전달 실패: "
+                f"{unmatched}행"
+            )
+        return table, {"matched": len(rows), "unmatched": 0}
 
     source_columns = {name: index for index, name in enumerate(columns)}
     required = set(_IDENTITY_KEY_COLUMNS) | {"sector"}
