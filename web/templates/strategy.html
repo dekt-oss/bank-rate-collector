@@ -190,7 +190,7 @@ function aggregateProducts(term){
   if(aggregateCache.has(cacheKey))return aggregateCache.get(cacheKey);
   const allowed=new Set(sectors),m=new Map;
   for(const r of allRows){
-    if(!allowed.has(r.sector)||r.type!=="term_deposit"||r.term!==term||!Number.isFinite(r.max))continue;
+    if(!allowed.has(r.sector)||r.type!=="term_deposit"||r.term!==term||!Number.isFinite(r.max)||!r.productId)continue;
     const key=`${r.sector}\0${r.productId}\0${term}`;
     let p=m.get(key);
     if(!p){p={sector:r.sector,institution:r.institution,product:r.product,term,region:region(r.region),district:r.district||null,max:-Infinity,base:null,sourceId:null,sourceEffectiveAt:null,joinChannel:null,availabilityScope:null,geoBasis:null,rateScope:null,prefKnown:false,tags:new Set,tagLatest:new Map,otherSamples:new Map};m.set(key,p)}

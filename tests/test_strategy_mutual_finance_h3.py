@@ -78,3 +78,11 @@ def test_h3_map_fails_safe_when_sector_has_multiple_geo_bases() -> None:
     assert 'bases.length!==1)return[]' in html
     assert 'r.geoBasis!==expectedBasis' in html
     assert '${expectedBasis}\\0${geo}' in html
+
+
+def test_h3_ranking_rejects_missing_stable_product_identity() -> None:
+    html = _html()
+
+    assert '||!r.productId)continue;' in html
+    assert 'const key=`${r.sector}\\0${r.productId}\\0${term}`' in html
+    assert 'r.productId||r.product' not in html
