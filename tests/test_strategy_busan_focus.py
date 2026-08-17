@@ -1,4 +1,4 @@
-"""부산 drill-down은 전국보다 넓은 지도 영역과 큰 라벨을 사용한다."""
+"""부산 drill-down은 지도·TOP5·구별 목록을 판독 가능한 구조로 전환한다."""
 
 from tests.strategy_output_helper import built_strategy_html
 
@@ -17,10 +17,45 @@ def test_busan_mode_expands_map_without_changing_compact_national_default() -> N
     assert 'classList.remove("busan-focus")' in html
 
 
-def test_busan_mode_uses_larger_district_labels_and_spacing() -> None:
+def test_busan_mode_uses_preset_offsets_for_central_district_labels() -> None:
     html = built_strategy_html()
 
     assert ".primary.busan-focus .district-name{font-size:15px;stroke-width:4px}" in html
     assert ".primary.busan-focus .district-rate{font-size:14px;stroke-width:4px}" in html
-    assert 'nameText.setAttribute("y",(y-(has?7:0)).toFixed(1));' in html
-    assert 'rateText.setAttribute("y",(y+12).toFixed(1));' in html
+    assert "const busanLabelOffsets=" in html
+    for district in ("부산진구", "연제구", "수영구", "동구", "중구", "서구"):
+        assert f'"{district}":[' in html
+    assert 'preset=busanLabelOffsets[name]||[0,0,"middle"]' in html
+    assert 'line.setAttribute("class","district-label-line")' in html
+    assert 'nameText.setAttribute("text-anchor",anchor)' in html
+    assert 'rateText.setAttribute("text-anchor",anchor)' in html
+
+
+def test_busan_mode_compacts_top5_without_horizontal_scroll() -> None:
+    html = built_strategy_html()
+
+    assert 'id="top5-name-head"' in html
+    assert ".primary.busan-focus .tablewrap{overflow:visible}" in html
+    assert ".primary.busan-focus table{min-width:0;table-layout:fixed}" in html
+    assert (
+        ".primary.busan-focus th:nth-child(3),.primary.busan-focus th:nth-child(4),"
+        ".primary.busan-focus td:nth-child(3),.primary.busan-focus td:nth-child(4){display:none}"
+        in html
+    )
+    assert '.primary.busan-focus .product,.primary.busan-focus .sourcehint{display:none}' in html
+    assert '$("top5-name-head").textContent="금융사"' in html
+    assert '$("top5-name-head").textContent="금융사 / 상품"' in html
+
+
+def test_busan_mode_lists_only_districts_with_canonical_rate_data() -> None:
+    html = built_strategy_html()
+
+    assert 'id="busan-rate-list"' in html
+    assert 'class="busan-rate-list"' in html
+    assert ".busan-rate-list[hidden]{display:none}" in html
+    assert 'rateList.hidden=!list.length' in html
+    assert 'rateList.innerHTML=list.map((x,i)=>' in html
+    assert '${esc(x.district)}' in html
+    assert '${x.rate.toFixed(2)}%' in html
+    assert '${fmt.format(x.count)}개 상품' in html
+    assert '$("busan-rate-list").hidden=true' in html
