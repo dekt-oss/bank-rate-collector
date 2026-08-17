@@ -1,5 +1,6 @@
 """Strategy stable product_id는 내부로만 운반하고 public table 계약은 유지한다."""
 
+import asyncio
 import json
 from pathlib import Path
 
@@ -7,12 +8,14 @@ import pytest
 
 from rate_monitor.db import models as m
 from rate_monitor.db.session import create_db_engine, make_session_factory
+from rate_monitor.domain.schemas import CollectionRequest
+from rate_monitor.services.collection_service import collect_source
 from rate_monitor.services.site_service import (
     DEFAULT_STRATEGY_TEMPLATE,
     TABLE_FILE,
     build_site,
 )
-from tests.test_kfcc_collection import run_collect
+from tests.test_collection_service import REAL, FixtureAdapter
 
 TEMPLATE = Path(__file__).resolve().parents[1] / "web" / "templates" / "site.html"
 
@@ -22,7 +25,15 @@ def site_db(tmp_path: Path) -> Path:
     path = tmp_path / "strategy-id.sqlite3"
     engine = create_db_engine(path)
     m.Base.metadata.create_all(engine)
-    run_collect(make_session_factory(engine), tmp_path / "raw")
+    factory = make_session_factory(engine)
+    asyncio.run(
+        collect_source(
+            FixtureAdapter([REAL]),
+            CollectionRequest(source_id="finlife"),
+            factory,
+            raw_root=tmp_path / "raw",
+        )
+    )
     engine.dispose()
     return path
 
