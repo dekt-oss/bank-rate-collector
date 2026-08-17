@@ -1,0 +1,142 @@
+name: Mutual identity root cause one-shot
+
+on:
+  push:
+    branches: ["analysis/mutual-identity-root-cause"]
+    paths:
+      - ".github/workflows/mutual-identity-root-cause-one-shot.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv python install 3.12 && uv sync --locked
+      - name: Restore production copy and build canonical table
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+          R2_REGION: ${{ vars.R2_REGION }}
+        run: |
+          set -euo pipefail
+          mkdir -p work evidence/site
+          uv run rate-monitor storage restore --dest work/rate_monitor.sqlite3
+          RATE_MONITOR_DB_URL=sqlite+pysqlite:///${{ github.workspace }}/work/rate_monitor.sqlite3 uv run alembic upgrade head
+          uv run rate-monitor build-site --db work/rate_monitor.sqlite3 --template web/templates/site.html --out evidence/site
+      - name: Classify identity mismatches
+        run: |
+          uv run python - <<'PY'
+          import json, sqlite3
+          from collections import Counter, defaultdict
+          from pathlib import Path
+          from rate_monitor.services.strategy_contract_service import _decode, _row_key
+
+          table=json.loads(Path('evidence/site/data/table.json').read_text(encoding='utf-8'))
+          cols={n:i for i,n in enumerate(table['columns'])}
+          conn=sqlite3.connect('work/rate_monitor.sqlite3')
+          conn.row_factory=sqlite3.Row
+          raw=conn.execute('''
+            SELECT DISTINCT r.source_id,i.canonical_name institution,p.name product,
+              p.product_type,v.term_months,v.payment_method,v.interest_method,v.join_channel,
+              p.id product_id,p.institution_id
+            FROM rate_observations o
+            JOIN collection_runs r ON r.id=o.run_id
+            JOIN product_variants v ON v.id=o.variant_id
+            JOIN products p ON p.id=v.product_id
+            JOIN institutions i ON i.id=p.institution_id
+            WHERE o.valid_to IS NULL AND o.validation_status!='error'
+          ''').fetchall()
+          candidates=defaultdict(set)
+          product_meta={}
+          for r in raw:
+            key=(r['source_id'],r['institution'],r['product'],r['product_type'],r['term_months'],r['payment_method'],r['interest_method'],r['join_channel'])
+            pid=str(r['product_id']); candidates[key].add(pid)
+            product_meta[pid]={'institution_id':str(r['institution_id']),'institution':r['institution'],'product':r['product']}
+
+          links=defaultdict(list)
+          for r in conn.execute('''
+            SELECT source_id,source_entity_key,entity_id,source_name
+            FROM source_entity_links
+            WHERE entity_type='product' AND valid_to IS NULL
+          '''):
+            links[str(r['entity_id'])].append({'source_id':r['source_id'],'source_entity_key':r['source_entity_key'],'source_name':r['source_name']})
+
+          sectors={'kfcc','nh_local'}; terms={6,12,24,36}
+          stats=defaultdict(Counter); ambiguous_groups=defaultdict(Counter); examples=defaultdict(list)
+          field_diff=defaultdict(Counter)
+          target_rows=[]
+          for row in table['rows']:
+            sector=_decode(table,'sector',row[cols['sector']]); ptype=_decode(table,'product_type',row[cols['product_type']]); term=row[cols['term_months']]
+            if sector not in sectors or ptype!='term_deposit' or term not in terms: continue
+            key=_row_key(table,row); ids=candidates.get(key,set())
+            cls='unique' if len(ids)==1 else 'ambiguous' if len(ids)>1 else 'missing'
+            stats[sector]['rows']+=1; stats[sector][cls]+=1
+            if cls!='unique':
+              target_rows.append((sector,key,ids))
+            if cls=='ambiguous':
+              ambiguous_groups[sector][len(ids)]+=1
+              if len(examples[sector])<12:
+                examples[sector].append({'key':key,'product_ids':sorted(ids),'links':{pid:links.get(pid,[]) for pid in sorted(ids)}})
+            elif cls=='missing':
+              prefix=key[:5]
+              near=[k for k in candidates if k[:5]==prefix]
+              if near:
+                for pos,name in [(5,'payment_method'),(6,'interest_method'),(7,'join_channel')]:
+                  values={k[pos] for k in near}
+                  if key[pos] not in values: field_diff[sector][name]+=1
+                if len(examples[sector])<12:
+                  examples[sector].append({'key':key,'near_keys':near[:8]})
+              else:
+                field_diff[sector]['no_same_source_institution_product_term']+=1
+
+          # key-group 기준으로도 집계: 행 수와 별개로 얼마나 많은 충돌 키인지
+          group_summary={}
+          for sector in sectors:
+            groups={}
+            for s,key,ids in target_rows:
+              if s!=sector: continue
+              groups.setdefault(key,{'ids':ids,'rows':0})['rows']+=1
+            amb=[g for g in groups.values() if len(g['ids'])>1]
+            miss=[g for g in groups.values() if not g['ids']]
+            group_summary[sector]={
+              'ambiguous_key_groups':len(amb),'ambiguous_rows':sum(g['rows'] for g in amb),
+              'missing_key_groups':len(miss),'missing_rows':sum(g['rows'] for g in miss),
+              'ambiguous_id_count_distribution':dict(Counter(len(g['ids']) for g in amb)),
+            }
+
+          # 충돌 product id가 source_product_key 차이 때문인지 확인
+          collision_source_keys={}
+          for sector in sectors:
+            keys=[]
+            seen=set()
+            for s,key,ids in target_rows:
+              if s!=sector or len(ids)<=1 or key in seen: continue
+              seen.add(key)
+              keys.append({
+                'key':key,
+                'products':[{'product_id':pid,'source_links':links.get(pid,[])} for pid in sorted(ids)]
+              })
+              if len(keys)>=30: break
+            collision_source_keys[sector]=keys
+
+          report={
+            'stats':{s:dict(stats[s]) for s in sorted(sectors)},
+            'group_summary':group_summary,
+            'missing_field_diff':{s:dict(field_diff[s]) for s in sorted(sectors)},
+            'examples':examples,
+            'collision_source_keys':collision_source_keys,
+          }
+          Path('evidence/root-cause.json').write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8')
+          print(json.dumps(report,ensure_ascii=False,indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mutual-identity-root-cause
+          path: evidence/root-cause.json
