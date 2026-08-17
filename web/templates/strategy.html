@@ -159,7 +159,7 @@ function renderScopeControls(){
   for(const key of ["kfcc","nh_local"]){const meta=universeSector(key);if(meta&&!meta.selectable)parts.push(`${sectorLabel(key)}: ${meta.blocked_reason||capabilityText(meta)}`)}
   $("scope-pill").textContent=modeLabel();$("scope-status").innerHTML=`<b>최고금리 기준 · base fallback 없음</b><span>${esc(parts.join(" · "))}</span>`;
 }
-function applyModeVisibility(){const mutualOnly=marketMode==="mutual_finance";$("market-flow").hidden=mutualOnly;$("map-card").hidden=mutualOnly;$("sim-scope-warning").hidden=!mutualOnly;$("sim-form").hidden=mutualOnly;if(!mutualOnly&&mapMode==="korea")renderKoreaMap()}
+function applyModeVisibility(){const mutualOnly=marketMode==="mutual_finance",savingsOnly=marketMode==="savings_bank";$("market-flow").hidden=mutualOnly;$("map-card").hidden=mutualOnly;$("trend-delta").hidden=!savingsOnly;$("sim-scope-warning").hidden=!mutualOnly;$("sim-form").hidden=mutualOnly;if(!mutualOnly&&mapMode==="korea")renderKoreaMap()}
 function rerenderForScope(){aggregateCache.clear();products12=[];[6,12,24,36].forEach(aggregateProducts);renderMarket();renderPrefs();renderTermStrip();renderInsightsEnhanced();applyModeVisibility();if(marketMode!=="mutual_finance")updateSim()}
 function setMarketMode(mode){if(!["savings_bank","mutual_finance","combined"].includes(mode))return;marketMode=mode;renderScopeControls();rerenderForScope()}
 function setupMarketScope(){document.querySelectorAll("[data-market-mode]").forEach(btn=>btn.addEventListener("click",()=>setMarketMode(btn.dataset.marketMode)));document.querySelectorAll("[data-sector]").forEach(input=>input.addEventListener("change",()=>{renderScopeControls();rerenderForScope()}));renderScopeControls()}
@@ -187,7 +187,13 @@ function ratesStats(products){const rates=products.map(x=>x.max).filter(Number.i
 function renderHealth(){const overall=data.collection_health?.overall||"";$("health").textContent=overall==="green"?"수집 정상":overall==="yellow"?"일부 확인 필요":overall==="red"?"수집 오류 확인":"수집 상태 미확인"}
 function renderMarket(){
   products12=aggregateProducts(12);
-  if(!products12.length){$("top5").innerHTML='<tr><td colspan="5"><div class="empty">현재 범위에 비교 가능한 최고금리가 없습니다.</div></td></tr>';return}
+  if(!products12.length){
+    $("market-max").textContent="—";$("leader").textContent="비교 가능한 최고금리 없음";$("leader-source").textContent="—";
+    $("mean").textContent="—";$("count").textContent="0";$("institutions").textContent="기관 0곳";$("median").textContent="중앙값 —";
+    $("top10").textContent="—";$("top10-note").textContent="비교상품 0개";
+    $("top5").innerHTML='<tr><td colspan="5"><div class="empty">현재 범위에 비교 가능한 최고금리가 없습니다.</div></td></tr>';
+    return
+  }
   const stats=ratesStats(products12),lead=products12[0],inst=new Set(products12.map(x=>x.institution));
   $("market-max").innerHTML=`${lead.max.toFixed(2)}<small>%</small>`;$("leader").textContent=`${lead.institution} · ${lead.product}`;$("leader-source").textContent=`${lead.sourceId||"원천 미확인"} · ${formatDate(lead.sourceEffectiveAt)}`;
   $("mean").innerHTML=`${stats.mean.toFixed(2)}<small>%</small>`;$("count").textContent=fmt.format(products12.length);$("institutions").textContent=`기관 ${fmt.format(inst.size)}곳`;$("median").textContent=`중앙값 ${stats.median.toFixed(2)}%`;$("top10").innerHTML=`${stats.top10.toFixed(2)}<small>%</small>`;$("top10-note").textContent=`${fmt.format(products12.length)}개 비교상품 기준`;
@@ -375,7 +381,7 @@ function renderInsightsEnhanced(){
       ?"상위권 이탈 속도와 신규자금 확보 목적을 함께 보고 금리 인상폭을 비교합니다."
       :"평균만 보지 말고 TOP10·TOP5의 국지적 움직임을 함께 확인합니다.";
   const items=[
-    {icon:"↕",tag:"시장 방향",title:`30일 ${flow.label}`,
+    {icon:"↕",tag:"저축은행 시장 방향",title:`30일 ${flow.label}`,
       text:`상승 ${fmt.format(flow.up)}건 · 하락 ${fmt.format(flow.down)}건`
         +(Number.isFinite(meanDelta)?` · 63일 평균 ${formatBp(meanDelta)}`:""),
       action:directionAction},
