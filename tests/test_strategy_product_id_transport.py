@@ -3,8 +3,28 @@
 import json
 from pathlib import Path
 
-from rate_monitor.services.site_service import DEFAULT_STRATEGY_TEMPLATE, TABLE_FILE, build_site
-from tests.test_site_service import TEMPLATE, db as site_db  # noqa: F401
+import pytest
+
+from rate_monitor.db import models as m
+from rate_monitor.db.session import create_db_engine, make_session_factory
+from rate_monitor.services.site_service import (
+    DEFAULT_STRATEGY_TEMPLATE,
+    TABLE_FILE,
+    build_site,
+)
+from tests.test_kfcc_collection import run_collect
+
+TEMPLATE = Path(__file__).resolve().parents[1] / "web" / "templates" / "site.html"
+
+
+@pytest.fixture
+def site_db(tmp_path: Path) -> Path:
+    path = tmp_path / "strategy-id.sqlite3"
+    engine = create_db_engine(path)
+    m.Base.metadata.create_all(engine)
+    run_collect(make_session_factory(engine), tmp_path / "raw")
+    engine.dispose()
+    return path
 
 
 def test_strategy_gate_keeps_public_table_bytes_identical(
