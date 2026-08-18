@@ -1,13 +1,11 @@
 """Strategy presentation-only 변경도 Preview/Browser Smoke를 실행해야 한다."""
 
-from pathlib import Path
-
-
-WORKFLOW = Path(".github/workflows/strategy-presentation-checks.yml")
+WORKFLOW = ".github/workflows/strategy-presentation-checks.yml"
 
 
 def test_strategy_presentation_dispatcher_covers_current_modules() -> None:
-    text = WORKFLOW.read_text(encoding="utf-8")
+    with open(WORKFLOW, encoding="utf-8") as workflow:
+        text = workflow.read()
 
     for path in (
         "src/rate_monitor/services/strategy_decision_cockpit.py",
