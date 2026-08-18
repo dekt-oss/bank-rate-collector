@@ -10,8 +10,10 @@ def test_h2_exposes_three_market_modes_and_sector_capabilities() -> None:
     assert 'data-market-mode="mutual_finance"' in html
     assert 'data-market-mode="combined"' in html
     assert 'data-sector="cu" checked' in html
-    assert 'data-sector="kfcc" disabled' in html
-    assert 'data-sector="nh_local" disabled' in html
+    assert 'data-sector="kfcc">' in html
+    assert 'data-sector="nh_local">' in html
+    assert 'data-sector="kfcc" disabled' not in html
+    assert 'data-sector="nh_local" disabled' not in html
     assert "function activeSectors()" in html
     assert 'marketMode==="mutual_finance"' in html
     assert 'marketMode==="savings_bank"' in html
@@ -23,12 +25,14 @@ def test_h2_uses_strategy_universe_instead_of_hardcoded_support() -> None:
     assert "strategyUniverse=packed.strategy_universe||null" in html
     assert "universeSector(input.dataset.sector)" in html
     assert "enabled=!!meta?.selectable" in html
-    assert "최고금리 기준 · base fallback 없음" in html
+    assert "수집 데이터 기준 최고금리" in html
+    assert "원천 최고금리 우선" in html
+    assert "미기재 시 수집 기본금리" in html
     assert "meta.blocked_reason" in html
     assert "신협 6개월 공시 데이터 없음" in html
 
 
-def test_h2_aggregates_only_active_evidence_backed_sectors() -> None:
+def test_h2_aggregates_only_active_strategy_rate_sectors() -> None:
     html = _html()
 
     assert "const sectors=activeSectors()" in html
@@ -37,6 +41,7 @@ def test_h2_aggregates_only_active_evidence_backed_sectors() -> None:
     assert 'const key=`${r.sector}\\0${r.productId}\\0${term}`' in html
     assert "sector:r.sector" in html
     assert "max_rate ?? base_rate" not in html
+    assert 'rateBasis:look("strategy_rate_basis"' in html
 
 
 def test_h2_does_not_relabel_savings_history_as_mutual_history() -> None:

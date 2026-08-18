@@ -6,11 +6,19 @@ import pytest
 
 from rate_monitor.services.dashboard_service import DashboardBuildError
 from rate_monitor.services.strategy_contract_service import (
+    STRATEGY_RATE_BASIS_COLLECTED_BASE,
+    STRATEGY_RATE_BASIS_NH_EJOY,
+    STRATEGY_RATE_BASIS_SOURCE_MAX,
     augment_strategy_table,
     slice_strategy_table,
-    strategy_universe_metadata,
 )
 from tests.strategy_output_helper import built_strategy_html
+
+EJOY_NOTE = (
+    "- 대상예금 <거치식> 정기예탁금, 복리식 정기예탁금 "
+    "<적립식> 정기적금, 자유적립 적금, 자유로 부금 "
+    "- 상품별 금리 + 우대금리 적용"
+)
 
 
 def _identity_db(path: Path) -> Path:
@@ -77,35 +85,159 @@ def _table() -> dict:
 
 
 def _universe_table() -> dict:
-    return {
-        "columns": [
-            "sector",
-            "product_type",
-            "term_months",
-            "max_rate",
-            "geo_basis",
-            "rate_scope",
-            "availability_scope",
-            "source_effective_at",
+    columns = [
+        "sector",
+        "institution",
+        "outlet",
+        "region",
+        "district",
+        "product",
+        "product_id",
+        "product_type",
+        "term_months",
+        "base_rate",
+        "max_rate",
+        "geo_basis",
+        "rate_scope",
+        "availability_scope",
+        "source_id",
+        "source_effective_at",
+        "join_channel",
+        "preference",
+        "preference_status",
+        "preference_tags",
+    ]
+    lookups = {
+        "sector": ["savings_bank", "cu", "kfcc", "nh_local"],
+        "institution": ["저축은행A", "신협A", "새마을금고A", "농협A"],
+        "outlet": [None, "농협A"],
+        "region": ["서울", "부산"],
+        "district": [None, "강서구"],
+        "product": [
+            "저축예금",
+            "신협예금",
+            "Block예금",
+            "정기예탁금",
+            "e-joy 인터넷예금 우대금리",
         ],
-        "lookups": {
-            "sector": ["savings_bank", "cu", "kfcc", "nh_local"],
-            "product_type": ["term_deposit", "installment_savings"],
-            "geo_basis": ["head_office", "source_query_region", "outlet_address"],
-            "rate_scope": ["institution", "outlet"],
-            "availability_scope": ["unknown", "local_members"],
-            "source_effective_at": ["2026-08-16", "2026-08-17"],
-        },
-        "rows": [
-            [0, 0, 12, 3.6, 0, 0, 0, 0],
-            [1, 0, 12, 4.0, 1, 0, 0, 1],
-            [1, 0, 24, 3.8, 1, 0, 0, 1],
-            [2, 0, 12, None, 2, 0, 1, 1],
-            [3, 0, 12, None, 2, 1, 0, 1],
-            [0, 0, 60, 9.9, 0, 0, 0, 1],
-            [1, 1, 12, 9.9, 1, 0, 0, 1],
-        ],
+        "product_id": ["p-save", "p-cu", "p-kfcc", "p-nh", "p-ejoy"],
+        "product_type": ["term_deposit", "installment_savings"],
+        "geo_basis": ["head_office", "source_query_region", "outlet_address"],
+        "rate_scope": ["institution", "outlet"],
+        "availability_scope": ["unknown", "local_members"],
+        "source_id": ["fsb", "cu", "kfcc", "nh_local"],
+        "source_effective_at": ["2026-08-16", "2026-08-17"],
+        "join_channel": ["unknown", "internet"],
+        "preference": ["", EJOY_NOTE],
+        "preference_status": ["missing", "present"],
+        "preference_tags": ["", "DIGITAL_CHANNEL"],
     }
+
+    def ix(column: str, value):
+        return lookups[column].index(value)
+
+    def row(
+        sector: str,
+        institution: str,
+        outlet,
+        region: str,
+        district,
+        product: str,
+        product_id: str,
+        term: int,
+        base: float,
+        max_rate,
+        geo_basis: str,
+        rate_scope: str,
+        availability: str,
+        source_id: str,
+        *,
+        join_channel: str = "unknown",
+        preference: str = "",
+        preference_status: str = "missing",
+        preference_tags: str = "",
+        product_type: str = "term_deposit",
+    ):
+        return [
+            ix("sector", sector),
+            ix("institution", institution),
+            ix("outlet", outlet),
+            ix("region", region),
+            ix("district", district),
+            ix("product", product),
+            ix("product_id", product_id),
+            ix("product_type", product_type),
+            term,
+            base,
+            max_rate,
+            ix("geo_basis", geo_basis),
+            ix("rate_scope", rate_scope),
+            ix("availability_scope", availability),
+            ix("source_id", source_id),
+            ix("source_effective_at", "2026-08-17"),
+            ix("join_channel", join_channel),
+            ix("preference", preference),
+            ix("preference_status", preference_status),
+            ix("preference_tags", preference_tags),
+        ]
+
+    rows = [
+        row(
+            "savings_bank", "저축은행A", None, "서울", None, "저축예금", "p-save",
+            12, 3.2, 3.6, "head_office", "institution", "unknown", "fsb",
+        ),
+        row(
+            "cu", "신협A", None, "서울", None, "신협예금", "p-cu",
+            12, 3.5, 4.0, "source_query_region", "institution", "unknown", "cu",
+        ),
+        row(
+            "cu", "신협A", None, "서울", None, "신협예금", "p-cu",
+            24, 3.4, 3.8, "source_query_region", "institution", "unknown", "cu",
+        ),
+        row(
+            "kfcc", "새마을금고A", None, "부산", None, "Block예금", "p-kfcc",
+            12, 4.1, None, "outlet_address", "institution", "local_members", "kfcc",
+        ),
+        row(
+            "nh_local", "농협A", "농협A", "부산", "강서구", "정기예탁금", "p-nh",
+            12, 3.6, None, "outlet_address", "outlet", "unknown", "nh_local",
+        ),
+    ]
+    for term in (1, 12, 24, 36):
+        rows.append(
+            row(
+                "nh_local", "농협A", "농협A", "부산", "강서구",
+                "e-joy 인터넷예금 우대금리", "p-ejoy", term, 0.5, None,
+                "outlet_address", "outlet", "unknown", "nh_local",
+                join_channel="internet",
+                preference=EJOY_NOTE,
+                preference_status="present",
+                preference_tags="DIGITAL_CHANNEL",
+            )
+        )
+    rows.extend(
+        [
+            row(
+                "savings_bank", "저축은행A", None, "서울", None, "저축예금", "p-save",
+                60, 9.9, 9.9, "head_office", "institution", "unknown", "fsb",
+            ),
+            row(
+                "cu", "신협A", None, "서울", None, "신협예금", "p-cu",
+                12, 9.9, 9.9, "source_query_region", "institution", "unknown", "cu",
+                product_type="installment_savings",
+            ),
+        ]
+    )
+    return {"columns": columns, "lookups": lookups, "rows": rows}
+
+
+def _decode_row(table: dict, row: list) -> dict:
+    out = {}
+    for index, column in enumerate(table["columns"]):
+        value = row[index]
+        lookup = table.get("lookups", {}).get(column)
+        out[column] = lookup[value] if lookup is not None and value is not None else value
+    return out
 
 
 def test_strategy_build_uses_stable_id_and_reference_date() -> None:
@@ -149,64 +281,75 @@ def test_strategy_build_contains_structural_inflow_engine_contract() -> None:
     assert "가정 기반 예상 월 수신액" not in html
 
 
-def test_strategy_slice_publishes_only_evidence_backed_max_rate_sectors() -> None:
+def test_strategy_slice_uses_collected_best_rate_without_mutating_canonical() -> None:
     table = _universe_table()
+    original = deepcopy(table)
 
     sliced = slice_strategy_table(table)
+    decoded = [_decode_row(sliced, row) for row in sliced["rows"]]
 
-    assert sliced["columns"] is table["columns"]
-    assert sliced["lookups"] is table["lookups"]
-    assert sliced["rows"] == table["rows"][:3]
-    assert sliced["strategy_universe"]["published_sectors"] == ["savings_bank", "cu", "nh_local"]
-    assert sliced["strategy_universe"]["base_rate_fallback"] is False
+    assert table == original
+    assert "strategy_rate_basis" in sliced["columns"]
+    assert sliced["strategy_universe"]["published_sectors"] == [
+        "savings_bank", "cu", "kfcc", "nh_local"
+    ]
+    assert sliced["strategy_universe"]["base_rate_fallback"] is True
+    assert sliced["strategy_universe"]["canonical_max_rate_unchanged"] is True
+
+    by_sector = {item["sector"]: item for item in decoded if item["term_months"] == 12}
+    assert by_sector["savings_bank"]["max_rate"] == 3.6
+    assert by_sector["savings_bank"]["strategy_rate_basis"] == STRATEGY_RATE_BASIS_SOURCE_MAX
+    assert by_sector["kfcc"]["max_rate"] == 4.1
+    assert by_sector["kfcc"]["strategy_rate_basis"] == STRATEGY_RATE_BASIS_COLLECTED_BASE
+    assert by_sector["nh_local"]["max_rate"] == 4.1
+    assert by_sector["nh_local"]["join_channel"] == "internet"
+    assert by_sector["nh_local"]["strategy_rate_basis"] == STRATEGY_RATE_BASIS_NH_EJOY
 
 
-def test_strategy_universe_records_coverage_and_block_reasons() -> None:
-    universe = strategy_universe_metadata(_universe_table())
+def test_strategy_universe_records_collected_best_rate_coverage() -> None:
+    sliced = slice_strategy_table(_universe_table())
+    universe = sliced["strategy_universe"]
     sectors = universe["sectors"]
 
-    assert universe["metric_basis"] == "max_rate"
-    assert sectors["savings_bank"]["state"] == "supported"
-    assert sectors["savings_bank"]["coverage_ratio"] == 1.0
-    assert sectors["cu"]["state"] == "supported"
-    assert sectors["cu"]["coverage_ratio"] == 1.0
+    assert universe["metric_basis"] == "collected_best_rate"
+    assert universe["metric_label"] == "수집 데이터 기준 최고금리"
+    for sector in ("savings_bank", "cu", "kfcc", "nh_local"):
+        assert sectors[sector]["state"] == "supported"
+        assert sectors[sector]["strategy_rate_capability"] is True
+        assert sectors[sector]["selectable"] is True
+        assert sectors[sector]["blocked_reason"] is None
+
     assert sectors["cu"]["latest_source_effective_at"] == "2026-08-17"
     assert sectors["cu"]["geo_basis"] == ["source_query_region"]
     assert sectors["cu"]["terms"]["6"]["rows"] == 0
     assert sectors["cu"]["terms"]["6"]["selectable"] is False
-
-    assert sectors["kfcc"]["state"] == "unsupported"
-    assert sectors["kfcc"]["max_rate_rows"] == 0
-    assert sectors["kfcc"]["selectable"] is False
-    assert "gmgo_cd" in sectors["kfcc"]["blocked_reason"]
-
-    assert sectors["nh_local"]["state"] == "no_max_rate_data"
-    assert sectors["nh_local"]["max_rate_capability"] is True
-    assert sectors["nh_local"]["rate_scope"] == ["outlet"]
-    assert sectors["nh_local"]["geo_basis"] == ["outlet_address"]
-    assert sectors["nh_local"]["selectable"] is False
-    assert sectors["nh_local"]["blocked_reason"] is None
-    assert sectors["nh_local"]["evidence"] == (
-        "official_ejoy_same_brc_product_term_interval_internet_variant"
-    )
+    assert sectors["kfcc"]["max_rate_capability"] is False
+    assert sectors["kfcc"]["strategy_rate_capability"] is True
+    assert sectors["kfcc"]["strategy_rate_rows"] == 1
+    assert sectors["kfcc"]["rate_basis_counts"] == {"collected_base_rate": 1}
+    assert sectors["nh_local"]["rate_basis_counts"] == {"nh_ejoy_base_plus_add": 1}
 
 
-def test_strategy_nh_local_publishes_only_evidence_backed_max_rows() -> None:
-    table = deepcopy(_universe_table())
-    table["rows"][4][3] = 4.15
-    table["rows"].append([3, 0, 24, None, 2, 1, 0, 1])
+def test_strategy_nh_ejoy_linkage_fails_closed_on_ambiguous_location_key() -> None:
+    table = _universe_table()
+    ejoy_rows = [
+        row for row in table["rows"]
+        if _decode_row(table, row)["product"] == "e-joy 인터넷예금 우대금리"
+    ]
+    table["rows"].extend(deepcopy(ejoy_rows))
 
     sliced = slice_strategy_table(table)
-    nh_meta = sliced["strategy_universe"]["sectors"]["nh_local"]
+    decoded = [
+        _decode_row(sliced, row)
+        for row in sliced["rows"]
+        if _decode_row(sliced, row)["sector"] == "nh_local"
+        and _decode_row(sliced, row)["product"] == "정기예탁금"
+        and _decode_row(sliced, row)["term_months"] == 12
+    ]
 
-    assert nh_meta["state"] == "supported"
-    assert nh_meta["selectable"] is True
-    assert nh_meta["max_rate_rows"] == 1
-    assert nh_meta["rows"] == 2
-    assert nh_meta["coverage_ratio"] == 0.5
-    assert table["rows"][4] in sliced["rows"]
-    assert table["rows"][-1] not in sliced["rows"]
-    assert table["rows"][3] not in sliced["rows"]  # KFCC remains blocked
+    assert len(decoded) == 1
+    assert decoded[0]["max_rate"] == 3.6
+    assert decoded[0]["strategy_rate_basis"] == STRATEGY_RATE_BASIS_COLLECTED_BASE
 
 
 def test_strategy_table_adds_compressed_stable_product_id(tmp_path: Path) -> None:
