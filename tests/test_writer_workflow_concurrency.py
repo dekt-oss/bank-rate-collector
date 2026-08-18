@@ -1,6 +1,5 @@
 from pathlib import Path
 
-
 WRITER_GROUP_LINE = "  group: rate-data-writer\n"
 WRITER_CONCURRENCY_BLOCK = (
     "concurrency:\n"
