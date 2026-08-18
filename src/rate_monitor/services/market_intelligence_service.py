@@ -4,11 +4,11 @@
 늘리지 않고 7D/30D × 6/12/24/36M × Strategy 4업권의 데이터 가용성과 시장
 움직임을 같은 계약으로 계산한다.
 
-중요한 원칙은 fail-closed다. 요청기간의 80% 이상 이력이 없으면 7D/30D라는
-라벨로 변화량을 만들지 않는다. 또한 NH local의 전략 최고금리는 e-joy
-base+add 1:1 결합이 필요한데 과거 snapshot에서 그 전략 rate basis를 아직
-재구성하지 않는다. 따라서 NH historical intelligence는 v1에서 명시적으로
-``unsupported_rate_contract``로 닫는다.
+중요한 원칙은 fail-closed다. 요청기간의 80% 이상·125% 이하 범위에 맞는 이력이
+없으면 7D/30D라는 라벨로 변화량을 만들지 않는다. 또한 NH local의 전략
+최고금리는 e-joy base+add 1:1 결합이 필요한데 과거 snapshot에서 그 전략 rate
+basis를 아직 재구성하지 않는다. 따라서 NH historical intelligence는 v1에서
+명시적으로 ``unsupported_rate_contract``로 닫는다.
 """
 
 from __future__ import annotations
@@ -24,6 +24,7 @@ SECTORS = ("savings_bank", "cu", "kfcc", "nh_local")
 TERMS = (6, 12, 24, 36)
 WINDOWS = (7, 30)
 MIN_HISTORY_RATIO = 0.80
+MAX_HISTORY_RATIO = 1.25
 OUR_INSTITUTION_NAME = "고려저축은행"
 
 _RATE_CONTRACT = {
@@ -322,13 +323,20 @@ def _scope_metric(
     coverage_ratio = (
         observed_days / window_days if observed_days is not None and window_days else 0.0
     )
-    if observed_days is None or coverage_ratio < MIN_HISTORY_RATIO:
+    if (
+        observed_days is None
+        or coverage_ratio < MIN_HISTORY_RATIO
+        or coverage_ratio > MAX_HISTORY_RATIO
+    ):
         result = _empty_scope(
             sector=sector,
             term_months=term_months,
             window_days=window_days,
             status="insufficient_history",
-            reason=f"요청기간의 {MIN_HISTORY_RATIO:.0%} 이상 이력이 필요하다",
+            reason=(
+                f"요청기간의 {MIN_HISTORY_RATIO:.0%}~{MAX_HISTORY_RATIO:.0%} 범위 "
+                "baseline 이력이 필요하다"
+            ),
         )
         result.update(
             {
@@ -507,7 +515,10 @@ def build_market_intelligence(conn: sqlite3.Connection) -> dict[str, Any]:
         return {
             "version": "market-intelligence-v1",
             "status": "schema_unavailable",
-            "history_gate": {"minimum_window_coverage_ratio": MIN_HISTORY_RATIO},
+            "history_gate": {
+                "minimum_window_coverage_ratio": MIN_HISTORY_RATIO,
+                "maximum_window_coverage_ratio": MAX_HISTORY_RATIO,
+            },
             "scopes": [],
             "supported_scope_count": 0,
         }
@@ -534,6 +545,7 @@ def build_market_intelligence(conn: sqlite3.Connection) -> dict[str, Any]:
         "status": "ready" if supported else "insufficient_history",
         "history_gate": {
             "minimum_window_coverage_ratio": MIN_HISTORY_RATIO,
+            "maximum_window_coverage_ratio": MAX_HISTORY_RATIO,
             "windows_days": list(WINDOWS),
             "terms_months": list(TERMS),
             "sectors": list(SECTORS),
