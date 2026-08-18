@@ -1,0 +1,96 @@
+name: OPS — Recover NH 2026-08-18
+
+on:
+  push:
+    branches: ["ops/nh-recovery-20260818"]
+    paths:
+      - "ops/nh-recovery-20260818.trigger"
+
+concurrency:
+  group: rate-data-writer
+  queue: max
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  authorize:
+    if: ${{ github.event.head_commit.message == 'ops: trigger NH recovery 2026-08-18' }}
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "authorized one-time NH recovery from merged main"
+
+  attempt_1:
+    needs: authorize
+    uses: ./.github/workflows/nh-attempt.yml
+    with:
+      attempt: 1
+      max_attempts: 3
+      scope: "전국"
+      resume_mode: auto
+      accept_volume_drop: false
+    secrets: inherit
+
+  attempt_2:
+    needs: attempt_1
+    if: ${{ needs.attempt_1.result == 'success' && needs.attempt_1.outputs.outcome == 'retry' }}
+    uses: ./.github/workflows/nh-attempt.yml
+    with:
+      attempt: 2
+      max_attempts: 3
+      cycle_date: ${{ needs.attempt_1.outputs.cycle_date }}
+      scope: "전국"
+      resume_mode: auto
+      accept_volume_drop: false
+    secrets: inherit
+
+  attempt_3:
+    needs: attempt_2
+    if: ${{ needs.attempt_2.result == 'success' && needs.attempt_2.outputs.outcome == 'retry' }}
+    uses: ./.github/workflows/nh-attempt.yml
+    with:
+      attempt: 3
+      max_attempts: 3
+      cycle_date: ${{ needs.attempt_2.outputs.cycle_date }}
+      scope: "전국"
+      resume_mode: auto
+      accept_volume_drop: false
+    secrets: inherit
+
+  surface:
+    needs: [authorize, attempt_1, attempt_2, attempt_3]
+    if: always() && needs.authorize.result != 'skipped'
+    runs-on: ubuntu-latest
+    env:
+      AUTH_RESULT: ${{ needs.authorize.result }}
+      A1_RESULT: ${{ needs.attempt_1.result }}
+      A1_OUTCOME: ${{ needs.attempt_1.outputs.outcome }}
+      A2_RESULT: ${{ needs.attempt_2.result }}
+      A2_OUTCOME: ${{ needs.attempt_2.outputs.outcome }}
+      A3_RESULT: ${{ needs.attempt_3.result }}
+      A3_OUTCOME: ${{ needs.attempt_3.outputs.outcome }}
+    steps:
+      - name: Surface NH recovery result
+        run: |
+          set -euo pipefail
+          if [ "$AUTH_RESULT" != "success" ]; then
+            echo "::error::NH recovery authorization failed"
+            exit 1
+          fi
+          for result in "$A1_RESULT" "$A2_RESULT" "$A3_RESULT"; do
+            if [ "$result" = "failure" ] || [ "$result" = "cancelled" ]; then
+              echo "::error::NH recovery attempt workflow failed"
+              exit 1
+            fi
+          done
+          TERMINAL="$A1_OUTCOME"
+          [ -n "$A2_OUTCOME" ] && TERMINAL="$A2_OUTCOME"
+          [ -n "$A3_OUTCOME" ] && TERMINAL="$A3_OUTCOME"
+          if [ "$TERMINAL" = "success" ]; then
+            echo "NH recovery success"
+            exit 0
+          fi
+          echo "::error::NH recovery did not reach success: $TERMINAL"
+          exit 1
