@@ -1,60 +1,38 @@
-name: Collect rates
+name: 수집 — 일반·새마을금고
 
 on:
   workflow_dispatch:
     inputs:
       password:
-        description: "수집 암호 (관리자에게 확인). 손으로 돌릴 때만 필요합니다"
+        description: "관리자 수집 암호"
         required: true
         default: ""
-      groups:
-        description: "권역코드 (030300=저축은행, 020000=은행). 공백으로 구분"
-        required: false
-        default: "030300"
+      manual_target:
+        description: "실행 대상. 농·축협은 별도 '수집 — 농·축협' workflow에서 실행"
+        type: choice
+        required: true
+        default: "일반 전체"
+        options:
+          - "일반 전체"
+          - "저축은행만"
+          - "신협만"
+          - "새마을금고만"
+          - "참고지표만"
+          - "화면만 재발행"
       kfcc_scope:
-        description: "새마을금고 수집 범위 (config/regions.yaml)"
+        description: "[새마을금고만] 수집 범위 — 보통 전국"
         type: choice
         required: false
         default: "전국"
         options: ["전국", "수도권", "부산"]
       kfcc_resume_mode:
-        description: "새마을금고 checkpoint. 보통 auto, 같은 날 새로 받으려면 fresh"
+        description: "[새마을금고만] 재시작 방식 — 보통 auto, 같은 날 처음부터 다시 받을 때만 fresh"
         type: choice
         required: false
         default: "auto"
         options: ["auto", "fresh"]
-      skip_kfcc:
-        description: "새마을금고를 건너뛴다. 정기 수집은 04:17에 따로 돕니다"
-        type: boolean
-        required: false
-        default: false
-      skip_fsb:
-        description: "저축은행중앙회 수집을 건너뛴다"
-        type: boolean
-        required: false
-        default: false
-      skip_cu:
-        description: "신협 수집을 건너뛴다"
-        type: boolean
-        required: false
-        default: false
-      skip_finlife_bank:
-        description: "시중은행(참고지표) 수집을 건너뛴다"
-        type: boolean
-        required: false
-        default: false
-      skip_bok:
-        description: "한국은행 기준금리(참고지표) 수집을 건너뛴다"
-        type: boolean
-        required: false
-        default: false
-      publish_only:
-        description: "수집하지 않고 화면만 다시 낸다 (2분). 화면 코드만 바꿨을 때"
-        type: boolean
-        required: false
-        default: false
       accept_volume_drop:
-        description: "물량 급감을 알고도 발행한다 (원천이 정말 줄었을 때만)"
+        description: "주의: 물량 급감 강제 승인 — 원천 데이터가 실제 줄었다고 확인한 경우만 체크"
         type: boolean
         required: false
         default: false
@@ -83,9 +61,9 @@ jobs:
   collect:
     runs-on: ubuntu-latest
     env:
-      PUBLISH_ONLY: ${{ github.event_name == 'push' || inputs.publish_only == true }}
-      KFCC_ONLY: ${{ github.event.schedule == '17 19 * * 0-4' }}
-      SKIP_KFCC_THIS_RUN: ${{ github.event.schedule == '17 15 * * 0-4' }}
+      PUBLISH_ONLY: ${{ github.event_name == 'push' || inputs.manual_target == '화면만 재발행' }}
+      KFCC_ONLY: ${{ github.event.schedule == '17 19 * * 0-4' || inputs.manual_target == '새마을금고만' }}
+      SKIP_KFCC_THIS_RUN: ${{ github.event.schedule == '17 15 * * 0-4' || (github.event_name == 'workflow_dispatch' && inputs.manual_target != '새마을금고만') }}
     steps:
       - name: Check collect password
         if: ${{ github.event_name == 'workflow_dispatch' }}
@@ -103,6 +81,16 @@ jobs:
             exit 1
           fi
           echo "암호 확인됨"
+
+      - name: Show manual collection plan
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        run: |
+          echo "수동 실행 대상: ${{ inputs.manual_target }}"
+          if [ "${{ inputs.manual_target }}" = "새마을금고만" ]; then
+            echo "새마을금고 범위: ${{ inputs.kfcc_scope }}"
+            echo "새마을금고 재시작 방식: ${{ inputs.kfcc_resume_mode }}"
+          fi
+          echo "물량 급감 강제 승인: ${{ inputs.accept_volume_drop }}"
 
       - uses: actions/checkout@v4
 
@@ -173,7 +161,7 @@ jobs:
         run: uv run alembic upgrade head
 
       - name: Collect finlife savings bank
-        if: ${{ env.PUBLISH_ONLY != 'true' && env.KFCC_ONLY != 'true' }}
+        if: ${{ env.PUBLISH_ONLY != 'true' && env.KFCC_ONLY != 'true' && (github.event_name != 'workflow_dispatch' || inputs.manual_target == '일반 전체' || inputs.manual_target == '저축은행만') }}
         env:
           FINLIFE_API_KEY: ${{ secrets.FINLIFE_API_KEY }}
         run: |
@@ -181,11 +169,10 @@ jobs:
             --source finlife_savings_bank \
             --db work/rate_monitor.sqlite3 \
             --raw-root data/raw \
-            --groups ${{ inputs.groups || '030300' }}
+            --groups 030300
 
       - name: Collect finlife bank
-        if: ${{ inputs.skip_finlife_bank != true && env.PUBLISH_ONLY != 'true'
-          && env.KFCC_ONLY != 'true' }}
+        if: ${{ env.PUBLISH_ONLY != 'true' && env.KFCC_ONLY != 'true' && (github.event_name != 'workflow_dispatch' || inputs.manual_target == '일반 전체' || inputs.manual_target == '참고지표만') }}
         continue-on-error: true
         env:
           FINLIFE_API_KEY: ${{ secrets.FINLIFE_API_KEY }}
@@ -197,8 +184,7 @@ jobs:
             --groups 020000
 
       - name: Collect BOK base rate
-        if: ${{ inputs.skip_bok != true && env.PUBLISH_ONLY != 'true'
-          && env.KFCC_ONLY != 'true' }}
+        if: ${{ env.PUBLISH_ONLY != 'true' && env.KFCC_ONLY != 'true' && (github.event_name != 'workflow_dispatch' || inputs.manual_target == '일반 전체' || inputs.manual_target == '참고지표만') }}
         continue-on-error: true
         env:
           ECOS_API_KEY: ${{ secrets.ECOS_API_KEY }}
@@ -209,8 +195,7 @@ jobs:
             --raw-root data/raw
 
       - name: Collect FSB
-        if: ${{ inputs.skip_fsb != true && env.PUBLISH_ONLY != 'true'
-          && env.KFCC_ONLY != 'true' }}
+        if: ${{ env.PUBLISH_ONLY != 'true' && env.KFCC_ONLY != 'true' && (github.event_name != 'workflow_dispatch' || inputs.manual_target == '일반 전체' || inputs.manual_target == '저축은행만') }}
         continue-on-error: true
         run: |
           uv run rate-monitor collect \
@@ -219,8 +204,7 @@ jobs:
             --raw-root data/raw
 
       - name: Collect CU
-        if: ${{ inputs.skip_cu != true && env.PUBLISH_ONLY != 'true'
-          && env.KFCC_ONLY != 'true' }}
+        if: ${{ env.PUBLISH_ONLY != 'true' && env.KFCC_ONLY != 'true' && (github.event_name != 'workflow_dispatch' || inputs.manual_target == '일반 전체' || inputs.manual_target == '신협만') }}
         continue-on-error: true
         run: |
           uv run rate-monitor collect \
@@ -230,8 +214,7 @@ jobs:
 
       - name: Prepare KFCC checkpoint context
         id: kfcc_checkpoint
-        if: ${{ inputs.skip_kfcc != true && env.PUBLISH_ONLY != 'true'
-          && env.SKIP_KFCC_THIS_RUN != 'true' }}
+        if: ${{ env.PUBLISH_ONLY != 'true' && env.SKIP_KFCC_THIS_RUN != 'true' }}
         env:
           SCOPE: ${{ inputs.kfcc_scope }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -251,8 +234,7 @@ jobs:
 
       - name: Collect KFCC
         id: collect_kfcc
-        if: ${{ inputs.skip_kfcc != true && env.PUBLISH_ONLY != 'true'
-          && env.SKIP_KFCC_THIS_RUN != 'true' }}
+        if: ${{ env.PUBLISH_ONLY != 'true' && env.SKIP_KFCC_THIS_RUN != 'true' }}
         continue-on-error: true
         env:
           SCOPE: ${{ inputs.kfcc_scope }}
