@@ -9,16 +9,23 @@ on:
       - "scripts/stage_e_ecos_external_recon.py"
       - ".github/workflows/stage-e-ecos-recon.yml"
 
-# Read-only source-contract evidence. No DB restore, no collector execution,
-# no rate-data writes and no production publication.
+# Read-only source-contract evidence. The only repository write is a sanitized
+# candidate summary on the isolated recon branch. No DB restore/collector/rate-data
+# write and no production publication.
 permissions:
-  contents: read
+  contents: write
+
+concurrency:
+  group: stage-e-ecos-external-recon
+  cancel-in-progress: true
 
 jobs:
   recon:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
 
       - name: Install uv
         uses: astral-sh/setup-uv@v5
@@ -42,20 +49,25 @@ jobs:
           import json
           from pathlib import Path
 
-          report = json.loads(Path("work/stage-e-ecos-external-recon.json").read_text(encoding="utf-8"))
-          assert report["mode"] == "read_only_recon"
-          assert report["selected_stat_codes"] == []
-          assert report["selected_item_codes"] == []
-          assert report["selection_status"] == "not_selected_until_human_evidence_review"
+          for path in (
+              Path("work/stage-e-ecos-external-recon.json"),
+              Path("docs/source-recon/stage-e-external-indicators-runtime.json"),
+          ):
+              report = json.loads(path.read_text(encoding="utf-8"))
+              assert report["mode"] == "read_only_recon"
+              assert report["selected_stat_codes"] == []
+              assert report["selected_item_codes"] == []
+              assert report["selection_status"] == "not_selected_until_human_evidence_review"
           print("automatic code selection: 0")
           PY
 
-      - name: Check API key never reached artifact
+      - name: Check API key never reached outputs
         env:
           ECOS_API_KEY: ${{ secrets.ECOS_API_KEY }}
         run: |
-          if grep -qF "$ECOS_API_KEY" work/stage-e-ecos-external-recon.json; then
-            echo "ECOS key leaked into recon artifact"
+          if grep -qF "$ECOS_API_KEY" work/stage-e-ecos-external-recon.json \
+            docs/source-recon/stage-e-external-indicators-runtime.json; then
+            echo "ECOS key leaked into recon output"
             exit 1
           fi
           echo "ECOS key exposure: 0"
@@ -65,3 +77,16 @@ jobs:
           name: stage-e-ecos-external-recon
           path: work/stage-e-ecos-external-recon.json
           retention-days: 7
+
+      - name: Commit sanitized candidate summary
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/source-recon/stage-e-external-indicators-runtime.json
+          if git diff --cached --quiet; then
+            echo "sanitized recon summary unchanged"
+            exit 0
+          fi
+          git commit -m "docs(recon): update Stage E ECOS candidate evidence"
+          git push origin HEAD:${{ github.ref_name }}
