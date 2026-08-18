@@ -50,6 +50,9 @@ from rate_monitor.services.main_map_presentation import (
     MAIN_MAP_MARKER,
     inject_main_map_presentation,
 )
+from rate_monitor.services.preference_intelligence_service import (
+    build_preference_intelligence,
+)
 from rate_monitor.services.strategy_contract_service import (
     augment_strategy_table,
     slice_strategy_table,
@@ -265,11 +268,13 @@ def build_site(
     page_data, table_with_internal_id = split_summary(summary)
     strategy_table: dict[str, Any] | None = None
     strategy_table_contract: dict[str, int] | None = None
+    preference_intelligence: dict[str, Any] | None = None
     if strategy_template_path is not None:
         strategy_source = slice_strategy_table(table_with_internal_id)
         strategy_table, strategy_table_contract = augment_strategy_table(
             db_path, strategy_source
         )
+        preference_intelligence = build_preference_intelligence(strategy_table)
     table = _without_internal_product_id(table_with_internal_id)
 
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -362,11 +367,14 @@ def build_site(
     if strategy_template_path is not None:
         if strategy_table is None:
             raise DashboardBuildError("전략 화면은 전략 전용 table slice가 필요하다")
+        strategy_summary = build_strategy_summary(db_path)
+        if preference_intelligence is not None:
+            strategy_summary["preference_intelligence"] = preference_intelligence
         strategy_page_data = {
             **page_data,
             "table_url": STRATEGY_TABLE_FILE,
             "table_rows": len(strategy_table.get("rows") or []),
-            "strategy": build_strategy_summary(db_path),
+            "strategy": strategy_summary,
             "strategy_table_contract": strategy_table_contract,
         }
         strategy_template_text = strategy_template_path.read_text(encoding="utf-8")
