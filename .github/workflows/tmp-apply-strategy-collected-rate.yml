@@ -1,0 +1,31 @@
+name: Temporary apply strategy collected max patch
+
+on:
+  push:
+    branches:
+      - feat/strategy-collected-max-rate
+    paths:
+      - .github/workflows/tmp-apply-strategy-collected-rate.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.event.head_commit.message == 'ci: apply strategy collected max patch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/strategy-collected-max-rate
+      - name: Apply deterministic patch
+        run: python scripts/tmp_patch_strategy_collected_rate.py
+      - name: Commit patched template
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add web/templates/strategy.html
+          git diff --cached --check
+          git commit -m "feat: 수집 데이터 기준 최고금리 화면 연결"
+          git push origin HEAD:feat/strategy-collected-max-rate
