@@ -1,0 +1,757 @@
+{
+  "source": "BOK ECOS Open API",
+  "mode": "read_only_series_verification",
+  "window": {
+    "start": "202401",
+    "end": "202612",
+    "cycle": "M"
+  },
+  "all_verified": true,
+  "series": [
+    {
+      "feature": "commercial_bank_1y_new_business_rate",
+      "stat_code": "121Y002",
+      "item_code": "BEABAA2118",
+      "expected_name": "정기예금(1년)",
+      "expected_unit": "연리%",
+      "cycle": "M",
+      "verified": true,
+      "point_count": 30,
+      "first": {
+        "time": "202401",
+        "value": "3.65",
+        "unit": "연리%",
+        "item_name1": "정기예금(1년)",
+        "item_name2": null,
+        "item_name3": null
+      },
+      "latest": {
+        "time": "202606",
+        "value": "3.26",
+        "unit": "연리%",
+        "item_name1": "정기예금(1년)",
+        "item_name2": null,
+        "item_name3": null
+      },
+      "recent_points": [
+        {
+          "time": "202507",
+          "value": "2.52",
+          "unit": "연리%",
+          "item_name1": "정기예금(1년)",
+          "item_name2": null,
+          "item_name3": null
+        },
+        {
+          "time": "202508",
+          "value": "2.51",
+          "unit": "연리%",
+          "item_name1": "정기예금(1년)",
+          "item_name2": null,
+          "item_name3": null
+        },
+        {
+          "time": "202509",
+          "value": "2.54",
+          "unit": "연리%",
+          "item_name1": "정기예금(1년)",
+          "item_name2": null,
+          "item_name3": null
+        },
+        {
+          "time": "202510",
+          "value": "2.58",
+          "unit": "연리%",
+          "item_name1": "정기예금(1년)",
+          "item_name2": null,
+          "item_name3": null
+        },
+        {
+          "time": "202511",
+          "value": "2.85",
+          "unit": "연리%",
+          "item_name1": "정기예금(1년)",
+          "item_name2": null,
+          "item_name3": null
+        },
+        {
+          "time": "202512",
+          "value": "2.89",
+          "unit": "연리%",
+          "item_name1": "정기예금(1년)",
+          "item_name2": null,
+          "item_name3": null
+        },
+        {
+          "time": "202601",
+          "value": "2.84",
+          "unit": "연리%",
+          "item_name1": "정기예금(1년)",
+          "item_name2": null,
+          "item_name3": null
+        },
+        {
+          "time": "202602",
+          "value": "2.89",
+          "unit": "연리%",
+          "item_name1": "정기예금(1년)",
+          "item_name2": null,
+          "item_name3": null
+        },
+        {
+          "time": "202603",
+          "value": "2.93",
+          "unit": "연리%",
+          "item_name1": "정기예금(1년)",
+          "item_name2": null,
+          "item_name3": null
+        },
+        {
+          "time": "202604",
+          "value": "3.04",
+          "unit": "연리%",
+          "item_name1": "정기예금(1년)",
+          "item_name2": null,
+          "item_name3": null
+        },
+        {
+          "time": "202605",
+          "value": "3.06",
+          "unit": "연리%",
+          "item_name1": "정기예금(1년)",
+          "item_name2": null,
+          "item_name3": null
+        },
+        {
+          "time": "202606",
+          "value": "3.26",
+          "unit": "연리%",
+          "item_name1": "정기예금(1년)",
+          "item_name2": null,
+          "item_name3": null
+        }
+      ]
+    },
+    {
+      "feature": "savings_bank_1y_new_business_rate",
+      "stat_code": "121Y004",
+      "item_code": "BEBBBE01",
+      "expected_name": "상호저축은행-정기예금(1년)",
+      "expected_unit": "연리%",
+      "cycle": "M",
+      "verified": true,
+      "point_count": 30,
+      "first": {
+        "time": "202401",
+        "value": "3.92",
+        "unit": "연리%",
+        "item_name1": "상호저축은행-정기예금(1년)",
+        "item_name2": null,
+        "item_name3": null
+      },
+      "latest": {
+        "time": "202606",
+        "value": "3.74",
+        "unit": "연리%",
+        "item_name1": "상호저축은행-정기예금(1년)",
+        "item_name2": null,
+        "item_name3": null
+      },
+      "recent_points": [
+        {
+          "time": "202507",
+          "value": "3.02",
+          "unit": "연리%",
+          "item_name1": "상호저축은행-정기예금(1년)",
+          "item_name2": null,
+          "item_name3": null
+        },
+        {
+          "time": "202508",
+          "value": "2.99",
+          "unit": "연리%",
+          "item_name1": "상호저축은행-정기예금(1년)",
+          "item_name2": null,
+          "item_name3": null
+        },
+        {
+          "time": "202509",
+          "value": "2.98",
+          "unit": "연리%",
+          "item_name1": "상호저축은행-정기예금(1년)",
+          "item_name2": null,
+          "item_name3": null
+        },
+        {
+          "time": "202510",
+          "value": "2.79",
+          "unit": "연리%",
+          "item_name1": "상호저축은행-정기예금(1년)",
+          "item_name2": null,
+          "item_name3": null
+        },
+        {
+          "time": "202511",
+          "value": "2.75",
+          "unit": "연리%",
+          "item_name1": "상호저축은행-정기예금(1년)",
+          "item_name2": null,
+          "item_name3": null
+        },
+        {
+          "time": "202512",
+          "value": "3.02",
+          "unit": "연리%",
+          "item_name1": "상호저축은행-정기예금(1년)",
+          "item_name2": null,
+          "item_name3": null
+        },
+        {
+          "time": "202601",
+          "value": "3",
+          "unit": "연리%",
+          "item_name1": "상호저축은행-정기예금(1년)",
+          "item_name2": null,
+          "item_name3": null
+        },
+        {
+          "time": "202602",
+          "value": "3.05",
+          "unit": "연리%",
+          "item_name1": "상호저축은행-정기예금(1년)",
+          "item_name2": null,
+          "item_name3": null
+        },
+        {
+          "time": "202603",
+          "value": "3.22",
+          "unit": "연리%",
+          "item_name1": "상호저축은행-정기예금(1년)",
+          "item_name2": null,
+          "item_name3": null
+        },
+        {
+          "time": "202604",
+          "value": "3.34",
+          "unit": "연리%",
+          "item_name1": "상호저축은행-정기예금(1년)",
+          "item_name2": null,
+          "item_name3": null
+        },
+        {
+          "time": "202605",
+          "value": "3.39",
+          "unit": "연리%",
+          "item_name1": "상호저축은행-정기예금(1년)",
+          "item_name2": null,
+          "item_name3": null
+        },
+        {
+          "time": "202606",
+          "value": "3.74",
+          "unit": "연리%",
+          "item_name1": "상호저축은행-정기예금(1년)",
+          "item_name2": null,
+          "item_name3": null
+        }
+      ]
+    },
+    {
+      "feature": "savings_bank_deposit_balance",
+      "stat_code": "111Y007",
+      "item_code": "1120600",
+      "expected_name": "상호저축은행",
+      "expected_unit": "십억원",
+      "cycle": "M",
+      "verified": true,
+      "point_count": 30,
+      "first": {
+        "time": "202401",
+        "value": "104262.6",
+        "unit": "십억원",
+        "item_name1": "상호저축은행",
+        "item_name2": null,
+        "item_name3": null
+      },
+      "latest": {
+        "time": "202606",
+        "value": "100355.8",
+        "unit": "십억원",
+        "item_name1": "상호저축은행",
+        "item_name2": null,
+        "item_name3": null
+      },
+      "recent_points": [
+        {
+          "time": "202507",
+          "value": "101018.1",
+          "unit": "십억원",
+          "item_name1": "상호저축은행",
+          "item_name2": null,
+          "item_name3": null
+        },
+        {
+          "time": "202508",
+          "value": "102386.6",
+          "unit": "십억원",
+          "item_name1": "상호저축은행",
+          "item_name2": null,
+          "item_name3": null
+        },
+        {
+          "time": "202509",
+          "value": "105016.5",
+          "unit": "십억원",
+          "item_name1": "상호저축은행",
+          "item_name2": null,
+          "item_name3": null
+        },
+        {
+          "time": "202510",
+          "value": "103509.4",
+          "unit": "십억원",
+          "item_name1": "상호저축은행",
+          "item_name2": null,
+          "item_name3": null
+        },
+        {
+          "time": "202511",
+          "value": "100590",
+          "unit": "십억원",
+          "item_name1": "상호저축은행",
+          "item_name2": null,
+          "item_name3": null
+        },
+        {
+          "time": "202512",
+          "value": "98978.7",
+          "unit": "십억원",
+          "item_name1": "상호저축은행",
+          "item_name2": null,
+          "item_name3": null
+        },
+        {
+          "time": "202601",
+          "value": "98174.9",
+          "unit": "십억원",
+          "item_name1": "상호저축은행",
+          "item_name2": null,
+          "item_name3": null
+        },
+        {
+          "time": "202602",
+          "value": "97936.5",
+          "unit": "십억원",
+          "item_name1": "상호저축은행",
+          "item_name2": null,
+          "item_name3": null
+        },
+        {
+          "time": "202603",
+          "value": "99574",
+          "unit": "십억원",
+          "item_name1": "상호저축은행",
+          "item_name2": null,
+          "item_name3": null
+        },
+        {
+          "time": "202604",
+          "value": "100660.7",
+          "unit": "십억원",
+          "item_name1": "상호저축은행",
+          "item_name2": null,
+          "item_name3": null
+        },
+        {
+          "time": "202605",
+          "value": "100448.7",
+          "unit": "십억원",
+          "item_name1": "상호저축은행",
+          "item_name2": null,
+          "item_name3": null
+        },
+        {
+          "time": "202606",
+          "value": "100355.8",
+          "unit": "십억원",
+          "item_name1": "상호저축은행",
+          "item_name2": null,
+          "item_name3": null
+        }
+      ]
+    },
+    {
+      "feature": "credit_union_deposit_balance",
+      "stat_code": "111Y007",
+      "item_code": "1120700",
+      "expected_name": "신용협동조합",
+      "expected_unit": "십억원",
+      "cycle": "M",
+      "verified": true,
+      "point_count": 30,
+      "first": {
+        "time": "202401",
+        "value": "135101.5",
+        "unit": "십억원",
+        "item_name1": "신용협동조합",
+        "item_name2": null,
+        "item_name3": null
+      },
+      "latest": {
+        "time": "202606",
+        "value": "140366.4",
+        "unit": "십억원",
+        "item_name1": "신용협동조합",
+        "item_name2": null,
+        "item_name3": null
+      },
+      "recent_points": [
+        {
+          "time": "202507",
+          "value": "144656.1",
+          "unit": "십억원",
+          "item_name1": "신용협동조합",
+          "item_name2": null,
+          "item_name3": null
+        },
+        {
+          "time": "202508",
+          "value": "145262.2",
+          "unit": "십억원",
+          "item_name1": "신용협동조합",
+          "item_name2": null,
+          "item_name3": null
+        },
+        {
+          "time": "202509",
+          "value": "145975.6",
+          "unit": "십억원",
+          "item_name1": "신용협동조합",
+          "item_name2": null,
+          "item_name3": null
+        },
+        {
+          "time": "202510",
+          "value": "146517.2",
+          "unit": "십억원",
+          "item_name1": "신용협동조합",
+          "item_name2": null,
+          "item_name3": null
+        },
+        {
+          "time": "202511",
+          "value": "146335.9",
+          "unit": "십억원",
+          "item_name1": "신용협동조합",
+          "item_name2": null,
+          "item_name3": null
+        },
+        {
+          "time": "202512",
+          "value": "145741.8",
+          "unit": "십억원",
+          "item_name1": "신용협동조합",
+          "item_name2": null,
+          "item_name3": null
+        },
+        {
+          "time": "202601",
+          "value": "144018.6",
+          "unit": "십억원",
+          "item_name1": "신용협동조합",
+          "item_name2": null,
+          "item_name3": null
+        },
+        {
+          "time": "202602",
+          "value": "143061.3",
+          "unit": "십억원",
+          "item_name1": "신용협동조합",
+          "item_name2": null,
+          "item_name3": null
+        },
+        {
+          "time": "202603",
+          "value": "142343.2",
+          "unit": "십억원",
+          "item_name1": "신용협동조합",
+          "item_name2": null,
+          "item_name3": null
+        },
+        {
+          "time": "202604",
+          "value": "142384.1",
+          "unit": "십억원",
+          "item_name1": "신용협동조합",
+          "item_name2": null,
+          "item_name3": null
+        },
+        {
+          "time": "202605",
+          "value": "141265.4",
+          "unit": "십억원",
+          "item_name1": "신용협동조합",
+          "item_name2": null,
+          "item_name3": null
+        },
+        {
+          "time": "202606",
+          "value": "140366.4",
+          "unit": "십억원",
+          "item_name1": "신용협동조합",
+          "item_name2": null,
+          "item_name3": null
+        }
+      ]
+    },
+    {
+      "feature": "mutual_finance_deposit_balance",
+      "stat_code": "111Y007",
+      "item_code": "1120800",
+      "expected_name": "상호금융",
+      "expected_unit": "십억원",
+      "cycle": "M",
+      "verified": true,
+      "point_count": 30,
+      "first": {
+        "time": "202401",
+        "value": "484507.8",
+        "unit": "십억원",
+        "item_name1": "상호금융",
+        "item_name2": null,
+        "item_name3": null
+      },
+      "latest": {
+        "time": "202606",
+        "value": "519427.3",
+        "unit": "십억원",
+        "item_name1": "상호금융",
+        "item_name2": null,
+        "item_name3": null
+      },
+      "recent_points": [
+        {
+          "time": "202507",
+          "value": "522778.2",
+          "unit": "십억원",
+          "item_name1": "상호금융",
+          "item_name2": null,
+          "item_name3": null
+        },
+        {
+          "time": "202508",
+          "value": "524883.4",
+          "unit": "십억원",
+          "item_name1": "상호금융",
+          "item_name2": null,
+          "item_name3": null
+        },
+        {
+          "time": "202509",
+          "value": "526429.6",
+          "unit": "십억원",
+          "item_name1": "상호금융",
+          "item_name2": null,
+          "item_name3": null
+        },
+        {
+          "time": "202510",
+          "value": "528009.9",
+          "unit": "십억원",
+          "item_name1": "상호금융",
+          "item_name2": null,
+          "item_name3": null
+        },
+        {
+          "time": "202511",
+          "value": "527495.6",
+          "unit": "십억원",
+          "item_name1": "상호금융",
+          "item_name2": null,
+          "item_name3": null
+        },
+        {
+          "time": "202512",
+          "value": "529862.9",
+          "unit": "십억원",
+          "item_name1": "상호금융",
+          "item_name2": null,
+          "item_name3": null
+        },
+        {
+          "time": "202601",
+          "value": "526659.7",
+          "unit": "십억원",
+          "item_name1": "상호금융",
+          "item_name2": null,
+          "item_name3": null
+        },
+        {
+          "time": "202602",
+          "value": "523549.1",
+          "unit": "십억원",
+          "item_name1": "상호금융",
+          "item_name2": null,
+          "item_name3": null
+        },
+        {
+          "time": "202603",
+          "value": "524455.6",
+          "unit": "십억원",
+          "item_name1": "상호금융",
+          "item_name2": null,
+          "item_name3": null
+        },
+        {
+          "time": "202604",
+          "value": "526124",
+          "unit": "십억원",
+          "item_name1": "상호금융",
+          "item_name2": null,
+          "item_name3": null
+        },
+        {
+          "time": "202605",
+          "value": "522108.2",
+          "unit": "십억원",
+          "item_name1": "상호금융",
+          "item_name2": null,
+          "item_name3": null
+        },
+        {
+          "time": "202606",
+          "value": "519427.3",
+          "unit": "십억원",
+          "item_name1": "상호금융",
+          "item_name2": null,
+          "item_name3": null
+        }
+      ]
+    },
+    {
+      "feature": "kfcc_deposit_balance",
+      "stat_code": "111Y007",
+      "item_code": "1121000",
+      "expected_name": "새마을금고",
+      "expected_unit": "십억원",
+      "cycle": "M",
+      "verified": true,
+      "point_count": 30,
+      "first": {
+        "time": "202401",
+        "value": "256773.9",
+        "unit": "십억원",
+        "item_name1": "새마을금고",
+        "item_name2": null,
+        "item_name3": null
+      },
+      "latest": {
+        "time": "202606",
+        "value": "243247.8",
+        "unit": "십억원",
+        "item_name1": "새마을금고",
+        "item_name2": null,
+        "item_name3": null
+      },
+      "recent_points": [
+        {
+          "time": "202507",
+          "value": "260860.3",
+          "unit": "십억원",
+          "item_name1": "새마을금고",
+          "item_name2": null,
+          "item_name3": null
+        },
+        {
+          "time": "202508",
+          "value": "260595.5",
+          "unit": "십억원",
+          "item_name1": "새마을금고",
+          "item_name2": null,
+          "item_name3": null
+        },
+        {
+          "time": "202509",
+          "value": "260527.9",
+          "unit": "십억원",
+          "item_name1": "새마을금고",
+          "item_name2": null,
+          "item_name3": null
+        },
+        {
+          "time": "202510",
+          "value": "259795.9",
+          "unit": "십억원",
+          "item_name1": "새마을금고",
+          "item_name2": null,
+          "item_name3": null
+        },
+        {
+          "time": "202511",
+          "value": "257564.6",
+          "unit": "십억원",
+          "item_name1": "새마을금고",
+          "item_name2": null,
+          "item_name3": null
+        },
+        {
+          "time": "202512",
+          "value": "255256.6",
+          "unit": "십억원",
+          "item_name1": "새마을금고",
+          "item_name2": null,
+          "item_name3": null
+        },
+        {
+          "time": "202601",
+          "value": "252510.9",
+          "unit": "십억원",
+          "item_name1": "새마을금고",
+          "item_name2": null,
+          "item_name3": null
+        },
+        {
+          "time": "202602",
+          "value": "249261.1",
+          "unit": "십억원",
+          "item_name1": "새마을금고",
+          "item_name2": null,
+          "item_name3": null
+        },
+        {
+          "time": "202603",
+          "value": "248297.7",
+          "unit": "십억원",
+          "item_name1": "새마을금고",
+          "item_name2": null,
+          "item_name3": null
+        },
+        {
+          "time": "202604",
+          "value": "247123.1",
+          "unit": "십억원",
+          "item_name1": "새마을금고",
+          "item_name2": null,
+          "item_name3": null
+        },
+        {
+          "time": "202605",
+          "value": "243791",
+          "unit": "십억원",
+          "item_name1": "새마을금고",
+          "item_name2": null,
+          "item_name3": null
+        },
+        {
+          "time": "202606",
+          "value": "243247.8",
+          "unit": "십억원",
+          "item_name1": "새마을금고",
+          "item_name2": null,
+          "item_name3": null
+        }
+      ]
+    }
+  ],
+  "production_collector_status": "not_implemented"
+}
