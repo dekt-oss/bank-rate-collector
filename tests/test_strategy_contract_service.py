@@ -323,6 +323,9 @@ def test_strategy_universe_records_collected_best_rate_coverage() -> None:
     assert sectors["cu"]["geo_basis"] == ["source_query_region"]
     assert sectors["cu"]["terms"]["6"]["rows"] == 0
     assert sectors["cu"]["terms"]["6"]["selectable"] is False
+    assert sectors["kfcc"]["max_rate_capability"] is False
+    assert sectors["kfcc"]["strategy_rate_capability"] is True
+    assert sectors["kfcc"]["strategy_rate_rows"] == 1
     assert sectors["kfcc"]["rate_basis_counts"] == {"collected_base_rate": 1}
     assert sectors["nh_local"]["rate_basis_counts"] == {"nh_ejoy_base_plus_add": 1}
 

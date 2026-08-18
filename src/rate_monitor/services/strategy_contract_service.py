@@ -32,6 +32,7 @@ STRATEGY_CANDIDATE_SECTORS = ("savings_bank", "cu", "kfcc", "nh_local")
 # 이름은 기존 caller/test 호환용으로 유지한다. 이제 네 업권 모두 strategy rate를
 # 만들 수 있으며 canonical max_rate capability와 같은 뜻이 아니다.
 STRATEGY_MAX_RATE_ENABLED_SECTORS = frozenset(STRATEGY_CANDIDATE_SECTORS)
+STRATEGY_SOURCE_MAX_RATE_SECTORS = frozenset({"savings_bank", "cu", "nh_local"})
 STRATEGY_SECTOR_LABELS = {
     "savings_bank": "저축은행",
     "cu": "신협",
@@ -475,7 +476,8 @@ def strategy_universe_metadata(table: dict[str, Any]) -> dict[str, Any]:
             term_rate_rows = sum(_rate_present(row[max_index]) for row in term_rows)
             terms[str(term)] = {
                 "rows": len(term_rows),
-                "max_rate_rows": term_rate_rows,
+                "max_rate_rows": term_rate_rows,  # compatibility alias
+                "strategy_rate_rows": term_rate_rows,
                 "coverage_ratio": (
                     round(term_rate_rows / len(term_rows), 6) if term_rows else None
                 ),
@@ -488,11 +490,12 @@ def strategy_universe_metadata(table: dict[str, Any]) -> dict[str, Any]:
         sectors[sector] = {
             "label": STRATEGY_SECTOR_LABELS[sector],
             "state": state,
-            "max_rate_capability": True,
+            "max_rate_capability": sector in STRATEGY_SOURCE_MAX_RATE_SECTORS,
             "strategy_rate_capability": True,
             "selectable": rate_rows > 0,
             "rows": len(rows),
-            "max_rate_rows": rate_rows,
+            "max_rate_rows": rate_rows,  # compatibility alias
+            "strategy_rate_rows": rate_rows,
             "coverage_ratio": round(rate_rows / len(rows), 6) if rows else None,
             "latest_source_effective_at": latest_effective_at,
             "geo_basis": _sorted_decoded_values(

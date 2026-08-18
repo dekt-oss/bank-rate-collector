@@ -145,7 +145,9 @@ def test_strategy_page_uses_canonical_derived_slice_without_inlining_rows(
     assert "rows" not in inline
     assert '"rows":[[' not in strategy_html
     assert "product_id" not in canonical["columns"]
-    assert strategy_table["columns"][-1] == "product_id"
+    assert "strategy_rate_basis" not in canonical["columns"]
+    assert "product_id" in strategy_table["columns"]
+    assert "strategy_rate_basis" in strategy_table["columns"]
     assert len(strategy_table["rows"]) <= len(canonical["rows"])
 
     columns = {name: i for i, name in enumerate(strategy_table["columns"])}
