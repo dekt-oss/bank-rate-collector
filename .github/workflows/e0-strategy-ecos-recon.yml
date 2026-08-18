@@ -1,14 +1,14 @@
 name: Diagnostic — Strategy ECOS external indicators
 
-# Stage E0 source-contract discovery only. This workflow never writes the
-# production DB and does not publish Strategy. It exists to identify exact ECOS
-# table/item contracts before any collector code is allowed to hardcode them.
+# Stage E0 source-contract discovery and verified-series probe only. This
+# workflow never writes the production DB and does not publish Strategy.
 on:
   workflow_dispatch:
   push:
     branches: [main]
     paths:
       - "scripts/e0_strategy_external_indicators_recon.py"
+      - "scripts/e0_strategy_external_indicator_series_probe.py"
       - ".github/workflows/e0-strategy-ecos-recon.yml"
 
 permissions:
@@ -32,7 +32,7 @@ jobs:
           gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
             -f state=pending \
             -f context=strategy-ecos-recon \
-            -f description="ECOS source-contract discovery running" \
+            -f description="ECOS external-indicator probe running" \
             -f target_url="$TARGET_URL"
 
       - name: Install uv
@@ -51,21 +51,32 @@ jobs:
           ECOS_API_KEY: ${{ secrets.ECOS_API_KEY }}
         run: uv run python scripts/e0_strategy_external_indicators_recon.py
 
-      - name: Check the key never reached the report
+      - name: Probe verified Strategy external indicator series
+        env:
+          ECOS_API_KEY: ${{ secrets.ECOS_API_KEY }}
+        run: uv run python scripts/e0_strategy_external_indicator_series_probe.py
+
+      - name: Check the key never reached the reports
         env:
           ECOS_API_KEY: ${{ secrets.ECOS_API_KEY }}
         run: |
-          REPORT=docs/source-recon/strategy-external-indicators-recon.json
-          if grep -qF "$ECOS_API_KEY" "$REPORT"; then
-            echo "인증키가 정찰 보고서에 남아 있다. 올리지 않는다."
-            exit 1
-          fi
+          for REPORT in \
+            docs/source-recon/strategy-external-indicators-recon.json \
+            docs/source-recon/strategy-external-indicator-series-probe.json
+          do
+            if grep -qF "$ECOS_API_KEY" "$REPORT"; then
+              echo "인증키가 $REPORT 에 남아 있다. 올리지 않는다."
+              exit 1
+            fi
+          done
           echo "인증키 노출 0건"
 
       - uses: actions/upload-artifact@v4
         with:
           name: diagnostic-strategy-ecos-external-indicators
-          path: docs/source-recon/strategy-external-indicators-recon.json
+          path: |
+            docs/source-recon/strategy-external-indicators-recon.json
+            docs/source-recon/strategy-external-indicator-series-probe.json
           retention-days: 7
 
       - name: Mark diagnostic run successful
@@ -77,5 +88,5 @@ jobs:
           gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
             -f state=success \
             -f context=strategy-ecos-recon \
-            -f description="ECOS source-contract discovery complete" \
+            -f description="ECOS external-indicator probe complete" \
             -f target_url="$TARGET_URL"
