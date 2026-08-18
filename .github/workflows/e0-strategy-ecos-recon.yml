@@ -13,12 +13,27 @@ on:
 
 permissions:
   contents: read
+  statuses: write
 
 jobs:
   recon:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      # The Chat/GitHub connector can read commit statuses but cannot enumerate
+      # push-triggered workflow runs. Publish only this run URL — never source
+      # data — so the diagnostic artifact remains discoverable and auditable.
+      - name: Publish diagnostic run locator
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            -f state=pending \
+            -f context=strategy-ecos-recon \
+            -f description="ECOS source-contract discovery running" \
+            -f target_url="$TARGET_URL"
 
       - name: Install uv
         uses: astral-sh/setup-uv@v5
@@ -52,3 +67,15 @@ jobs:
           name: diagnostic-strategy-ecos-external-indicators
           path: docs/source-recon/strategy-external-indicators-recon.json
           retention-days: 7
+
+      - name: Mark diagnostic run successful
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            -f state=success \
+            -f context=strategy-ecos-recon \
+            -f description="ECOS source-contract discovery complete" \
+            -f target_url="$TARGET_URL"
