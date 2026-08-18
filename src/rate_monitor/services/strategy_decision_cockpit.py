@@ -15,6 +15,9 @@ from rate_monitor.services.dashboard_service import DashboardBuildError
 from rate_monitor.services.market_intelligence_presentation import (
     inject_market_intelligence_presentation,
 )
+from rate_monitor.services.preference_intelligence_presentation import (
+    inject_preference_intelligence_presentation,
+)
 
 STYLE_MARKER = 'id="rate-response-cockpit-style"'
 SCRIPT_MARKER = 'id="rate-response-cockpit-script"'
@@ -113,7 +116,7 @@ _JS = r"""
 
 
 def inject_strategy_decision_cockpit(html: str) -> str:
-    """Strategy HTML에 Stage B 의사결정 presentation을 한 번만 주입한다."""
+    """Strategy HTML에 Stage B/C/D 의사결정 presentation을 합성한다."""
     has_style = STYLE_MARKER in html
     has_script = SCRIPT_MARKER in html
     if has_style and has_script:
@@ -127,8 +130,9 @@ def inject_strategy_decision_cockpit(html: str) -> str:
             raise DashboardBuildError("기존 Strategy 수신예측 계약을 찾지 못했다")
         rendered = html.replace("</head>", _CSS + "\n</head>", 1)
         rendered = rendered.replace("</body>", _JS + "\n</body>", 1)
-    # 실제 Strategy 템플릿에는 market-flow가 있으므로 C2를 함께 합성한다.
-    # 단위 테스트의 최소 Stage B fixture처럼 market-flow가 없는 HTML은 B만 검증한다.
+    # 실제 Strategy 템플릿에만 후속 C/D presentation을 합성한다. 최소 fixture는 B만 유지한다.
     if 'id="market-flow"' in rendered:
         rendered = inject_market_intelligence_presentation(rendered)
+    if 'class="grid interpretation"' in rendered:
+        rendered = inject_preference_intelligence_presentation(rendered)
     return rendered
