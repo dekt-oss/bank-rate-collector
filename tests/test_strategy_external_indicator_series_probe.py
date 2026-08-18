@@ -91,11 +91,11 @@ def test_series_probe_is_read_only_and_has_no_storage_path() -> None:
 def test_workflow_runs_discovery_then_exact_series_probe() -> None:
     source = WORKFLOW.read_text(encoding="utf-8")
 
-    discovery = "e0_strategy_external_indicators_recon.py"
-    series = "e0_strategy_external_indicator_series_probe.py"
+    discovery = "uv run python scripts/e0_strategy_external_indicators_recon.py"
+    series = "uv run python scripts/e0_strategy_external_indicator_series_probe.py"
     assert discovery in source
     assert series in source
-    assert source.index("uv run python " + discovery) < source.index("uv run python " + series)
+    assert source.index(discovery) < source.index(series)
     assert "strategy-external-indicator-series-probe.json" in source
     assert "statuses: write" in source
     assert "context=strategy-ecos-recon" in source
