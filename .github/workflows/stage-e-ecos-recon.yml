@@ -7,10 +7,12 @@ on:
       - "recon/stage-e-external-indicators-*"
     paths:
       - "scripts/stage_e_ecos_external_recon.py"
+      - "scripts/stage_e_ecos_series_verify.py"
+      - "docs/source-recon/stage-e-external-indicators-selection.md"
       - ".github/workflows/stage-e-ecos-recon.yml"
 
-# Read-only source-contract evidence. The only repository write is a sanitized
-# candidate summary on the isolated recon branch. No DB restore/collector/rate-data
+# Read-only source-contract evidence. The only repository writes are sanitized
+# evidence summaries on the isolated recon branch. No DB restore/collector/rate-data
 # write and no production publication.
 permissions:
   contents: write
@@ -38,12 +40,17 @@ jobs:
       - name: Sync dependencies
         run: uv sync --locked
 
-      - name: Probe ECOS by names only
+      - name: Probe ECOS metadata by names only
         env:
           ECOS_API_KEY: ${{ secrets.ECOS_API_KEY }}
         run: uv run python scripts/stage_e_ecos_external_recon.py
 
-      - name: Verify no code was selected automatically
+      - name: Verify selected monthly series
+        env:
+          ECOS_API_KEY: ${{ secrets.ECOS_API_KEY }}
+        run: uv run python scripts/stage_e_ecos_series_verify.py
+
+      - name: Verify evidence contracts
         run: |
           python - <<'PY'
           import json
@@ -58,15 +65,26 @@ jobs:
               assert report["selected_stat_codes"] == []
               assert report["selected_item_codes"] == []
               assert report["selection_status"] == "not_selected_until_human_evidence_review"
-          print("automatic code selection: 0")
+
+          verified = json.loads(
+              Path("docs/source-recon/stage-e-external-indicators-series-runtime.json")
+              .read_text(encoding="utf-8")
+          )
+          assert verified["mode"] == "read_only_series_verification"
+          assert verified["all_verified"] is True
+          assert len(verified["series"]) == 6
+          assert verified["production_collector_status"] == "not_implemented"
+          print("metadata automatic code selection: 0; selected series verified: 6")
           PY
 
       - name: Check API key never reached outputs
         env:
           ECOS_API_KEY: ${{ secrets.ECOS_API_KEY }}
         run: |
-          if grep -qF "$ECOS_API_KEY" work/stage-e-ecos-external-recon.json \
-            docs/source-recon/stage-e-external-indicators-runtime.json; then
+          if grep -qF "$ECOS_API_KEY" \
+            work/stage-e-ecos-external-recon.json \
+            docs/source-recon/stage-e-external-indicators-runtime.json \
+            docs/source-recon/stage-e-external-indicators-series-runtime.json; then
             echo "ECOS key leaked into recon output"
             exit 1
           fi
@@ -78,15 +96,17 @@ jobs:
           path: work/stage-e-ecos-external-recon.json
           retention-days: 7
 
-      - name: Commit sanitized candidate summary
+      - name: Commit sanitized evidence summaries
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add docs/source-recon/stage-e-external-indicators-runtime.json
+          git add \
+            docs/source-recon/stage-e-external-indicators-runtime.json \
+            docs/source-recon/stage-e-external-indicators-series-runtime.json
           if git diff --cached --quiet; then
-            echo "sanitized recon summary unchanged"
+            echo "sanitized recon evidence unchanged"
             exit 0
           fi
-          git commit -m "docs(recon): update Stage E ECOS candidate evidence"
+          git commit -m "docs(recon): update Stage E ECOS runtime evidence"
           git push origin HEAD:${{ github.ref_name }}
