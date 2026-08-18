@@ -181,7 +181,10 @@ def test_history_gate_does_not_label_two_days_as_seven_day_change(tmp_path: Path
             product_id="p1",
         )
         conn.execute(
-            "INSERT INTO rate_observations VALUES ('o1', ?, 'r0', '2026-08-01T00:00:00', NULL, 3.20, 'valid')",
+            """
+            INSERT INTO rate_observations
+            VALUES ('o1', ?, 'r0', '2026-08-01T00:00:00', NULL, 3.20, 'valid')
+            """,
             (variant,),
         )
         conn.commit()
@@ -204,10 +207,22 @@ def test_nh_local_history_fails_closed_until_strategy_rate_basis_is_reconstructe
     try:
         conn.execute("INSERT INTO sources VALUES ('nh_local', 'nh_local')")
         conn.execute(
-            "INSERT INTO collection_runs VALUES ('r0', 'nh_local', 'success', '2026-07-01T00:00:00', '2026-07-01T00:00:00')"
+            """
+            INSERT INTO collection_runs
+            VALUES (
+                'r0', 'nh_local', 'success',
+                '2026-07-01T00:00:00', '2026-07-01T00:00:00'
+            )
+            """
         )
         conn.execute(
-            "INSERT INTO collection_runs VALUES ('r1', 'nh_local', 'success', '2026-08-18T00:00:00', '2026-08-18T00:00:00')"
+            """
+            INSERT INTO collection_runs
+            VALUES (
+                'r1', 'nh_local', 'success',
+                '2026-08-18T00:00:00', '2026-08-18T00:00:00'
+            )
+            """
         )
         variant = _insert_product(
             conn,
@@ -217,7 +232,10 @@ def test_nh_local_history_fails_closed_until_strategy_rate_basis_is_reconstructe
             sector="nh_local",
         )
         conn.execute(
-            "INSERT INTO rate_observations VALUES ('no1', ?, 'r0', '2026-07-01T00:00:00', NULL, 3.50, 'valid')",
+            """
+            INSERT INTO rate_observations
+            VALUES ('no1', ?, 'r0', '2026-07-01T00:00:00', NULL, 3.50, 'valid')
+            """,
             (variant,),
         )
         conn.commit()
