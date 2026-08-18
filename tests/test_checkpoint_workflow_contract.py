@@ -78,6 +78,7 @@ def test_checkpoint_workflows_keep_schedule_and_single_writer_contract() -> None
     ]
     expected = {
         "group": "rate-data-writer",
+        "queue": "max",
         "cancel-in-progress": False,
     }
     assert core["concurrency"] == expected
