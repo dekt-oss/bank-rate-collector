@@ -58,12 +58,12 @@ a{color:inherit}.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
   </div>
   <div class="sector-toggles" id="sector-toggles" aria-label="상호금융 세부 업권">
     <label class="sector-toggle"><input type="checkbox" data-sector="cu" checked>신협 <small>확인 중</small></label>
-    <label class="sector-toggle disabled"><input type="checkbox" data-sector="kfcc" disabled>새마을금고 <small>최고금리 미지원</small></label>
-    <label class="sector-toggle disabled"><input type="checkbox" data-sector="nh_local" disabled>농·축협 <small>최고금리 미지원</small></label>
+    <label class="sector-toggle"><input type="checkbox" data-sector="kfcc">새마을금고 <small>확인 중</small></label>
+    <label class="sector-toggle"><input type="checkbox" data-sector="nh_local">농·축협 <small>확인 중</small></label>
   </div>
   <div class="scope-status" id="scope-status"><b>최고금리 기준</b><span>업권 capability를 확인하는 중입니다.</span></div>
 </section>
-<section class="evidence-strip" id="scope-evidence" aria-label="업권별 최고금리 coverage와 데이터 기준"><article class="evidence-card"><div class="evidence-head"><strong>데이터 신뢰도</strong><em>확인 중</em></div><div class="evidence-grid"><span>업권 capability를 불러옵니다.</span></div></article></section>
+<section class="evidence-strip" id="scope-evidence" aria-label="업권별 수집 데이터 기준 최고금리 coverage와 산식"><article class="evidence-card"><div class="evidence-head"><strong>데이터 신뢰도</strong><em>확인 중</em></div><div class="evidence-grid"><span>업권 capability를 불러옵니다.</span></div></article></section>
 <div class="error" id="error" hidden role="alert"></div>
 <section class="grid kpis" aria-label="시장 핵심 지표">
   <article class="card kpi green"><div><div class="klabel">시장 최고 금리 <span class="basis-label">12개월</span><span class="badge">LIVE</span></div><div class="kvalue" id="market-max">—</div></div><div class="kfoot"><span id="leader">금리표 불러오는 중</span><span class="mono" id="leader-source">—</span></div></article>
@@ -122,7 +122,7 @@ a{color:inherit}.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
     </div>
   </article>
 </section>
-<footer class="foot"><span id="footer-geo"><b>지역 기준</b> · 저축은행 공시금리 — 전국 본점 기준 참고값</span><span id="footer-calc"><b>계산 기준</b> · 최고금리 NULL은 기본금리로 대체하지 않음 · 동일 금리 공동순위</span></footer>
+<footer class="foot"><span id="footer-geo"><b>지역 기준</b> · 저축은행 공시금리 — 전국 본점 기준 참고값</span><span id="footer-calc"><b>계산 기준</b> · 수집 데이터 기준 최고금리 · 원천 최고금리 우선 · 미기재 시 수집 기본금리 · 명시 가산만 합산</span></footer>
 </div>
 <script id="rate-monitor-data" type="application/json"></script>
 <script>
@@ -145,7 +145,7 @@ function formatDate(v){if(!v)return"공시일 미확인";const d=new Date(String
 function expand(t){
   const c=Object.fromEntries((t.columns||[]).map((x,i)=>[x,i])),l=t.lookups||{};
   const look=(k,v)=>v==null?null:(l[k]?l[k][v]:v);
-  return(t.rows||[]).map(r=>({sector:look("sector",r[c.sector]),institution:look("institution",r[c.institution]),region:look("region",r[c.region]),district:look("district",r[c.district]),product:look("product",r[c.product]),productId:look("product_id",r[c.product_id]),type:look("product_type",r[c.product_type]),term:n(r[c.term_months]),base:n(r[c.base_rate]),max:n(r[c.max_rate]),sourceId:look("source_id",r[c.source_id]),sourceEffectiveAt:look("source_effective_at",r[c.source_effective_at]),joinChannel:look("join_channel",r[c.join_channel]),availabilityScope:look("availability_scope",r[c.availability_scope]),geoBasis:look("geo_basis",r[c.geo_basis]),rateScope:look("rate_scope",r[c.rate_scope]),prefStatus:look("preference_status",r[c.preference_status]),prefTags:look("preference_tags",r[c.preference_tags])||"",prefRaw:look("preference",r[c.preference])||""}))
+  return(t.rows||[]).map(r=>({sector:look("sector",r[c.sector]),institution:look("institution",r[c.institution]),region:look("region",r[c.region]),district:look("district",r[c.district]),product:look("product",r[c.product]),productId:look("product_id",r[c.product_id]),type:look("product_type",r[c.product_type]),term:n(r[c.term_months]),base:n(r[c.base_rate]),max:n(r[c.max_rate]),rateBasis:look("strategy_rate_basis",r[c.strategy_rate_basis]),sourceId:look("source_id",r[c.source_id]),sourceEffectiveAt:look("source_effective_at",r[c.source_effective_at]),joinChannel:look("join_channel",r[c.join_channel]),availabilityScope:look("availability_scope",r[c.availability_scope]),geoBasis:look("geo_basis",r[c.geo_basis]),rateScope:look("rate_scope",r[c.rate_scope]),prefStatus:look("preference_status",r[c.preference_status]),prefTags:look("preference_tags",r[c.preference_tags])||"",prefRaw:look("preference",r[c.preference])||""}))
 }
 function universeSector(key){return strategyUniverse?.sectors?.[key]||null}
 function sectorLabel(key){return universeSector(key)?.label||({savings_bank:"저축은행",cu:"신협",kfcc:"새마을금고",nh_local:"농·축협"}[key]||key)}
@@ -155,6 +155,7 @@ function modeLabel(){return marketMode==="savings_bank"?"저축은행":marketMod
 const GEO_BASIS_LABELS={head_office_address:"본점 소재지",head_office:"본점 소재지",source_query_region:"원천 조회지역",outlet_address:"점포 주소"};
 const RATE_SCOPE_LABELS={institution:"기관",outlet:"점포"};
 const AVAILABILITY_LABELS={all:"전체",general:"일반",all_customers:"전체 고객",member_only:"회원 전용",members:"회원 전용",region_restricted:"지역 제한",internet_only:"인터넷 전용",unknown:"미확인"};
+const STRATEGY_RATE_BASIS_LABELS={source_max_rate:"원천 최고금리",nh_ejoy_base_plus_add:"기본금리 + e-joy 우대",collected_base_rate:"수집 기본금리"};
 function metaValueList(meta,key){const v=meta?.[key];return Array.isArray(v)?v.filter(Boolean):v?[v]:[]}
 function compactMeta(values,labels,fallback){if(!values.length)return fallback;const head=values.slice(0,2).map(x=>labels[x]||String(x));return head.join(" / ")+(values.length>2?` +${values.length-2}`:"")}
 function sectorGeoBasis(key){const values=metaValueList(universeSector(key),"geo_basis");if(values.length)return compactMeta(values,GEO_BASIS_LABELS,"지역 기준 미확인");return key==="savings_bank"?"본점 소재지":key==="cu"?"원천 조회지역":"지역 기준 미확인"}
@@ -162,24 +163,25 @@ function sectorRateScope(key){return compactMeta(metaValueList(universeSector(ke
 function sectorAvailability(key){return compactMeta(metaValueList(universeSector(key),"availability_scope"),AVAILABILITY_LABELS,"가입 범위 미확인")}
 function availabilityText(value){return AVAILABILITY_LABELS[value]||String(value||"가입 범위 미확인")}
 function rateScopeText(value){return RATE_SCOPE_LABELS[value]||String(value||"비교 단위 미확인")}
+function strategyRateBasisText(value){return STRATEGY_RATE_BASIS_LABELS[value]||String(value||"산식 미확인")}
 function hasSingleGeoBasis(key){return metaValueList(universeSector(key),"geo_basis").length===1}
 function termCoverage(meta,term=12){const t=meta?.terms?.[String(term)];if(!t||!Number(t.rows||0))return`${term}M 데이터 없음`;const ratio=Number(t.coverage_ratio),pct=Number.isFinite(ratio)?`${(ratio*100).toFixed(0)}%`:"미확인";return`${pct} · ${fmt.format(Number(t.max_rate_rows||0))}/${fmt.format(Number(t.rows||0))}`}
-function renderScopeEvidence(){const host=$("scope-evidence"),active=new Set(activeSectors()),keys=strategyUniverse?.candidate_sectors||["savings_bank","cu","kfcc","nh_local"];host.innerHTML=keys.map(key=>{const meta=universeSector(key),selected=active.has(key),selectable=!!meta?.selectable,state=selectable?(selected?"선택":"사용 가능"):"랭킹 제외",klass=`evidence-card${selected?" active":""}${!selectable?" blocked":""}`,reason=!selectable?(meta?.blocked_reason||(!meta?.max_rate_capability?"공식 최고금리 계약 미지원":"현재 최고금리 비교 데이터 없음")):"";return`<article class="${klass}" data-evidence-sector="${esc(key)}"><div class="evidence-head"><strong>${esc(sectorLabel(key))}</strong><em>${esc(state)}</em></div><div class="evidence-grid"><span><b>12M 최고금리</b>${esc(termCoverage(meta,12))}</span><span><b>비교단위</b>${esc(sectorRateScope(key))}</span><span><b>지역기준</b>${esc(sectorGeoBasis(key))}</span><span><b>가입범위</b>${esc(sectorAvailability(key))}</span><span><b>최신 기준일</b>${esc(formatDate(meta?.latest_source_effective_at))}</span></div>${reason?`<p class="evidence-reason">${esc(reason)}</p>`:""}</article>`}).join("")}
-function activeGeoSectors(){return activeSectors().filter(key=>["savings_bank","cu","nh_local"].includes(key)&&hasSingleGeoBasis(key))}
+function renderScopeEvidence(){const host=$("scope-evidence"),active=new Set(activeSectors()),keys=strategyUniverse?.candidate_sectors||["savings_bank","cu","kfcc","nh_local"];host.innerHTML=keys.map(key=>{const meta=universeSector(key),selected=active.has(key),selectable=!!meta?.selectable,state=selectable?(selected?"선택":"사용 가능"):"랭킹 제외",klass=`evidence-card${selected?" active":""}${!selectable?" blocked":""}`,reason=!selectable?(meta?.blocked_reason||(!meta?.max_rate_capability?"수집 데이터 기준 비교금리 미지원":"현재 최고금리 비교 데이터 없음")):"";return`<article class="${klass}" data-evidence-sector="${esc(key)}"><div class="evidence-head"><strong>${esc(sectorLabel(key))}</strong><em>${esc(state)}</em></div><div class="evidence-grid"><span><b>12M 수집기준 최고</b>${esc(termCoverage(meta,12))}</span><span><b>비교단위</b>${esc(sectorRateScope(key))}</span><span><b>지역기준</b>${esc(sectorGeoBasis(key))}</span><span><b>가입범위</b>${esc(sectorAvailability(key))}</span><span><b>최신 기준일</b>${esc(formatDate(meta?.latest_source_effective_at))}</span></div>${reason?`<p class="evidence-reason">${esc(reason)}</p>`:""}</article>`}).join("")}
+function activeGeoSectors(){return activeSectors().filter(key=>["savings_bank","cu","kfcc","nh_local"].includes(key)&&hasSingleGeoBasis(key))}
 function ensureMapSector(){const sectors=activeGeoSectors();if(!sectors.includes(mapSector))mapSector=sectors[0]||null;return mapSector}
-function mapLayerLabel(key){return key==="savings_bank"?"저축은행 본점":key==="cu"?"신협 조회지역":key==="nh_local"?"농·축협 점포":sectorLabel(key)}
+function mapLayerLabel(key){return key==="savings_bank"?"저축은행 본점":key==="cu"?"신협 조회지역":key==="kfcc"?"새마을금고 공시지역":key==="nh_local"?"농·축협 점포":sectorLabel(key)}
 function setMapSector(key){if(!activeGeoSectors().includes(key))return;mapSector=key;mapMode="korea";renderMapLayerTabs();renderKoreaMap();renderInsightsEnhanced()}
 function renderMapLayerTabs(){const host=$("map-layer-tabs"),sectors=activeGeoSectors();host.innerHTML=sectors.map(key=>`<button type="button" class="map-layer-tab${key===mapSector?" active":""}" data-map-sector="${esc(key)}">${esc(mapLayerLabel(key))}</button>`).join("");host.querySelectorAll("[data-map-sector]").forEach(btn=>btn.addEventListener("click",()=>setMapSector(btn.dataset.mapSector)))}
 function rankingEntityLabel(){const scopes=activeSectors().flatMap(key=>metaValueList(universeSector(key),"rate_scope"));if(scopes.length&&scopes.every(x=>x==="institution"))return"기관";if(scopes.length&&scopes.every(x=>x==="outlet"))return"점포";return"비교 주체"}
 function rankingBasisText(){const sectors=activeSectors();if(!sectors.length)return"12개월 · 현재 선택된 최고금리 비교 업권 없음";return`12개월 · sector + stable product 대표 · ${sectors.map(key=>`${sectorLabel(key)} ${sectorRateScope(key)}`).join(" · ")}`}
-function capabilityText(meta){if(!meta)return"계약 없음";if(!meta.max_rate_capability)return"최고금리 미지원";if(!meta.selectable)return"현재 비교 데이터 없음";const pct=Number.isFinite(Number(meta.coverage_ratio))?`${(Number(meta.coverage_ratio)*100).toFixed(0)}% 확보`:"coverage 확인 중";return pct}
+function capabilityText(meta){if(!meta)return"계약 없음";if(!meta.strategy_rate_capability)return"수집기준 최고금리 미지원";if(!meta.selectable)return"현재 비교 데이터 없음";const pct=Number.isFinite(Number(meta.coverage_ratio))?`${(Number(meta.coverage_ratio)*100).toFixed(0)}% 확보`:"coverage 확인 중";return pct}
 function renderScopeControls(){
   document.querySelectorAll("[data-market-mode]").forEach(btn=>btn.classList.toggle("active",btn.dataset.marketMode===marketMode));
   document.querySelectorAll("[data-sector]").forEach(input=>{const meta=universeSector(input.dataset.sector),label=input.closest(".sector-toggle"),small=label?.querySelector("small"),enabled=!!meta?.selectable;input.disabled=!enabled;label?.classList.toggle("disabled",!enabled);if(small)small.textContent=capabilityText(meta);if(!enabled)input.checked=false});
   const cu=universeSector("cu"),cu6=cu?.terms?.["6"],parts=[`선택 ${activeSectors().map(sectorLabel).join(" + ")||"없음"}`];
   if(cu&&Number(cu.rows||0)>0)parts.push(`신협 최고금리 ${capabilityText(cu)}`);if(cu6&&Number(cu6.rows||0)===0)parts.push("신협 6개월 공시 데이터 없음");
   for(const key of ["kfcc","nh_local"]){const meta=universeSector(key);if(meta&&!meta.selectable)parts.push(`${sectorLabel(key)}: ${meta.blocked_reason||capabilityText(meta)}`)}
-  $("scope-pill").textContent=modeLabel();$("scope-status").innerHTML=`<b>최고금리 기준 · base fallback 없음</b><span>${esc(parts.join(" · "))}</span>`;renderScopeEvidence();$("ranking-basis").textContent=rankingBasisText();
+  $("scope-pill").textContent=modeLabel();$("scope-status").innerHTML=`<b>수집 데이터 기준 최고금리</b><span>원천 최고금리 우선 · 미기재 시 수집 기본금리 · 명시 가산만 합산 · ${esc(parts.join(" · "))}</span>`;renderScopeEvidence();$("ranking-basis").textContent=rankingBasisText();
 }
 function applyModeVisibility(){const mutualOnly=marketMode==="mutual_finance",savingsOnly=marketMode==="savings_bank";$("market-flow").hidden=mutualOnly;$("map-card").hidden=false;$("trend-delta").hidden=!savingsOnly;$("sim-scope-warning").hidden=!mutualOnly;$("sim-form").hidden=mutualOnly;ensureMapSector();renderMapLayerTabs();if(mapMode==="busan"&&mapSector!=="savings_bank")mapMode="korea";renderKoreaMap()}
 function rerenderForScope(){aggregateCache.clear();products12=[];[6,12,24,36].forEach(aggregateProducts);renderMarket();renderPrefs();renderTermStrip();ensureMapSector();renderInsightsEnhanced();applyModeVisibility();if(marketMode!=="mutual_finance")updateSim()}
@@ -193,10 +195,10 @@ function aggregateProducts(term){
     if(!allowed.has(r.sector)||r.type!=="term_deposit"||r.term!==term||!Number.isFinite(r.max)||!r.productId)continue;
     const key=`${r.sector}\0${r.productId}\0${term}`;
     let p=m.get(key);
-    if(!p){p={sector:r.sector,institution:r.institution,product:r.product,term,region:region(r.region),district:r.district||null,max:-Infinity,base:null,sourceId:null,sourceEffectiveAt:null,joinChannel:null,availabilityScope:null,geoBasis:null,rateScope:null,prefKnown:false,tags:new Set,tagLatest:new Map,otherSamples:new Map};m.set(key,p)}
+    if(!p){p={sector:r.sector,institution:r.institution,product:r.product,term,region:region(r.region),district:r.district||null,max:-Infinity,base:null,sourceId:null,sourceEffectiveAt:null,joinChannel:null,availabilityScope:null,geoBasis:null,rateScope:null,rateBasis:null,prefKnown:false,tags:new Set,tagLatest:new Map,otherSamples:new Map};m.set(key,p)}
     if(r.prefStatus==="present"){p.prefKnown=true;const prefDate=String(r.sourceEffectiveAt||""),codes=String(r.prefTags).split(/\s+/).filter(Boolean);codes.forEach(x=>{p.tags.add(x);if(prefDate>String(p.tagLatest.get(x)||""))p.tagLatest.set(x,prefDate)});if(codes.includes("OTHER")&&r.prefRaw){const sampleKey=`${r.institution}\0${r.product}\0${r.prefRaw}`;p.otherSamples.set(sampleKey,{institution:r.institution,product:r.product,raw:r.prefRaw,sourceId:r.sourceId,sourceEffectiveAt:r.sourceEffectiveAt})}}
     const freshness=String(r.sourceEffectiveAt||""),oldFreshness=String(p.sourceEffectiveAt||"");
-    if(r.max>p.max||(r.max===p.max&&freshness>oldFreshness)){p.max=r.max;p.base=r.base;p.sourceId=r.sourceId;p.sourceEffectiveAt=r.sourceEffectiveAt;p.joinChannel=r.joinChannel;p.availabilityScope=r.availabilityScope;p.geoBasis=r.geoBasis;p.rateScope=r.rateScope;p.region=region(r.region)||p.region;p.district=r.district||p.district}
+    if(r.max>p.max||(r.max===p.max&&freshness>oldFreshness)){p.max=r.max;p.base=r.base;p.sourceId=r.sourceId;p.sourceEffectiveAt=r.sourceEffectiveAt;p.joinChannel=r.joinChannel;p.availabilityScope=r.availabilityScope;p.geoBasis=r.geoBasis;p.rateScope=r.rateScope;p.rateBasis=r.rateBasis;p.region=region(r.region)||p.region;p.district=r.district||p.district}
   }
   const products=[...m.values()].sort((a,b)=>b.max-a.max||String(a.institution).localeCompare(String(b.institution),"ko")||String(a.product).localeCompare(String(b.product),"ko"));
   aggregateCache.set(cacheKey,products);
@@ -208,7 +210,7 @@ function topCutoff(a,share=.1){if(!a.length)return null;const s=[...a].sort((x,y
 function ratesStats(products){const rates=products.map(x=>x.max).filter(Number.isFinite);return{mean:mean(rates),median:median(rates),top10:topCutoff(rates),max:rates.length?Math.max(...rates):null,min:rates.length?Math.min(...rates):null}}
 function renderHealth(){const overall=data.collection_health?.overall||"";$("health").textContent=overall==="green"?"수집 정상":overall==="yellow"?"일부 확인 필요":overall==="red"?"수집 오류 확인":"수집 상태 미확인"}
 function renderMarket(){
-  products12=aggregateProducts(12);$("ranking-basis").textContent=rankingBasisText();$("top5-copy").textContent=`12개월 정기예금 · ${modeLabel()} · sector + stable product 대표 최고금리`;$("footer-calc").innerHTML=`<b>계산 기준</b> · ${esc(modeLabel())} evidence-backed 최고금리 · NULL은 기본금리로 대체하지 않음 · 동일 금리 공동순위`;
+  products12=aggregateProducts(12);$("ranking-basis").textContent=rankingBasisText();$("top5-copy").textContent=`12개월 정기예금 · ${modeLabel()} · sector + stable product 대표 수집기준 최고금리`;$("footer-calc").innerHTML=`<b>계산 기준</b> · ${esc(modeLabel())} 수집 데이터 기준 최고금리 · 원천 max 우선 · 미기재 시 수집 기본금리 · 명시 가산만 합산 · 동일 금리 공동순위`;
   if(!products12.length){
     $("market-max").textContent="—";$("leader").textContent="비교 가능한 최고금리 없음";$("leader-source").textContent="—";
     $("mean").textContent="—";$("count").textContent="0";$("institutions").textContent=`${rankingEntityLabel()} 0곳`;$("median").textContent="중앙값 —";
@@ -220,7 +222,7 @@ function renderMarket(){
   $("market-max").innerHTML=`${lead.max.toFixed(2)}<small>%</small>`;$("leader").textContent=`${lead.institution} · ${lead.product}`;$("leader-source").textContent=`${lead.sourceId||"원천 미확인"} · ${formatDate(lead.sourceEffectiveAt)}`;
   $("mean").innerHTML=`${stats.mean.toFixed(2)}<small>%</small>`;$("count").textContent=fmt.format(products12.length);$("institutions").textContent=`${rankingEntityLabel()} ${fmt.format(inst.size)}곳 · ${fmt.format(activeSectors().length)}개 업권`;$("median").textContent=`중앙값 ${stats.median.toFixed(2)}%`;$("top10").innerHTML=`${stats.top10.toFixed(2)}<small>%</small>`;$("top10-note").textContent=`${fmt.format(products12.length)}개 비교상품 기준`;
   $("top5").innerHTML=products12.slice(0,5).map((r,i)=>{
-    const spread=Number.isFinite(r.base)?r.max-r.base:null,provenance=[sectorLabel(r.sector),rateScopeText(r.rateScope),r.sourceId||"원천 미확인",formatDate(r.sourceEffectiveAt),availabilityText(r.availabilityScope),r.joinChannel?`가입채널 ${r.joinChannel}`:null].filter(Boolean).join(" · ");
+    const spread=Number.isFinite(r.base)?r.max-r.base:null,provenance=[sectorLabel(r.sector),strategyRateBasisText(r.rateBasis),rateScopeText(r.rateScope),r.sourceId||"원천 미확인",formatDate(r.sourceEffectiveAt),availabilityText(r.availabilityScope),r.joinChannel?`가입채널 ${r.joinChannel}`:null].filter(Boolean).join(" · ");
     return`<tr><td><span class="rank">${i+1}</span></td><td><span class="bank">${esc(r.institution)}</span><span class="product" title="${esc(r.product)}">${esc(r.product)}</span><span class="sourcehint" title="${esc(provenance)}">${esc(provenance)}</span></td><td>${Number.isFinite(r.base)?r.base.toFixed(2)+"%":"—"}</td><td>${Number.isFinite(spread)?`${spread>=0?"+":""}${spread.toFixed(2)}%p`:"—"}</td><td class="strongrate">${r.max.toFixed(2)}%</td></tr>`
   }).join("")
 }
@@ -230,12 +232,12 @@ function koreaSvg(){return`<defs><filter id="glow"><feGaussianBlur stdDeviation=
 function renderKoreaMap(){
   mapMode="korea";document.querySelector(".primary")?.classList.remove("busan-focus");$("busan-rate-list").hidden=true;$("busan-rate-list").innerHTML="";$("top5-name-head").textContent="금융사 / 상품";const sector=ensureMapSector(),svg=$("geo-map");svg.setAttribute("viewBox","130 -5 450 675");svg.innerHTML=koreaSvg();$("map-back").hidden=true;$("map-mode-label").style.left="auto";$("map-mode-label").style.right="16px";
   if(!sector){svg.setAttribute("aria-label","현재 선택 범위에 지역 지도 데이터 없음");$("map-title").textContent="지역 비교 레이어";$("map-copy").textContent="현재 선택 범위에 표시 가능한 최고금리 지역 관측이 없습니다.";$("map-chip").textContent="데이터 없음";$("map-mode-label").textContent="지도 레이어 없음";$("footer-geo").innerHTML="<b>지역 기준</b> · 현재 선택된 지도 레이어 없음";$("nodes").innerHTML="";return}
-  const savings=sector==="savings_bank",cu=sector==="cu",nhLocal=sector==="nh_local",geoBasis=sectorGeoBasis(sector),geoRows=geoProducts(sector,12),a=regionAverages(geoRows),top=a[0]?.region;
-  const mapAria=savings?"저축은행 본점 소재지별 금리 분포 지도":cu?"신협 원천 조회지역별 금리 분포 지도":"농·축협 점포 주소별 금리 분포 지도";
-  const mapTitle=savings?"전국 본점 소재지별 금리 분포":cu?"신협 조회지역별 금리 분포":"농·축협 점포 주소별 금리 분포";
-  const mapCopy=savings?"본점 소재지별 stable product 대표 최고금리 평균 · 부산을 누르면 구별 지도 확대":cu?"공식 source_query_region별 stable product 최고금리 관측 평균 · 본점/판매 가능 지역으로 해석하지 않음":"공식 점포 주소별 stable product 최고금리 관측 평균 · 가입 가능 지역으로 해석하지 않음";
-  const mapModeCopy=savings?`저축은행 · ${geoBasis} · SGIS 2020 시도 경계 · 제주 inset`:cu?`신협 · ${geoBasis} · SGIS 2020 시도 경계 · district 추정 없음`:`농·축협 · ${geoBasis} · SGIS 2020 시도 경계 · district 추정 없음`;
-  const footerCopy=savings?`<b>지역 기준</b> · 저축은행 ${esc(geoBasis)} — 판매 가능 지역으로 해석하지 않음`:cu?`<b>지역 기준</b> · 신협 ${esc(geoBasis)} — 본점 소재지·판매 가능 지역으로 해석하지 않음`:`<b>지역 기준</b> · 농·축협 ${esc(geoBasis)} — 가입 가능 지역으로 해석하지 않음`;
+  const savings=sector==="savings_bank",cu=sector==="cu",kfcc=sector==="kfcc",nhLocal=sector==="nh_local",geoBasis=sectorGeoBasis(sector),geoRows=geoProducts(sector,12),a=regionAverages(geoRows),top=a[0]?.region;
+  const mapAria=savings?"저축은행 본점 소재지별 금리 분포 지도":cu?"신협 원천 조회지역별 금리 분포 지도":kfcc?"새마을금고 공시 소재지별 금리 분포 지도":"농·축협 점포 주소별 금리 분포 지도";
+  const mapTitle=savings?"전국 본점 소재지별 금리 분포":cu?"신협 조회지역별 금리 분포":kfcc?"새마을금고 공시 소재지별 금리 분포":"농·축협 점포 주소별 금리 분포";
+  const mapCopy=savings?"본점 소재지별 stable product 대표 최고금리 평균 · 부산을 누르면 구별 지도 확대":cu?"공식 source_query_region별 stable product 최고금리 관측 평균 · 본점/판매 가능 지역으로 해석하지 않음":kfcc?"중앙 공시의 기관별 수집 데이터 기준 최고금리 평균 · 가입 가능 지역으로 해석하지 않음":"공식 점포 주소별 stable product 수집 데이터 기준 최고금리 평균 · 가입 가능 지역으로 해석하지 않음";
+  const mapModeCopy=savings?`저축은행 · ${geoBasis} · SGIS 2020 시도 경계 · 제주 inset`:cu?`신협 · ${geoBasis} · SGIS 2020 시도 경계 · district 추정 없음`:kfcc?`새마을금고 · ${geoBasis} · SGIS 2020 시도 경계 · district 추정 없음`:`농·축협 · ${geoBasis} · SGIS 2020 시도 경계 · district 추정 없음`;
+  const footerCopy=savings?`<b>지역 기준</b> · 저축은행 ${esc(geoBasis)} — 판매 가능 지역으로 해석하지 않음`:cu?`<b>지역 기준</b> · 신협 ${esc(geoBasis)} — 본점 소재지·판매 가능 지역으로 해석하지 않음`:kfcc?`<b>지역 기준</b> · 새마을금고 ${esc(geoBasis)} — 기관 공시금리를 배치한 지역이며 가입 가능 지역으로 해석하지 않음`:`<b>지역 기준</b> · 농·축협 ${esc(geoBasis)} — 가입 가능 지역으로 해석하지 않음`;
   svg.setAttribute("aria-label",mapAria);$("map-title").textContent=mapTitle;$("map-copy").textContent=mapCopy;$("map-chip").textContent=`12개월 · ${fmt.format(a.length)}지역`;$("map-mode-label").textContent=mapModeCopy;$("footer-geo").innerHTML=footerCopy;
   $("nodes").innerHTML=a.map(x=>{const[cx,cy]=coords[x.region],preset=koreaLabelOffsets[x.region]||[22,-16,"start"],dx=preset[0],dy=preset[1],anchor=preset[2],lx=cx+dx,labelY=cy+dy,rateY=labelY+14,lineX=anchor==="end"?lx+7:anchor==="start"?lx-7:lx,lineY=labelY+5,clickable=savings&&x.region==="부산",klass=["node",x.region===top?"top":"",clickable?"busan clickable":""].filter(Boolean).join(" ");return`<g class="${klass}" data-region="${esc(x.region)}" role="${clickable?"button":"img"}" tabindex="${clickable?"0":"-1"}" aria-label="${esc(x.region)} 지역 평균 ${x.rate.toFixed(2)}%${clickable?", 부산 지도 확대":""}"><line class="node-line" x1="${cx}" y1="${cy}" x2="${lineX}" y2="${lineY}"/><circle class="node-ring" cx="${cx}" cy="${cy}" r="${x.region===top?14:11}"/><circle class="node-core" cx="${cx}" cy="${cy}" r="4.3"/><text class="node-label" x="${lx}" y="${labelY}" text-anchor="${anchor}">${esc(x.region)}</text><text class="node-rate" x="${lx}" y="${rateY}" text-anchor="${anchor}">${x.rate.toFixed(2)}%</text></g>`}).join("");
   const busanNode=savings?document.querySelector('[data-region="부산"]'):null;if(busanNode){const open=()=>showBusanMap();busanNode.addEventListener("click",open);busanNode.addEventListener("keydown",e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();open()}})}
