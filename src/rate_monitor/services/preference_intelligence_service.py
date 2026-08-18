@@ -16,7 +16,8 @@ from __future__ import annotations
 import math
 from typing import Any
 
-from rate_monitor.domain.preference_taxonomy import OTHER, labels as preference_labels
+from rate_monitor.domain.preference_taxonomy import OTHER
+from rate_monitor.domain.preference_taxonomy import labels as preference_labels
 
 SECTORS = ("savings_bank", "cu", "kfcc", "nh_local")
 TERMS = (6, 12, 24, 36)
@@ -68,6 +69,7 @@ def _representative_key(
     columns: dict[str, int],
 ) -> tuple[Any, ...]:
     """Strategy rate 비교단위와 같은 product+term+geography 축."""
+
     def decoded(name: str) -> Any:
         index = columns.get(name)
         if index is None:
@@ -235,8 +237,16 @@ def _scope(rows: list[dict[str, Any]], sector: str, term: int) -> dict[str, Any]
         )
     categories.sort(
         key=lambda item: (
-            -(item["top_tier_lift_pp"] if item["top_tier_lift_pp"] is not None else -9999),
-            -(item["top_tier_share"] if item["top_tier_share"] is not None else -1),
+            -(
+                item["top_tier_lift_pp"]
+                if item["top_tier_lift_pp"] is not None
+                else -9999
+            ),
+            -(
+                item["top_tier_share"]
+                if item["top_tier_share"] is not None
+                else -1
+            ),
             item["label"],
         )
     )
@@ -306,7 +316,11 @@ def build_preference_intelligence(strategy_table: dict[str, Any]) -> dict[str, A
     scopes = [_scope(rows, sector, term) for sector in SECTORS for term in TERMS]
     return {
         "version": "preference-intelligence-v1",
-        "status": "ready" if any(scope["status"] == "supported" for scope in scopes) else "no_data",
+        "status": (
+            "ready"
+            if any(scope["status"] == "supported" for scope in scopes)
+            else "no_data"
+        ),
         "unit": "strategy_product_term_geography_representative",
         "top_tier_definition": "top_ceil_10pct_by_strategy_max_rate",
         "category_denominator": "known_preference_products_present_or_none",
