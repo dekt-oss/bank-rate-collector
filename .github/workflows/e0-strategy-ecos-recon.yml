@@ -5,6 +5,11 @@ name: Diagnostic — Strategy ECOS external indicators
 # table/item contracts before any collector code is allowed to hardcode them.
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "scripts/e0_strategy_external_indicators_recon.py"
+      - ".github/workflows/e0-strategy-ecos-recon.yml"
 
 permissions:
   contents: read
