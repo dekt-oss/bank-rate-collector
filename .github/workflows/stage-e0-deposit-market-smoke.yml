@@ -1,0 +1,144 @@
+name: Diagnostic — Stage E0 deposit market indicators
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "feat/stage-e0-deposit-market-indicators-*"
+    paths:
+      - "src/rate_monitor/collectors/bok_ecos/deposit_market_adapter.py"
+      - "src/rate_monitor/collectors/bok_ecos/deposit_market_parser.py"
+      - "scripts/collect_deposit_market_indicators.py"
+      - ".github/workflows/stage-e0-deposit-market-smoke.yml"
+
+# Live source validation only. No production DB restore, R2/rate-data write, or site publish.
+permissions:
+  contents: write
+
+concurrency:
+  group: stage-e0-deposit-market-smoke
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Sync dependencies
+        run: uv sync --locked
+
+      - name: Create ephemeral database
+        env:
+          RATE_MONITOR_DB_URL: sqlite+pysqlite:///${{ github.workspace }}/work/e0.sqlite3
+        run: |
+          mkdir -p work
+          uv run alembic upgrade head
+
+      - name: Collect six verified ECOS monthly series
+        env:
+          ECOS_API_KEY: ${{ secrets.ECOS_API_KEY }}
+        run: |
+          uv run python scripts/collect_deposit_market_indicators.py \
+            --db work/e0.sqlite3 \
+            --raw-root work/raw
+
+      - name: Verify stored runtime contract
+        env:
+          ECOS_API_KEY: ${{ secrets.ECOS_API_KEY }}
+        run: |
+          python - <<'PY'
+          import json
+          import sqlite3
+          from pathlib import Path
+
+          expected = {
+              "commercial_bank_1y_new_business_rate": "percent",
+              "savings_bank_1y_new_business_rate": "percent",
+              "savings_bank_deposit_balance": "krw_trillion",
+              "credit_union_deposit_balance": "krw_trillion",
+              "mutual_finance_deposit_balance": "krw_trillion",
+              "kfcc_deposit_balance": "krw_trillion",
+          }
+          conn = sqlite3.connect("work/e0.sqlite3")
+          conn.row_factory = sqlite3.Row
+          rows = conn.execute(
+              "SELECT indicator_code, indicator_name, value, unit, source_effective_at, "
+              "source_id FROM market_indicators "
+              "WHERE source_id='bok_ecos_deposit_market' "
+              "ORDER BY indicator_code, source_effective_at"
+          ).fetchall()
+          assert rows, "market_indicators가 비어 있음"
+          assert {row["indicator_code"] for row in rows} == set(expected)
+          assert {row["source_id"] for row in rows} == {"bok_ecos_deposit_market"}
+          for code, unit in expected.items():
+              scoped = [row for row in rows if row["indicator_code"] == code]
+              assert scoped, code
+              assert {row["unit"] for row in scoped} == {unit}
+              assert max(row["source_effective_at"] for row in scoped) >= "2026-06-01"
+          artifacts = conn.execute(
+              "SELECT request_meta_json FROM raw_artifacts "
+              "WHERE source_id='bok_ecos_deposit_market'"
+          ).fetchall()
+          runs = conn.execute(
+              "SELECT status, raw_count, parsed_count FROM collection_runs "
+              "WHERE source_id='bok_ecos_deposit_market' ORDER BY started_at DESC LIMIT 1"
+          ).fetchone()
+          conn.close()
+          assert len(artifacts) == 6
+          assert runs is not None and runs["status"] in {"success", "partial", "no_change"}
+          blob = json.dumps([row[0] for row in artifacts], ensure_ascii=False)
+          key = __import__("os").environ["ECOS_API_KEY"]
+          assert key not in blob
+          assert "[REDACTED]" in blob
+
+          latest = {}
+          for code in expected:
+              scoped = [row for row in rows if row["indicator_code"] == code]
+              point = max(scoped, key=lambda row: row["source_effective_at"])
+              latest[code] = {
+                  "name": point["indicator_name"],
+                  "value": point["value"],
+                  "unit": point["unit"],
+                  "source_effective_at": point["source_effective_at"],
+              }
+          report = {
+              "source": "BOK ECOS Open API",
+              "source_id": "bok_ecos_deposit_market",
+              "mode": "ephemeral_live_collector_smoke",
+              "production_write": False,
+              "series_count": len(expected),
+              "stored_point_count": len(rows),
+              "raw_artifact_count": len(artifacts),
+              "latest": latest,
+              "api_key_exposure": 0,
+              "status": "verified",
+          }
+          out = Path("docs/source-recon/stage-e0-deposit-market-collector-runtime.json")
+          out.parent.mkdir(parents=True, exist_ok=True)
+          out.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+          print(json.dumps(report, ensure_ascii=False, indent=2))
+          PY
+
+      - name: Commit sanitized runtime evidence
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/source-recon/stage-e0-deposit-market-collector-runtime.json
+          if git diff --cached --quiet; then
+            echo "runtime evidence unchanged"
+            exit 0
+          fi
+          git commit -m "docs(recon): record Stage E0 live collector smoke"
+          git push origin HEAD:${{ github.ref_name }}
