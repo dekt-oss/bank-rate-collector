@@ -183,6 +183,11 @@ def validate_rows(spec: SeriesSpec, rows: list[dict[str, Any]]) -> list[str]:
     return sorted(set(warnings))
 
 
+def _ordered_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """ECOS response order is not part of the source contract."""
+    return sorted(rows, key=lambda row: str(row.get("TIME") or ""))
+
+
 def discover_series(key: str) -> dict[str, Any]:
     report: dict[str, Any] = {
         "base": BASE,
@@ -200,13 +205,14 @@ def discover_series(key: str) -> dict[str, Any]:
         )
         result = probe(path, key)
         rows = _rows(result)
+        ordered = _ordered_rows(rows)
         report["series"][spec.key] = {
             "spec": asdict(spec),
             "api_result": _api_result(result),
             "row_count": len(rows),
-            "first_time": rows[0].get("TIME") if rows else None,
-            "last_time": rows[-1].get("TIME") if rows else None,
-            "latest_rows": rows[-6:],
+            "first_time": ordered[0].get("TIME") if ordered else None,
+            "last_time": ordered[-1].get("TIME") if ordered else None,
+            "latest_rows": ordered[-6:],
             "warnings": validate_rows(spec, rows),
             "response": result,
         }
