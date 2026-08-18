@@ -37,6 +37,7 @@ on:
 # concurrency를 중복 선언하지 않는다.
 concurrency:
   group: rate-data-writer
+  queue: max
   cancel-in-progress: false
 
 permissions:
