@@ -68,6 +68,15 @@ def test_row_validation_checks_identity_unit_and_month() -> None:
     assert any("monthly TIME" in warning for warning in warnings)
 
 
+def test_probe_orders_months_instead_of_trusting_api_order() -> None:
+    module = _load_script()
+    rows = [{"TIME": "202606"}, {"TIME": "202301"}, {"TIME": "202512"}]
+
+    ordered = module._ordered_rows(rows)
+
+    assert [row["TIME"] for row in ordered] == ["202301", "202512", "202606"]
+
+
 def test_series_probe_is_read_only_and_has_no_storage_path() -> None:
     source = SCRIPT.read_text(encoding="utf-8")
 
