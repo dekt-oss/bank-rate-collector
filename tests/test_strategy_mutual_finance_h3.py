@@ -13,6 +13,7 @@ def test_h3_exposes_coverage_freshness_scope_and_availability() -> None:
     assert '"availability_scope"' in html
     assert "termCoverage(meta,12)" in html
     assert "meta?.blocked_reason" in html
+    assert "수집 데이터 기준 최고금리" in html
 
 
 def test_h3_ranking_denominators_are_sector_namespaced_and_explicit() -> None:
@@ -25,6 +26,8 @@ def test_h3_ranking_denominators_are_sector_namespaced_and_explicit() -> None:
     assert "rateScopeText(r.rateScope)" in html
     assert "availabilityText(r.availabilityScope)" in html
     assert "max_rate ?? base_rate" not in html
+    assert 'rateBasis:look("strategy_rate_basis"' in html
+    assert "strategyRateBasisText(r.rateBasis)" in html
 
 
 def test_h3_geography_uses_separate_sector_layers() -> None:
@@ -34,7 +37,7 @@ def test_h3_geography_uses_separate_sector_layers() -> None:
     assert 'id="map-layer-tabs"' in html
     label_expr = (
         'key==="savings_bank"?"저축은행 본점":key==="cu"?"신협 조회지역":'
-        'key==="nh_local"?"농·축협 점포"'
+        'key==="kfcc"?"새마을금고 공시지역":key==="nh_local"?"농·축협 점포"'
     )
     assert label_expr in html
     assert "function geoProducts(sector,term=12)" in html
@@ -77,6 +80,9 @@ def test_h3_top5_uses_row_level_scope_and_availability_evidence() -> None:
     assert "rateScopeText(r.rateScope)" in html
     assert "availabilityText(r.availabilityScope)" in html
     assert 'r.joinChannel?`가입채널 ${r.joinChannel}`:null' in html
+    assert 'source_max_rate:"원천 최고금리"' in html
+    assert 'nh_ejoy_base_plus_add:"기본금리 + e-joy 우대"' in html
+    assert 'collected_base_rate:"수집 기본금리"' in html
 
 
 def test_h3_map_fails_safe_when_sector_has_multiple_geo_bases() -> None:
@@ -99,10 +105,10 @@ def test_h3_ranking_rejects_missing_stable_product_identity() -> None:
 def test_h3_nh_local_map_uses_outlet_address_without_busan_inference() -> None:
     html = _html()
 
-    assert '["savings_bank","cu","nh_local"].includes(key)' in html
+    assert '["savings_bank","cu","kfcc","nh_local"].includes(key)' in html
     assert '"농·축협 점포 주소별 금리 분포"' in html
     map_copy = (
-        '"공식 점포 주소별 stable product 최고금리 관측 평균 · '
+        '"공식 점포 주소별 stable product 수집 데이터 기준 최고금리 평균 · '
         '가입 가능 지역으로 해석하지 않음"'
     )
     assert map_copy in html
@@ -111,3 +117,18 @@ def test_h3_nh_local_map_uses_outlet_address_without_busan_inference() -> None:
         in html
     )
     assert 'clickable=savings&&x.region==="부산"' in html
+
+
+def test_h3_kfcc_map_is_collection_geography_not_join_eligibility() -> None:
+    html = _html()
+
+    assert '"새마을금고 공시 소재지별 금리 분포"' in html
+    assert (
+        '"중앙 공시의 기관별 수집 데이터 기준 최고금리 평균 · '
+        '가입 가능 지역으로 해석하지 않음"'
+    ) in html
+    assert (
+        '`새마을금고 · ${geoBasis} · SGIS 2020 시도 경계 · district 추정 없음`'
+        in html
+    )
+    assert "기관 공시금리를 배치한 지역이며 가입 가능 지역으로 해석하지 않음" in html
