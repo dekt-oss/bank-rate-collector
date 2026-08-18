@@ -106,6 +106,31 @@ async function assertMarketIntelligence(page) {
   await page.locator('[data-mi-window="30"]').click();
 }
 
+async function assertExternalMarketContext(page) {
+  const panel = page.locator("#external-market-context");
+  invariant(await panel.count() === 1, "Stage E0-6 External Market Context panel이 없음");
+  invariant(await panel.isVisible(), "E0-6 패널이 보이지 않음");
+
+  const text = await panel.textContent();
+  invariant(text.includes("시장 자금환경"), "E0-6 제목이 렌더되지 않음");
+  invariant(
+    text.includes("농·축협과 1:1 동일하지 않음"),
+    "E0-6 광의 상호금융 해석 경계 문구가 렌더되지 않음",
+  );
+  invariant(
+    await panel.locator(".external-context-card").count() === 3,
+    "E0-6 금리 카드 3장이 렌더되지 않음",
+  );
+  invariant(
+    await panel.locator(".external-flow").count() === 4,
+    "E0-6 업권 잔액 카드 4장이 렌더되지 않음",
+  );
+  invariant(
+    await panel.locator(".external-context-badge").count() === 1,
+    "E0-6 상태 배지가 없음",
+  );
+}
+
 async function runDesktop(browser) {
   const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
   const page = await context.newPage();
@@ -128,6 +153,7 @@ async function runDesktop(browser) {
   invariant(await page.locator("#sim-form").isVisible(), "저축은행 시뮬레이터가 기본 모드에서 숨겨짐");
   invariant(await page.locator('[data-map-sector="savings_bank"]').count() === 1, "저축은행 지도 레이어가 없음");
   await assertMarketIntelligence(page);
+  await assertExternalMarketContext(page);
 
   const busan = page.locator('#geo-map [data-region="부산"]');
   invariant(await busan.count() === 1, "저축은행 부산 지도 node가 없음");
