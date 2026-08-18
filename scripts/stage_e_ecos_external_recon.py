@@ -7,8 +7,8 @@ StatisticItemList를 **이름으로** 탐색하여 다음 후보만 보고한다
 1. 예금은행 신규취급액 저축성수신/정기예금 금리
 2. 저축은행·상호금융 등 예금취급기관의 수신/예수금 잔액 계열
 
-이 스크립트는 DB·collector·운영 산출물을 수정하지 않는다. 결과 JSON은 CI
-artifact로만 사용하며 인증키는 저장 전에 반드시 마스킹한다.
+원시 응답은 CI artifact에만 남기고, 비밀정보가 없는 후보 요약은 recon 브랜치의
+문서로 커밋할 수 있게 별도 파일로 만든다. 어떤 코드도 자동 선택하지 않는다.
 """
 
 from __future__ import annotations
@@ -25,6 +25,7 @@ from typing import Any
 BASE = "https://ecos.bok.or.kr/api"
 KEY_ENV = "ECOS_API_KEY"
 OUT = Path("work/stage-e-ecos-external-recon.json")
+SUMMARY_OUT = Path("docs/source-recon/stage-e-external-indicators-runtime.json")
 TIMEOUT = 25
 INTERVAL = 0.35
 
@@ -118,6 +119,56 @@ def _recon_purpose(
     return result
 
 
+def _public_table(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: row.get(key)
+        for key in ("STAT_CODE", "STAT_NAME", "CYCLE", "SRCH_YN", "ORG_NAME")
+        if row.get(key) not in (None, "")
+    }
+
+
+def _public_item(row: dict[str, Any]) -> dict[str, Any]:
+    allowed = (
+        "STAT_CODE",
+        "STAT_NAME",
+        "GRP_CODE",
+        "GRP_NAME",
+        "ITEM_CODE",
+        "ITEM_NAME",
+        "ITEM_CODE1",
+        "ITEM_NAME1",
+        "ITEM_CODE2",
+        "ITEM_NAME2",
+        "ITEM_CODE3",
+        "ITEM_NAME3",
+        "CYCLE",
+        "UNIT_NAME",
+        "START_TIME",
+        "END_TIME",
+    )
+    return {key: row.get(key) for key in allowed if row.get(key) not in (None, "")}
+
+
+def _summary(report: dict[str, Any]) -> dict[str, Any]:
+    purposes: dict[str, Any] = {}
+    for name, block in report["purposes"].items():
+        purposes[name] = {
+            "tables": [_public_table(row) for row in block.get("tables") or []],
+            "matched_items": {
+                code: [_public_item(row) for row in rows]
+                for code, rows in (block.get("matched_items") or {}).items()
+            },
+        }
+    return {
+        "source": "BOK ECOS Open API",
+        "mode": "read_only_recon",
+        "selection_status": "not_selected_until_human_evidence_review",
+        "selected_stat_codes": [],
+        "selected_item_codes": [],
+        "purposes": purposes,
+    }
+
+
 def main() -> int:
     key = os.environ.get(KEY_ENV, "").strip()
     if not key:
@@ -168,7 +219,15 @@ def main() -> int:
         print("인증키 마스킹 실패", file=sys.stderr)
         return 4
     OUT.write_text(blob, encoding="utf-8")
+
+    SUMMARY_OUT.parent.mkdir(parents=True, exist_ok=True)
+    summary_blob = json.dumps(_summary(report), ensure_ascii=False, indent=2) + "\n"
+    if key in summary_blob:
+        print("요약에 인증키가 남아 있다.", file=sys.stderr)
+        return 5
+    SUMMARY_OUT.write_text(summary_blob, encoding="utf-8")
     print(f"wrote {OUT} ({len(blob):,} bytes)")
+    print(f"wrote {SUMMARY_OUT} ({len(summary_blob):,} bytes)")
     return 0
 
 
