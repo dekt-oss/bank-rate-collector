@@ -23,7 +23,8 @@ jobs:
           github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ubuntu-latest
     steps:
-      - run: echo "authorized one-time NH recovery from same-repo PR #128"
+      - run: |
+          echo "authorized one-time NH recovery from same-repo PR 128"
 
   attempt_1:
     needs: authorize
