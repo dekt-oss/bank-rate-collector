@@ -46,6 +46,10 @@ from rate_monitor.services.dashboard_service import (
     DashboardBuildError,
     build_summary,
 )
+from rate_monitor.services.main_map_presentation import (
+    MAIN_MAP_MARKER,
+    inject_main_map_presentation,
+)
 from rate_monitor.services.strategy_contract_service import (
     augment_strategy_table,
     slice_strategy_table,
@@ -341,6 +345,12 @@ def build_site(
     page_data["downloads"] = downloads
 
     html = render(template_path.read_text(encoding="utf-8"), page_data)
+    # 메인 지도는 Strategy의 **배포 asset**을 참조하지 않는다. source SVG
+    # geometry만 빌드 시 인라인해 Gate OFF에서도 메인 화면이 독립적으로 산다.
+    html = inject_main_map_presentation(
+        html,
+        STRATEGY_MAP_ASSET.read_text(encoding="utf-8"),
+    )
     if strategy_template_path is not None:
         html = _add_strategy_nav(html)
     _verify(html, page_data)
@@ -415,6 +425,8 @@ def _verify(html: str, page_data: dict[str, Any]) -> None:
         raise DashboardBuildError("화면 집계값이 summary와 다르다")
     if HEAD_OFFICE_NOTICE not in html:
         raise DashboardBuildError("본점 기준 참고값 표기가 없다 (v3.1 §6.4)")
+    if MAIN_MAP_MARKER not in html:
+        raise DashboardBuildError("메인 대한민국 지도 presentation이 없다")
     # 금리표가 페이지에 섞여 들어가면 분리한 의미가 없다.
     raw = json.dumps(parsed, ensure_ascii=False, separators=(",", ":"))
     if '\"rows\":[[' in raw:
