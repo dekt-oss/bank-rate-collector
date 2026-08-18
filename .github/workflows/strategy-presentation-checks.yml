@@ -35,3 +35,5 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           SOURCE_REF: ${{ github.ref_name }}
         run: gh workflow run strategy-browser-smoke.yml --ref "$SOURCE_REF"
+
+# Exact-source verification trigger for Stage E0-6.
