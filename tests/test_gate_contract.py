@@ -204,7 +204,7 @@ def test_a_merge_to_main_republishes_the_screen_by_itself() -> None:
 def test_a_push_never_hits_a_source_but_a_schedule_does() -> None:
     gate = _workflow()["jobs"]["collect"]["env"]["PUBLISH_ONLY"]
     assert "github.event_name == 'push'" in gate
-    assert "inputs.publish_only == true" in gate
+    assert "inputs.manual_target == '화면만 재발행'" in gate
     assert "schedule" not in gate
 
 
@@ -228,7 +228,9 @@ def test_publish_only_skips_every_core_collector_but_still_publishes() -> None:
         step = next(s for s in steps if s.get("name") == name)
         assert "PUBLISH_ONLY" not in str(step.get("if") or ""), name
 
-    assert "publish_only" in _triggers(_workflow())["workflow_dispatch"]["inputs"]
+    inputs = _triggers(_workflow())["workflow_dispatch"]["inputs"]
+    assert "publish_only" not in inputs
+    assert "화면만 재발행" in inputs["manual_target"]["options"]
 
 
 # ── 수집 암호 ───────────────────────────────────────────────────────────
