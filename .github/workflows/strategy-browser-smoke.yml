@@ -26,6 +26,7 @@ on:
 # Strategy Preview workflow가 만든 exact-source 정적 산출물을 실제 Chrome으로 검증한다.
 # 이전 source의 preview branch를 잘못 검사하지 않도록 preview-source.json의 SHA가
 # 현재 github.sha와 같아질 때까지 기다린 뒤 실행한다.
+# Stage E0-6 exact-source verification trigger.
 concurrency:
   group: strategy-dashboard-browser-smoke
   cancel-in-progress: true
