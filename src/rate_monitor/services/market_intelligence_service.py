@@ -523,12 +523,13 @@ def build_market_intelligence(conn: sqlite3.Connection) -> dict[str, Any]:
             "supported_scope_count": 0,
         }
 
-    conn.row_factory = sqlite3.Row
-    run_times = {sector: _sector_run_times(conn, sector) for sector in SECTORS}
+    cur = conn.cursor()
+    cur.row_factory = sqlite3.Row
+    run_times = {sector: _sector_run_times(cur, sector) for sector in SECTORS}
     cache: dict[tuple[str, int, str], dict[str, dict[str, Any]]] = {}
     scopes = [
         _scope_metric(
-            conn,
+            cur,
             sector=sector,
             term_months=term,
             window_days=window,
