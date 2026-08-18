@@ -20,6 +20,7 @@ from rate_monitor.domain.preference_taxonomy import labels as preference_labels
 from rate_monitor.domain.timeutil import kst_iso
 from rate_monitor.services.dashboard_service import dedupe_sources
 from rate_monitor.services.inflow_prediction_service import public_model_config
+from rate_monitor.services.market_intelligence_service import build_market_intelligence
 
 MARKET_CHANGE_WINDOW_DAYS = 30
 MARKET_CHANGE_ITEM_LIMIT = 12
@@ -353,6 +354,7 @@ def build_strategy_summary(db_path: Path) -> dict[str, Any]:
             ),
         )[:MARKET_CHANGE_ITEM_LIMIT]
         rate_trend = _build_rate_trend(conn)
+        market_intelligence = build_market_intelligence(conn)
     finally:
         conn.close()
 
@@ -365,6 +367,7 @@ def build_strategy_summary(db_path: Path) -> dict[str, Any]:
         "preference_labels": preference_labels(),
         "inflow_prediction": public_model_config(),
         "rate_trend": rate_trend,
+        "market_intelligence": market_intelligence,
         "market_changes": {
             "window_days": MARKET_CHANGE_WINDOW_DAYS,
             "count": count,
