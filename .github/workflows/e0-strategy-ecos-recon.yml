@@ -1,0 +1,54 @@
+name: Diagnostic — Strategy ECOS external indicators
+
+# Stage E0 source-contract discovery only. This workflow never writes the
+# production DB and does not publish Strategy. It exists to identify exact ECOS
+# table/item contracts before any collector code is allowed to hardcode them.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "scripts/e0_strategy_external_indicators_recon.py"
+      - ".github/workflows/e0-strategy-ecos-recon.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  recon:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Sync dependencies
+        run: uv sync --locked
+
+      - name: Discover Strategy external indicator contracts
+        env:
+          ECOS_API_KEY: ${{ secrets.ECOS_API_KEY }}
+        run: uv run python scripts/e0_strategy_external_indicators_recon.py
+
+      - name: Check the key never reached the report
+        env:
+          ECOS_API_KEY: ${{ secrets.ECOS_API_KEY }}
+        run: |
+          REPORT=docs/source-recon/strategy-external-indicators-recon.json
+          if grep -qF "$ECOS_API_KEY" "$REPORT"; then
+            echo "인증키가 정찰 보고서에 남아 있다. 올리지 않는다."
+            exit 1
+          fi
+          echo "인증키 노출 0건"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: diagnostic-strategy-ecos-external-indicators
+          path: docs/source-recon/strategy-external-indicators-recon.json
+          retention-days: 7
