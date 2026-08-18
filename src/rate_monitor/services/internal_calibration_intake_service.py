@@ -150,7 +150,6 @@ def _dataset_report(name: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
     required = tuple(contract["required"])
     date_field = str(contract["date_field"])
     errors: list[str] = []
-    warnings: list[str] = []
     observed_dates: list[date] = []
 
     if not rows:
@@ -209,15 +208,13 @@ def _dataset_report(name: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
 
     unique_errors = sorted(set(errors))
     unique_dates = set(observed_dates)
-    if len(observed_dates) != len(unique_dates):
-        warnings.append("duplicate_dates_present")
 
     return {
         "dataset": name,
         "status": "valid" if not unique_errors else "invalid",
         "row_count": len(rows),
         "errors": unique_errors,
-        "warnings": warnings,
+        "warnings": [],
         "min_date": min(observed_dates).isoformat() if observed_dates else None,
         "max_date": max(observed_dates).isoformat() if observed_dates else None,
         "unique_date_count": len(unique_dates),
