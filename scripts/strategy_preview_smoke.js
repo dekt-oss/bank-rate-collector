@@ -72,6 +72,40 @@ async function assertNoHorizontalOverflow(page, label) {
   );
 }
 
+async function assertMarketIntelligence(page) {
+  const panel = page.locator("#market-intelligence");
+  invariant(await panel.count() === 1, "Stage C2 Market Intelligence panel이 없음");
+  invariant((await page.locator("#market-intelligence-body").textContent()).trim().length > 0, "Stage C2 body가 비어 있음");
+  invariant(await page.locator('[data-mi-sector="savings_bank"]').count() === 1, "C2 저축은행 selector가 없음");
+  invariant(await page.locator('[data-mi-term="12"]').count() === 1, "C2 12개월 selector가 없음");
+  invariant(await page.locator('[data-mi-window="7"]').count() === 1, "C2 7D selector가 없음");
+  invariant(await page.locator('[data-mi-window="30"]').count() === 1, "C2 30D selector가 없음");
+
+  await page.locator('[data-mi-window="7"]').click();
+  await page.waitForFunction(
+    () => document.querySelector('[data-mi-window="7"]')?.classList.contains("active"),
+    null,
+    { timeout: 5_000 },
+  );
+  invariant((await page.locator("#market-intelligence-body").textContent()).trim().length > 0, "C2 7D 결과가 비어 있음");
+
+  await page.locator('[data-mi-sector="nh_local"]').click();
+  await page.waitForFunction(
+    () => document.querySelector('[data-mi-sector="nh_local"]')?.classList.contains("active"),
+    null,
+    { timeout: 5_000 },
+  );
+  const nhText = await page.locator("#market-intelligence-body").textContent();
+  invariant(
+    nhText.includes("과거 최고금리 계약 미지원") && nhText.includes("e-joy"),
+    "NH historical fail-closed 사유가 C2에 표시되지 않음",
+  );
+
+  await page.locator('[data-mi-sector="savings_bank"]').click();
+  await page.locator('[data-mi-term="12"]').click();
+  await page.locator('[data-mi-window="30"]').click();
+}
+
 async function runDesktop(browser) {
   const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
   const page = await context.newPage();
@@ -93,6 +127,7 @@ async function runDesktop(browser) {
   invariant(await page.locator("#market-flow").isVisible(), "저축은행 이력 block이 기본 모드에서 숨겨짐");
   invariant(await page.locator("#sim-form").isVisible(), "저축은행 시뮬레이터가 기본 모드에서 숨겨짐");
   invariant(await page.locator('[data-map-sector="savings_bank"]').count() === 1, "저축은행 지도 레이어가 없음");
+  await assertMarketIntelligence(page);
 
   const busan = page.locator('#geo-map [data-region="부산"]');
   invariant(await busan.count() === 1, "저축은행 부산 지도 node가 없음");
@@ -110,6 +145,7 @@ async function runDesktop(browser) {
   invariant(cleanNumber(await page.locator("#count").textContent()) > 0, "신협 12M 비교군이 비어 있음");
   invariant(await page.locator("#market-flow").isHidden(), "상호금융 단독에서 저축은행 이력 block이 노출됨");
   invariant(await page.locator("#sim-form").isHidden(), "상호금융 단독에서 고려저축은행 시뮬레이터가 열림");
+  invariant(await page.locator("#market-intelligence").isVisible(), "상호금융 모드에서 C2 시장동향 패널이 숨겨짐");
   const cuLayer = page.locator('[data-map-sector="cu"]');
   invariant(await cuLayer.count() === 1, "신협 source_query_region 지도 레이어가 없음");
   await cuLayer.click();
@@ -183,11 +219,13 @@ async function runMobile(browser) {
   invariant(nhMeta?.strategy_rate_capability === true && nhMeta?.selectable === true, "모바일 농·축협 capability가 열리지 않음");
   invariant(!(await page.locator('[data-sector="kfcc"]').isDisabled()), "모바일 새마을금고 selector가 비활성화됨");
   invariant(!(await page.locator('[data-sector="nh_local"]').isDisabled()), "모바일 농·축협 selector가 비활성화됨");
+  invariant(await page.locator("#market-intelligence").count() === 1, "모바일 C2 Market Intelligence panel이 없음");
   await assertNoHorizontalOverflow(page, "mobile savings-bank");
   await selectMode(page, "mutual_finance", "상호금융");
   invariant(cleanNumber(await page.locator("#count").textContent()) > 0, "모바일 신협 12M 비교군이 비어 있음");
   invariant(await page.locator("#sim-form").isHidden(), "모바일 상호금융 모드에서 시뮬레이터가 열림");
   invariant(await page.locator('[data-map-sector="cu"]').count() === 1, "모바일 신협 지도 레이어가 없음");
+  invariant(await page.locator("#market-intelligence").isVisible(), "모바일 상호금융 모드에서 C2 패널이 숨겨짐");
   await assertNoHorizontalOverflow(page, "mobile mutual-finance");
   await page.screenshot({ path: path.join(workDir, "strategy-smoke-mobile.png"), fullPage: true });
   invariant(runtimeErrors.length === 0, `mobile browser runtime errors:\n${runtimeErrors.join("\n")}`);
