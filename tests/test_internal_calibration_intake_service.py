@@ -90,6 +90,20 @@ def test_recommended_history_bundle_is_ready_without_writing_or_calibrating() ->
     assert report["database_written"] is False
 
 
+def test_multi_product_rows_on_same_date_are_valid() -> None:
+    bundle = _bundle()
+    second_product = dict(bundle["pricing_flow"][0])
+    second_product["product_key"] = "DEP-12M-B"
+    bundle["pricing_flow"].append(second_product)
+
+    report = assess_internal_calibration_bundle(bundle)
+    pricing = next(item for item in report["datasets"] if item["dataset"] == "pricing_flow")
+
+    assert report["status"] == "ready_for_calibration"
+    assert report["pricing_observation_dates"] == 37
+    assert pricing["warnings"] == []
+
+
 def test_missing_required_dataset_fails_closed() -> None:
     bundle = _bundle()
     bundle.pop("ftp")
