@@ -79,6 +79,9 @@ def test_workflow_is_manual_read_only_and_checks_secret_leak() -> None:
     source = WORKFLOW.read_text(encoding="utf-8")
 
     assert "workflow_dispatch:" in source
+    assert "push:" in source
+    assert "branches: [main]" in source
+    assert '"scripts/e0_strategy_external_indicators_recon.py"' in source
     assert "contents: read" in source
     assert "ECOS_API_KEY: ${{ secrets.ECOS_API_KEY }}" in source
     assert "e0_strategy_external_indicators_recon.py" in source
