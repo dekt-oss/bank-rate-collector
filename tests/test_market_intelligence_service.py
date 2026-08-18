@@ -137,6 +137,8 @@ def test_supported_scope_uses_stable_product_snapshot_changes(tmp_path: Path) ->
         thirty = _scope(result, "savings_bank", 12, 30)
 
         assert result["version"] == "market-intelligence-v1"
+        assert result["history_gate"]["minimum_window_coverage_ratio"] == 0.8
+        assert result["history_gate"]["maximum_window_coverage_ratio"] == 1.25
         assert seven["status"] == "supported"
         assert thirty["status"] == "supported"
         assert seven["comparable_product_count"] == 3
@@ -157,7 +159,7 @@ def test_supported_scope_uses_stable_product_snapshot_changes(tmp_path: Path) ->
             "spread_change_bp": 0.0,
         }
         assert thirty["observed_days"] == 34.0
-        assert thirty["coverage_ratio"] > 1.0
+        assert 1.0 < thirty["coverage_ratio"] <= 1.25
     finally:
         conn.close()
 
@@ -196,6 +198,45 @@ def test_history_gate_does_not_label_two_days_as_seven_day_change(tmp_path: Path
         assert seven["median_change_bp"] is None
         assert seven["breadth_score"] is None
         assert seven["direction"] == "insufficient"
+    finally:
+        conn.close()
+
+
+def test_history_gate_rejects_stale_baseline_for_thirty_day_label(tmp_path: Path) -> None:
+    conn = _create_schema(tmp_path / "stale.sqlite3")
+    try:
+        conn.execute("INSERT INTO sources VALUES ('fsb', 'savings_bank')")
+        for run_id, when in (
+            ("r0", "2026-06-19T00:00:00"),
+            ("r1", "2026-08-18T00:00:00"),
+        ):
+            conn.execute(
+                "INSERT INTO collection_runs VALUES (?, 'fsb', 'success', ?, ?)",
+                (run_id, when, when),
+            )
+        variant = _insert_product(
+            conn,
+            institution_id="i1",
+            institution="테스트저축은행",
+            product_id="p1",
+        )
+        conn.execute(
+            """
+            INSERT INTO rate_observations
+            VALUES ('o1', ?, 'r0', '2026-06-01T00:00:00', NULL, 3.20, 'valid')
+            """,
+            (variant,),
+        )
+        conn.commit()
+
+        result = build_market_intelligence(conn)
+        thirty = _scope(result, "savings_bank", 12, 30)
+
+        assert thirty["status"] == "insufficient_history"
+        assert thirty["observed_days"] == 60.0
+        assert thirty["coverage_ratio"] == 2.0
+        assert thirty["median_change_bp"] is None
+        assert "80%~125%" in thirty["reason"]
     finally:
         conn.close()
 
@@ -263,7 +304,10 @@ def test_missing_modern_history_schema_returns_explicit_unavailable_state(
     assert result == {
         "version": "market-intelligence-v1",
         "status": "schema_unavailable",
-        "history_gate": {"minimum_window_coverage_ratio": 0.8},
+        "history_gate": {
+            "minimum_window_coverage_ratio": 0.8,
+            "maximum_window_coverage_ratio": 1.25,
+        },
         "scopes": [],
         "supported_scope_count": 0,
     }
