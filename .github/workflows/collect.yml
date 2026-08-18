@@ -72,6 +72,7 @@ on:
 # 모든 수집 workflow가 같은 canonical DB/R2/rate-data writer 줄을 쓴다.
 concurrency:
   group: rate-data-writer
+  queue: max
   cancel-in-progress: false
 
 permissions:
