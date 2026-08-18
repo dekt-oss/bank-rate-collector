@@ -13,6 +13,7 @@ def test_strategy_presentation_dispatcher_covers_current_modules() -> None:
         "src/rate_monitor/services/market_intelligence_presentation.py",
         "src/rate_monitor/services/preference_intelligence_service.py",
         "src/rate_monitor/services/preference_intelligence_presentation.py",
+        "src/rate_monitor/services/external_market_context_presentation.py",
     ):
         assert f'- "{path}"' in text
 

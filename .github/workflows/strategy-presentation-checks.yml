@@ -9,6 +9,7 @@ on:
       - "src/rate_monitor/services/market_intelligence_presentation.py"
       - "src/rate_monitor/services/preference_intelligence_service.py"
       - "src/rate_monitor/services/preference_intelligence_presentation.py"
+      - "src/rate_monitor/services/external_market_context_presentation.py"
       - ".github/workflows/strategy-presentation-checks.yml"
 
 # Existing Preview/Browser Smoke workflows already own the real build and browser
@@ -34,3 +35,5 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           SOURCE_REF: ${{ github.ref_name }}
         run: gh workflow run strategy-browser-smoke.yml --ref "$SOURCE_REF"
+
+# Exact-source verification trigger for Stage E0-6.
