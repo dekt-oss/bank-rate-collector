@@ -28,16 +28,15 @@ def test_market_intelligence_briefing_is_injected_once() -> None:
     assert rendered.count(STYLE_MARKER) == 1
     assert rendered.count(SCRIPT_MARKER) == 1
     assert "최근 시장 금리 경쟁 방향" in rendered
-    assert 'data-mi-sector="savings_bank"' in rendered
-    assert 'data-mi-sector="cu"' in rendered
-    assert 'data-mi-sector="kfcc"' in rendered
-    assert 'data-mi-sector="nh_local"' in rendered
-    assert 'data-mi-term="6"' in rendered
-    assert 'data-mi-term="12"' in rendered
-    assert 'data-mi-term="24"' in rendered
-    assert 'data-mi-term="36"' in rendered
-    assert 'data-mi-window="7"' in rendered
-    assert 'data-mi-window="30"' in rendered
+    assert 'savings_bank:"저축은행"' in rendered
+    assert 'cu:"신협"' in rendered
+    assert 'kfcc:"새마을금고"' in rendered
+    assert 'nh_local:"농·축협"' in rendered
+    assert 'data-mi-sector="${k}"' in rendered
+    assert "[6,12,24,36]" in rendered
+    assert 'data-mi-term="${v}"' in rendered
+    assert "[7,30]" in rendered
+    assert 'data-mi-window="${v}"' in rendered
     assert "market_intelligence" in rendered
     assert "observed_days" in rendered
     assert "coverage_ratio" in rendered
