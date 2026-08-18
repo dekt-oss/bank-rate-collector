@@ -1,0 +1,33 @@
+name: Temporary fix strategy collected contract
+
+on:
+  pull_request:
+    branches: [main]
+    types: [synchronize]
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.head_ref == 'feat/strategy-collected-max-rate' && github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/strategy-collected-max-rate
+      - name: Apply deterministic contract fixes
+        run: python scripts/tmp_fix_strategy_collected_contract.py
+      - name: Commit fixes
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/rate_monitor/services/strategy_contract_service.py \
+            web/templates/strategy.html \
+            tests/test_strategy_dashboard.py \
+            tests/test_strategy_contract_service.py \
+            scripts/strategy_preview_smoke.js
+          git diff --cached --check
+          git commit -m "fix: 수집기준 최고금리 메타데이터 계약 정리"
+          git push origin HEAD:feat/strategy-collected-max-rate
