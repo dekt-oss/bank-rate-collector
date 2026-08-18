@@ -12,6 +12,9 @@ Gate가 OFF이면 실행되지 않고 공개 메인 화면에도 영향을 주�
 from __future__ import annotations
 
 from rate_monitor.services.dashboard_service import DashboardBuildError
+from rate_monitor.services.market_intelligence_presentation import (
+    inject_market_intelligence_presentation,
+)
 
 STYLE_MARKER = 'id="rate-response-cockpit-style"'
 SCRIPT_MARKER = 'id="rate-response-cockpit-script"'
@@ -114,13 +117,18 @@ def inject_strategy_decision_cockpit(html: str) -> str:
     has_style = STYLE_MARKER in html
     has_script = SCRIPT_MARKER in html
     if has_style and has_script:
-        return html
-    if has_style != has_script:
-        raise DashboardBuildError("Rate Response Cockpit 주입 상태가 불완전하다")
-    if "</head>" not in html or "</body>" not in html:
-        raise DashboardBuildError("Rate Response Cockpit 주입 위치를 찾지 못했다")
-    if 'id="prediction-panel"' not in html or "function predictInflow" not in html:
-        raise DashboardBuildError("기존 Strategy 수신예측 계약을 찾지 못했다")
-    rendered = html.replace("</head>", _CSS + "\n</head>", 1)
-    rendered = rendered.replace("</body>", _JS + "\n</body>", 1)
+        rendered = html
+    else:
+        if has_style != has_script:
+            raise DashboardBuildError("Rate Response Cockpit 주입 상태가 불완전하다")
+        if "</head>" not in html or "</body>" not in html:
+            raise DashboardBuildError("Rate Response Cockpit 주입 위치를 찾지 못했다")
+        if 'id="prediction-panel"' not in html or "function predictInflow" not in html:
+            raise DashboardBuildError("기존 Strategy 수신예측 계약을 찾지 못했다")
+        rendered = html.replace("</head>", _CSS + "\n</head>", 1)
+        rendered = rendered.replace("</body>", _JS + "\n</body>", 1)
+    # 실제 Strategy 템플릿에는 market-flow가 있으므로 C2를 함께 합성한다.
+    # 단위 테스트의 최소 Stage B fixture처럼 market-flow가 없는 HTML은 B만 검증한다.
+    if 'id="market-flow"' in rendered:
+        rendered = inject_market_intelligence_presentation(rendered)
     return rendered
