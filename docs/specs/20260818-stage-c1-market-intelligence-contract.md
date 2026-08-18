@@ -34,16 +34,17 @@ Stage C 화면을 만들기 전에 시장이력 파생값의 universe와 fail-mo
 
 ## History Evidence Gate
 
-요청 window보다 충분한 실제 history가 없으면 변화량을 만들지 않는다.
+요청 window와 충분히 가까운 실제 history가 없으면 변화량을 만들지 않는다.
 
 - 최소 요구: 요청 window의 80% 이상
-- 부족하면: `insufficient_history`
+- 최대 허용: 요청 window의 125% 이하
+- 범위를 벗어나면: `insufficient_history`
 - 최신 snapshot 자체가 없으면: `no_history` / `no_data`
 - 시작/종료 stable product가 겹치지 않으면: `insufficient_comparable_products`
 
-즉 2일치 데이터로 `7D 변화`를 만들어 표시하지 않는다.
+즉 2일치 데이터로 `7D 변화`를 만들지 않고, 60일 전 baseline을 사용해 `30D 변화`라고 표시하지도 않는다.
 
-각 scope는 실제 `start_snapshot_at`, `end_snapshot_at`, `observed_days`, `coverage_ratio`를 함께 보존한다.
+각 scope는 실제 `start_snapshot_at`, `end_snapshot_at`, `observed_days`, `coverage_ratio`를 함께 보존한다. `history_gate`에는 `minimum_window_coverage_ratio=0.80`, `maximum_window_coverage_ratio=1.25`를 명시한다.
 
 ## Rate contract
 
