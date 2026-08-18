@@ -78,8 +78,11 @@ def test_full_strategy_composition_includes_c2_and_d2() -> None:
     assert rendered.count('id="preference-intelligence-script"') == 1
 
 
-def test_strategy_build_attaches_d1_payload_and_d2_ui(collected_db, tmp_path: Path) -> None:
-    db, _, _ = collected_db
+def test_strategy_build_attaches_d1_payload_and_d2_ui(
+    request: pytest.FixtureRequest, tmp_path: Path
+) -> None:
+    fixture = request.getfixturevalue("collected_db")
+    db, _, _ = fixture
     out = tmp_path / "site-public"
 
     build_site(db, out_dir=out, strategy_template_path=DEFAULT_STRATEGY_TEMPLATE)
