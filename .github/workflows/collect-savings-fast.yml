@@ -14,6 +14,7 @@ on:
 # 마지막 writer가 앞 실행의 DB를 덮을 수 있으므로 저장소 전체에서 같은 줄에 세운다.
 concurrency:
   group: rate-data-writer
+  queue: max
   cancel-in-progress: false
 
 permissions:
