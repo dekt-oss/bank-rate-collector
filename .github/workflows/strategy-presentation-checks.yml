@@ -1,0 +1,36 @@
+name: Strategy presentation checks dispatcher
+
+on:
+  push:
+    branches: ["feat/strategy-dashboard-*"]
+    paths:
+      - "src/rate_monitor/services/strategy_decision_cockpit.py"
+      - "src/rate_monitor/services/market_intelligence_service.py"
+      - "src/rate_monitor/services/market_intelligence_presentation.py"
+      - "src/rate_monitor/services/preference_intelligence_service.py"
+      - "src/rate_monitor/services/preference_intelligence_presentation.py"
+      - ".github/workflows/strategy-presentation-checks.yml"
+
+# Existing Preview/Browser Smoke workflows already own the real build and browser
+# verification. This thin dispatcher only closes their path-filter blind spot for
+# presentation-only Strategy changes. workflow_dispatch events triggered by GITHUB_TOKEN
+# are allowed to start downstream workflows; no production publication is performed.
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch exact-source Strategy Preview
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_REF: ${{ github.ref_name }}
+        run: gh workflow run strategy-preview.yml --ref "$SOURCE_REF"
+
+      - name: Dispatch exact-source browser smoke
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_REF: ${{ github.ref_name }}
+        run: gh workflow run strategy-browser-smoke.yml --ref "$SOURCE_REF"
