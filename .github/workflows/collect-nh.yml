@@ -1,4 +1,4 @@
-name: Collect NH rates
+name: 수집 — 농·축협
 
 # NH is deliberately isolated from the core and KFCC schedules. Its nationwide
 # run is long (~3h37 measured), and the 2026-08-12 forensic matrix showed that
@@ -11,23 +11,23 @@ on:
   workflow_dispatch:
     inputs:
       password:
-        description: "수집 암호 (관리자에게 확인)"
+        description: "관리자 수집 암호"
         required: true
         default: ""
       nh_local_scope:
-        description: "농·축협 수집 범위 (config/regions.yaml)"
+        description: "수집 범위 — 보통 전국"
         type: choice
         required: false
         default: "전국"
         options: ["전국", "수도권", "부산"]
       nh_resume_mode:
-        description: "첫 attempt checkpoint. 보통 auto, 같은 날 새로 받으려면 fresh"
+        description: "재시작 방식 — 보통 auto, 같은 날 처음부터 다시 받을 때만 fresh"
         type: choice
         required: false
         default: "auto"
         options: ["auto", "fresh"]
       accept_volume_drop:
-        description: "물량 급감을 알고도 발행한다 (원천이 정말 줄었을 때만)"
+        description: "주의: 물량 급감 강제 승인 — 원천 데이터가 실제 줄었다고 확인한 경우만 체크"
         type: boolean
         required: false
         default: false
