@@ -13,6 +13,8 @@ from typing import Any
 
 MIN_HISTORY_DAYS = 365 * 2
 RECOMMENDED_HISTORY_DAYS = 365 * 3
+MIN_PRICING_OBSERVATION_DATES = 24
+RECOMMENDED_PRICING_OBSERVATION_DATES = 36
 
 REQUIRED_DATASETS = (
     "pricing_flow",
@@ -160,6 +162,7 @@ def _dataset_report(name: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
             "warnings": [],
             "min_date": None,
             "max_date": None,
+            "unique_date_count": 0,
         }
 
     seen_pii: set[str] = set()
@@ -182,7 +185,13 @@ def _dataset_report(name: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
             errors.append(f"row_{row_index}:invalid_term_months")
 
         for field in required:
-            if field in {date_field, "product_key", "special_offer_flag", "segment", "preference_code"}:
+            if field in {
+                date_field,
+                "product_key",
+                "special_offer_flag",
+                "segment",
+                "preference_code",
+            }:
                 continue
             value = _finite_number(row.get(field))
             if value is None:
@@ -199,7 +208,8 @@ def _dataset_report(name: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
         errors.append("pii_fields_not_allowed:" + ",".join(sorted(seen_pii)))
 
     unique_errors = sorted(set(errors))
-    if len(observed_dates) != len(set(observed_dates)):
+    unique_dates = set(observed_dates)
+    if len(observed_dates) != len(unique_dates):
         warnings.append("duplicate_dates_present")
 
     return {
@@ -210,6 +220,7 @@ def _dataset_report(name: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
         "warnings": warnings,
         "min_date": min(observed_dates).isoformat() if observed_dates else None,
         "max_date": max(observed_dates).isoformat() if observed_dates else None,
+        "unique_date_count": len(unique_dates),
     }
 
 
@@ -235,23 +246,36 @@ def assess_internal_calibration_bundle(
             date.fromisoformat(pricing_report["max_date"])
             - date.fromisoformat(pricing_report["min_date"])
         ).days
+    observation_dates = int(pricing_report["unique_date_count"])
 
     dataset_errors = [
-        report["dataset"] for report in reports if report["status"] not in {"valid"}
+        report["dataset"] for report in reports if report["status"] != "valid"
     ]
     if missing_datasets:
         status = "missing_required_data"
     elif dataset_errors:
         status = "data_quality_failed"
-    elif history_days is None or history_days < MIN_HISTORY_DAYS:
+    elif (
+        history_days is None
+        or history_days < MIN_HISTORY_DAYS
+        or observation_dates < MIN_PRICING_OBSERVATION_DATES
+    ):
         status = "insufficient_history"
     else:
         status = "ready_for_calibration"
 
     history_grade = "insufficient"
-    if history_days is not None and history_days >= RECOMMENDED_HISTORY_DAYS:
+    if (
+        history_days is not None
+        and history_days >= RECOMMENDED_HISTORY_DAYS
+        and observation_dates >= RECOMMENDED_PRICING_OBSERVATION_DATES
+    ):
         history_grade = "recommended_36m_plus"
-    elif history_days is not None and history_days >= MIN_HISTORY_DAYS:
+    elif (
+        history_days is not None
+        and history_days >= MIN_HISTORY_DAYS
+        and observation_dates >= MIN_PRICING_OBSERVATION_DATES
+    ):
         history_grade = "minimum_24m_plus"
 
     return {
@@ -263,9 +287,12 @@ def assess_internal_calibration_bundle(
         "optional_datasets": list(OPTIONAL_DATASETS),
         "missing_required_datasets": missing_datasets,
         "history_days": history_days,
+        "pricing_observation_dates": observation_dates,
         "history_grade": history_grade,
         "minimum_history_days": MIN_HISTORY_DAYS,
         "recommended_history_days": RECOMMENDED_HISTORY_DAYS,
+        "minimum_pricing_observation_dates": MIN_PRICING_OBSERVATION_DATES,
+        "recommended_pricing_observation_dates": RECOMMENDED_PRICING_OBSERVATION_DATES,
         "datasets": reports,
         "calibration_allowed": status == "ready_for_calibration",
         "model_coefficients_changed": False,
