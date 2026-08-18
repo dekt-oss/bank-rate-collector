@@ -1,9 +1,13 @@
 from pathlib import Path
 
-import yaml
 
-
-WRITER_GROUP = "rate-data-writer"
+WRITER_GROUP_LINE = "  group: rate-data-writer\n"
+WRITER_CONCURRENCY_BLOCK = (
+    "concurrency:\n"
+    "  group: rate-data-writer\n"
+    "  queue: max\n"
+    "  cancel-in-progress: false\n"
+)
 EXPECTED_WRITER_WORKFLOWS = {
     "collect.yml",
     "collect-nh.yml",
@@ -15,12 +19,10 @@ EXPECTED_WRITER_WORKFLOWS = {
 def test_rate_data_writer_workflows_preserve_pending_queue() -> None:
     matched: set[str] = set()
     for path in Path(".github/workflows").glob("*.yml"):
-        workflow = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-        concurrency = workflow.get("concurrency")
-        if not isinstance(concurrency, dict) or concurrency.get("group") != WRITER_GROUP:
+        text = path.read_text(encoding="utf-8")
+        if WRITER_GROUP_LINE not in text:
             continue
         matched.add(path.name)
-        assert concurrency.get("queue") == "max", path
-        assert concurrency.get("cancel-in-progress") is False, path
+        assert WRITER_CONCURRENCY_BLOCK in text, path
 
     assert matched == EXPECTED_WRITER_WORKFLOWS
