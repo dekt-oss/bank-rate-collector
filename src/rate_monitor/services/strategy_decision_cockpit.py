@@ -12,6 +12,9 @@ Gate가 OFF이면 실행되지 않고 공개 메인 화면에도 영향을 주�
 from __future__ import annotations
 
 from rate_monitor.services.dashboard_service import DashboardBuildError
+from rate_monitor.services.external_market_context_presentation import (
+    inject_external_market_context_presentation,
+)
 from rate_monitor.services.market_intelligence_presentation import (
     inject_market_intelligence_presentation,
 )
@@ -116,7 +119,7 @@ _JS = r"""
 
 
 def inject_strategy_decision_cockpit(html: str) -> str:
-    """Strategy HTML에 Stage B/C/D 의사결정 presentation을 합성한다."""
+    """Strategy HTML에 Stage B/C/D/E0 의사결정 presentation을 합성한다."""
     has_style = STYLE_MARKER in html
     has_script = SCRIPT_MARKER in html
     if has_style and has_script:
@@ -130,9 +133,10 @@ def inject_strategy_decision_cockpit(html: str) -> str:
             raise DashboardBuildError("기존 Strategy 수신예측 계약을 찾지 못했다")
         rendered = html.replace("</head>", _CSS + "\n</head>", 1)
         rendered = rendered.replace("</body>", _JS + "\n</body>", 1)
-    # 실제 Strategy 템플릿에만 후속 C/D presentation을 합성한다. 최소 fixture는 B만 유지한다.
+    # 실제 Strategy 템플릿에만 후속 C/D/E0 presentation을 합성한다. 최소 fixture는 B만 유지한다.
     if 'id="market-flow"' in rendered:
         rendered = inject_market_intelligence_presentation(rendered)
+        rendered = inject_external_market_context_presentation(rendered)
     if 'class="grid interpretation"' in rendered:
         rendered = inject_preference_intelligence_presentation(rendered)
     return rendered
