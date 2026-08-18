@@ -194,6 +194,16 @@ jobs:
             --db work/rate_monitor.sqlite3 \
             --raw-root data/raw
 
+      - name: Collect BOK deposit macro indicators
+        if: ${{ env.PUBLISH_ONLY != 'true' && env.KFCC_ONLY != 'true' && (github.event_name != 'workflow_dispatch' || inputs.manual_target == '일반 전체' || inputs.manual_target == '참고지표만') }}
+        continue-on-error: true
+        env:
+          ECOS_API_KEY: ${{ secrets.ECOS_API_KEY }}
+        run: |
+          uv run python -m rate_monitor.collectors.bok_ecos.macro_cli \
+            --db work/rate_monitor.sqlite3 \
+            --raw-root data/raw
+
       - name: Collect FSB
         if: ${{ env.PUBLISH_ONLY != 'true' && env.KFCC_ONLY != 'true' && (github.event_name != 'workflow_dispatch' || inputs.manual_target == '일반 전체' || inputs.manual_target == '저축은행만') }}
         continue-on-error: true
