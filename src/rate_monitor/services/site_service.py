@@ -22,7 +22,7 @@
 
 화면이 쓰는 `table.json`과 사람이 받는 `rates.json`은 **다른 파일이다.**
 앞은 조회표 색인이 든 압축 배열이고 뒤는 한 행이 한 객체인 형태다. 한때 둘
-다 `rates.json`이었는데, 내보내기 복사가 금리표를 덮어써서 화면이 빈 표를
+다 `rates.json`이었는데, 내보내기 복사가 금리표을 덮어써서 화면이 빈 표를
 받았다.
 
 내려받기 버튼도 달라진다. 예전에는 브라우저가 15,357행을 CSV로 조립했다.
@@ -50,6 +50,7 @@ from rate_monitor.services.strategy_contract_service import (
     augment_strategy_table,
     slice_strategy_table,
 )
+from rate_monitor.services.strategy_decision_cockpit import inject_strategy_decision_cockpit
 from rate_monitor.services.strategy_service import build_strategy_summary
 
 DEFAULT_TEMPLATE = Path("web/templates/site.html")
@@ -360,6 +361,7 @@ def build_site(
         }
         strategy_template_text = strategy_template_path.read_text(encoding="utf-8")
         strategy_html = render(strategy_template_text, strategy_page_data)
+        strategy_html = inject_strategy_decision_cockpit(strategy_html)
         _verify_strategy(strategy_html, strategy_page_data)
         strategy_path.write_text(strategy_html, encoding="utf-8")
         strategy_map_path.parent.mkdir(parents=True, exist_ok=True)
