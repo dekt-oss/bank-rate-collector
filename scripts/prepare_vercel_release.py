@@ -10,7 +10,6 @@ import argparse
 import json
 from pathlib import Path
 
-
 RELEASE_BRANCH = "rate-data"
 
 
