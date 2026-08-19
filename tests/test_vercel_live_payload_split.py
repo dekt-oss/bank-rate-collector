@@ -1,7 +1,5 @@
 """Vercel release quota and live rate-data payload must stay separate."""
 
-from __future__ import annotations
-
 import json
 from pathlib import Path
 
