@@ -4,7 +4,35 @@
   "buildCommand": "",
   "installCommand": "",
   "outputDirectory": "site-public",
+  "git": {
+    "deploymentEnabled": {
+      "*": false,
+      "rate-data": true
+    }
+  },
   "ignoreCommand": "[ \"$VERCEL_GIT_COMMIT_REF\" != \"rate-data\" ]",
+  "rewrites": [
+    {
+      "source": "/",
+      "destination": "/api/live-page?page=index"
+    },
+    {
+      "source": "/index.html",
+      "destination": "/api/live-page?page=index"
+    },
+    {
+      "source": "/strategy.html",
+      "destination": "/api/live-page?page=strategy"
+    },
+    {
+      "source": "/data/:path*",
+      "destination": "https://raw.githubusercontent.com/dekt-oss/bank-rate-collector/rate-live/site-public/data/:path*"
+    },
+    {
+      "source": "/site-manifest.json",
+      "destination": "https://raw.githubusercontent.com/dekt-oss/bank-rate-collector/rate-live/site-public/site-manifest.json"
+    }
+  ],
   "headers": [
     {
       "source": "/(.*)",
@@ -15,11 +43,25 @@
     {
       "source": "/data/(.*)",
       "headers": [
-        { "key": "Cache-Control", "value": "public, max-age=0, must-revalidate" }
+        { "key": "Cache-Control", "value": "public, max-age=0, must-revalidate" },
+        { "key": "x-vercel-enable-rewrite-caching", "value": "0" }
+      ]
+    },
+    {
+      "source": "/site-manifest.json",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=0, must-revalidate" },
+        { "key": "x-vercel-enable-rewrite-caching", "value": "0" }
       ]
     },
     {
       "source": "/index.html",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=0, must-revalidate" }
+      ]
+    },
+    {
+      "source": "/strategy.html",
       "headers": [
         { "key": "Cache-Control", "value": "public, max-age=0, must-revalidate" }
       ]
