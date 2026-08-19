@@ -10,7 +10,13 @@ BRAND_SPEC = ROOT / "docs" / "specs" / "20260819-strategy-brand-visual-system-v3
 def test_strategy_main_runtime_e2e_is_isolated_and_observable() -> None:
     text = WORKFLOW.read_text(encoding="utf-8")
 
-    assert 'branches: [main, "feat/strategy-main-runtime-e2e-*", "feat/strategy-ux-*"]' in text
+    for branch in (
+        "main",
+        '"feat/strategy-main-runtime-e2e-*"',
+        '"feat/strategy-ux-*"',
+        '"feat/unify-main-strategy-production-*"',
+    ):
+        assert branch in text
     assert "workflow_dispatch:" in text
     assert 'RATE_MONITOR_STRATEGY_DASHBOARD: "1"' in text
     assert "storage restore --dest work/rate_monitor.sqlite3" in text
@@ -23,7 +29,15 @@ def test_strategy_main_runtime_e2e_is_isolated_and_observable() -> None:
     assert "strategy_workspace_presentation.py" in text
     assert "strategy_brand_theme_presentation.py" in text
     assert "test_strategy_brand_theme_presentation.py" in text
+    assert "test_strategy_production_release.py" in text
     assert 'grep -q \'id="strategy-brand-theme-script"\'' in text
+
+    for release_path in (
+        ".github/workflows/collect.yml",
+        ".github/workflows/collect-savings-fast.yml",
+        ".github/workflows/nh-attempt.yml",
+    ):
+        assert release_path in text
 
     # This workflow must never publish the runner-local DB or Strategy site.
     assert "rate-monitor storage upload" not in text
