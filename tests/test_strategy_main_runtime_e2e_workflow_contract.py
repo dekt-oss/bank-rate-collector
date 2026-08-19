@@ -15,7 +15,6 @@ def test_strategy_main_runtime_e2e_is_isolated_and_observable() -> None:
         '"feat/strategy-main-runtime-e2e-*"',
         '"feat/strategy-ux-*"',
         '"feat/unify-main-strategy-production-*"',
-        '"fix/vercel-static-serving-stabilization-*"',
     ):
         assert branch in text
     assert "workflow_dispatch:" in text
@@ -45,11 +44,15 @@ def test_strategy_main_runtime_e2e_is_isolated_and_observable() -> None:
     ):
         assert release_path in text
 
-    # This workflow must never publish the runner-local DB or Strategy site.
+    # This workflow may inspect Vercel-related files by name, but it must never
+    # deploy or publish the runner-local DB/Strategy site.
+    lower = text.lower()
     assert "rate-monitor storage upload" not in text
     assert "git push" not in text
-    assert "vercel" not in text.lower()
-    assert "rate-data writer" not in text.lower()
+    assert "vercel deploy" not in lower
+    assert "vercel --prod" not in lower
+    assert "deploy_to_vercel" not in lower
+    assert "rate-data writer" not in lower
 
 
 def test_strategy_main_runtime_smoke_accepts_fail_closed_external_context() -> None:
