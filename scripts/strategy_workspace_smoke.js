@@ -38,6 +38,7 @@ async function assertWorkspace(page, label) {
     const primary = document.querySelector(".grid.primary");
     const changes = marketFlow?.querySelector("details.changes");
     const legacy = interpretation?.querySelector(".workspace-legacy-pref");
+    const modelDetail = planning?.querySelector(".workspace-model-detail");
     const kpis = Array.from(document.querySelectorAll(".kpis .kpi")).slice(0, 2).map((node) => node.getBoundingClientRect());
     const evidence = Array.from(document.querySelectorAll(".evidence-strip .evidence-card")).slice(0, 2).map((node) => node.getBoundingClientRect());
     const mapStage = primary?.querySelector(".mapstage")?.getBoundingClientRect();
@@ -52,6 +53,10 @@ async function assertWorkspace(page, label) {
       changesOpen: Boolean(changes?.open),
       legacyOpen: Boolean(legacy?.open),
       legacyExists: Boolean(legacy),
+      modelDetailExists: Boolean(modelDetail),
+      modelDetailOpen: Boolean(modelDetail?.open),
+      modelDetailHasResults: Boolean(modelDetail?.querySelector(".prediction-results")),
+      modelDetailHasEvidence: Boolean(modelDetail?.querySelector(".model-evidence")),
       planningTop: planning?.getBoundingClientRect().top,
       externalTop: external?.getBoundingClientRect().top,
       kpis,
@@ -68,6 +73,8 @@ async function assertWorkspace(page, label) {
   invariant(result.labels === 4, `${label}: workspace section labels=${result.labels}`);
   invariant(!result.changesOpen, `${label}: recent change details should start collapsed`);
   invariant(result.legacyExists && !result.legacyOpen, `${label}: legacy preference summary should be collapsed`);
+  invariant(result.modelDetailExists && !result.modelDetailOpen, `${label}: model detail should start collapsed`);
+  invariant(result.modelDetailHasResults && result.modelDetailHasEvidence, `${label}: model detail lost prediction results or evidence`);
   invariant(result.planningTop < result.externalTop, `${label}: planning visual order is not decision-first`);
   invariant(result.scrollWidth <= result.clientWidth + 1, `${label}: page horizontal overflow ${result.scrollWidth} > ${result.clientWidth}`);
 
