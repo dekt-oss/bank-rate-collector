@@ -21,6 +21,9 @@ from rate_monitor.services.market_intelligence_presentation import (
 from rate_monitor.services.preference_intelligence_presentation import (
     inject_preference_intelligence_presentation,
 )
+from rate_monitor.services.strategy_workspace_presentation import (
+    inject_strategy_workspace_presentation,
+)
 
 STYLE_MARKER = 'id="rate-response-cockpit-style"'
 SCRIPT_MARKER = 'id="rate-response-cockpit-script"'
@@ -139,4 +142,10 @@ def inject_strategy_decision_cockpit(html: str) -> str:
         rendered = inject_external_market_context_presentation(rendered)
     if 'class="grid interpretation"' in rendered:
         rendered = inject_preference_intelligence_presentation(rendered)
+    if (
+        'id="market-flow"' in rendered
+        and 'class="grid interpretation"' in rendered
+        and 'class="grid primary"' in rendered
+    ):
+        rendered = inject_strategy_workspace_presentation(rendered)
     return rendered
