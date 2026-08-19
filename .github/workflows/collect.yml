@@ -416,13 +416,6 @@ jobs:
           cp vercel.json stage/vercel.json
           cp -r web/api stage/api
 
-          # 평소 수집 commit은 deploymentEnabled=false를 그대로 싣는다. main
-          # merge 또는 명시적 '화면만 재발행'만 staged config를 release 모드로
-          # 바꿔 rate-data push 한 건이 Vercel production deployment를 만든다.
-          if [ "${PUBLISH_ONLY}" = "true" ]; then
-            uv run python scripts/prepare_vercel_release.py stage/vercel.json
-          fi
-
       - name: Size gate
         run: uv run python scripts/size_gate.py stage --backend ${{ steps.storage.outputs.backend }}
 

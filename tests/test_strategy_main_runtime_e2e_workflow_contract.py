@@ -31,6 +31,11 @@ def test_strategy_main_runtime_e2e_is_isolated_and_observable() -> None:
     assert "test_strategy_brand_theme_presentation.py" in text
     assert "test_strategy_production_release.py" in text
     assert 'grep -q \'id="strategy-brand-theme-script"\'' in text
+    assert "insufficient_history" in text
+    assert "non_consecutive_months" in text
+    assert "source_contract_mismatch" not in text
+    assert "schema_unavailable" not in text
+    assert "invalid_previous_balance" not in text
 
     for release_path in (
         ".github/workflows/collect.yml",
@@ -39,24 +44,36 @@ def test_strategy_main_runtime_e2e_is_isolated_and_observable() -> None:
     ):
         assert release_path in text
 
-    # This workflow must never publish the runner-local DB or Strategy site.
+    # This workflow may inspect Vercel-related files by name, but it must never
+    # deploy or publish the runner-local DB/Strategy site.
+    lower = text.lower()
     assert "rate-monitor storage upload" not in text
     assert "git push" not in text
-    assert "vercel" not in text.lower()
-    assert "rate-data writer" not in text.lower()
+    assert "vercel deploy" not in lower
+    assert "vercel --prod" not in lower
+    assert "deploy_to_vercel" not in lower
+    assert "rate-data writer" not in lower
 
 
-def test_strategy_main_runtime_smoke_requires_populated_external_context() -> None:
+def test_strategy_main_runtime_smoke_accepts_fail_closed_external_context() -> None:
     text = SMOKE.read_text(encoding="utf-8")
 
-    assert 'features?.status === "ready"' in text
-    assert 'features.deposit_market?.status === "ready"' in text
+    assert '["ready", "partial", "no_data"]' in text
+    assert "insufficient_history" in text
+    assert "non_consecutive_months" in text
+    assert "source_contract_mismatch" not in text
+    assert "requiredRateKeys" in text
+    assert "primary_realized_deposit_rate" in text
+    assert "term_deposit_1y_rate" in text
+    assert "requiredFlowKeys" in text
+    for key in ("savings_bank", "credit_union", "kfcc", "broad_mutual_finance"):
+        assert key in text
     assert 'result.rateCards === 3' in text
     assert 'result.flowCards === 4' in text
-    assert 'result.badge.includes("BOK · 정상")' in text
-    assert 'value !== "—"' in text
-    assert "농·축협과 1:1 동일하지 않음" in text
+    assert 'result.badge.includes("BOK ·")' in text
+    assert 'item?.status === "ready"' in text
     assert "DOM/payload mismatch" in text
+    assert "농·축협과 1:1 동일하지 않음" in text
 
 
 def test_strategy_workspace_smoke_locks_decision_first_order_and_mobile_density() -> None:
