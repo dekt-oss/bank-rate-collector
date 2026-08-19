@@ -17,6 +17,7 @@ _CSS = r"""
 <style id="strategy-workspace-style">
 .workspace-section-label{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;margin:20px 3px 8px;padding:0 2px}.workspace-section-label div{display:flex;align-items:baseline;gap:8px}.workspace-section-label em{font:800 9px var(--mono);font-style:normal;letter-spacing:.08em;color:#7ca993}.workspace-section-label strong{font-size:12px;letter-spacing:-.02em;color:#dbe7e1}.workspace-section-label span{color:#667a70;font-size:9px;text-align:right}
 .workspace-decision .sim{border-color:rgba(128,200,166,.28);background:radial-gradient(circle at 82% 4%,rgba(212,179,111,.09),transparent 28%),linear-gradient(148deg,rgba(17,38,31,.99),rgba(8,22,18,.99));box-shadow:0 22px 56px rgba(0,0,0,.24)}.workspace-decision .head h2{font-size:18px}.workspace-decision .planning-strip>div{background:rgba(7,24,19,.44)}
+.workspace-model-detail{margin-top:1px;border:1px solid rgba(128,200,166,.12);border-radius:10px;background:rgba(4,14,11,.18);overflow:hidden}.workspace-model-detail>summary{cursor:pointer;list-style:none;padding:10px 11px;color:#83968c;font-size:9px;font-weight:760}.workspace-model-detail>summary::-webkit-details-marker{display:none}.workspace-model-detail>summary:after{content:" 펼치기";float:right;color:#60736a;font-weight:500}.workspace-model-detail[open]>summary:after{content:" 접기"}.workspace-model-detail-body{display:grid;gap:10px;padding:0 10px 10px}.workspace-model-detail .prediction-results{margin:0}.workspace-model-detail .model-detail{margin:0}.workspace-model-detail .model-evidence{margin:0}
 .workspace-legacy-pref{margin:0;border:1px solid rgba(213,225,219,.07);border-radius:12px;background:rgba(4,14,11,.18);overflow:hidden}.workspace-legacy-pref>summary{cursor:pointer;list-style:none;padding:10px 12px;color:#7e9087;font-size:9px;font-weight:760}.workspace-legacy-pref>summary::-webkit-details-marker{display:none}.workspace-legacy-pref>summary:after{content:" 펼치기";float:right;color:#5f7369;font-weight:500}.workspace-legacy-pref[open]>summary:after{content:" 접기"}.workspace-legacy-pref .preference-card{border:0;border-radius:0;box-shadow:none;background:transparent;min-height:0!important}.workspace-insights{grid-template-columns:1fr!important}.workspace-insights .insightcard{min-height:0!important}
 .workspace-detail.primary:not(.busan-focus){grid-template-columns:minmax(300px,.68fr) minmax(0,1.32fr)}.workspace-detail.primary:not(.busan-focus) .mapcard{min-height:350px}.workspace-detail.primary:not(.busan-focus) .mapstage{height:270px}.workspace-detail.primary:not(.busan-focus)>article:last-child{min-height:350px}.workspace-detail.primary:not(.busan-focus) .pad{padding:14px}.workspace-detail.primary:not(.busan-focus) td{padding:7px 8px}
 .market-flow .changes:not([open]){min-height:0}.market-flow .changes:not([open]) summary{padding:12px 14px}.market-flow .changes:not([open]) summary:after{content:"필요할 때 펼치기"}
@@ -26,7 +27,7 @@ _CSS = r"""
   .kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.kpi{min-height:104px;padding:12px}.kvalue{font-size:30px}.klabel{font-size:9.5px}.kfoot{font-size:9px}
   .evidence-strip{grid-template-columns:repeat(2,minmax(0,1fr))}.evidence-card{padding:9px 10px}.evidence-grid{font-size:9px}
   .workspace-section-label{margin-top:16px;align-items:flex-start;flex-direction:column;gap:2px}.workspace-section-label span{text-align:left}
-  .workspace-decision .sim{padding:15px}.workspace-decision .head h2{font-size:16px}
+  .workspace-decision .sim{padding:15px}.workspace-decision .head h2{font-size:16px}.workspace-model-detail>summary{padding:9px 10px}
   .market-intel-controls,.pref-intel-controls{display:grid;gap:7px}.market-intel-control,.pref-intel-control{flex-wrap:nowrap;overflow-x:auto;overscroll-behavior-inline:contain;padding-bottom:2px}.market-intel-control button,.pref-intel-control button{flex:0 0 auto}
   .external-context-rates,.external-context-flows{display:flex;overflow-x:auto;gap:7px;overscroll-behavior-inline:contain;scroll-snap-type:x proximity;padding-bottom:3px}.external-context-card,.external-flow{flex:0 0 min(76vw,260px);scroll-snap-align:start}
   .workspace-detail.primary:not(.busan-focus){grid-template-columns:1fr}.workspace-detail.primary:not(.busan-focus) .mapcard{min-height:350px}.workspace-detail.primary:not(.busan-focus) .mapstage{height:285px}.workspace-detail.primary:not(.busan-focus)>article:last-child{min-height:0}
@@ -62,6 +63,21 @@ _JS = r"""
     evidenceAnchor.parentNode.insertBefore(planning,evidenceAnchor);
     planning.classList.add("workspace-decision");
     marketFlow.classList.add("workspace-evidence");
+
+    const prediction=$("prediction-panel");
+    const predictionResults=prediction?.querySelector(".prediction-results");
+    if(prediction&&predictionResults&&!prediction.querySelector(".workspace-model-detail")){
+      const modelDetail=prediction.querySelector(".model-detail");
+      const modelEvidence=prediction.querySelector(".model-evidence");
+      const details=document.createElement("details");
+      details.className="workspace-model-detail";
+      details.innerHTML='<summary>민감도 범위 · 예측모형 상세</summary><div class="workspace-model-detail-body"></div>';
+      const body=details.querySelector(".workspace-model-detail-body");
+      predictionResults.parentNode.insertBefore(details,predictionResults);
+      body.appendChild(predictionResults);
+      if(modelDetail)body.appendChild(modelDetail);
+      if(modelEvidence)body.appendChild(modelEvidence);
+    }
 
     if(pref){
       pref.parentNode.insertBefore(interpretation,pref);
