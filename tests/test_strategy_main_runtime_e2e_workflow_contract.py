@@ -4,6 +4,7 @@ ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "strategy-main-runtime-e2e.yml"
 SMOKE = ROOT / "scripts" / "strategy_main_runtime_external_context_smoke.js"
 WORKSPACE_SMOKE = ROOT / "scripts" / "strategy_workspace_smoke.js"
+BRAND_SPEC = ROOT / "docs" / "specs" / "20260819-strategy-brand-visual-system-v3.md"
 
 
 def test_strategy_main_runtime_e2e_is_isolated_and_observable() -> None:
@@ -59,3 +60,15 @@ def test_strategy_workspace_smoke_locks_decision_first_order_and_mobile_density(
     assert 'accent.toUpperCase() === "#D33A7C"' in text
     assert "Korea land fill is not light branded surface" in text
     assert "analytical microcopy too small" in text
+
+
+def test_strategy_brand_visual_spec_locks_palette_typography_and_scope() -> None:
+    text = BRAND_SPEC.read_text(encoding="utf-8")
+
+    assert "#4D2D58" in text
+    assert "#5B2F64" in text
+    assert "#734A7E" in text
+    assert "#D33A7C" in text
+    assert "Pretendard Variable" in text
+    assert "analytical microcopy: 10.5px 미만 금지" in text
+    assert "Production Strategy Release Gate ON" in text
