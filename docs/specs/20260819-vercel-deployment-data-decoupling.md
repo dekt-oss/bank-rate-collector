@@ -15,73 +15,95 @@ Vercel Production Branch도 `rate-data`이므로 코드/화면 release와 정기
 
 ## 목표 상태
 
-브랜치 역할을 둘로 고정한다.
+`rate-data` 한 브랜치가 계속 최신 public payload의 Source of Truth 역할을 맡되,
+**payload 갱신**과 **Vercel release**를 서로 다른 계약으로 분리한다.
 
-- `rate-live`: 최신 수집 결과와 생성된 `site-public`을 보관하는 live payload branch.
-  정기/수동 수집은 이 브랜치만 갱신한다. Vercel Git deployment 대상이 아니다.
-- `rate-data`: Vercel Production Branch인 release branch. `main` push로 실행되는
-  publish-only 경로와 명시적 `화면만 재발행`에서만 갱신한다.
+- 평소 `rate-data` commit: 최신 수집 결과와 생성된 `site-public`을 갱신한다.
+  commit 안의 `vercel.json`은 `git.deploymentEnabled=false`이므로 Vercel deployment를
+  만들지 않는다.
+- release `rate-data` commit: `main` push로 실행되는 publish-only 경로 또는 명시적
+  `화면만 재발행`에서만 staged `vercel.json`을 release 모드로 바꾼다. 이 commit만
+  `rate-data=true` allow rule을 가져 Vercel production deployment를 한 번 만든다.
 
-Vercel 운영 URL은 release에 포함된 라우팅 설정으로 다음을 제공한다.
+운영 Vercel deployment는 고정 라우터 역할을 한다.
 
-- `/`, `/index.html`, `/strategy.html`: Vercel Function이 `rate-live/site-public`의
-  최신 HTML을 읽어 `text/html`로 반환한다.
-- `/data/*`: Vercel external rewrite가 `rate-live/site-public/data/*`를 프록시한다.
-- `/site-manifest.json`: 같은 방식으로 live manifest를 프록시한다.
-- `/api/collect`, `/api/health`: 기존 release에 포함된 Vercel Functions를 그대로 사용한다.
+- `/`, `/index.html`, `/strategy.html`: Vercel Function이 현재
+  `rate-data/site-public`의 HTML을 읽어 `text/html`로 반환한다.
+- `/data/*`: Vercel external rewrite가 현재 `rate-data/site-public/data/*`를 프록시한다.
+- `/site-manifest.json`: 같은 방식으로 현재 live manifest를 프록시한다.
+- `/api/collect`, `/api/health`: release에 포함된 기존 Vercel Functions를 그대로 사용한다.
 
-따라서 수집 결과와 생성 HTML 갱신은 `rate-live` push만으로 운영 URL에서 읽히고,
-Vercel deployment를 만들 필요가 없다. API/라우팅 인프라 변경은 `rate-data` release가
-필요하다.
+따라서 수집 결과와 생성 HTML은 `rate-data`가 바뀌는 즉시 운영 URL이 새 payload를 읽으며,
+수집 자체는 Vercel deployment를 필요로 하지 않는다. API/라우팅 인프라 변경은 release
+commit이 필요하다.
 
 ## Git deployment gate
 
-`vercel.json`의 `git.deploymentEnabled` 계약:
+저장소의 기본 `vercel.json`은 다음 계약을 가진다.
 
-- `rate-data`: true
-- `*`: false
+```json
+{
+  "git": { "deploymentEnabled": false }
+}
+```
+
+Vercel 공식 계약상 이는 모든 자동 Git deployment를 막는다. 따라서 feature/main branch
+push도 deployment를 만들지 않는다.
+
+`collect.yml`의 publish-only 경로만 `scripts/prepare_vercel_release.py`를 staged config에
+실행해 아래처럼 바꾼다.
+
+```json
+{
+  "git": {
+    "deploymentEnabled": {
+      "*": false,
+      "rate-data": true
+    }
+  }
+}
+```
 
 Vercel 문서 계약상 여러 패턴에 동시에 일치하면 하나라도 true이면 deployment가
-허용된다. 따라서 `rate-data`만 허용되고 feature/main/rate-live는 자동 Git deployment를
-만들지 않는다. 기존 `ignoreCommand`는 defense-in-depth로 유지한다.
+허용되므로, 해당 staged commit에서는 `rate-data`만 release된다. 기존 `ignoreCommand`는
+방어선으로 유지한다.
 
 ## Writer 계약
 
 ### 일반·새마을금고 (`collect.yml`)
 
-- schedule / 실제 수집: `rate-live`만 publish
-- main push / `화면만 재발행`: `rate-live` publish 후 `rate-data` release
+- schedule / 실제 수집: 기본 config 그대로 `rate-data` publish → Vercel deployment 없음
+- main push / `화면만 재발행`: staged config를 release 모드로 바꾼 뒤 `rate-data` publish
+  → Vercel production deployment 1회
 
 ### 은행권 경량 (`collect-savings-fast.yml`)
 
-- 항상 `rate-live`만 publish
+- 기존대로 `rate-data` publish
+- 저장소 기본 config가 deployment OFF이므로 Vercel deployment 없음
 
 ### 농·축협 (`nh-attempt.yml`)
 
-- terminal publish가 필요한 attempt만 `rate-live` publish
+- 기존대로 terminal payload를 `rate-data` publish
+- 저장소 기본 config가 deployment OFF이므로 Vercel deployment 없음
 
-모든 writer는 기존 `rate-data-writer` concurrency 직렬화를 유지한다. 이름은 과거 이름을
-유지하지만 보호 대상은 canonical R2 state + public live/release branch 전체다.
-
-## 복원 계약
-
-R2가 authoritative인 현재 운영 경로는 기존과 동일하게 R2에서 DB를 복원한다.
-GitHub legacy fallback이 필요한 경우에는 `rate-live`를 우선하고, 아직 branch가 없는
-초기 전환 시 `rate-data`를 fallback으로 사용한다.
+모든 writer는 기존 `rate-data-writer` concurrency 직렬화를 유지한다. 수집 주기와 source
+precedence, R2 authoritative state 계약은 바꾸지 않는다.
 
 ## Production smoke
 
-Production smoke의 expected manifest는 `rate-live`가 존재하면 이를 사용하고,
-초기 rollout 전에는 `rate-data`로 fallback한다. 첫 migration release가 성공한 뒤에는
-수집 workflow 성공 후 Vercel 재배포를 기다리지 않고 live payload와 운영 URL의 일치를
-검증한다.
+expected manifest는 기존과 같이 `rate-data/site-public/site-manifest.json`을 사용한다.
+첫 migration release가 성공한 뒤에는 수집 workflow 성공 후 Vercel 재배포를 기다리지 않고
+현재 `rate-data` payload와 운영 URL의 일치를 검증할 수 있다.
 
 ## Rollout 조건
 
-이 변경을 main에 merge하는 것만으로 첫 activation이 완결되는 것은 아니다.
-현재 production deployment에는 live proxy 라우팅이 없기 때문에 `rate-data`의 새 release가
-Vercel에 **한 번은 성공적으로 배포**되어야 한다. 그 한 번 이후부터 수집 갱신은 Vercel
-재배포 없이 반영된다.
+이 변경을 main에 merge하는 것만으로 첫 activation이 완결되는 것은 아니다. 현재 production
+deployment에는 live proxy 라우팅이 없기 때문에 publish-only 경로가 만든 새 `rate-data`
+release가 Vercel에 **한 번은 성공적으로 배포**되어야 한다. 그 한 번 이후부터 정기/수동
+수집 갱신은 Vercel 재배포 없이 운영 URL에 반영된다.
+
+현재 Vercel Hobby deployment quota가 잠겨 있다면 첫 activation은 quota가 다시 허용하는
+시점까지 runtime 미검증 상태로 남는다. PR/CI 성공을 activation 성공으로 간주하지 않는다.
 
 ## 비목표
 
