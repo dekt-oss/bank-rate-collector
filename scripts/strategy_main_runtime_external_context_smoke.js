@@ -23,6 +23,7 @@ async function loadPage(browser, viewport) {
   page.on("console", (message) => {
     if (message.type() === "error") runtimeErrors.push(`console: ${message.text()}`);
   });
+  await page.route("**/favicon.ico", (route) => route.fulfill({ status: 204, body: "" }));
   const response = await page.goto(`${baseUrl}/strategy.html`, { waitUntil: "networkidle" });
   invariant(response && response.ok(), `strategy.html HTTP ${response ? response.status() : "no response"}`);
   await page.waitForSelector("#external-market-context", { state: "visible", timeout: 30_000 });
