@@ -6,9 +6,16 @@ on:
     paths:
       - "scripts/production_smoke.py"
       - "tests/test_production_smoke.py"
+      - "tests/test_strategy_production_release.py"
+      - ".github/workflows/collect.yml"
+      - ".github/workflows/collect-savings-fast.yml"
+      - ".github/workflows/nh-attempt.yml"
       - ".github/workflows/production-smoke.yml"
   workflow_run:
-    workflows: ["Collect rates"]
+    workflows:
+      - "수집 — 일반·새마을금고"
+      - "Collect bank rates fast"
+      - "수집 — 농·축협"
     types: [completed]
 
 permissions:
@@ -38,7 +45,7 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Verify production root, freshness and health endpoint
+      - name: Verify production root, strategy, freshness and health endpoint
         env:
           PRODUCTION_URL: https://bank-rate-collector.vercel.app
         run: |
