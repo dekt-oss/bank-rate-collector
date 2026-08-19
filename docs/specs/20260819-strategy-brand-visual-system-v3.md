@@ -67,13 +67,17 @@ release gate는 변경하지 않는다.
 
 ## Map
 
-라이트 화면에서 기존 dark land fill이 과도하게 무거웠으므로 전국 지도 실루엣을
-`#EFE7F0`으로 밝힌다.
+전국 경계는 Strategy DOM의 inline path가 아니라 `assets/korea-sido.svg`를 `<image>`로
+참조하는 구조다. 따라서 부모 page CSS에서 asset 내부 fill을 직접 바꾸지 않는다.
+대신 Strategy의 전국 모드에서만 `.korea-map-image`를 `opacity: .18` + grayscale/contrast
+처리해 기존 dark silhouette의 시각적 무게를 줄인다. 공용 SVG asset 자체는 수정하지
+않으므로 메인 dashboard나 다른 consumer에는 영향이 없다.
 
 - normal node: violet
 - top node: brand pink
 - Busan emphasis: rose
 - 지역/금리 label은 deep plum 계열
+- 부산 drill-down의 inline district SVG는 기존 light brand override를 유지
 
 ## Runtime gate
 
@@ -84,7 +88,7 @@ production-data Chrome smoke에서 다음을 직접 검사한다.
 - `--accent == #D33A7C`
 - `--accent-ink == #5B2F64`
 - topbar gradient 존재
-- Korea land fill `rgb(239, 231, 240)`
+- external Korea map opacity <= 0.20 + grayscale filter
 - dense analytical microcopy >= 10.5px
 - E0/C2/D2 parent white surface 유지
 - desktop/mobile horizontal overflow 없음
