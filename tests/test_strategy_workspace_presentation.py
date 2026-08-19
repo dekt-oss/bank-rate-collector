@@ -108,6 +108,7 @@ def test_workspace_spec_preserves_decision_first_and_busan_boundaries() -> None:
     assert "시장 근거" in spec
     assert "상품 설계" in spec
     assert "지역·경쟁사 상세" in spec
+    assert "민감도 범위 · 예측모형 상세" in spec
     assert "busan-focus" in spec
     assert "Production Strategy Release Gate" in spec
 
