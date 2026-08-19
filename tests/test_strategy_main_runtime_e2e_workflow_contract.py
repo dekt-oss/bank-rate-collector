@@ -58,7 +58,8 @@ def test_strategy_workspace_smoke_locks_decision_first_order_and_mobile_density(
     assert "horizontal overflow" in text
     assert 'strategyPalette === "main-brand-v2"' in text
     assert 'accent.toUpperCase() === "#D33A7C"' in text
-    assert "Korea land fill is not light branded surface" in text
+    assert "external Korea map is still visually heavy" in text
+    assert "external Korea map filter missing" in text
     assert "analytical microcopy too small" in text
 
 
