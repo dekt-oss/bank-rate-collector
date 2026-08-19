@@ -29,6 +29,7 @@ async function assertWorkspace(page, label) {
   const result = await page.evaluate(() => {
     const byId = (id) => document.getElementById(id);
     const order = (a, b) => Boolean(a && b && (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING));
+    const styleOf = (node) => node ? getComputedStyle(node) : null;
     const planning = byId("planning-zone");
     const external = byId("external-market-context");
     const marketIntel = byId("market-intelligence");
@@ -41,9 +42,14 @@ async function assertWorkspace(page, label) {
     const modelDetail = planning?.querySelector(".workspace-model-detail");
     const firstCard = document.querySelector(".card");
     const firstKpiValue = document.querySelector(".kvalue");
+    const externalStyle = styleOf(external);
+    const marketIntelStyle = styleOf(marketIntel);
+    const preferenceStyle = styleOf(preference);
+    const prefMainStyle = styleOf(preference?.querySelector(".pref-intel-main"));
+    const marketDirectionStyle = styleOf(marketIntel?.querySelector(".market-intel-direction"));
     const bodyStyle = getComputedStyle(document.body);
-    const cardStyle = firstCard ? getComputedStyle(firstCard) : null;
-    const kpiValueStyle = firstKpiValue ? getComputedStyle(firstKpiValue) : null;
+    const cardStyle = styleOf(firstCard);
+    const kpiValueStyle = styleOf(firstKpiValue);
     const rootStyle = getComputedStyle(document.documentElement);
     const kpis = Array.from(document.querySelectorAll(".kpis .kpi")).slice(0, 2).map((node) => node.getBoundingClientRect());
     const evidence = Array.from(document.querySelectorAll(".evidence-strip .evidence-card")).slice(0, 2).map((node) => node.getBoundingClientRect());
@@ -77,6 +83,11 @@ async function assertWorkspace(page, label) {
       cardBackground: cardStyle?.backgroundColor || "",
       kpiFont: kpiValueStyle?.fontFamily || "",
       kpiNumeric: kpiValueStyle?.fontVariantNumeric || "",
+      externalBackground: externalStyle?.backgroundColor || "",
+      marketIntelBackground: marketIntelStyle?.backgroundColor || "",
+      preferenceBackground: preferenceStyle?.backgroundColor || "",
+      prefMainBackground: prefMainStyle?.backgroundColor || "",
+      marketDirectionBackground: marketDirectionStyle?.backgroundColor || "",
     };
   });
 
@@ -97,6 +108,11 @@ async function assertWorkspace(page, label) {
   invariant(!result.kpiFont.toLowerCase().includes("monospace"), `${label}: KPI font still uses monospace: ${result.kpiFont}`);
   invariant(result.kpiNumeric.includes("tabular-nums"), `${label}: KPI numerals are not tabular: ${result.kpiNumeric}`);
   invariant(result.bodyColor === "rgb(23, 35, 45)", `${label}: primary text color=${result.bodyColor}`);
+  invariant(result.externalBackground === "rgb(255, 255, 255)", `${label}: external context retained dark surface: ${result.externalBackground}`);
+  invariant(result.marketIntelBackground === "rgb(255, 255, 255)", `${label}: market intelligence retained dark surface: ${result.marketIntelBackground}`);
+  invariant(result.preferenceBackground === "rgb(255, 255, 255)", `${label}: preference intelligence retained dark surface: ${result.preferenceBackground}`);
+  invariant(result.prefMainBackground === "rgb(255, 255, 255)", `${label}: preference main retained dark surface: ${result.prefMainBackground}`);
+  invariant(result.marketDirectionBackground !== "rgb(7, 19, 16)", `${label}: market direction retained dark detail surface: ${result.marketDirectionBackground}`);
 
   if (label === "desktop") {
     invariant(result.mapHeight <= 300, `desktop: compact map height=${result.mapHeight}`);
