@@ -33,9 +33,10 @@ Vercel Production Branch도 `rate-data`이므로 코드/화면 release와 정기
 - `/site-manifest.json`: 같은 방식으로 현재 live manifest를 프록시한다.
 - `/api/collect`, `/api/health`: release에 포함된 기존 Vercel Functions를 그대로 사용한다.
 
-따라서 수집 결과와 생성 HTML은 `rate-data`가 바뀌는 즉시 운영 URL이 새 payload를 읽으며,
-수집 자체는 Vercel deployment를 필요로 하지 않는다. API/라우팅 인프라 변경은 release
-commit이 필요하다.
+따라서 수집 결과와 생성 HTML은 새 Vercel build/deploy를 기다리지 않고 현재 `rate-data`
+payload에서 읽힌다. 다만 GitHub Raw/CDN의 branch 갱신 전파에는 짧은 지연이 있을 수 있으므로
+`rate-data` push 완료 시각과 브라우저 반영 시각이 초 단위로 동일하다고 보장하지 않는다.
+API/라우팅 인프라 변경은 release commit이 필요하다.
 
 ## Git deployment gate
 
@@ -94,6 +95,30 @@ precedence, R2 authoritative state 계약은 바꾸지 않는다.
 expected manifest는 기존과 같이 `rate-data/site-public/site-manifest.json`을 사용한다.
 첫 migration release가 성공한 뒤에는 수집 workflow 성공 후 Vercel 재배포를 기다리지 않고
 현재 `rate-data` payload와 운영 URL의 일치를 검증할 수 있다.
+
+PR에서 `vercel.json`, live page function, release gate를 바꾸면 Production smoke workflow가
+다시 실행되도록 path gate도 함께 고정한다. PR smoke는 현재 production을 보는 것이므로
+첫 activation 전에는 기존 production의 stale/404 상태를 그대로 실패로 보고할 수 있다.
+그 실패는 PR 코드를 production에서 검증했다는 뜻이 아니며 post-release smoke와 구분한다.
+
+## Runtime dependency / recovery
+
+새 구조는 정기 수집마다 Vercel을 재배포하지 않는 대신, 페이지와 데이터 조회 시
+`raw.githubusercontent.com`의 public `rate-data` payload를 upstream으로 사용한다.
+따라서 GitHub Raw/CDN 장애가 있으면 새 Vercel deployment 자체는 정상이어도 live 화면이
+502 또는 upstream 오류를 낼 수 있다. 첫 activation 이후 production smoke에서 root,
+strategy, manifest, health를 함께 확인한다.
+
+복구 순서:
+
+1. 첫 release 전 실패: 기존 production deployment가 유지되므로 새 구조는 활성화되지 않는다.
+2. 첫 release 후 proxy 오류: 이 PR을 revert하고 publish-only 경로로 이전 정적 배포 계약을
+   다시 release한다.
+3. Vercel quota까지 잠긴 상태에서 proxy 오류: 새 deployment 기반 rollback도 즉시 불가능하므로
+   해당 상태를 runtime 장애로 취급하고, quota가 허용되는 첫 release에서 revert를 적용한다.
+
+Hobby에서 rollback 기능 자체에 의존하지 않고 Git revert + 기존 publish-only writer를 복구
+수단으로 둔다.
 
 ## Rollout 조건
 
