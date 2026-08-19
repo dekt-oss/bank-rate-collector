@@ -2,13 +2,16 @@ name: Strategy main production-data runtime E2E
 
 on:
   push:
-    branches: [main, "feat/strategy-main-runtime-e2e-*"]
+    branches: [main, "feat/strategy-main-runtime-e2e-*", "feat/strategy-ux-*"]
     paths:
       - "src/rate_monitor/services/strategy_service.py"
       - "src/rate_monitor/services/deposit_pricing_external_feature_service.py"
       - "src/rate_monitor/services/strategy_external_context_service.py"
       - "src/rate_monitor/services/external_market_context_presentation.py"
       - "src/rate_monitor/services/strategy_decision_cockpit.py"
+      - "src/rate_monitor/services/strategy_workspace_presentation.py"
+      - "src/rate_monitor/services/strategy_light_theme_presentation.py"
+      - "src/rate_monitor/services/strategy_brand_theme_presentation.py"
       - "src/rate_monitor/services/market_intelligence_service.py"
       - "src/rate_monitor/services/market_intelligence_presentation.py"
       - "src/rate_monitor/services/preference_intelligence_service.py"
@@ -21,7 +24,12 @@ on:
       - "migrations/**"
       - "scripts/strategy_preview_smoke.js"
       - "scripts/strategy_main_runtime_external_context_smoke.js"
+      - "scripts/strategy_workspace_smoke.js"
+      - "tests/test_strategy_workspace_presentation.py"
+      - "tests/test_strategy_light_theme_presentation.py"
+      - "tests/test_strategy_brand_theme_presentation.py"
       - "tests/test_strategy_main_runtime_e2e_workflow_contract.py"
+      - "docs/specs/20260819-strategy-light-theme-ux-v2.md"
       - ".github/workflows/strategy-main-runtime-e2e.yml"
   workflow_dispatch:
 
@@ -114,6 +122,9 @@ jobs:
           test -s work/site-public/strategy.html
           test -s work/site-public/data/strategy-table.json
           grep -q 'id="external-market-context-script"' work/site-public/strategy.html
+          grep -q 'id="strategy-workspace-script"' work/site-public/strategy.html
+          grep -q 'id="strategy-light-theme-script"' work/site-public/strategy.html
+          grep -q 'id="strategy-brand-theme-script"' work/site-public/strategy.html
 
       - name: Assert populated external feature payload
         run: |
@@ -177,6 +188,7 @@ jobs:
           npm install --no-save --package-lock=false @playwright/test@1.61.1
           node --check scripts/strategy_preview_smoke.js
           node --check scripts/strategy_main_runtime_external_context_smoke.js
+          node --check scripts/strategy_workspace_smoke.js
 
       - name: Run desktop and mobile Chrome smoke against local build
         env:
@@ -197,6 +209,7 @@ jobs:
           curl -fsS http://127.0.0.1:4173/strategy.html >/dev/null
           node scripts/strategy_preview_smoke.js
           node scripts/strategy_main_runtime_external_context_smoke.js
+          node scripts/strategy_workspace_smoke.js
 
       - name: Upload runtime E2E evidence
         if: always()
