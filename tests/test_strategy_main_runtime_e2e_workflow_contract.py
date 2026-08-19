@@ -15,6 +15,7 @@ def test_strategy_main_runtime_e2e_is_isolated_and_observable() -> None:
         '"feat/strategy-main-runtime-e2e-*"',
         '"feat/strategy-ux-*"',
         '"feat/unify-main-strategy-production-*"',
+        '"fix/vercel-static-serving-stabilization-*"',
     ):
         assert branch in text
     assert "workflow_dispatch:" in text
