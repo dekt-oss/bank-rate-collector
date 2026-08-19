@@ -2,7 +2,11 @@ name: Strategy main production-data runtime E2E
 
 on:
   push:
-    branches: [main, "feat/strategy-main-runtime-e2e-*", "feat/strategy-ux-*"]
+    branches:
+      - main
+      - "feat/strategy-main-runtime-e2e-*"
+      - "feat/strategy-ux-*"
+      - "feat/unify-main-strategy-production-*"
     paths:
       - "src/rate_monitor/services/strategy_service.py"
       - "src/rate_monitor/services/deposit_pricing_external_feature_service.py"
@@ -25,17 +29,23 @@ on:
       - "scripts/strategy_preview_smoke.js"
       - "scripts/strategy_main_runtime_external_context_smoke.js"
       - "scripts/strategy_workspace_smoke.js"
+      - "scripts/production_smoke.py"
       - "tests/test_strategy_workspace_presentation.py"
       - "tests/test_strategy_light_theme_presentation.py"
       - "tests/test_strategy_brand_theme_presentation.py"
       - "tests/test_strategy_main_runtime_e2e_workflow_contract.py"
+      - "tests/test_strategy_production_release.py"
+      - ".github/workflows/collect.yml"
+      - ".github/workflows/collect-savings-fast.yml"
+      - ".github/workflows/nh-attempt.yml"
+      - ".github/workflows/production-smoke.yml"
       - "docs/specs/20260819-strategy-light-theme-ux-v2.md"
       - ".github/workflows/strategy-main-runtime-e2e.yml"
   workflow_dispatch:
 
 # Production DB is restored into a runner-local copy and never written back.
-# Strategy release remains disabled in production; the gate is enabled only for
-# this isolated build so merged-main code can be exercised against real data.
+# This E2E keeps release validation isolated from the canonical production writer:
+# it exercises the exact code against real data without publishing from this job.
 concurrency:
   group: strategy-main-runtime-e2e
   cancel-in-progress: true

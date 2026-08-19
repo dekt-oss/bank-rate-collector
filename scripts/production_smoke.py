@@ -22,6 +22,11 @@ from urllib.request import Request, urlopen
 
 DEFAULT_BASE_URL = "https://bank-rate-collector.vercel.app/"
 ROOT_MARKERS = ("업권", "수집 상태")
+STRATEGY_MARKERS = (
+    "수신상품 전략 대시보드",
+    'id="strategy-workspace-script"',
+    'id="strategy-brand-theme-script"',
+)
 HEALTH_KEYS = {
     "latest_collection",
     "active_collection",
@@ -70,6 +75,14 @@ def validate_root(html: str) -> None:
         raise SmokeFailure("content-mismatch", f"root missing UI markers: {', '.join(missing)}")
 
 
+def validate_strategy(html: str) -> None:
+    missing = [marker for marker in STRATEGY_MARKERS if marker not in html]
+    if missing:
+        raise SmokeFailure(
+            "content-mismatch", f"strategy missing UI markers: {', '.join(missing)}"
+        )
+
+
 def validate_manifest(actual: dict[str, Any], expected: dict[str, Any]) -> None:
     for key in MANIFEST_KEYS:
         if key not in actual:
@@ -104,6 +117,14 @@ def run_once(base_url: str, expected_manifest: dict[str, Any], *, timeout: float
     if status != 200:
         raise SmokeFailure("deployment", f"GET {root_url} -> HTTP {status}")
     validate_root(body.decode("utf-8", errors="replace"))
+
+    expected_files = expected_manifest.get("files") or []
+    if "strategy.html" in expected_files:
+        strategy_url = urljoin(base, "strategy.html")
+        status, body, _ = _get(strategy_url, timeout=timeout)
+        if status != 200:
+            raise SmokeFailure("deployment", f"GET {strategy_url} -> HTTP {status}")
+        validate_strategy(body.decode("utf-8", errors="replace"))
 
     manifest_url = urljoin(base, "site-manifest.json")
     status, body, _ = _get(manifest_url, timeout=timeout)

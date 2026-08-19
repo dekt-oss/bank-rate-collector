@@ -49,6 +49,8 @@ permissions:
 jobs:
   attempt:
     runs-on: ubuntu-latest
+    env:
+      RATE_MONITOR_STRATEGY_DASHBOARD: "1"
     outputs:
       outcome: ${{ steps.decision.outputs.outcome }}
       cycle_date: ${{ steps.context.outputs.cycle_date }}
