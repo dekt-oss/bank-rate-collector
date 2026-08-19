@@ -21,7 +21,7 @@ async function loadPage(browser, viewport) {
   await page.route("**/favicon.ico", (route) => route.fulfill({ status: 204, body: "" }));
   const response = await page.goto(`${baseUrl}/strategy.html`, { waitUntil: "networkidle" });
   invariant(response && response.ok(), `strategy.html HTTP ${response ? response.status() : "no response"}`);
-  await page.waitForSelector('html[data-strategy-workspace="decision-first-v1"][data-strategy-theme="light-v1"]', { timeout: 30_000 });
+  await page.waitForSelector('html[data-strategy-workspace="decision-first-v1"][data-strategy-theme="light-v1"][data-strategy-palette="main-brand-v2"]', { timeout: 30_000 });
   return { context, page, runtimeErrors };
 }
 
@@ -29,7 +29,6 @@ async function assertWorkspace(page, label) {
   const result = await page.evaluate(() => {
     const byId = (id) => document.getElementById(id);
     const order = (a, b) => Boolean(a && b && (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING));
-    const styleOf = (node) => node ? getComputedStyle(node) : null;
     const planning = byId("planning-zone");
     const external = byId("external-market-context");
     const marketIntel = byId("market-intelligence");
@@ -42,15 +41,23 @@ async function assertWorkspace(page, label) {
     const modelDetail = planning?.querySelector(".workspace-model-detail");
     const firstCard = document.querySelector(".card");
     const firstKpiValue = document.querySelector(".kvalue");
-    const externalStyle = styleOf(external);
-    const marketIntelStyle = styleOf(marketIntel);
-    const preferenceStyle = styleOf(preference);
-    const prefMainStyle = styleOf(preference?.querySelector(".pref-intel-main"));
-    const marketDirectionStyle = styleOf(marketIntel?.querySelector(".market-intel-direction"));
+    const topbar = document.querySelector(".topbar");
+    const land = document.querySelector(".land");
+    const denseMicrocopy = document.querySelector(".external-context-card small");
     const bodyStyle = getComputedStyle(document.body);
-    const cardStyle = styleOf(firstCard);
-    const kpiValueStyle = styleOf(firstKpiValue);
+    const cardStyle = firstCard ? getComputedStyle(firstCard) : null;
+    const kpiValueStyle = firstKpiValue ? getComputedStyle(firstKpiValue) : null;
     const rootStyle = getComputedStyle(document.documentElement);
+    const topbarStyle = topbar ? getComputedStyle(topbar) : null;
+    const landStyle = land ? getComputedStyle(land) : null;
+    const denseStyle = denseMicrocopy ? getComputedStyle(denseMicrocopy) : null;
+    const externalStyle = external ? getComputedStyle(external) : null;
+    const marketIntelStyle = marketIntel ? getComputedStyle(marketIntel) : null;
+    const preferenceStyle = preference ? getComputedStyle(preference) : null;
+    const prefMain = preference?.querySelector(".pref-intel-main");
+    const prefMainStyle = prefMain ? getComputedStyle(prefMain) : null;
+    const marketDirection = marketIntel?.querySelector(".market-intel-direction");
+    const marketDirectionStyle = marketDirection ? getComputedStyle(marketDirection) : null;
     const kpis = Array.from(document.querySelectorAll(".kpis .kpi")).slice(0, 2).map((node) => node.getBoundingClientRect());
     const evidence = Array.from(document.querySelectorAll(".evidence-strip .evidence-card")).slice(0, 2).map((node) => node.getBoundingClientRect());
     const mapStage = primary?.querySelector(".mapstage")?.getBoundingClientRect();
@@ -77,12 +84,20 @@ async function assertWorkspace(page, label) {
       clientWidth: document.documentElement.clientWidth,
       scrollWidth: document.documentElement.scrollWidth,
       strategyTheme: document.documentElement.dataset.strategyTheme,
+      strategyPalette: document.documentElement.dataset.strategyPalette,
+      strategyTypography: document.documentElement.dataset.strategyTypography,
       colorScheme: rootStyle.colorScheme,
+      accent: rootStyle.getPropertyValue("--accent").trim(),
+      accentInk: rootStyle.getPropertyValue("--accent-ink").trim(),
       bodyColor: bodyStyle.color,
       bodyFont: bodyStyle.fontFamily,
+      bodyFontSize: parseFloat(bodyStyle.fontSize),
       cardBackground: cardStyle?.backgroundColor || "",
       kpiFont: kpiValueStyle?.fontFamily || "",
       kpiNumeric: kpiValueStyle?.fontVariantNumeric || "",
+      topbarBackground: topbarStyle?.backgroundImage || "",
+      landFill: landStyle?.fill || "",
+      denseFontSize: denseStyle ? parseFloat(denseStyle.fontSize) : 0,
       externalBackground: externalStyle?.backgroundColor || "",
       marketIntelBackground: marketIntelStyle?.backgroundColor || "",
       preferenceBackground: preferenceStyle?.backgroundColor || "",
@@ -102,21 +117,30 @@ async function assertWorkspace(page, label) {
   invariant(result.planningTop < result.externalTop, `${label}: planning visual order is not decision-first`);
   invariant(result.scrollWidth <= result.clientWidth + 1, `${label}: page horizontal overflow ${result.scrollWidth} > ${result.clientWidth}`);
   invariant(result.strategyTheme === "light-v1", `${label}: light theme marker=${result.strategyTheme}`);
+  invariant(result.strategyPalette === "main-brand-v2", `${label}: brand palette marker=${result.strategyPalette}`);
+  invariant(result.strategyTypography === "variable-ui-v2", `${label}: typography marker=${result.strategyTypography}`);
   invariant(result.colorScheme === "light", `${label}: color-scheme=${result.colorScheme}`);
+  invariant(result.accent.toUpperCase() === "#D33A7C", `${label}: accent=${result.accent}`);
+  invariant(result.accentInk.toUpperCase() === "#5B2F64", `${label}: accent ink=${result.accentInk}`);
   invariant(result.bodyFont.includes("Pretendard"), `${label}: readable font stack missing Pretendard: ${result.bodyFont}`);
+  invariant(result.bodyColor === "rgb(37, 29, 39)", `${label}: primary text color=${result.bodyColor}`);
   invariant(result.cardBackground === "rgb(255, 255, 255)", `${label}: card is not white surface: ${result.cardBackground}`);
   invariant(!result.kpiFont.toLowerCase().includes("monospace"), `${label}: KPI font still uses monospace: ${result.kpiFont}`);
   invariant(result.kpiNumeric.includes("tabular-nums"), `${label}: KPI numerals are not tabular: ${result.kpiNumeric}`);
-  invariant(result.bodyColor === "rgb(23, 35, 45)", `${label}: primary text color=${result.bodyColor}`);
-  invariant(result.externalBackground === "rgb(255, 255, 255)", `${label}: external context retained dark surface: ${result.externalBackground}`);
-  invariant(result.marketIntelBackground === "rgb(255, 255, 255)", `${label}: market intelligence retained dark surface: ${result.marketIntelBackground}`);
-  invariant(result.preferenceBackground === "rgb(255, 255, 255)", `${label}: preference intelligence retained dark surface: ${result.preferenceBackground}`);
-  invariant(result.prefMainBackground === "rgb(255, 255, 255)", `${label}: preference main retained dark surface: ${result.prefMainBackground}`);
-  invariant(result.marketDirectionBackground !== "rgb(7, 19, 16)", `${label}: market direction retained dark detail surface: ${result.marketDirectionBackground}`);
+  invariant(result.topbarBackground.includes("linear-gradient"), `${label}: branded topbar gradient missing: ${result.topbarBackground}`);
+  invariant(result.landFill === "rgb(239, 231, 240)", `${label}: Korea land fill is not light branded surface: ${result.landFill}`);
+  invariant(result.denseFontSize >= 10.5, `${label}: analytical microcopy too small: ${result.denseFontSize}px`);
+  invariant(result.externalBackground === "rgb(255, 255, 255)", `${label}: external context parent is not white: ${result.externalBackground}`);
+  invariant(result.marketIntelBackground === "rgb(255, 255, 255)", `${label}: market intel parent is not white: ${result.marketIntelBackground}`);
+  invariant(result.preferenceBackground === "rgb(255, 255, 255)", `${label}: preference parent is not white: ${result.preferenceBackground}`);
+  invariant(result.prefMainBackground === "rgb(252, 250, 252)", `${label}: preference main surface is not branded neutral: ${result.prefMainBackground}`);
+  invariant(result.marketDirectionBackground === "rgb(252, 250, 252)", `${label}: market direction surface is not branded neutral: ${result.marketDirectionBackground}`);
 
   if (label === "desktop") {
+    invariant(result.bodyFontSize >= 14, `desktop: body type too small=${result.bodyFontSize}`);
     invariant(result.mapHeight <= 300, `desktop: compact map height=${result.mapHeight}`);
   } else {
+    invariant(result.bodyFontSize >= 13.5, `mobile: body type too small=${result.bodyFontSize}`);
     invariant(result.kpis.length === 2 && Math.abs(result.kpis[0].y - result.kpis[1].y) < 2 && result.kpis[0].x !== result.kpis[1].x, "mobile: KPI cards are not two-column");
     invariant(result.evidence.length === 2 && Math.abs(result.evidence[0].y - result.evidence[1].y) < 2 && result.evidence[0].x !== result.evidence[1].x, "mobile: evidence cards are not two-column");
     invariant(result.mapHeight <= 310, `mobile: compact map height=${result.mapHeight}`);
@@ -138,7 +162,7 @@ async function assertWorkspace(page, label) {
     invariant(mobile.runtimeErrors.length === 0, `mobile runtime errors:\n${mobile.runtimeErrors.join("\n")}`);
     await mobile.context.close();
 
-    console.log("strategy decision workspace smoke: PASS (light desktop/mobile)");
+    console.log("strategy decision workspace smoke: PASS (branded light desktop/mobile)");
   } finally {
     await browser.close();
   }
