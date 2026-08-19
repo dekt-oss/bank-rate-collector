@@ -4,8 +4,12 @@ on:
   workflow_dispatch:
   pull_request:
     paths:
+      - "vercel.json"
+      - "web/api/live-page.js"
+      - "scripts/prepare_vercel_release.py"
       - "scripts/production_smoke.py"
       - "tests/test_production_smoke.py"
+      - "tests/test_vercel_live_payload_split.py"
       - "tests/test_strategy_production_release.py"
       - ".github/workflows/collect.yml"
       - ".github/workflows/collect-savings-fast.yml"
