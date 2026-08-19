@@ -21,14 +21,24 @@ def _full_strategy_fixture() -> str:
 <head><title>strategy</title></head>
 <body>
 <script id="rate-monitor-data" type="application/json">{"strategy":{}}</script>
-<section class="grid kpis"><article class="kpi"></article><article class="kpi"></article></section>
-<section class="planning-zone" id="planning-zone"><section id="prediction-panel"></section></section>
+<section class="grid kpis">
+  <article class="kpi"></article><article class="kpi"></article>
+</section>
+<section class="planning-zone" id="planning-zone">
+  <section id="prediction-panel"></section>
+</section>
 <section id="external-market-context"></section>
 <section id="market-intelligence"></section>
-<section class="grid market-flow" id="market-flow"><details class="card changes" open></details></section>
-<section class="grid interpretation"><article class="preference-card"></article></section>
+<section class="grid market-flow" id="market-flow">
+  <details class="card changes" open></details>
+</section>
+<section class="grid interpretation">
+  <article class="preference-card"></article>
+</section>
 <section id="preference-intelligence"></section>
-<section class="grid primary"><article class="mapcard"><div class="mapstage"></div></article></section>
+<section class="grid primary">
+  <article class="mapcard"><div class="mapstage"></div></article>
+</section>
 <script>function predictInflow(args){return args}</script>
 </body>
 </html>"""
