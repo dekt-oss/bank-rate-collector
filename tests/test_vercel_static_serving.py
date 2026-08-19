@@ -15,7 +15,7 @@ def _vercel() -> dict:
 
 def test_git_deployments_are_blocked_except_rate_data() -> None:
     config = _vercel()
-    assert config["git"]["deploymentEnabled"] == {"*": False, "rate-data": True}
+    assert config["git"]["deploymentEnabled"] == {"**": False, "rate-data": True}
     assert '"$VERCEL_GIT_COMMIT_REF" != "rate-data"' in config["ignoreCommand"]
 
 
