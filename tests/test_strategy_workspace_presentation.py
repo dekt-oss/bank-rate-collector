@@ -1,5 +1,7 @@
 """Strategy decision-first workspace presentation 계약."""
 
+from pathlib import Path
+
 import pytest
 
 from rate_monitor.services.dashboard_service import DashboardBuildError
@@ -9,6 +11,8 @@ from rate_monitor.services.strategy_workspace_presentation import (
     STYLE_MARKER,
     inject_strategy_workspace_presentation,
 )
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def _full_strategy_fixture() -> str:
@@ -80,6 +84,19 @@ def test_decision_cockpit_composes_workspace_after_existing_presentations() -> N
     assert 'id="external-market-context-script"' in html
     assert 'id="preference-intelligence-script"' in html
     assert html.index('id="preference-intelligence-script"') < html.index(SCRIPT_MARKER)
+
+
+def test_workspace_spec_preserves_decision_first_and_busan_boundaries() -> None:
+    spec = (ROOT / "docs/specs/20260819-strategy-decision-workspace-ux-v1.md").read_text(
+        encoding="utf-8"
+    )
+
+    assert "금리 결정" in spec
+    assert "시장 근거" in spec
+    assert "상품 설계" in spec
+    assert "지역·경쟁사 상세" in spec
+    assert "busan-focus" in spec
+    assert "Production Strategy Release Gate" in spec
 
 
 def test_injection_fails_closed_without_existing_layout_contract() -> None:
