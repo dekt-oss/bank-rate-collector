@@ -72,7 +72,10 @@ def test_brand_theme_lightens_map_and_limits_semantic_colors() -> None:
 
 def test_partial_brand_theme_injection_fails_closed() -> None:
     complete = inject_strategy_brand_theme(_workspace_fixture())
-    partial = complete.replace('<script id="strategy-brand-theme-script">', '<script id="removed-brand-theme-script">')
+    partial = complete.replace(
+        '<script id="strategy-brand-theme-script">',
+        '<script id="removed-brand-theme-script">',
+    )
 
     with pytest.raises(DashboardBuildError, match="주입 상태가 불완전"):
         inject_strategy_brand_theme(partial)
