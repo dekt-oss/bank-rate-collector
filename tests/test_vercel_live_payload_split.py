@@ -74,3 +74,14 @@ def test_live_page_function_is_fixed_to_known_pages_and_rate_data() -> None:
     assert 'res.setHeader("cache-control", "no-store, max-age=0")' in text
     assert "req.query && req.query.page" in text
     assert "rawUrl(req" not in text
+
+
+def test_production_smoke_watches_live_routing_contract() -> None:
+    workflow = (ROOT / ".github/workflows/production-smoke.yml").read_text(encoding="utf-8")
+    for path in (
+        "vercel.json",
+        "web/api/live-page.js",
+        "scripts/prepare_vercel_release.py",
+        "tests/test_vercel_live_payload_split.py",
+    ):
+        assert f'- "{path}"' in workflow
