@@ -3,12 +3,13 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "strategy-main-runtime-e2e.yml"
 SMOKE = ROOT / "scripts" / "strategy_main_runtime_external_context_smoke.js"
+WORKSPACE_SMOKE = ROOT / "scripts" / "strategy_workspace_smoke.js"
 
 
 def test_strategy_main_runtime_e2e_is_isolated_and_observable() -> None:
     text = WORKFLOW.read_text(encoding="utf-8")
 
-    assert 'branches: [main, "feat/strategy-main-runtime-e2e-*"]' in text
+    assert 'branches: [main, "feat/strategy-main-runtime-e2e-*", "feat/strategy-ux-*"]' in text
     assert "workflow_dispatch:" in text
     assert 'RATE_MONITOR_STRATEGY_DASHBOARD: "1"' in text
     assert "storage restore --dest work/rate_monitor.sqlite3" in text
@@ -17,6 +18,8 @@ def test_strategy_main_runtime_e2e_is_isolated_and_observable() -> None:
     assert "statuses: write" in text
     assert "strategy_main_runtime_external_context_smoke.js" in text
     assert "strategy_preview_smoke.js" in text
+    assert "strategy_workspace_smoke.js" in text
+    assert "strategy_workspace_presentation.py" in text
 
     # This workflow must never publish the runner-local DB or Strategy site.
     assert "rate-monitor storage upload" not in text
@@ -36,3 +39,16 @@ def test_strategy_main_runtime_smoke_requires_populated_external_context() -> No
     assert 'value !== "—"' in text
     assert "농·축협과 1:1 동일하지 않음" in text
     assert "DOM/payload mismatch" in text
+
+
+def test_strategy_workspace_smoke_locks_decision_first_order_and_mobile_density() -> None:
+    text = WORKSPACE_SMOKE.read_text(encoding="utf-8")
+
+    assert "decisionBeforeExternal" in text
+    assert "insightBeforePreference" in text
+    assert "preferenceBeforeDetail" in text
+    assert "recent change details should start collapsed" in text
+    assert "KPI cards are not two-column" in text
+    assert "evidence cards are not two-column" in text
+    assert "compact map height" in text
+    assert "horizontal overflow" in text
