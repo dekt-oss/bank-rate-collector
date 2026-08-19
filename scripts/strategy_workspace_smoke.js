@@ -42,14 +42,14 @@ async function assertWorkspace(page, label) {
     const firstCard = document.querySelector(".card");
     const firstKpiValue = document.querySelector(".kvalue");
     const topbar = document.querySelector(".topbar");
-    const land = document.querySelector(".land");
+    const koreaMapImage = document.querySelector(".korea-map-image");
     const denseMicrocopy = document.querySelector(".external-context-card small");
     const bodyStyle = getComputedStyle(document.body);
     const cardStyle = firstCard ? getComputedStyle(firstCard) : null;
     const kpiValueStyle = firstKpiValue ? getComputedStyle(firstKpiValue) : null;
     const rootStyle = getComputedStyle(document.documentElement);
     const topbarStyle = topbar ? getComputedStyle(topbar) : null;
-    const landStyle = land ? getComputedStyle(land) : null;
+    const koreaMapImageStyle = koreaMapImage ? getComputedStyle(koreaMapImage) : null;
     const denseStyle = denseMicrocopy ? getComputedStyle(denseMicrocopy) : null;
     const externalStyle = external ? getComputedStyle(external) : null;
     const marketIntelStyle = marketIntel ? getComputedStyle(marketIntel) : null;
@@ -96,7 +96,8 @@ async function assertWorkspace(page, label) {
       kpiFont: kpiValueStyle?.fontFamily || "",
       kpiNumeric: kpiValueStyle?.fontVariantNumeric || "",
       topbarBackground: topbarStyle?.backgroundImage || "",
-      landFill: landStyle?.fill || "",
+      koreaMapImageOpacity: koreaMapImageStyle ? parseFloat(koreaMapImageStyle.opacity) : NaN,
+      koreaMapImageFilter: koreaMapImageStyle?.filter || "",
       denseFontSize: denseStyle ? parseFloat(denseStyle.fontSize) : 0,
       externalBackground: externalStyle?.backgroundColor || "",
       marketIntelBackground: marketIntelStyle?.backgroundColor || "",
@@ -128,7 +129,8 @@ async function assertWorkspace(page, label) {
   invariant(!result.kpiFont.toLowerCase().includes("monospace"), `${label}: KPI font still uses monospace: ${result.kpiFont}`);
   invariant(result.kpiNumeric.includes("tabular-nums"), `${label}: KPI numerals are not tabular: ${result.kpiNumeric}`);
   invariant(result.topbarBackground.includes("linear-gradient"), `${label}: branded topbar gradient missing: ${result.topbarBackground}`);
-  invariant(result.landFill === "rgb(239, 231, 240)", `${label}: Korea land fill is not light branded surface: ${result.landFill}`);
+  invariant(Number.isFinite(result.koreaMapImageOpacity) && result.koreaMapImageOpacity <= 0.2, `${label}: external Korea map is still visually heavy: opacity=${result.koreaMapImageOpacity}`);
+  invariant(result.koreaMapImageFilter.includes("grayscale"), `${label}: external Korea map filter missing: ${result.koreaMapImageFilter}`);
   invariant(result.denseFontSize >= 10.5, `${label}: analytical microcopy too small: ${result.denseFontSize}px`);
   invariant(result.externalBackground === "rgb(255, 255, 255)", `${label}: external context parent is not white: ${result.externalBackground}`);
   invariant(result.marketIntelBackground === "rgb(255, 255, 255)", `${label}: market intel parent is not white: ${result.marketIntelBackground}`);
