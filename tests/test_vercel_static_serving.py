@@ -1,8 +1,6 @@
 import json
 from pathlib import Path
 
-from scripts.prepare_vercel_release import enable_release
-
 ROOT = Path(__file__).resolve().parents[1]
 WRITERS = (
     ROOT / ".github/workflows/collect.yml",
@@ -33,16 +31,8 @@ def test_all_rate_data_writers_publish_the_static_site_with_same_vercel_config()
         text = workflow.read_text(encoding="utf-8")
         assert "cp vercel.json stage/vercel.json" in text
         assert "HEAD:rate-data" in text
+        assert "prepare_vercel_release.py" not in text
 
 
-def test_publish_only_release_helper_is_idempotent_with_static_branch_gate(
-    tmp_path: Path,
-) -> None:
-    staged = tmp_path / "vercel.json"
-    staged.write_text(json.dumps(_vercel()), encoding="utf-8")
-
-    enable_release(staged)
-
-    config = json.loads(staged.read_text(encoding="utf-8"))
-    assert config["git"]["deploymentEnabled"] == {"*": False, "rate-data": True}
-    assert "rewrites" not in config
+def test_static_branch_gate_has_no_release_mutation_helper() -> None:
+    assert not (ROOT / "scripts/prepare_vercel_release.py").exists()
