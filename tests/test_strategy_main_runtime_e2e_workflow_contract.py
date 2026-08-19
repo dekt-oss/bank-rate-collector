@@ -20,6 +20,9 @@ def test_strategy_main_runtime_e2e_is_isolated_and_observable() -> None:
     assert "strategy_preview_smoke.js" in text
     assert "strategy_workspace_smoke.js" in text
     assert "strategy_workspace_presentation.py" in text
+    assert "strategy_brand_theme_presentation.py" in text
+    assert "test_strategy_brand_theme_presentation.py" in text
+    assert 'grep -q \'id="strategy-brand-theme-script"\'' in text
 
     # This workflow must never publish the runner-local DB or Strategy site.
     assert "rate-monitor storage upload" not in text
@@ -52,3 +55,7 @@ def test_strategy_workspace_smoke_locks_decision_first_order_and_mobile_density(
     assert "evidence cards are not two-column" in text
     assert "compact map height" in text
     assert "horizontal overflow" in text
+    assert 'strategyPalette === "main-brand-v2"' in text
+    assert 'accent.toUpperCase() === "#D33A7C"' in text
+    assert "Korea land fill is not light branded surface" in text
+    assert "analytical microcopy too small" in text
