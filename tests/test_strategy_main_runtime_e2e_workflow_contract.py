@@ -59,6 +59,12 @@ def test_strategy_main_runtime_smoke_accepts_fail_closed_external_context() -> N
     assert "insufficient_history" in text
     assert "non_consecutive_months" in text
     assert "source_contract_mismatch" not in text
+    assert "requiredRateKeys" in text
+    assert "primary_realized_deposit_rate" in text
+    assert "term_deposit_1y_rate" in text
+    assert "requiredFlowKeys" in text
+    for key in ("savings_bank", "credit_union", "kfcc", "broad_mutual_finance"):
+        assert key in text
     assert 'result.rateCards === 3' in text
     assert 'result.flowCards === 4' in text
     assert 'result.badge.includes("BOK ·")' in text
