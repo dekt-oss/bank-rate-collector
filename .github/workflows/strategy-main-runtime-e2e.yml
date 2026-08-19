@@ -11,6 +11,7 @@ on:
       - "src/rate_monitor/services/strategy_decision_cockpit.py"
       - "src/rate_monitor/services/strategy_workspace_presentation.py"
       - "src/rate_monitor/services/strategy_light_theme_presentation.py"
+      - "src/rate_monitor/services/strategy_brand_theme_presentation.py"
       - "src/rate_monitor/services/market_intelligence_service.py"
       - "src/rate_monitor/services/market_intelligence_presentation.py"
       - "src/rate_monitor/services/preference_intelligence_service.py"
@@ -26,6 +27,7 @@ on:
       - "scripts/strategy_workspace_smoke.js"
       - "tests/test_strategy_workspace_presentation.py"
       - "tests/test_strategy_light_theme_presentation.py"
+      - "tests/test_strategy_brand_theme_presentation.py"
       - "tests/test_strategy_main_runtime_e2e_workflow_contract.py"
       - "docs/specs/20260819-strategy-light-theme-ux-v2.md"
       - ".github/workflows/strategy-main-runtime-e2e.yml"
@@ -122,6 +124,7 @@ jobs:
           grep -q 'id="external-market-context-script"' work/site-public/strategy.html
           grep -q 'id="strategy-workspace-script"' work/site-public/strategy.html
           grep -q 'id="strategy-light-theme-script"' work/site-public/strategy.html
+          grep -q 'id="strategy-brand-theme-script"' work/site-public/strategy.html
 
       - name: Assert populated external feature payload
         run: |
