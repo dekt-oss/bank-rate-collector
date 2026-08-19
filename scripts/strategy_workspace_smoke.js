@@ -21,7 +21,7 @@ async function loadPage(browser, viewport) {
   await page.route("**/favicon.ico", (route) => route.fulfill({ status: 204, body: "" }));
   const response = await page.goto(`${baseUrl}/strategy.html`, { waitUntil: "networkidle" });
   invariant(response && response.ok(), `strategy.html HTTP ${response ? response.status() : "no response"}`);
-  await page.waitForSelector('html[data-strategy-workspace="decision-first-v1"]', { timeout: 30_000 });
+  await page.waitForSelector('html[data-strategy-workspace="decision-first-v1"][data-strategy-theme="light-v1"]', { timeout: 30_000 });
   return { context, page, runtimeErrors };
 }
 
@@ -39,6 +39,12 @@ async function assertWorkspace(page, label) {
     const changes = marketFlow?.querySelector("details.changes");
     const legacy = interpretation?.querySelector(".workspace-legacy-pref");
     const modelDetail = planning?.querySelector(".workspace-model-detail");
+    const firstCard = document.querySelector(".card");
+    const firstKpiValue = document.querySelector(".kvalue");
+    const bodyStyle = getComputedStyle(document.body);
+    const cardStyle = firstCard ? getComputedStyle(firstCard) : null;
+    const kpiValueStyle = firstKpiValue ? getComputedStyle(firstKpiValue) : null;
+    const rootStyle = getComputedStyle(document.documentElement);
     const kpis = Array.from(document.querySelectorAll(".kpis .kpi")).slice(0, 2).map((node) => node.getBoundingClientRect());
     const evidence = Array.from(document.querySelectorAll(".evidence-strip .evidence-card")).slice(0, 2).map((node) => node.getBoundingClientRect());
     const mapStage = primary?.querySelector(".mapstage")?.getBoundingClientRect();
@@ -64,6 +70,13 @@ async function assertWorkspace(page, label) {
       mapHeight: mapStage?.height || 0,
       clientWidth: document.documentElement.clientWidth,
       scrollWidth: document.documentElement.scrollWidth,
+      strategyTheme: document.documentElement.dataset.strategyTheme,
+      colorScheme: rootStyle.colorScheme,
+      bodyColor: bodyStyle.color,
+      bodyFont: bodyStyle.fontFamily,
+      cardBackground: cardStyle?.backgroundColor || "",
+      kpiFont: kpiValueStyle?.fontFamily || "",
+      kpiNumeric: kpiValueStyle?.fontVariantNumeric || "",
     };
   });
 
@@ -77,6 +90,13 @@ async function assertWorkspace(page, label) {
   invariant(result.modelDetailHasResults && result.modelDetailHasEvidence, `${label}: model detail lost prediction results or evidence`);
   invariant(result.planningTop < result.externalTop, `${label}: planning visual order is not decision-first`);
   invariant(result.scrollWidth <= result.clientWidth + 1, `${label}: page horizontal overflow ${result.scrollWidth} > ${result.clientWidth}`);
+  invariant(result.strategyTheme === "light-v1", `${label}: light theme marker=${result.strategyTheme}`);
+  invariant(result.colorScheme === "light", `${label}: color-scheme=${result.colorScheme}`);
+  invariant(result.bodyFont.includes("Pretendard"), `${label}: readable font stack missing Pretendard: ${result.bodyFont}`);
+  invariant(result.cardBackground === "rgb(255, 255, 255)", `${label}: card is not white surface: ${result.cardBackground}`);
+  invariant(!result.kpiFont.toLowerCase().includes("monospace"), `${label}: KPI font still uses monospace: ${result.kpiFont}`);
+  invariant(result.kpiNumeric.includes("tabular-nums"), `${label}: KPI numerals are not tabular: ${result.kpiNumeric}`);
+  invariant(result.bodyColor === "rgb(23, 35, 45)", `${label}: primary text color=${result.bodyColor}`);
 
   if (label === "desktop") {
     invariant(result.mapHeight <= 300, `desktop: compact map height=${result.mapHeight}`);
@@ -102,7 +122,7 @@ async function assertWorkspace(page, label) {
     invariant(mobile.runtimeErrors.length === 0, `mobile runtime errors:\n${mobile.runtimeErrors.join("\n")}`);
     await mobile.context.close();
 
-    console.log("strategy decision workspace smoke: PASS (desktop/mobile)");
+    console.log("strategy decision workspace smoke: PASS (light desktop/mobile)");
   } finally {
     await browser.close();
   }
