@@ -7,6 +7,7 @@ on:
       - "feat/strategy-main-runtime-e2e-*"
       - "feat/strategy-ux-*"
       - "feat/unify-main-strategy-production-*"
+      - "fix/vercel-static-serving-stabilization-*"
     paths:
       - "src/rate_monitor/services/strategy_service.py"
       - "src/rate_monitor/services/deposit_pricing_external_feature_service.py"
