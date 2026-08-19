@@ -4,6 +4,8 @@ const { chromium } = require("@playwright/test");
 
 const baseUrl = process.env.STRATEGY_PREVIEW_BASE_URL || "http://127.0.0.1:4173";
 const workDir = path.resolve("work");
+const requiredRateKeys = ["primary_realized_deposit_rate", "term_deposit_1y_rate"];
+const requiredFlowKeys = ["savings_bank", "credit_union", "kfcc", "broad_mutual_finance"];
 fs.mkdirSync(workDir, { recursive: true });
 
 function invariant(condition, message) {
@@ -62,12 +64,14 @@ async function assertContract(page, label) {
 
   const rates = features.deposit_market.bank_rates || {};
   const flows = features.deposit_market.sector_balances || {};
-  for (const [key, item] of Object.entries(rates)) {
-    assertStatus(item, ["ready", "no_data"], `${label}: bank_rate:${key}`);
+  for (const key of requiredRateKeys) {
+    invariant(Object.hasOwn(rates, key), `${label}: missing bank_rate:${key}`);
+    assertStatus(rates[key], ["ready", "no_data"], `${label}: bank_rate:${key}`);
   }
-  for (const [key, item] of Object.entries(flows)) {
+  for (const key of requiredFlowKeys) {
+    invariant(Object.hasOwn(flows, key), `${label}: missing sector_balance:${key}`);
     assertStatus(
-      item,
+      flows[key],
       ["ready", "no_data", "insufficient_history", "non_consecutive_months"],
       `${label}: sector_balance:${key}`,
     );
