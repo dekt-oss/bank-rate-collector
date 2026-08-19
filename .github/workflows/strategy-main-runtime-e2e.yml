@@ -21,6 +21,7 @@ on:
       - "migrations/**"
       - "scripts/strategy_preview_smoke.js"
       - "scripts/strategy_main_runtime_external_context_smoke.js"
+      - "tests/test_strategy_main_runtime_e2e_workflow_contract.py"
       - ".github/workflows/strategy-main-runtime-e2e.yml"
   workflow_dispatch:
 
