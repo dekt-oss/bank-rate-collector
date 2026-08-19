@@ -6,19 +6,16 @@ payload. A publish-only release calls this script on ``stage/vercel.json`` befor
 same branch is pushed; Vercel then sees an explicit allow rule for rate-data.
 """
 
-from __future__ import annotations
-
 import argparse
 import json
 from pathlib import Path
-from typing import Any
 
 
 RELEASE_BRANCH = "rate-data"
 
 
 def enable_release(path: Path) -> None:
-    payload: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
+    payload = json.loads(path.read_text(encoding="utf-8"))
     payload["git"] = {
         "deploymentEnabled": {
             "*": False,
