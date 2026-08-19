@@ -9,7 +9,7 @@ Strategy DOM을 `결정 → 시장근거 → 상품설계 → 지역·경쟁사 
 from __future__ import annotations
 
 from rate_monitor.services.dashboard_service import DashboardBuildError
-from rate_monitor.services.strategy_light_theme_presentation import inject_strategy_light_theme
+from rate_monitor.services.strategy_brand_theme_presentation import inject_strategy_brand_theme
 
 STYLE_MARKER = 'id="strategy-workspace-style"'
 SCRIPT_MARKER = 'id="strategy-workspace-script"'
@@ -131,4 +131,4 @@ def inject_strategy_workspace_presentation(html: str) -> str:
             raise DashboardBuildError("Strategy Workspace 기존 레이아웃 계약을 찾지 못했다")
         rendered = html.replace("</head>", _CSS + "\n</head>", 1)
         rendered = rendered.replace("</body>", _JS + "\n</body>", 1)
-    return inject_strategy_light_theme(rendered)
+    return inject_strategy_brand_theme(rendered)
