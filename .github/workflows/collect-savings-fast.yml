@@ -24,6 +24,8 @@ permissions:
 jobs:
   collect-bank-rates:
     runs-on: ubuntu-latest
+    env:
+      RATE_MONITOR_STRATEGY_DASHBOARD: "1"
     steps:
       - uses: actions/checkout@v4
 
