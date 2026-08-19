@@ -62,6 +62,8 @@ def test_workspace_reorders_existing_sections_without_new_calculation() -> None:
     assert 'detailAfter.insertAdjacentElement("afterend",primary)' in html
     assert 'changes.removeAttribute("open")' in html
     assert '기존 우대조건 트렌드 요약' in html
+    assert '민감도 범위 · 예측모형 상세' in html
+    assert 'body.appendChild(predictionResults)' in html
     assert '01","금리 결정"' in html
     assert '02","시장 근거"' in html
     assert '03","상품 설계"' in html
@@ -76,6 +78,7 @@ def test_mobile_density_and_detail_compaction_are_explicit() -> None:
     assert '.workspace-detail.primary:not(.busan-focus) .mapstage{height:270px}' in html
     assert '.primary.busan-focus' not in html
     assert 'external-context-rates,.external-context-flows{display:flex;overflow-x:auto' in html
+    assert '.workspace-model-detail>summary' in html
 
 
 def test_workspace_preserves_busan_focus_by_only_compacting_non_focus_map() -> None:
