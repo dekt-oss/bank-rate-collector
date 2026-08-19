@@ -48,14 +48,21 @@ main merge
 {
   "git": {
     "deploymentEnabled": {
-      "*": false,
+      "**": false,
       "rate-data": true
     }
   }
 }
 ```
 
-기존 `ignoreCommand`의 `rate-data` check도 defense-in-depth로 유지한다.
+Vercel은 `deploymentEnabled` branch pattern에 minimatch를 사용하고, 일치하지 않는 branch는
+기본적으로 deployment가 허용된다. 후속 구현 과정에서 `"*": false`를 사용했을 때 실제
+`fix/vercel-static-serving-stabilization-...` branch commit에 Vercel deployment가 생성되어
+`success`까지 진행되는 것을 관측했다. slash가 포함된 branch까지 포괄하도록 globstar
+`"**": false`로 수정한 뒤 다음 동일 branch commit에서는 Vercel status가 생성되지 않았다.
+
+따라서 `*`가 모든 실제 branch name을 막는다고 가정하지 않는다. `**` deny + `rate-data` allow를
+계약 테스트로 고정한다. 기존 `ignoreCommand`의 `rate-data` check도 defense-in-depth로 유지한다.
 
 ## 3. Raw proxy를 최종안으로 채택하지 않는 이유
 
@@ -163,7 +170,13 @@ ECOS 공표시차나 연속월 부족은 코드 회귀가 아니다. E2E는 외�
 `ready`일 때는 값과 DOM 표시의 일치를 계속 검증한다. availability가 낮으면 UI가 `—` 및 상태
 라벨로 fail-closed하는지를 검증하고 전체 payload는 artifact로 보존한다.
 
-## 8. 불변 조건
+## 8. 파일 위생
+
+`collect.yml`, `collect-savings-fast.yml`, `nh-attempt.yml`, `production-smoke.yml`은 EOF newline을
+항상 가져야 한다. 과거 "add trailing newlines" 성격의 변경에서 반대로 newline이 사라진 이력이
+있으므로 `tests/test_workflow_file_hygiene.py`로 이 계약을 직접 고정한다.
+
+## 9. 불변 조건
 
 이번 안정화에서 변경하지 않는다.
 
@@ -175,16 +188,17 @@ ECOS 공표시차나 연속월 부족은 코드 회귀가 아니다. E2E는 외�
 - Production Strategy Release Gate ON 상태
 - `rate-data-writer` concurrency 직렬화
 
-## 9. Rollout / rollback
+## 10. Rollout / rollback
 
 Rollout:
 
 1. 후속 PR CI green
-2. merge 승인 후 `main` publish-only run
-3. `rate-data` Vercel static production deployment success 확인
-4. `/`, `/strategy.html`, manifest, `/api/health` Production smoke 확인
-5. 다음 실제 scheduled collection의 `rate-data` commit도 Vercel success인지 확인
-6. feature/main commit에는 Vercel deployment가 생성되지 않는지 재확인
+2. production-data Strategy E2E green
+3. merge 승인 후 `main` publish-only run
+4. `rate-data` Vercel static production deployment success 확인
+5. `/`, `/strategy.html`, manifest, `/api/health` Production smoke 확인
+6. 다음 실제 scheduled collection의 `rate-data` commit도 Vercel success인지 확인
+7. feature/main slash branch commit에는 Vercel deployment가 생성되지 않는지 재확인
 
 Rollback:
 
