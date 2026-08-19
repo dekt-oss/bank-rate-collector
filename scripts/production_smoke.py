@@ -2,7 +2,7 @@
 """Production smoke test for the published static site and health endpoint.
 
 This script intentionally uses only the Python standard library so it can run in a
-minimal GitHub Actions job after rate-data has been published.  It distinguishes
+minimal GitHub Actions job after rate-data has been published. It distinguishes
 three failure classes so an operator can tell whether the problem is deployment,
 API contract, or stale/mismatched content.
 """
@@ -14,6 +14,7 @@ import json
 import sys
 import time
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError, URLError
@@ -69,6 +70,26 @@ def _json_body(url: str, body: bytes) -> dict[str, Any]:
     return value
 
 
+def _generated_at(manifest: dict[str, Any], label: str) -> datetime:
+    value = manifest.get("generated_at")
+    if not isinstance(value, str) or not value:
+        raise SmokeFailure("content-mismatch", f"{label} manifest missing generated_at")
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError as exc:
+        raise SmokeFailure(
+            "content-mismatch", f"{label} manifest has invalid generated_at: {value!r}"
+        ) from exc
+
+
+def _require_strategy_file(manifest: dict[str, Any], label: str) -> None:
+    files = manifest.get("files")
+    if not isinstance(files, list) or "strategy.html" not in files:
+        raise SmokeFailure(
+            "content-mismatch", f"{label} manifest must include strategy.html"
+        )
+
+
 def validate_root(html: str) -> None:
     missing = [marker for marker in ROOT_MARKERS if marker not in html]
     if missing:
@@ -84,17 +105,35 @@ def validate_strategy(html: str) -> None:
 
 
 def validate_manifest(actual: dict[str, Any], expected: dict[str, Any]) -> None:
+    _require_strategy_file(expected, "expected")
+    _require_strategy_file(actual, "production")
     for key in MANIFEST_KEYS:
         if key not in actual:
             raise SmokeFailure("content-mismatch", f"production manifest missing {key}")
         if key not in expected:
             raise SmokeFailure("content-mismatch", f"expected manifest missing {key}")
+
+    actual_time = _generated_at(actual, "production")
+    expected_time = _generated_at(expected, "expected")
+    if actual_time < expected_time:
+        raise SmokeFailure(
+            "content-mismatch",
+            "production manifest stale for generated_at: "
+            f"expected>={expected['generated_at']!r} actual={actual['generated_at']!r}",
+        )
+
+    # A second successful writer may publish while this smoke is already running.
+    # Treat a newer production generation as fresh rather than a false failure.
+    if actual_time > expected_time:
+        return
+
+    for key in ("rows", "data_bytes"):
         if actual[key] != expected[key]:
-            detail = (
-                f"production manifest stale for {key}: "
-                f"expected={expected[key]!r} actual={actual[key]!r}"
+            raise SmokeFailure(
+                "content-mismatch",
+                f"production manifest mismatch for {key}: "
+                f"expected={expected[key]!r} actual={actual[key]!r}",
             )
-            raise SmokeFailure("content-mismatch", detail)
 
 
 def validate_health(payload: dict[str, Any]) -> None:
@@ -111,6 +150,7 @@ def validate_health(payload: dict[str, Any]) -> None:
 
 def run_once(base_url: str, expected_manifest: dict[str, Any], *, timeout: float) -> None:
     base = base_url.rstrip("/") + "/"
+    _require_strategy_file(expected_manifest, "expected")
 
     root_url = urljoin(base, "/")
     status, body, _ = _get(root_url, timeout=timeout)
@@ -118,13 +158,11 @@ def run_once(base_url: str, expected_manifest: dict[str, Any], *, timeout: float
         raise SmokeFailure("deployment", f"GET {root_url} -> HTTP {status}")
     validate_root(body.decode("utf-8", errors="replace"))
 
-    expected_files = expected_manifest.get("files") or []
-    if "strategy.html" in expected_files:
-        strategy_url = urljoin(base, "strategy.html")
-        status, body, _ = _get(strategy_url, timeout=timeout)
-        if status != 200:
-            raise SmokeFailure("deployment", f"GET {strategy_url} -> HTTP {status}")
-        validate_strategy(body.decode("utf-8", errors="replace"))
+    strategy_url = urljoin(base, "strategy.html")
+    status, body, _ = _get(strategy_url, timeout=timeout)
+    if status != 200:
+        raise SmokeFailure("deployment", f"GET {strategy_url} -> HTTP {status}")
+    validate_strategy(body.decode("utf-8", errors="replace"))
 
     manifest_url = urljoin(base, "site-manifest.json")
     status, body, _ = _get(manifest_url, timeout=timeout)
@@ -171,8 +209,7 @@ def main(argv: list[str] | None = None) -> int:
 
         print(
             "production smoke PASS "
-            f"url={args.base_url.rstrip('/')} generated_at={expected.get('generated_at')} "
-            f"rows={expected.get('rows')} data_bytes={expected.get('data_bytes')}"
+            f"url={args.base_url.rstrip('/')} expected_generated_at={expected.get('generated_at')}"
         )
         return 0
 

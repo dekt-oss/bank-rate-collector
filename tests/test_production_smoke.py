@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import json
 
 import pytest
@@ -45,6 +43,36 @@ def test_validate_manifest_detects_stale_publish() -> None:
 
     assert exc.value.category == "content-mismatch"
     assert "stale" in exc.value.detail
+
+
+def test_validate_manifest_accepts_newer_successful_publish() -> None:
+    actual = dict(
+        EXPECTED_MANIFEST,
+        generated_at="2026-08-11T09:02:00+09:00",
+        rows=EXPECTED_MANIFEST["rows"] + 17,
+        data_bytes=EXPECTED_MANIFEST["data_bytes"] + 2048,
+    )
+
+    smoke.validate_manifest(actual, EXPECTED_MANIFEST)
+
+
+def test_validate_manifest_requires_strategy_in_expected_and_production() -> None:
+    missing_expected = dict(EXPECTED_MANIFEST, files=["index.html", "data/table.json"])
+    with pytest.raises(smoke.SmokeFailure) as exc:
+        smoke.validate_manifest(EXPECTED_MANIFEST, missing_expected)
+    assert "strategy.html" in exc.value.detail
+
+    missing_actual = dict(EXPECTED_MANIFEST, files=["index.html", "data/table.json"])
+    with pytest.raises(smoke.SmokeFailure) as exc:
+        smoke.validate_manifest(missing_actual, EXPECTED_MANIFEST)
+    assert "strategy.html" in exc.value.detail
+
+
+def test_validate_manifest_same_generation_requires_exact_size_contract() -> None:
+    actual = dict(EXPECTED_MANIFEST, rows=EXPECTED_MANIFEST["rows"] - 1)
+    with pytest.raises(smoke.SmokeFailure) as exc:
+        smoke.validate_manifest(actual, EXPECTED_MANIFEST)
+    assert "rows" in exc.value.detail
 
 
 def test_validate_health_requires_read_only_contract() -> None:
@@ -104,33 +132,17 @@ def test_run_once_checks_root_strategy_manifest_and_health(
     smoke.run_once("https://example.test", EXPECTED_MANIFEST, timeout=1)
 
 
-def test_run_once_keeps_legacy_root_only_manifest_compatible(
+def test_run_once_rejects_manifest_without_strategy_before_network(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    health = {
-        "ok": True,
-        "latest_collection": None,
-        "active_collection": None,
-        "active_publish": None,
-        "latest_publish": None,
-        "source_steps": {},
-        "pipeline_steps": {},
-    }
-    manifest = {key: EXPECTED_MANIFEST[key] for key in ("generated_at", "rows", "data_bytes")}
-    responses = {
-        "https://example.test/": (200, "업권 수집 상태".encode(), "text/html"),
-        "https://example.test/site-manifest.json": (
-            200,
-            json.dumps(manifest).encode(),
-            "application/json",
-        ),
-        "https://example.test/api/health": (
-            200,
-            json.dumps(health).encode(),
-            "application/json",
-        ),
-    }
+    manifest = dict(EXPECTED_MANIFEST, files=["index.html", "data/table.json"])
+    monkeypatch.setattr(
+        smoke,
+        "_get",
+        lambda url, timeout: pytest.fail(f"unexpected network call: {url}"),
+    )
 
-    monkeypatch.setattr(smoke, "_get", lambda url, timeout: responses[url])
+    with pytest.raises(smoke.SmokeFailure) as exc:
+        smoke.run_once("https://example.test", manifest, timeout=1)
 
-    smoke.run_once("https://example.test", manifest, timeout=1)
+    assert "strategy.html" in exc.value.detail

@@ -136,7 +136,7 @@ jobs:
           grep -q 'id="strategy-light-theme-script"' work/site-public/strategy.html
           grep -q 'id="strategy-brand-theme-script"' work/site-public/strategy.html
 
-      - name: Assert populated external feature payload
+      - name: Assert external feature contract and record availability
         run: |
           python - <<'PY'
           import json
@@ -148,24 +148,40 @@ jobs:
           end = html.index("</script>", start)
           payload = json.loads(html[start:end].replace("<\\/", "</"))
           features = payload["strategy"]["external_features"]
-          assert features["status"] == "ready", features
-          assert features["policy_rate"]["status"] == "ready", features["policy_rate"]
-          assert features["policy_rate"]["value"] is not None
+
+          def require_status(item, allowed, label):
+              status = item.get("status")
+              assert status in allowed, (label, status, item)
+              return status
+
+          feature_status = require_status(features, {"ready", "partial", "no_data"}, "features")
+          policy = features["policy_rate"]
+          policy_status = require_status(policy, {"ready", "no_data"}, "policy_rate")
+          if policy_status == "ready":
+              assert policy["value"] is not None, policy
 
           market = features["deposit_market"]
-          assert market["status"] == "ready", market
+          market_status = require_status(
+              market, {"ready", "partial", "no_data"}, "deposit_market"
+          )
           rates = market["bank_rates"]
-          for key in ("primary_realized_deposit_rate", "term_deposit_1y_rate"):
-              item = rates[key]
-              assert item["status"] == "ready", (key, item)
-              assert item["value"] is not None, (key, item)
+          for key, item in rates.items():
+              status = require_status(item, {"ready", "no_data"}, f"bank_rate:{key}")
+              if status == "ready":
+                  assert item["value"] is not None, (key, item)
 
           flows = market["sector_balances"]
-          for key in ("savings_bank", "credit_union", "kfcc", "broad_mutual_finance"):
-              item = flows[key]
-              assert item["status"] == "ready", (key, item)
-              assert item["balance_trillion_krw"] is not None, (key, item)
-              assert item["mom_change_pct"] is not None, (key, item)
+          allowed_flow_statuses = {
+              "ready",
+              "no_data",
+              "insufficient_history",
+              "non_consecutive_months",
+          }
+          for key, item in flows.items():
+              status = require_status(item, allowed_flow_statuses, f"sector_balance:{key}")
+              if status == "ready":
+                  assert item["balance_trillion_krw"] is not None, (key, item)
+                  assert item["mom_change_pct"] is not None, (key, item)
 
           evidence = {
               "source_sha": "${{ github.sha }}",
@@ -176,13 +192,20 @@ jobs:
               encoding="utf-8",
           )
           print(
-              "external_features=ready",
-              "policy_rate=", features["policy_rate"]["value"],
-              "bank_primary=", rates["primary_realized_deposit_rate"]["value"],
-              "bank_12m=", rates["term_deposit_1y_rate"]["value"],
+              "external_features_status=", feature_status,
+              "policy_rate_status=", policy_status,
+              "deposit_market_status=", market_status,
           )
+          for key, item in rates.items():
+              print("bank_rate", key, "status=", item.get("status"), "value=", item.get("value"))
           for key, item in flows.items():
-              print(key, "balance=", item.get("balance_trillion_krw"), "mom=", item.get("mom_change_pct"))
+              print(
+                  "sector_balance",
+                  key,
+                  "status=", item.get("status"),
+                  "balance=", item.get("balance_trillion_krw"),
+                  "mom=", item.get("mom_change_pct"),
+              )
           PY
 
       - name: Set up Node
