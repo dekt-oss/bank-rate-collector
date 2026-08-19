@@ -58,6 +58,12 @@ async function assertWorkspace(page, label) {
     const prefMainStyle = prefMain ? getComputedStyle(prefMain) : null;
     const marketDirection = marketIntel?.querySelector(".market-intel-direction");
     const marketDirectionStyle = marketDirection ? getComputedStyle(marketDirection) : null;
+    const marketEmpty = marketIntel?.querySelector(".market-intel-empty");
+    const marketEmptyStyle = marketEmpty ? getComputedStyle(marketEmpty) : null;
+    const segmentButton = document.querySelector(".segment button:not(.active)");
+    const segmentButtonStyle = segmentButton ? getComputedStyle(segmentButton) : null;
+    const termCard = document.querySelector(".termcard");
+    const termCardStyle = termCard ? getComputedStyle(termCard) : null;
     const kpis = Array.from(document.querySelectorAll(".kpis .kpi")).slice(0, 2).map((node) => node.getBoundingClientRect());
     const evidence = Array.from(document.querySelectorAll(".evidence-strip .evidence-card")).slice(0, 2).map((node) => node.getBoundingClientRect());
     const mapStage = primary?.querySelector(".mapstage")?.getBoundingClientRect();
@@ -104,6 +110,9 @@ async function assertWorkspace(page, label) {
       preferenceBackground: preferenceStyle?.backgroundColor || "",
       prefMainBackground: prefMainStyle?.backgroundColor || "",
       marketDirectionBackground: marketDirectionStyle?.backgroundColor || "",
+      marketEmptyBackground: marketEmptyStyle?.backgroundColor || "",
+      segmentButtonBackground: segmentButtonStyle?.backgroundColor || "",
+      termCardBackground: termCardStyle?.backgroundColor || "",
     };
   });
 
@@ -136,7 +145,14 @@ async function assertWorkspace(page, label) {
   invariant(result.marketIntelBackground === "rgb(255, 255, 255)", `${label}: market intel parent is not white: ${result.marketIntelBackground}`);
   invariant(result.preferenceBackground === "rgb(255, 255, 255)", `${label}: preference parent is not white: ${result.preferenceBackground}`);
   invariant(result.prefMainBackground === "rgb(252, 250, 252)", `${label}: preference main surface is not branded neutral: ${result.prefMainBackground}`);
-  invariant(result.marketDirectionBackground === "rgb(252, 250, 252)", `${label}: market direction surface is not branded neutral: ${result.marketDirectionBackground}`);
+  invariant(Boolean(result.marketDirectionBackground || result.marketEmptyBackground), `${label}: market intelligence rendered neither supported nor empty state`);
+  if (result.marketDirectionBackground) {
+    invariant(result.marketDirectionBackground === "rgb(252, 250, 252)", `${label}: market direction surface is not branded neutral: ${result.marketDirectionBackground}`);
+  } else {
+    invariant(result.marketEmptyBackground === "rgb(255, 248, 236)", `${label}: market empty state is not light warning surface: ${result.marketEmptyBackground}`);
+  }
+  invariant(result.segmentButtonBackground === "rgb(251, 249, 251)", `${label}: simulator option retains dark surface: ${result.segmentButtonBackground}`);
+  invariant(result.termCardBackground === "rgb(252, 250, 252)", `${label}: term card retains dark surface: ${result.termCardBackground}`);
 
   if (label === "desktop") {
     invariant(result.bodyFontSize >= 14, `desktop: body type too small=${result.bodyFontSize}`);
