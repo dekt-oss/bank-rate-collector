@@ -5,10 +5,7 @@
   "installCommand": "",
   "outputDirectory": "site-public",
   "git": {
-    "deploymentEnabled": {
-      "*": false,
-      "rate-data": true
-    }
+    "deploymentEnabled": false
   },
   "ignoreCommand": "[ \"$VERCEL_GIT_COMMIT_REF\" != \"rate-data\" ]",
   "rewrites": [
@@ -26,11 +23,11 @@
     },
     {
       "source": "/data/:path*",
-      "destination": "https://raw.githubusercontent.com/dekt-oss/bank-rate-collector/rate-live/site-public/data/:path*"
+      "destination": "https://raw.githubusercontent.com/dekt-oss/bank-rate-collector/rate-data/site-public/data/:path*"
     },
     {
       "source": "/site-manifest.json",
-      "destination": "https://raw.githubusercontent.com/dekt-oss/bank-rate-collector/rate-live/site-public/site-manifest.json"
+      "destination": "https://raw.githubusercontent.com/dekt-oss/bank-rate-collector/rate-data/site-public/site-manifest.json"
     }
   ],
   "headers": [
