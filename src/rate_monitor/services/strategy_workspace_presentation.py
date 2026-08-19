@@ -9,6 +9,7 @@ Strategy DOM을 `결정 → 시장근거 → 상품설계 → 지역·경쟁사 
 from __future__ import annotations
 
 from rate_monitor.services.dashboard_service import DashboardBuildError
+from rate_monitor.services.strategy_light_theme_presentation import inject_strategy_light_theme
 
 STYLE_MARKER = 'id="strategy-workspace-style"'
 SCRIPT_MARKER = 'id="strategy-workspace-script"'
@@ -119,13 +120,15 @@ def inject_strategy_workspace_presentation(html: str) -> str:
     has_style = STYLE_MARKER in html
     has_script = SCRIPT_MARKER in html
     if has_style and has_script:
-        return html
-    if has_style != has_script:
-        raise DashboardBuildError("Strategy Workspace 주입 상태가 불완전하다")
-    if "</head>" not in html or "</body>" not in html:
-        raise DashboardBuildError("Strategy Workspace 주입 위치를 찾지 못했다")
-    required = ('id="planning-zone"', 'id="market-flow"', 'class="grid interpretation"', 'class="grid primary"')
-    if any(marker not in html for marker in required):
-        raise DashboardBuildError("Strategy Workspace 기존 레이아웃 계약을 찾지 못했다")
-    rendered = html.replace("</head>", _CSS + "\n</head>", 1)
-    return rendered.replace("</body>", _JS + "\n</body>", 1)
+        rendered = html
+    else:
+        if has_style != has_script:
+            raise DashboardBuildError("Strategy Workspace 주입 상태가 불완전하다")
+        if "</head>" not in html or "</body>" not in html:
+            raise DashboardBuildError("Strategy Workspace 주입 위치를 찾지 못했다")
+        required = ('id="planning-zone"', 'id="market-flow"', 'class="grid interpretation"', 'class="grid primary"')
+        if any(marker not in html for marker in required):
+            raise DashboardBuildError("Strategy Workspace 기존 레이아웃 계약을 찾지 못했다")
+        rendered = html.replace("</head>", _CSS + "\n</head>", 1)
+        rendered = rendered.replace("</body>", _JS + "\n</body>", 1)
+    return inject_strategy_light_theme(rendered)
