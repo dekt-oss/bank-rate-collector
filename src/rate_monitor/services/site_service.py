@@ -116,6 +116,9 @@ PAGE_NAV_STYLE = """
     header.top > .page-nav { justify-self: stretch; justify-content: center; }
     header.top > .head-right { grid-column: auto; }
   }
+  @media (max-width: 480px) {
+    header.top > .page-nav a { padding: 6px 9px; }
+  }
 </style>
 """.strip()
 STRATEGY_NAV = (
