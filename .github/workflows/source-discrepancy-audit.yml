@@ -25,12 +25,24 @@ concurrency:
 
 permissions:
   contents: read
+  statuses: write
 
 jobs:
   audit:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Publish discrepancy audit locator
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            -f state=pending \
+            -f context=source-discrepancy-audit \
+            -f description="Production-data source discrepancy audit running" \
+            -f target_url="$TARGET_URL"
 
       - name: Install uv
         uses: astral-sh/setup-uv@v5
@@ -191,6 +203,7 @@ jobs:
           PY
 
       - name: Upload discrepancy evidence
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: source-discrepancy-evidence-${{ github.run_id }}
@@ -198,3 +211,23 @@ jobs:
             work/source-discrepancy-report.json
             docs/evidence/source-discrepancy/20260820-official-savings-bank.json
           retention-days: 30
+
+      - name: Publish discrepancy audit conclusion
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          if [ "$JOB_STATUS" = "success" ]; then
+            STATE=success
+            DESCRIPTION="Production-data source discrepancy audit passed"
+          else
+            STATE=failure
+            DESCRIPTION="Production-data source discrepancy audit failed"
+          fi
+          gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            -f state="$STATE" \
+            -f context=source-discrepancy-audit \
+            -f description="$DESCRIPTION" \
+            -f target_url="$TARGET_URL"
