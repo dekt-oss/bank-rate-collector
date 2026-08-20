@@ -73,13 +73,50 @@ _TRUE_VALUES = frozenset({"1", "true", "yes", "on"})
 TABLE_FILE = "data/table.json"
 STRATEGY_TABLE_FILE = "data/strategy-table.json"
 
-# 기존 검색·조회 템플릿은 안정화된 거대한 단일 HTML이다. 실험 화면 하나를
-# 붙이려고 그 DOM을 다시 구성하지 않는다. 빌드 산출물의 기존 액션 영역에
-# 링크 하나만 삽입하고, 전략 화면을 제거하면 이 삽입도 함께 사라진다.
+# 두 화면은 같은 IA다. Strategy Gate가 ON일 때 검색 화면에도 Strategy와 같은
+# 2탭 페이지 전환 메뉴를 붙인다. 검색 화면에서는 검색 조회가 active이고,
+# strategy.html에서는 기존 템플릿의 전략 대시보드가 active다.
 HEAD_ACTION_MARKER = '<div class="head-right">'
+PAGE_NAV_STYLE = """
+<style id="main-page-nav-style">
+  header.top > .page-nav {
+    position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+    z-index: 2; display: flex; padding: 4px; border-radius: 11px;
+    background: rgba(255,255,255,.10); border: 1px solid rgba(255,255,255,.10);
+  }
+  header.top > .page-nav a {
+    text-decoration: none; padding: 7px 15px; border-radius: 8px;
+    color: rgba(255,255,255,.72); font-size: 12px; font-weight: 760;
+    white-space: nowrap;
+  }
+  header.top > .page-nav a.active {
+    color: var(--accent-ink); background: #fff;
+    box-shadow: 0 2px 8px rgba(48,26,53,.16);
+  }
+  header.top > .page-nav a:focus-visible {
+    outline: 2px solid rgba(255,255,255,.9); outline-offset: 2px;
+  }
+  @media (max-width: 1180px) {
+    header.top > .page-nav {
+      position: static; transform: none; order: 2;
+      margin-left: auto; margin-right: 0;
+    }
+    header.top > .brand { order: 1; }
+    header.top > .head-right { order: 3; flex: 1 1 100%; }
+  }
+  @media (max-width: 760px) {
+    header.top > .page-nav {
+      order: 2; flex: 1 1 100%; justify-content: center;
+      margin: 2px 0 0;
+    }
+  }
+</style>
+""".strip()
 STRATEGY_NAV = (
-    '<a class="icon-btn" href="strategy.html" style="text-decoration:none" '
-    'aria-label="전략 대시보드 열기">전략 대시보드</a>'
+    '<nav class="page-nav" aria-label="주요 화면">'
+    '<a href="./" class="active" aria-current="page">검색 조회</a>'
+    '<a href="strategy.html">전략 대시보드</a>'
+    '</nav>'
 )
 
 # 이 크기를 넘는 내려받기 파일은 압축해서 싣는다.
@@ -215,12 +252,15 @@ def render(template_text: str, page_data: dict[str, Any]) -> str:
 
 
 def _add_strategy_nav(html: str) -> str:
-    """현행 검색 화면의 헤더 액션에 실험 화면 링크 하나만 붙인다."""
+    """검색 화면에 Strategy와 동일한 2탭 페이지 전환 메뉴를 붙인다."""
     if HEAD_ACTION_MARKER not in html:
         raise DashboardBuildError("검색 화면 헤더 액션 영역을 찾지 못했다")
-    return html.replace(
+    if "</head>" not in html:
+        raise DashboardBuildError("검색 화면 head 종료 지점을 찾지 못했다")
+    rendered = html.replace("</head>", PAGE_NAV_STYLE + "\n</head>", 1)
+    return rendered.replace(
         HEAD_ACTION_MARKER,
-        HEAD_ACTION_MARKER + "\n      " + STRATEGY_NAV,
+        STRATEGY_NAV + "\n      " + HEAD_ACTION_MARKER,
         1,
     )
 
