@@ -35,7 +35,9 @@ header.top.shared-dashboard-header>.page-nav a:focus-visible,header.topbar.share
 header.top.shared-dashboard-header>.head-right,header.topbar.shared-dashboard-header>.meta{justify-self:end!important;width:auto!important;max-width:none!important;margin:0!important;display:flex!important;align-items:center!important;justify-content:flex-end!important;gap:8px!important;min-width:0!important;color:rgba(255,255,255,.78)!important;font-size:10.5px!important;white-space:nowrap!important}
 header.top.shared-dashboard-header .main-report-button,header.topbar.shared-dashboard-header .ux-report-button{order:-2!important;appearance:none!important;border:1px solid rgba(255,255,255,.22)!important;border-radius:8px!important;background:rgba(255,255,255,.10)!important;color:#fff!important;padding:6px 9px!important;font:760 10.5px var(--sans)!important;box-shadow:none!important;cursor:pointer!important;white-space:nowrap!important}
 header.top.shared-dashboard-header .main-report-button:hover,header.top.shared-dashboard-header .main-report-button:focus-visible,header.topbar.shared-dashboard-header .ux-report-button:hover,header.topbar.shared-dashboard-header .ux-report-button:focus-visible{background:rgba(255,255,255,.18)!important;outline:none!important}
-header.top.shared-dashboard-header #health-open{order:-1!important;min-height:30px!important;border:1px solid rgba(255,255,255,.20)!important;border-radius:8px!important;background:rgba(255,255,255,.08)!important;color:#fff!important;padding:6px 9px!important;font-size:10.5px!important;box-shadow:none!important}
+.shared-header-time{color:rgba(255,255,255,.72)!important;font-size:10px!important;white-space:nowrap!important}
+header.top.shared-dashboard-header #health-open{min-height:0!important;border:0!important;border-radius:6px!important;background:transparent!important;color:#fff!important;padding:4px 0!important;font-size:10.5px!important;box-shadow:none!important}
+header.top.shared-dashboard-header #health-open:hover{background:transparent!important;color:#fff!important}header.top.shared-dashboard-header #health-open:focus-visible{outline:1px solid rgba(255,255,255,.65)!important;outline-offset:3px!important}
 header.top.shared-dashboard-header #health-open .health-dot{width:8px!important;height:8px!important;box-shadow:0 0 0 4px rgba(255,255,255,.08)!important}
 header.topbar.shared-dashboard-header .statusdot{width:8px!important;height:8px!important;background:#5fc7a0!important;box-shadow:0 0 0 4px rgba(95,199,160,.12)!important}
 
@@ -57,13 +59,13 @@ header.topbar.shared-dashboard-header .statusdot{width:8px!important;height:8px!
 .main-map-stage{min-height:390px!important;background:radial-gradient(circle at 50% 48%,rgba(91,47,100,.045),transparent 48%),rgba(255,255,255,.46)!important}
 .main-map-stage svg{max-height:455px!important;padding:8px 10px!important}
 .main-map-side{padding:12px!important;gap:8px!important}
-.main-map-side h3{font-size:15px!important}.main-map-rate{font-size:25px!important}.main-map-meta{font-size:10px!important;line-height:1.5!important}.main-map-top{margin-top:5px!important;padding-top:8px!important;gap:5px!important}.main-map-top>span{font-size:10px!important}.main-map-top b{font-size:10.5px!important}.main-map-hint{margin-top:auto!important;padding-top:7px!important;font-size:9.5px!important;line-height:1.45!important}
+.main-map-side h3{font-size:15px!important}.main-map-rate{font-size:25px!important}.main-map-meta{font-size:10px!important;line-height:1.5!important}.main-map-top{margin-top:5px!important;padding-top:8px!important;gap:5px!important}.main-map-top b{font-size:10.5px!important}.main-map-hint{margin-top:auto!important;padding-top:7px!important;font-size:9.5px!important;line-height:1.45!important}
 .main-map-label-layer{pointer-events:none}.main-map-direct-label{text-anchor:middle}.main-map-label-name,.main-map-label-rate{paint-order:stroke;stroke:rgba(255,255,255,.96);stroke-linejoin:round;stroke-linecap:round}.main-map-label-name{fill:#413343;stroke-width:4px;font:820 14px var(--sans);letter-spacing:-.02em}.main-map-label-rate{fill:#5B2F64;stroke-width:4.5px;font:900 16px var(--mono);font-variant-numeric:tabular-nums}.main-map-label-rate.is-thin{fill:#8a7e8c;font-size:12px;font-family:var(--sans);font-weight:760}
 
 @media(max-width:1000px){.shared-page-context-main{grid-template-columns:1fr}.shared-page-actions{justify-content:flex-start}.main-map-shell{grid-template-columns:1fr!important}.main-map-side{display:grid!important;grid-template-columns:minmax(160px,.7fr) minmax(0,1.3fr)!important;align-items:start!important}.main-map-side .main-map-top{margin:0!important;padding:0!important;border:0!important}.main-map-hint{grid-column:1/-1;margin:0!important}}
 @media(max-width:760px){header.top.shared-dashboard-header,header.topbar.shared-dashboard-header{grid-template-columns:auto minmax(0,1fr)!important;row-gap:8px!important}.shared-header-identity strong,header.topbar.shared-dashboard-header>.identity b{display:none!important}header.top.shared-dashboard-header>.page-nav,header.topbar.shared-dashboard-header>.nav{justify-self:end!important}header.top.shared-dashboard-header>.head-right,header.topbar.shared-dashboard-header>.meta{grid-column:1/-1!important;justify-self:stretch!important;justify-content:flex-end!important}.shared-page-context-main{padding:13px!important}.shared-page-actions{align-items:stretch!important}.shared-page-context-main .mine-pick{min-width:min(100%,240px)}.main-map-stage{min-height:360px!important}.main-map-label-name{font-size:21px!important;stroke-width:6px!important}.main-map-label-rate{font-size:23px!important;stroke-width:6px!important}.main-map-label-rate.is-thin{font-size:17px!important}.main-map-side{grid-template-columns:1fr!important}}
-@media(max-width:480px){header.top.shared-dashboard-header>.page-nav a,header.topbar.shared-dashboard-header>.nav a{padding:6px 9px!important;font-size:10px!important}header.topbar.shared-dashboard-header>.meta{display:flex!important;font-size:9.5px!important}header.topbar.shared-dashboard-header>.meta #time{display:none!important}.shared-page-context-main .brand-mark{display:none!important}.shared-page-context-main .brand-title{font-size:22px!important}.main-map-stage{min-height:330px!important}.main-map-stage svg{padding:5px!important}}
-@media print{.shared-page-context-main{box-shadow:none!important;background:#fff!important}.main-map-label-name,.main-map-label-rate{stroke:#fff!important}}
+@media(max-width:480px){header.top.shared-dashboard-header>.page-nav a,header.topbar.shared-dashboard-header>.nav a{padding:6px 9px!important;font-size:10px!important}header.topbar.shared-dashboard-header>.meta{display:flex!important;font-size:9.5px!important}.shared-header-time,header.topbar.shared-dashboard-header>.meta #time{display:none!important}.shared-page-context-main .brand-mark{display:none!important}.shared-page-context-main .brand-title{font-size:22px!important}.main-map-stage{min-height:330px!important}.main-map-stage svg{padding:5px!important}}
+@media print{.shared-page-context-main{display:none!important}.main-map-label-name,.main-map-label-rate{stroke:#fff!important}}
 </style>
 """
 
@@ -77,6 +79,15 @@ DASHBOARD_UI_SCRIPT = r"""
     "전라":[266,454],"경북":[455,330],"경남":[407,452],"부산":[505,482],"제주":[216,635]
   };
 
+  function generatedTimeLabel(){
+    try{
+      const data=JSON.parse(document.getElementById("rate-monitor-data")?.textContent||"{}");
+      const d=data.generated_at?new Date(data.generated_at):null;
+      if(d&&!Number.isNaN(d.getTime()))return `기준 ${d.toLocaleString("ko-KR",{month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit"})}`;
+    }catch{}
+    return "기준시각 미확인";
+  }
+
   function installMainHeader(header){
     if(header.dataset.sharedDashboardHeader)return;
     header.dataset.sharedDashboardHeader="main";
@@ -89,6 +100,14 @@ DASHBOARD_UI_SCRIPT = r"""
     identity.className="shared-header-identity";
     identity.innerHTML='<span class="shared-header-logo" aria-hidden="true">SB</span><strong>SB 인사이트</strong>';
     header.prepend(identity);
+
+    if(!actions.querySelector(".shared-header-time")){
+      const time=document.createElement("span");
+      time.className="shared-header-time";
+      time.textContent=generatedTimeLabel();
+      const health=actions.querySelector("#health-open");
+      if(health)actions.insertBefore(time,health);else actions.appendChild(time);
+    }
 
     if(!document.querySelector(".shared-page-context-main")){
       const context=document.createElement("section");
