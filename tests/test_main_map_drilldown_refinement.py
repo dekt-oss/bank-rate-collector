@@ -1,0 +1,80 @@
+from pathlib import Path
+
+import pytest
+
+from rate_monitor.services.dashboard_service import DashboardBuildError
+from rate_monitor.services.main_map_drilldown_refinement import (
+    BUSAN_TEMPLATE_ID,
+    MAIN_MAP_DRILLDOWN_MARKER,
+    _extract_busan_boundary,
+    inject_main_map_drilldown_refinement,
+)
+
+ROOT = Path(__file__).resolve().parents[1]
+STRATEGY_TEMPLATE = ROOT / "web" / "templates" / "strategy.html"
+DASHBOARD_UI = ROOT / "src" / "rate_monitor" / "services" / "dashboard_ui_refinement_presentation.py"
+SITE_TEMPLATE = ROOT / "web" / "templates" / "site.html"
+
+
+def test_busan_geometry_reuses_existing_strategy_16_district_boundary() -> None:
+    markup = _extract_busan_boundary(STRATEGY_TEMPLATE.read_text(encoding="utf-8"))
+
+    assert markup.startswith('<g id="busan-boundaries">')
+    assert markup.count("<path") == 16
+    for district in ("강서구", "기장군", "부산진구", "중구", "해운대구"):
+        assert f'id="{district}"' in markup
+
+
+def test_busan_geometry_extraction_fails_closed() -> None:
+    with pytest.raises(DashboardBuildError, match="SVG geometry"):
+        _extract_busan_boundary("const BUSAN_BOUNDARY_SVG=`<g></g>`;")
+
+
+def test_refinement_injects_once_and_keeps_compact_desktop_map_contract() -> None:
+    html = '<html><head></head><body><div id="reg"></div></body></html>'
+    strategy = STRATEGY_TEMPLATE.read_text(encoding="utf-8")
+
+    rendered = inject_main_map_drilldown_refinement(html, strategy)
+    rendered_twice = inject_main_map_drilldown_refinement(rendered, strategy)
+
+    assert rendered_twice == rendered
+    assert rendered.count(MAIN_MAP_DRILLDOWN_MARKER) == 2  # style + template marker
+    assert f'id="{BUSAN_TEMPLATE_ID}"' in rendered
+    assert "max-width: 980px" in rendered
+    assert "minmax(0, 700px)" in rendered
+    assert "minmax(190px, 220px)" in rendered
+    assert "@media (max-width: 1000px)" in rendered
+
+
+def test_busan_mode_is_transformed_from_existing_district_tiles_to_svg() -> None:
+    strategy = STRATEGY_TEMPLATE.read_text(encoding="utf-8")
+    rendered = inject_main_map_drilldown_refinement(
+        '<html><head></head><body><div id="reg"></div></body></html>',
+        strategy,
+    )
+
+    assert 'title.includes("부산 구·군별")' in rendered
+    assert 'reg.querySelectorAll(":scope > .regtile")' in rendered
+    assert 'svg.querySelectorAll("#busan-boundaries path[id]")' in rendered
+    assert 'reg.replaceChildren(shell)' in rendered
+    assert 'reg.classList.add("main-busan-map")' in rendered
+    assert "main-busan-label-name" in rendered
+    assert "main-busan-label-rate" in rendered
+    assert "전국으로 돌아가기" in rendered
+
+
+def test_existing_core_busan_state_and_back_contract_remains_owner() -> None:
+    text = SITE_TEMPLATE.read_text(encoding="utf-8")
+
+    assert 'regionView = "busan"' in text
+    assert 'regionView = "national"' in text
+    assert 'id="reg-back"' in text
+    assert 'e.target.closest("[data-drill]")' in text
+
+
+def test_dashboard_ui_final_layer_wires_search_only_drilldown_refinement() -> None:
+    text = DASHBOARD_UI.read_text(encoding="utf-8")
+
+    assert "inject_main_map_drilldown_refinement" in text
+    assert "_STRATEGY_TEMPLATE.read_text" in text
+    assert "if 'id=\"reg\"' in rendered:" in text
