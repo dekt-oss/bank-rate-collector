@@ -35,16 +35,36 @@ body{font-size:16px;line-height:1.6}.identity b{font-size:14px}.nav a{font-size:
 /* 3. Collection/capability evidence is preserved, but visually demoted below KPIs. */
 .ux-evidence-panel{margin:0 0 12px;border:1px solid rgba(42,61,78,.08);border-radius:12px;background:#fff;box-shadow:0 5px 16px rgba(35,55,72,.04);overflow:hidden}.ux-evidence-panel>summary{display:flex;align-items:center;justify-content:space-between;gap:12px;cursor:pointer;list-style:none;padding:10px 13px;color:#526573;font-size:11px;font-weight:760}.ux-evidence-panel>summary::-webkit-details-marker{display:none}.ux-evidence-panel>summary:after{content:"상세 보기";color:#7b8a94;font-size:10px;font-weight:600}.ux-evidence-panel[open]>summary:after{content:"접기"}.ux-evidence-panel .ux-evidence-summary-copy{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.ux-evidence-panel .evidence-strip{margin:0;padding:0 10px 10px;grid-template-columns:repeat(4,minmax(0,1fr))}.ux-evidence-panel .evidence-card{padding:9px 10px;box-shadow:none}.ux-evidence-panel .evidence-head strong{font-size:11px}.ux-evidence-panel .evidence-head em,.ux-evidence-panel .evidence-grid,.ux-evidence-panel .evidence-reason{font-size:10px}
 
-/* 4. Restore the map as a real analysis surface; TOP5 stays readable beside it. */
-.workspace-detail.primary:not(.busan-focus){grid-template-columns:minmax(590px,1.08fr) minmax(520px,.92fr)}.workspace-detail.primary:not(.busan-focus) .mapcard{min-height:530px}.workspace-detail.primary:not(.busan-focus) .mapstage{height:435px}.workspace-detail.primary:not(.busan-focus)>article:last-child{min-height:530px}.workspace-detail.primary:not(.busan-focus) .pad{padding:17px}.workspace-detail.primary:not(.busan-focus) td{padding:9px 8px}.workspace-detail.primary:not(.busan-focus) .korea-map-image{opacity:.20;filter:grayscale(.82) contrast(.96)}.workspace-detail.primary:not(.busan-focus) .node-label{font-size:15px}.workspace-detail.primary:not(.busan-focus) .node-rate{font-size:16px}.maplegend{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:10px;margin-top:11px;font-size:10.5px}.ux-map-legend-title{color:#526573;font-weight:720}.ux-map-legend-scale{display:flex;align-items:center;gap:7px;white-space:nowrap;color:#71818b}.legendbar{width:170px;height:8px}
+/* 4. Role split: regional map belongs to Search; Strategy keeps decision-grade TOP5 only. */
+.workspace-detail.primary:not(.busan-focus){grid-template-columns:1fr!important}.workspace-detail.primary:not(.busan-focus) .mapcard{display:none!important}.workspace-detail.primary:not(.busan-focus)>article:last-child{min-height:0!important}.workspace-detail.primary:not(.busan-focus) .pad{padding:17px}.workspace-detail.primary:not(.busan-focus) td{padding:10px 9px}.ux-region-handoff{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 0 12px;padding:10px 12px;border:1px solid rgba(79,111,159,.13);border-radius:10px;background:#f7f9fc;color:#5f7180;font-size:11px}.ux-region-handoff b{color:#314858}.ux-region-handoff a{flex:0 0 auto;text-decoration:none;padding:6px 9px;border:1px solid rgba(79,111,159,.18);border-radius:8px;background:#fff;color:#456985;font-weight:720}.maplegend{display:none!important}
 
-/* 5. D2 follows the top-level market scope. Only period remains local. */
+/* 5. Decision-readiness makes the current Strategy boundary explicit. */
+.ux-decision-readiness{display:grid;grid-template-columns:minmax(230px,.78fr) minmax(0,1.22fr);gap:14px;margin:0 0 12px;padding:16px;border:1px solid rgba(91,47,100,.11);border-radius:14px;background:linear-gradient(145deg,#fff,#fbf7fb);box-shadow:0 8px 24px rgba(77,45,88,.06)}.ux-readiness-title{display:flex;flex-direction:column;gap:5px}.ux-readiness-title span{color:#9a4875;font-size:10px;font-weight:800;letter-spacing:.08em}.ux-readiness-title strong{color:#2e2231;font-size:18px;letter-spacing:-.03em}.ux-readiness-title p{margin:0;color:#6e6170;font-size:11px;line-height:1.55}.ux-readiness-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.ux-readiness-item{padding:10px 11px;border:1px solid rgba(91,47,100,.09);border-radius:10px;background:#fff}.ux-readiness-item b{display:block;margin-bottom:4px;color:#3c2c40;font-size:11px}.ux-readiness-item span{display:block;color:#726574;font-size:10.5px;line-height:1.48}.ux-readiness-item.ready{border-color:rgba(46,125,91,.18);background:#f7fbf8}.ux-readiness-item.ready b{color:#2e7d5b}.ux-readiness-item.pending{border-color:rgba(169,116,26,.18);background:#fffaf1}.ux-readiness-item.pending b{color:#936415}.ux-readiness-foot{grid-column:1/-1;padding-top:8px;border-top:1px solid rgba(91,47,100,.08);color:#6f6271;font-size:10.5px}.ux-readiness-foot b{color:#5b2f64}
+
+/* 6. D2 follows the top-level market scope. Only period remains local. */
 .pref-intel{padding:18px}.pref-intel-head h2{font-size:17px}.pref-intel-head p{font-size:11.5px}.pref-intel-badge{font-size:10px}.pref-intel-controls{align-items:center;padding:9px 11px}.pref-intel-control>span{font-size:10.5px}.pref-intel-control button{font-size:10.5px;padding:6px 9px}.pref-intel-control[data-ux-sector-control]{display:none!important}.ux-pref-scope{display:flex;align-items:center;gap:6px;flex-wrap:wrap;color:#667884;font-size:10.5px}.ux-pref-scope b{color:#334b5a}.ux-pref-scope-tag{display:inline-flex;padding:4px 7px;border:1px solid rgba(79,111,159,.16);border-radius:999px;background:#f2f6fb;color:#476b8d;font-size:10px;font-weight:720}.pref-intel-caveat,.pref-intel-warning{font-size:10.5px}.ux-pref-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.ux-pref-sector{border:1px solid rgba(42,61,78,.09);border-radius:12px;background:#fff;overflow:hidden}.ux-pref-sector-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;padding:11px 12px;border-bottom:1px solid rgba(42,61,78,.07);background:#fafbfd}.ux-pref-sector-head b{color:#263946;font-size:12px}.ux-pref-sector-head span{color:#6b7c87;font-size:10px}.ux-pref-sector .pref-intel-summary span{font-size:10px}.ux-pref-sector .pref-intel-summary b{font-size:16px}.ux-pref-sector .pref-intel-table th,.ux-pref-sector .pref-intel-table td{font-size:10.5px;padding:8px 9px}.ux-pref-more{border-top:1px solid rgba(42,61,78,.07)}.ux-pref-more>summary{cursor:pointer;list-style:none;padding:9px 11px;color:#5f7380;font-size:10.5px;font-weight:720}.ux-pref-more>summary::-webkit-details-marker{display:none}.ux-pref-more>summary:after{content:"펼치기";float:right;color:#7a8993}.ux-pref-more[open]>summary:after{content:"접기"}.ux-pref-own{margin:10px 11px 11px}.ux-pref-empty{padding:16px;color:#73838d;font-size:11px;text-align:center}.pref-intel-own h3{font-size:12px}.pref-intel-own p,.pref-intel-tag,.pref-intel-raw summary,.pref-intel-raw div{font-size:10px}
 
-@media(max-width:1180px){.workspace-detail.primary:not(.busan-focus){grid-template-columns:1fr}.workspace-detail.primary:not(.busan-focus) .mapcard{min-height:520px}.workspace-detail.primary:not(.busan-focus) .mapstage{height:425px}.workspace-detail.primary:not(.busan-focus)>article:last-child{min-height:0}.ux-pref-grid{grid-template-columns:1fr 1fr}}
-@media(max-width:900px){.ux-evidence-panel .evidence-strip{grid-template-columns:repeat(2,minmax(0,1fr))}.ux-pref-grid{grid-template-columns:1fr}.market-scope{grid-template-columns:1fr}.sector-toggles{justify-content:flex-start}}
-@media(max-width:760px){body{font-size:15px}.hero p{font-size:12px}.klabel{font-size:11px}.kfoot{font-size:10px}.workspace-detail.primary:not(.busan-focus) .mapcard{min-height:470px}.workspace-detail.primary:not(.busan-focus) .mapstage{height:380px}.maplegend{grid-template-columns:1fr}.ux-map-legend-scale{justify-content:space-between}.legendbar{flex:1;max-width:190px}.pref-intel{padding:14px}}
-@media(max-width:480px){.ux-evidence-panel .evidence-strip{grid-template-columns:1fr}.ux-evidence-panel>summary{align-items:flex-start}.ux-evidence-panel .ux-evidence-summary-copy{white-space:normal}.workspace-detail.primary:not(.busan-focus) .mapstage{height:350px}.sector-toggles:before{width:100%}}
+/* 7. Browser Print/PDF report surface. */
+.ux-report-button{appearance:none;border:1px solid rgba(255,255,255,.22);border-radius:8px;background:rgba(255,255,255,.10);color:#fff;padding:6px 9px;font:760 10.5px var(--sans);cursor:pointer;white-space:nowrap}.ux-report-button:hover,.ux-report-button:focus-visible{background:rgba(255,255,255,.18)}.ux-print-head{display:none}.ux-print-note{display:none}
+
+@media(max-width:1180px){.ux-pref-grid{grid-template-columns:1fr 1fr}.ux-decision-readiness{grid-template-columns:1fr}.ux-readiness-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:900px){.ux-evidence-panel .evidence-strip{grid-template-columns:repeat(2,minmax(0,1fr))}.ux-pref-grid{grid-template-columns:1fr}.market-scope{grid-template-columns:1fr}.sector-toggles{justify-content:flex-start}.ux-readiness-grid{grid-template-columns:1fr}.ux-region-handoff{align-items:flex-start;flex-direction:column}}
+@media(max-width:760px){body{font-size:15px}.hero p{font-size:12px}.klabel{font-size:11px}.kfoot{font-size:10px}.pref-intel{padding:14px}}
+@media(max-width:480px){.ux-evidence-panel .evidence-strip{grid-template-columns:1fr}.ux-evidence-panel>summary{align-items:flex-start}.ux-evidence-panel .ux-evidence-summary-copy{white-space:normal}.sector-toggles:before{width:100%}}
+
+@media print{
+  @page{size:A4 portrait;margin:11mm}
+  html,body{background:#fff!important;color:#111!important}
+  body{font-size:10.5pt!important;line-height:1.4!important}
+  .shell{width:100%!important;max-width:none!important;padding:0!important}
+  .topbar,.hero,.market-scope,.ux-evidence-panel,.engine-toggle,.map-switch,.mode-tabs,.sector-toggles,.ux-report-button,.ux-region-handoff a,.pref-intel-controls,.ux-pref-more>summary{display:none!important}
+  .ux-print-head{display:block!important;margin:0 0 10mm;padding-bottom:5mm;border-bottom:2px solid #5b2f64}.ux-print-head h1{margin:0 0 2mm;font-size:20pt;color:#251d27}.ux-print-head p{margin:0;color:#665b68;font-size:9pt}.ux-print-note{display:block!important;margin:0 0 5mm;padding:3mm 4mm;border:1px solid #d8c9da;border-radius:3mm;background:#faf7fa;color:#514653;font-size:8.5pt}
+  .ux-decision-readiness,.kpis,.workspace-decision,.external-context,.market-intel,.pref-intel,.workspace-detail.primary{break-inside:avoid;box-shadow:none!important;background:#fff!important}
+  .workspace-detail.primary{display:block!important}.workspace-detail.primary .mapcard{display:none!important}.workspace-detail.primary>article:last-child{width:100%!important}
+  .card,.external-context,.market-intel,.pref-intel,.ux-decision-readiness{box-shadow:none!important;border-color:#d9d0da!important}
+  .workspace-section-label{margin-top:5mm!important}.foot{color:#666!important}
+  a{text-decoration:none!important;color:inherit!important}
+}
 </style>
 """
 
@@ -59,6 +79,7 @@ _JS = r"""
   const esc=v=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
   let prefTerm=12;
 
+  function payload(){try{return JSON.parse($("rate-monitor-data")?.textContent||"{}")}catch{return{}}}
   function activeMode(){return document.querySelector('[data-market-mode].active')?.dataset.marketMode||"combined"}
   function activeSectorKeys(){
     const mode=activeMode();
@@ -87,6 +108,37 @@ _JS = r"""
     const unit=title.includes("부산")?"구·군별":"지역별";
     legend.innerHTML=`<span class="ux-map-legend-title">색 기준 · 12개월 ${unit} 대표 최고금리 평균</span><span class="ux-map-legend-scale"><span>낮은 금리</span><i class="legendbar" aria-hidden="true"></i><span>높은 금리</span></span>`;
   }
+
+  function installRoleSeparation(){
+    const detail=document.querySelector(".workspace-detail.primary");
+    if(detail&&!document.querySelector(".ux-region-handoff")){
+      const note=document.createElement("div");note.className="ux-region-handoff";
+      note.innerHTML='<span><b>지역·지도 상세는 검색 조회로 통합했습니다.</b> Strategy에서는 중복 지도를 제거하고 경쟁상단·금리결정 근거만 남깁니다.</span><a href="./">지역 상세 보기</a>';
+      detail.parentNode.insertBefore(note,detail);
+    }
+    if(!document.querySelector(".ux-decision-readiness")){
+      const target=document.querySelector(".workspace-decision")||document.querySelector(".kpis")?.nextElementSibling;
+      if(target){
+        const card=document.createElement("section");card.className="ux-decision-readiness";
+        card.innerHTML='<div class="ux-readiness-title"><span>DECISION READINESS</span><strong>금리결정 준비도</strong><p>현재 Strategy가 실제로 답할 수 있는 범위와 아직 내부자료가 필요한 범위를 분리합니다.</p></div><div class="ux-readiness-grid"><div class="ux-readiness-item ready"><b>시장 위치 · 경쟁상단</b><span>현재 수집금리, 상위 진입선, 경쟁사 TOP5 기반 판단 가능</span></div><div class="ux-readiness-item ready"><b>시장·외부환경 시나리오</b><span>기준금리·시장예금금리와 현재 금리 위치를 함께 비교 가능</span></div><div class="ux-readiness-item pending"><b>최종 최적금리 자동추천</b><span>수신증분·재예치·중도해지·FTP 실적 calibration 전에는 보류</span></div><div class="ux-readiness-foot"><b>현재 결론:</b> 이 화면은 금리결정 보조에는 사용할 수 있지만, 내부 성과자료가 연결되기 전에는 “목표 순수신을 최소비용으로 달성하는 최적금리”를 확정하는 엔진이 아닙니다.</div></div>';
+        target.parentNode.insertBefore(card,target);
+      }
+    }
+  }
+
+  function installReport(){
+    if(document.querySelector(".ux-report-button"))return;
+    const meta=document.querySelector("header.topbar .meta");
+    if(meta){const button=document.createElement("button");button.type="button";button.className="ux-report-button";button.textContent="보고서 출력";button.addEventListener("click",()=>window.print());meta.prepend(button)}
+    const shell=document.querySelector(".shell");if(!shell)return;
+    const data=payload();
+    const head=document.createElement("section");head.className="ux-print-head";
+    head.innerHTML=`<h1>수신상품 전략 의사결정 보고서</h1><p>현재 화면 선택조건 기준 · 생성 ${esc(data.generated_at||"기준시각 미확인")} · 시장/경쟁/외부지표 기반</p>`;
+    shell.prepend(head);
+    const note=document.createElement("div");note.className="ux-print-note";note.textContent="보고서 v1은 현재 화면의 의사결정 근거를 정리한 출력물입니다. 내부 실적 calibration 전에는 최종 최적금리 자동추천으로 해석하지 않습니다.";
+    head.insertAdjacentElement("afterend",note);
+  }
+
   function prefScopeFor(sector,intelligence){return intelligence?.scopes?.find(x=>x.sector===sector&&Number(x.term_months)===prefTerm)}
   function preferenceRows(categories){
     return categories.map(c=>`<tr><td class="${c.is_other?"other":""}">${esc(c.label)}</td><td class="mono">${pct(c.market_share)}</td><td class="mono">${pct(c.top_tier_share)}</td><td class="mono ${Number(c.top_tier_lift_pp)>0?"positive":Number(c.top_tier_lift_pp)<0?"negative":""}">${lift(c.top_tier_lift_pp)}</td></tr>`).join("");
@@ -109,8 +161,8 @@ _JS = r"""
   }
   function renderPreferenceFromTopScope(){
     const panel=$("preference-intelligence"),body=$("preference-intelligence-body");if(!panel||!body)return;
-    let payload={};try{payload=JSON.parse($("rate-monitor-data")?.textContent||"{}")}catch{return}
-    const intelligence=payload.strategy?.preference_intelligence;if(!intelligence)return;
+    const data=payload();
+    const intelligence=data.strategy?.preference_intelligence;if(!intelligence)return;
     const sectorControl=panel.querySelector(".pref-intel-control:first-child");if(sectorControl)sectorControl.dataset.uxSectorControl="true";
     let scope=panel.querySelector(".ux-pref-scope");if(!scope){scope=document.createElement("div");scope.className="ux-pref-scope";panel.querySelector(".pref-intel-controls")?.prepend(scope)}
     const sectors=activeSectorKeys();scope.innerHTML=`<b>상단 선택 연동</b>${sectors.map(k=>`<span class="ux-pref-scope-tag">${sectorLabels[k]||k}</span>`).join("")}`;
@@ -126,10 +178,10 @@ _JS = r"""
   }
 
   function install(){
-    if(document.documentElement.dataset.strategyUxRefinement==="hierarchy-v2")return;
-    compactEvidence();syncSectorFilterVisibility();updateEvidenceSummary();updateMapLegend();bindPreference();renderPreferenceFromTopScope();
+    if(document.documentElement.dataset.strategyUxRefinement==="hierarchy-v3")return;
+    compactEvidence();syncSectorFilterVisibility();updateEvidenceSummary();updateMapLegend();bindPreference();renderPreferenceFromTopScope();installRoleSeparation();installReport();
     const mapTitle=$("map-title");if(mapTitle)new MutationObserver(updateMapLegend).observe(mapTitle,{childList:true,subtree:true,characterData:true});
-    document.documentElement.dataset.strategyUxRefinement="hierarchy-v2";
+    document.documentElement.dataset.strategyUxRefinement="hierarchy-v3";
   }
   if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",install,{once:true});else install();
 })();
@@ -166,7 +218,7 @@ def _apply_default_scope(html: str) -> str:
 
 
 def inject_strategy_ux_refinement(html: str) -> str:
-    """Apply the approved readability, scope, evidence, map, and D2 UX refinement."""
+    """Apply readability, scope, role separation, report, evidence, and D2 UX refinement."""
     has_style = STYLE_MARKER in html
     has_script = SCRIPT_MARKER in html
     if has_style and has_script:
