@@ -21,6 +21,9 @@ from rate_monitor.services.market_intelligence_presentation import (
 from rate_monitor.services.preference_intelligence_presentation import (
     inject_preference_intelligence_presentation,
 )
+from rate_monitor.services.strategy_ux_refinement_presentation import (
+    inject_strategy_ux_refinement,
+)
 from rate_monitor.services.strategy_workspace_presentation import (
     inject_strategy_workspace_presentation,
 )
@@ -148,4 +151,5 @@ def inject_strategy_decision_cockpit(html: str) -> str:
         and 'class="grid primary"' in rendered
     ):
         rendered = inject_strategy_workspace_presentation(rendered)
+        rendered = inject_strategy_ux_refinement(rendered)
     return rendered
