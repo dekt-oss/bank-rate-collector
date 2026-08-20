@@ -39,6 +39,7 @@ async function assertWorkspace(page, label) {
     const changes = marketFlow?.querySelector("details.changes");
     const legacy = interpretation?.querySelector(".workspace-legacy-pref");
     const modelDetail = planning?.querySelector(".workspace-model-detail");
+    const evidencePanel = document.querySelector(".ux-evidence-panel");
     const firstCard = document.querySelector(".card");
     const firstKpiValue = document.querySelector(".kvalue");
     const topbar = document.querySelector(".topbar");
@@ -65,7 +66,6 @@ async function assertWorkspace(page, label) {
     const termCard = document.querySelector(".termcard");
     const termCardStyle = termCard ? getComputedStyle(termCard) : null;
     const kpis = Array.from(document.querySelectorAll(".kpis .kpi")).slice(0, 2).map((node) => node.getBoundingClientRect());
-    const evidence = Array.from(document.querySelectorAll(".evidence-strip .evidence-card")).slice(0, 2).map((node) => node.getBoundingClientRect());
     const mapStage = primary?.querySelector(".mapstage")?.getBoundingClientRect();
     return {
       decisionBeforeExternal: order(planning, external),
@@ -82,10 +82,11 @@ async function assertWorkspace(page, label) {
       modelDetailOpen: Boolean(modelDetail?.open),
       modelDetailHasResults: Boolean(modelDetail?.querySelector(".prediction-results")),
       modelDetailHasEvidence: Boolean(modelDetail?.querySelector(".model-evidence")),
+      evidencePanelExists: Boolean(evidencePanel),
+      evidencePanelOpen: Boolean(evidencePanel?.open),
       planningTop: planning?.getBoundingClientRect().top,
       externalTop: external?.getBoundingClientRect().top,
       kpis,
-      evidence,
       mapHeight: mapStage?.height || 0,
       clientWidth: document.documentElement.clientWidth,
       scrollWidth: document.documentElement.scrollWidth,
@@ -124,6 +125,7 @@ async function assertWorkspace(page, label) {
   invariant(result.legacyExists && !result.legacyOpen, `${label}: legacy preference summary should be collapsed`);
   invariant(result.modelDetailExists && !result.modelDetailOpen, `${label}: model detail should start collapsed`);
   invariant(result.modelDetailHasResults && result.modelDetailHasEvidence, `${label}: model detail lost prediction results or evidence`);
+  invariant(result.evidencePanelExists && !result.evidencePanelOpen, `${label}: evidence panel should start collapsed`);
   invariant(result.planningTop < result.externalTop, `${label}: planning visual order is not decision-first`);
   invariant(result.scrollWidth <= result.clientWidth + 1, `${label}: page horizontal overflow ${result.scrollWidth} > ${result.clientWidth}`);
   invariant(result.strategyTheme === "light-v1", `${label}: light theme marker=${result.strategyTheme}`);
@@ -160,7 +162,6 @@ async function assertWorkspace(page, label) {
   } else {
     invariant(result.bodyFontSize >= 13.5, `mobile: body type too small=${result.bodyFontSize}`);
     invariant(result.kpis.length === 2 && Math.abs(result.kpis[0].y - result.kpis[1].y) < 2 && result.kpis[0].x !== result.kpis[1].x, "mobile: KPI cards are not two-column");
-    invariant(result.evidence.length === 2 && Math.abs(result.evidence[0].y - result.evidence[1].y) < 2 && result.evidence[0].x !== result.evidence[1].x, "mobile: evidence cards are not two-column");
     invariant(result.mapHeight >= 330 && result.mapHeight <= 390, `mobile: expanded analysis map height=${result.mapHeight}`);
   }
 }
