@@ -46,6 +46,10 @@ from rate_monitor.services.dashboard_service import (
     DashboardBuildError,
     build_summary,
 )
+from rate_monitor.services.dashboard_ui_refinement_presentation import (
+    SCRIPT_MARKER as DASHBOARD_UI_MARKER,
+    inject_dashboard_ui_refinement,
+)
 from rate_monitor.services.main_map_presentation import (
     MAIN_MAP_MARKER,
     inject_main_map_presentation,
@@ -408,6 +412,9 @@ def build_site(
     )
     if strategy_template_path is not None:
         html = _add_strategy_nav(html)
+    # 공통 헤더와 지도 직접 라벨은 navigation 주입 뒤 마지막 presentation으로
+    # 적용한다. 데이터/계산 계약은 바꾸지 않는다.
+    html = inject_dashboard_ui_refinement(html)
     _verify(html, page_data)
     page_path = out_dir / "index.html"
     page_path.write_text(html, encoding="utf-8")
@@ -429,6 +436,7 @@ def build_site(
         strategy_template_text = strategy_template_path.read_text(encoding="utf-8")
         strategy_html = render(strategy_template_text, strategy_page_data)
         strategy_html = inject_strategy_decision_cockpit(strategy_html)
+        strategy_html = inject_dashboard_ui_refinement(strategy_html)
         _verify_strategy(strategy_html, strategy_page_data)
         strategy_path.write_text(strategy_html, encoding="utf-8")
         strategy_map_path.parent.mkdir(parents=True, exist_ok=True)
@@ -486,6 +494,8 @@ def _verify(html: str, page_data: dict[str, Any]) -> None:
         raise DashboardBuildError("본점 기준 참고값 표기가 없다 (v3.1 §6.4)")
     if MAIN_MAP_MARKER not in html:
         raise DashboardBuildError("메인 대한민국 지도 presentation이 없다")
+    if DASHBOARD_UI_MARKER not in html:
+        raise DashboardBuildError("공통 dashboard UI refinement presentation이 없다")
     # 금리표가 페이지에 섞여 들어가면 분리한 의미가 없다.
     raw = json.dumps(parsed, ensure_ascii=False, separators=(",", ":"))
     if '\"rows\":[[' in raw:
@@ -505,6 +515,8 @@ def _verify_strategy(html: str, page_data: dict[str, Any]) -> None:
         raise DashboardBuildError("전략 화면용 시장 변화 집계가 없다")
     if HEAD_OFFICE_NOTICE not in html:
         raise DashboardBuildError("전략 화면에 저축은행 지역근거 주의문이 없다")
+    if DASHBOARD_UI_MARKER not in html:
+        raise DashboardBuildError("전략 화면 공통 header refinement presentation이 없다")
     raw = json.dumps(parsed, ensure_ascii=False, separators=(",", ":"))
     if '\"rows\":[[' in raw:
         raise DashboardBuildError("전략 화면에 금리표가 인라인됐다")
