@@ -131,6 +131,25 @@ async function assertExternalMarketContext(page) {
   );
 }
 
+async function assertStrategyRoleSplit(page, label) {
+  const mapCard = page.locator(".workspace-detail.primary .mapcard");
+  invariant(await mapCard.count() === 1, `${label}: Strategy 지역 지도 DOM이 없음`);
+  invariant(await mapCard.isHidden(), `${label}: Strategy 지역 지도는 검색 조회로 이관되어 숨겨져야 함`);
+
+  const handoff = page.locator(".ux-region-handoff");
+  invariant(await handoff.count() === 1 && await handoff.isVisible(), `${label}: 검색 조회 지역 상세 handoff가 보이지 않음`);
+  invariant(
+    (await handoff.textContent()).includes("지역·지도 상세는 검색 조회로 통합했습니다."),
+    `${label}: 지역 상세 역할 분리 안내가 없음`,
+  );
+  invariant(await handoff.locator("a").getAttribute("href") === "./", `${label}: 지역 상세 handoff 링크가 검색 조회를 가리키지 않음`);
+
+  const readiness = page.locator(".ux-decision-readiness");
+  invariant(await readiness.count() === 1 && await readiness.isVisible(), `${label}: 금리결정 준비도 카드가 보이지 않음`);
+  invariant((await readiness.textContent()).includes("최종 최적금리 자동추천"), `${label}: calibration 전 의사결정 경계가 표시되지 않음`);
+  invariant(await page.locator(".ux-report-button").isVisible(), `${label}: Strategy 보고서 출력 버튼이 보이지 않음`);
+}
+
 async function runDesktop(browser) {
   const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
   const page = await context.newPage();
@@ -141,87 +160,50 @@ async function runDesktop(browser) {
   });
 
   await waitForDashboard(page);
-  invariant(cleanNumber(await page.locator("#count").textContent()) > 0, "저축은행 12M 비교군이 비어 있음");
+  invariant(await page.locator('[data-market-mode="combined"]').evaluate((node) => node.classList.contains("active")), "기본 비교모드가 저축은행 + 상호금융이 아님");
+  invariant((await page.locator("#scope-pill").textContent()).trim() === "저축은행 + 상호금융", "기본 scope label이 통합모드가 아님");
+  invariant(cleanNumber(await page.locator("#count").textContent()) > 0, "통합 12M 비교군이 비어 있음");
   invariant(!(await page.locator('[data-sector="cu"]').isDisabled()), "신협 selector가 비활성화됨");
   invariant(!(await page.locator('[data-sector="kfcc"]').isDisabled()), "새마을금고 selector가 비활성화됨");
+  invariant(!(await page.locator('[data-sector="nh_local"]').isDisabled()), "농·축협 selector가 비활성화됨");
+  invariant(await page.locator('[data-sector="cu"]').isChecked(), "기본 통합모드에서 신협이 선택되지 않음");
+  invariant(await page.locator('[data-sector="kfcc"]').isChecked(), "기본 통합모드에서 새마을금고가 선택되지 않음");
+  invariant(await page.locator('[data-sector="nh_local"]').isChecked(), "기본 통합모드에서 농·축협이 선택되지 않음");
   const kfccMeta = await strategySectorMeta(page, "kfcc");
   const nhMeta = await strategySectorMeta(page, "nh_local");
   invariant(kfccMeta?.strategy_rate_capability === true && kfccMeta?.selectable === true, "새마을금고 수집기준 최고금리 capability가 열리지 않음");
   invariant(nhMeta?.strategy_rate_capability === true && nhMeta?.selectable === true, "농·축협 수집기준 최고금리 capability가 열리지 않음");
-  invariant(!(await page.locator('[data-sector="nh_local"]').isDisabled()), "농·축협 selector가 비활성화됨");
-  invariant(await page.locator("#market-flow").isVisible(), "저축은행 이력 block이 기본 모드에서 숨겨짐");
-  invariant(await page.locator("#sim-form").isVisible(), "저축은행 시뮬레이터가 기본 모드에서 숨겨짐");
-  invariant(await page.locator('[data-map-sector="savings_bank"]').count() === 1, "저축은행 지도 레이어가 없음");
+  invariant(await page.locator("#market-flow").isVisible(), "저축은행 포함 모드에서 이력 block이 숨겨짐");
+  invariant(await page.locator("#sim-form").isVisible(), "저축은행 포함 모드에서 시뮬레이터가 숨겨짐");
   await assertMarketIntelligence(page);
   await assertExternalMarketContext(page);
-
-  const busan = page.locator('#geo-map [data-region="부산"]');
-  invariant(await busan.count() === 1, "저축은행 부산 지도 node가 없음");
-  await busan.click();
-  await page.waitForFunction(
-    () => document.getElementById("map-title")?.textContent.trim() === "부산 구·군별 금리 지도",
-    null,
-    { timeout: 10_000 },
-  );
-  invariant(await page.locator("#map-back").isVisible(), "부산 drill-down에서 전국 보기 버튼이 보이지 않음");
-  invariant(await page.locator("#busan-rate-list .busan-rate-item").count() > 0, "부산 canonical district 목록이 비어 있음");
-  await page.locator("#map-back").click();
+  await assertStrategyRoleSplit(page, "desktop");
 
   await selectMode(page, "mutual_finance", "상호금융");
-  invariant(cleanNumber(await page.locator("#count").textContent()) > 0, "신협 12M 비교군이 비어 있음");
+  invariant(cleanNumber(await page.locator("#count").textContent()) > 0, "상호금융 12M 비교군이 비어 있음");
   invariant(await page.locator("#market-flow").isHidden(), "상호금융 단독에서 저축은행 이력 block이 노출됨");
   invariant(await page.locator("#sim-form").isHidden(), "상호금융 단독에서 고려저축은행 시뮬레이터가 열림");
   invariant(await page.locator("#market-intelligence").isVisible(), "상호금융 모드에서 C2 시장동향 패널이 숨겨짐");
-  const cuLayer = page.locator('[data-map-sector="cu"]');
-  invariant(await cuLayer.count() === 1, "신협 source_query_region 지도 레이어가 없음");
-  await cuLayer.click();
-  await page.waitForFunction(
-    () => document.getElementById("map-title")?.textContent.trim() === "신협 조회지역별 금리 분포",
-    null,
-    { timeout: 10_000 },
-  );
-  invariant(
-    (await page.locator("#map-mode-label").textContent()).includes("원천 조회지역"),
-    "신협 지도에 source_query_region 의미가 표시되지 않음",
-  );
-  invariant(await page.locator("#map-back").isHidden(), "신협 지도에서 부산 drill-down 복귀 버튼이 노출됨");
 
   await page.locator('[data-sector="cu"]').uncheck();
-  await page.locator('[data-sector="kfcc"]').check();
+  await page.locator('[data-sector="nh_local"]').uncheck();
   await waitForPositiveCount(page);
-  const kfccLayer = page.locator('[data-map-sector="kfcc"]');
-  invariant(await kfccLayer.count() === 1, "새마을금고 공시지역 지도 레이어가 없음");
-  await kfccLayer.click();
-  await page.waitForFunction(
-    () => document.getElementById("map-title")?.textContent.trim() === "새마을금고 공시 소재지별 금리 분포",
-    null,
-    { timeout: 10_000 },
-  );
-  invariant((await page.locator("#map-mode-label").textContent()).includes("점포 주소"), "새마을금고 지도에 outlet_address 근거가 표시되지 않음");
-  invariant(await page.locator("#map-back").isHidden(), "새마을금고 지도에서 부산 drill-down 복귀 버튼이 노출됨");
+  invariant(await page.locator("#top5 tr").count() > 0, "새마을금고 단독 TOP5가 비어 있음");
 
   await page.locator('[data-sector="kfcc"]').uncheck();
   await page.locator('[data-sector="nh_local"]').check();
   await waitForPositiveCount(page);
-  invariant(await page.locator('[data-map-sector="nh_local"]').count() === 1, "농·축협 점포주소 지도 레이어가 없음");
-  await page.locator('[data-map-sector="nh_local"]').click();
-  await page.waitForFunction(
-    () => document.getElementById("map-title")?.textContent.trim() === "농·축협 점포 주소별 금리 분포",
-    null,
-    { timeout: 10_000 },
-  );
-  invariant((await page.locator("#map-mode-label").textContent()).includes("점포 주소"), "농·축협 지도에 outlet_address 의미가 표시되지 않음");
-  invariant(await page.locator("#map-back").isHidden(), "농·축협 지도에서 부산 drill-down 복귀 버튼이 노출됨");
+  invariant(await page.locator("#top5 tr").count() > 0, "농·축협 단독 TOP5가 비어 있음");
 
   await page.locator('[data-sector="cu"]').check();
   await page.locator('[data-sector="kfcc"]').check();
   await selectMode(page, "combined", "저축은행 + 상호금융");
   invariant(cleanNumber(await page.locator("#count").textContent()) > 0, "통합 12M 비교군이 비어 있음");
-  invariant(await page.locator('[data-map-sector="savings_bank"]').count() === 1, "통합 모드 저축은행 지도 레이어가 없음");
-  invariant(await page.locator('[data-map-sector="cu"]').count() === 1, "통합 모드 신협 지도 레이어가 없음");
-  invariant(await page.locator('[data-map-sector="kfcc"]').count() === 1, "통합 모드 새마을금고 지도 레이어가 없음");
-  invariant(await page.locator('[data-map-sector="nh_local"]').count() === 1, "통합 모드 농·축협 지도 레이어가 없음");
+  invariant(await page.locator('[data-sector="cu"]').isChecked(), "통합 복귀 후 신협 선택이 복원되지 않음");
+  invariant(await page.locator('[data-sector="kfcc"]').isChecked(), "통합 복귀 후 새마을금고 선택이 복원되지 않음");
+  invariant(await page.locator('[data-sector="nh_local"]').isChecked(), "통합 복귀 후 농·축협 선택이 복원되지 않음");
   invariant(await page.locator("#top5 tr").count() > 0, "통합 TOP5가 비어 있음");
+  await assertStrategyRoleSplit(page, "desktop combined");
 
   await assertNoHorizontalOverflow(page, "desktop");
   await page.screenshot({ path: path.join(workDir, "strategy-smoke-desktop.png"), fullPage: true });
@@ -245,13 +227,18 @@ async function runMobile(browser) {
   invariant(nhMeta?.strategy_rate_capability === true && nhMeta?.selectable === true, "모바일 농·축협 capability가 열리지 않음");
   invariant(!(await page.locator('[data-sector="kfcc"]').isDisabled()), "모바일 새마을금고 selector가 비활성화됨");
   invariant(!(await page.locator('[data-sector="nh_local"]').isDisabled()), "모바일 농·축협 selector가 비활성화됨");
+  invariant(await page.locator('[data-market-mode="combined"]').evaluate((node) => node.classList.contains("active")), "모바일 기본 비교모드가 통합모드가 아님");
+  invariant(await page.locator('[data-sector="cu"]').isChecked(), "모바일 기본 통합모드에서 신협이 선택되지 않음");
+  invariant(await page.locator('[data-sector="kfcc"]').isChecked(), "모바일 기본 통합모드에서 새마을금고가 선택되지 않음");
+  invariant(await page.locator('[data-sector="nh_local"]').isChecked(), "모바일 기본 통합모드에서 농·축협이 선택되지 않음");
   invariant(await page.locator("#market-intelligence").count() === 1, "모바일 C2 Market Intelligence panel이 없음");
-  await assertNoHorizontalOverflow(page, "mobile savings-bank");
+  await assertStrategyRoleSplit(page, "mobile");
+  await assertNoHorizontalOverflow(page, "mobile combined");
   await selectMode(page, "mutual_finance", "상호금융");
-  invariant(cleanNumber(await page.locator("#count").textContent()) > 0, "모바일 신협 12M 비교군이 비어 있음");
+  invariant(cleanNumber(await page.locator("#count").textContent()) > 0, "모바일 상호금융 12M 비교군이 비어 있음");
   invariant(await page.locator("#sim-form").isHidden(), "모바일 상호금융 모드에서 시뮬레이터가 열림");
-  invariant(await page.locator('[data-map-sector="cu"]').count() === 1, "모바일 신협 지도 레이어가 없음");
   invariant(await page.locator("#market-intelligence").isVisible(), "모바일 상호금융 모드에서 C2 패널이 숨겨짐");
+  await assertStrategyRoleSplit(page, "mobile mutual-finance");
   await assertNoHorizontalOverflow(page, "mobile mutual-finance");
   await page.screenshot({ path: path.join(workDir, "strategy-smoke-mobile.png"), fullPage: true });
   invariant(runtimeErrors.length === 0, `mobile browser runtime errors:\n${runtimeErrors.join("\n")}`);
