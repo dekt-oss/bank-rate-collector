@@ -99,13 +99,13 @@ _JS = r"""
   }
   function sectorPreferenceCard(sector,item){
     const label=sectorLabels[sector]||sector;
-    if(!item||item.status==="no_data")return`<section class="ux-pref-sector"><div class="ux-pref-sector-head"><b>${label}</b><span>${prefTerm}개월</span></div><div class="ux-pref-empty">현재 선택 기간의 우대조건 비교 데이터가 없습니다.</div></section>`;
+    if(!item||item.status==="no_data")return`<section class="ux-pref-sector pref-intel-main"><div class="ux-pref-sector-head"><b>${label}</b><span>${prefTerm}개월</span></div><div class="ux-pref-empty">현재 선택 기간의 우대조건 비교 데이터가 없습니다.</div></section>`;
     const coverage=item.coverage||{},top=item.top_tier||{},topCoverage=top.coverage||{},categories=item.categories||[];
     const visible=categories.slice(0,5),rest=categories.slice(5);
     const warning=coverage.coverage_status==="low"?`<div class="pref-intel-warning"><b>우대정보 제공률이 낮습니다.</b> 알려진 조건 ${pct(coverage.known_preference_share)} · 미제공 ${Number(coverage.missing_count||0).toLocaleString("ko-KR")}건. 미제공을 조건 없음으로 해석하지 않습니다.</div>`:"";
     const tableHead='<thead><tr><th>조건</th><th>시장 전체</th><th>상위금리상품</th><th>차이</th></tr></thead>';
     const more=rest.length?`<details class="ux-pref-more"><summary>나머지 조건 ${rest.length}개 보기</summary><table class="pref-intel-table">${tableHead}<tbody>${preferenceRows(rest)}</tbody></table></details>`:"";
-    return`<section class="ux-pref-sector"><div class="ux-pref-sector-head"><b>${label}</b><span>${prefTerm}개월 · 상위 조건 ${Math.min(5,categories.length)}개 우선</span></div>${warning}<div class="pref-intel-summary"><div><span>우대정보 제공률</span><b>${pct(coverage.known_preference_share)}</b></div><div><span>상위금리 기준</span><b>${Number.isFinite(Number(top.cutoff_rate))?Number(top.cutoff_rate).toFixed(2)+"%":"—"}</b></div><div><span>상위군 우대정보 제공</span><b>${pct(topCoverage.known_preference_share)}</b></div></div><table class="pref-intel-table">${tableHead}<tbody>${visible.length?preferenceRows(visible):'<tr><td colspan="4">분류 가능한 우대조건이 없습니다.</td></tr>'}</tbody></table>${more}${sector==="savings_bank"?ownCompanyHtml(item.our_company):""}</section>`;
+    return`<section class="ux-pref-sector pref-intel-main"><div class="ux-pref-sector-head"><b>${label}</b><span>${prefTerm}개월 · 상위 조건 ${Math.min(5,categories.length)}개 우선</span></div>${warning}<div class="pref-intel-summary"><div><span>우대정보 제공률</span><b>${pct(coverage.known_preference_share)}</b></div><div><span>상위금리 기준</span><b>${Number.isFinite(Number(top.cutoff_rate))?Number(top.cutoff_rate).toFixed(2)+"%":"—"}</b></div><div><span>상위군 우대정보 제공</span><b>${pct(topCoverage.known_preference_share)}</b></div></div><table class="pref-intel-table">${tableHead}<tbody>${visible.length?preferenceRows(visible):'<tr><td colspan="4">분류 가능한 우대조건이 없습니다.</td></tr>'}</tbody></table>${more}${sector==="savings_bank"?ownCompanyHtml(item.our_company):""}</section>`;
   }
   function renderPreferenceFromTopScope(){
     const panel=$("preference-intelligence"),body=$("preference-intelligence-body");if(!panel||!body)return;
