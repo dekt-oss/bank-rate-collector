@@ -84,7 +84,7 @@ def test_strategy_workspace_smoke_locks_decision_first_order_and_mobile_density(
     assert "preferenceBeforeDetail" in text
     assert "recent change details should start collapsed" in text
     assert "KPI cards are not two-column" in text
-    assert "evidence cards are not two-column" in text
+    assert "evidence panel should start collapsed" in text
     assert "expanded analysis map height" in text
     assert "result.mapHeight >= 400 && result.mapHeight <= 460" in text
     assert "result.mapHeight >= 330 && result.mapHeight <= 390" in text
