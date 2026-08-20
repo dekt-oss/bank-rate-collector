@@ -38,7 +38,7 @@ def test_refinement_injects_once_and_keeps_compact_desktop_map_contract() -> Non
     rendered_twice = inject_main_map_drilldown_refinement(rendered, strategy)
 
     assert rendered_twice == rendered
-    assert rendered.count(MAIN_MAP_DRILLDOWN_MARKER) == 2  # style + template marker
+    assert rendered.count(MAIN_MAP_DRILLDOWN_MARKER) == 3  # style + template + script
     assert f'id="{BUSAN_TEMPLATE_ID}"' in rendered
     assert "max-width: 980px" in rendered
     assert "minmax(0, 700px)" in rendered
