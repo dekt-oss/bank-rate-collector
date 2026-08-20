@@ -76,24 +76,24 @@ def test_strategy_main_runtime_smoke_accepts_fail_closed_external_context() -> N
     assert "농·축협과 1:1 동일하지 않음" in text
 
 
-def test_strategy_workspace_smoke_locks_decision_first_order_and_mobile_density() -> None:
+def test_strategy_workspace_smoke_locks_role_separation_and_reports() -> None:
     text = WORKSPACE_SMOKE.read_text(encoding="utf-8")
 
     assert "decisionBeforeExternal" in text
     assert "insightBeforePreference" in text
     assert "preferenceBeforeDetail" in text
-    assert "recent change details should start collapsed" in text
-    assert "KPI cards are not two-column" in text
+    assert "recent changes should start collapsed" in text
     assert "evidence panel should start collapsed" in text
-    assert "expanded analysis map height" in text
-    assert "result.mapHeight >= 400 && result.mapHeight <= 460" in text
-    assert "result.mapHeight >= 330 && result.mapHeight <= 390" in text
+    assert "Strategy map is still a visible explorer" in text
+    assert "duplicate Strategy KPI strip visible" in text
+    assert "Main region bridge missing" in text
+    assert "decision calibration boundary missing" in text
+    assert "Strategy report API missing" in text
+    assert "Main report API missing" in text
+    assert "Strategy report contains full map" in text
     assert "horizontal overflow" in text
     assert 'strategyPalette === "main-brand-v2"' in text
     assert 'accent.toUpperCase() === "#D33A7C"' in text
-    assert "external Korea map is still visually heavy" in text
-    assert "external Korea map filter missing" in text
-    assert "analytical microcopy too small" in text
 
 
 def test_strategy_brand_visual_spec_locks_palette_typography_and_scope() -> None:
