@@ -11,7 +11,8 @@ def test_main_dashboard_owns_region_map_and_report_output() -> None:
 
 
 def test_strategy_removes_duplicate_map_but_keeps_decision_scope() -> None:
-    assert ".workspace-detail.primary:not(.busan-focus) .mapcard{display:none!important}" in _CSS
+    assert ".workspace-detail.primary .mapcard{display:none!important}" in _CSS
+    assert ":not(.busan-focus) .mapcard{display:none!important}" not in _CSS
     assert "지역·지도 상세는 검색 조회로 통합했습니다." in _JS
     assert "경쟁상단·금리결정 근거만 남깁니다." in _JS
     assert "지역 상세 보기" in _JS
