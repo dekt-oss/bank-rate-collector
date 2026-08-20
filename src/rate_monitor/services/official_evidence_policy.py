@@ -95,6 +95,11 @@ def _source_support(
     *,
     official_status: str,
 ) -> str:
+    # 공식 evidence가 서로 충돌하면 source matching 성공/실패와 무관하게
+    # authority 판정을 차단한다. not_matched가 conflict gate를 우회하면 안 된다.
+    if official_status == "conflict":
+        return "blocked_by_official_conflict"
+
     matched = [
         item["sources"][label]
         for item in items
@@ -102,8 +107,6 @@ def _source_support(
     ]
     if not matched:
         return "not_matched"
-    if official_status == "conflict":
-        return "blocked_by_official_conflict"
 
     signals: list[str] = []
     for source in matched:
