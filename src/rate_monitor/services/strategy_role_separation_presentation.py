@@ -61,6 +61,8 @@ _JS = r"""
 (()=>{
   "use strict";
   const $=id=>document.getElementById(id);
+  const TOP5_TITLE="가격결정 경쟁 기준 TOP 5";
+  const TOP5_COPY="현재 선택 시장의 상단 금리 anchor · 상세 상품 탐색과 지역 비교는 검색 조회에서 확인";
 
   function installDecisionBoundary(){
     const planning=$("planning-zone");
@@ -83,6 +85,20 @@ _JS = r"""
     if(kpis)kpis.dataset.strategyOverviewDuplicate="true";
   }
 
+  function lockCompetitionRoleCopy(){
+    const title=$("top5-title"),copy=$("top5-copy");
+    if(title&&title.textContent!==TOP5_TITLE)title.textContent=TOP5_TITLE;
+    if(!copy)return;
+    if(copy.textContent!==TOP5_COPY)copy.textContent=TOP5_COPY;
+    if(copy.dataset.roleCopyLocked==="true")return;
+    copy.dataset.roleCopyLocked="true";
+    const observer=new MutationObserver(()=>{
+      if(copy.textContent!==TOP5_COPY)copy.textContent=TOP5_COPY;
+      if(title&&title.textContent!==TOP5_TITLE)title.textContent=TOP5_TITLE;
+    });
+    observer.observe(copy,{childList:true,subtree:true,characterData:true});
+  }
+
   function consolidateRegionAndCompetition(){
     const map=$("map-card");
     const section=map?.closest("section");
@@ -97,9 +113,7 @@ _JS = r"""
       bridge.innerHTML=`<div><b>지역 상세는 검색 조회에서 확인</b><span>전국 지도와 부산 구·군 drill-down은 원시 지역 탐색 기능으로 검색 조회에 통합했습니다.</span></div><a href="./#reg">검색 조회 · 지역 상세 열기</a><small>Strategy에서는 기존 지역 feature를 삭제하지 않고 시장 인사이트의 보조 근거로만 유지합니다. 저축은행 지역은 본점 소재지 참고값이며 판매 가능 지역을 뜻하지 않습니다.</small>`;
       section.insertBefore(bridge,top5);
     }
-    const title=$("top5-title"),copy=$("top5-copy");
-    if(title)title.textContent="가격결정 경쟁 기준 TOP 5";
-    if(copy)copy.textContent="현재 선택 시장의 상단 금리 anchor · 상세 상품 탐색과 지역 비교는 검색 조회에서 확인";
+    lockCompetitionRoleCopy();
   }
 
   function relabelSection(){
