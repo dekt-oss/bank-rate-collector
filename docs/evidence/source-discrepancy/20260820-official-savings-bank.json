@@ -74,11 +74,11 @@
       "term_months": 12,
       "join_channel": "internet",
       "interest_method": "compound",
-      "base_rate": "4.00",
-      "max_rate": "4.00",
+      "base_rate": "3.80",
+      "max_rate": "3.80",
       "captured_at": "2026-08-20T11:30:00+09:00",
-      "url": "https://www.debecbank.co.kr/bbs/ProdList_001.act?rnum=27",
-      "note": "공식 상품공시의 12개월 단리식 약정이율 4.00%. 복리식 연평균수익률 4.07은 nominal max_rate로 사용하지 않음. comparison_product는 official evidence→source 감사에만 쓰는 수동 alias."
+      "url": "https://www.debecbank.co.kr/ProdList_001.act?rnum=27",
+      "note": "공식 상품공시의 12개월 단리식 약정이율 3.80%. 복리식 연평균수익률 3.86은 nominal max_rate로 사용하지 않음. comparison_product는 official evidence→source 감사에만 쓰는 수동 alias."
     }
   ]
 }
