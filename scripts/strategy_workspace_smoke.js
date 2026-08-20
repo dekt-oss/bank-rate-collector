@@ -25,6 +25,79 @@ async function loadPage(browser, viewport) {
   return { context, page, runtimeErrors };
 }
 
+async function navigationSnapshot(page, selector) {
+  return page.evaluate((navSelector) => {
+    const nav = document.querySelector(navSelector);
+    if (!nav) return null;
+    const links = [...nav.querySelectorAll("a")];
+    const navStyle = getComputedStyle(nav);
+    const firstStyle = links[0] ? getComputedStyle(links[0]) : null;
+    const active = nav.querySelector("a.active");
+    const activeStyle = active ? getComputedStyle(active) : null;
+    const rect = (node) => {
+      if (!node) return null;
+      const box = node.getBoundingClientRect();
+      return { left: box.left, right: box.right, top: box.top, bottom: box.bottom };
+    };
+    return {
+      labels: links.map((link) => link.textContent.trim()),
+      hrefs: links.map((link) => link.getAttribute("href")),
+      activeLabel: active?.textContent.trim() || "",
+      activeCurrent: active?.getAttribute("aria-current") || "",
+      navPadding: navStyle.padding,
+      navRadius: navStyle.borderRadius,
+      navBackground: navStyle.backgroundColor,
+      linkPadding: firstStyle?.padding || "",
+      linkRadius: firstStyle?.borderRadius || "",
+      linkFontSize: firstStyle?.fontSize || "",
+      linkFontWeight: firstStyle?.fontWeight || "",
+      activeBackground: activeStyle?.backgroundColor || "",
+      activeColor: activeStyle?.color || "",
+      navRect: rect(nav),
+      brandRect: rect(document.querySelector("header.top > .brand")),
+      controlsRect: rect(document.querySelector("header.top > .head-right")),
+      clientWidth: document.documentElement.clientWidth,
+      scrollWidth: document.documentElement.scrollWidth,
+    };
+  }, selector);
+}
+
+function overlaps(a, b) {
+  if (!a || !b) return false;
+  return a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+}
+
+async function assertPageNavigation(browser, strategyPage, viewport, label) {
+  const context = await browser.newContext({ viewport });
+  const page = await context.newPage();
+  await page.route("**/favicon.ico", (route) => route.fulfill({ status: 204, body: "" }));
+  const response = await page.goto(`${baseUrl}/`, { waitUntil: "domcontentloaded" });
+  invariant(response && response.ok(), `index.html HTTP ${response ? response.status() : "no response"}`);
+  await page.waitForSelector("header.top > .page-nav", { timeout: 30_000 });
+
+  const main = await navigationSnapshot(page, "header.top > .page-nav");
+  const strategy = await navigationSnapshot(strategyPage, "header.topbar > .nav");
+  invariant(main && strategy, `${label}: page navigation missing`);
+  invariant(JSON.stringify(main.labels) === JSON.stringify(["검색 조회", "전략 대시보드"]), `${label}: main navigation labels=${main.labels}`);
+  invariant(JSON.stringify(strategy.labels) === JSON.stringify(main.labels), `${label}: navigation labels differ between pages`);
+  invariant(JSON.stringify(main.hrefs) === JSON.stringify(["./", "strategy.html"]), `${label}: main navigation hrefs=${main.hrefs}`);
+  invariant(JSON.stringify(strategy.hrefs) === JSON.stringify(main.hrefs), `${label}: navigation hrefs differ between pages`);
+  invariant(main.activeLabel === "검색 조회" && main.activeCurrent === "page", `${label}: main active page=${main.activeLabel}/${main.activeCurrent}`);
+  invariant(strategy.activeLabel === "전략 대시보드" && strategy.activeCurrent === "page", `${label}: strategy active page=${strategy.activeLabel}/${strategy.activeCurrent}`);
+
+  for (const key of ["navPadding", "navRadius", "navBackground", "linkPadding", "linkRadius", "linkFontSize", "linkFontWeight", "activeBackground", "activeColor"]) {
+    invariant(main[key] === strategy[key], `${label}: navigation visual contract differs for ${key}: main=${main[key]} strategy=${strategy[key]}`);
+  }
+  invariant(main.scrollWidth <= main.clientWidth + 1, `${label}: main page horizontal overflow ${main.scrollWidth} > ${main.clientWidth}`);
+  if (label === "desktop") {
+    invariant(!overlaps(main.navRect, main.brandRect), `desktop: page navigation overlaps main brand`);
+    invariant(!overlaps(main.navRect, main.controlsRect), `desktop: page navigation overlaps main controls`);
+  }
+
+  await page.screenshot({ path: path.join(workDir, `strategy-main-runtime-navigation-main-${label}.png`), fullPage: false });
+  await context.close();
+}
+
 async function assertWorkspace(page, label) {
   const result = await page.evaluate(() => {
     const byId = (id) => document.getElementById(id);
@@ -169,19 +242,23 @@ async function assertWorkspace(page, label) {
 (async () => {
   const browser = await chromium.launch({ channel: "chrome", headless: true });
   try {
-    const desktop = await loadPage(browser, { width: 1280, height: 900 });
+    const desktopViewport = { width: 1280, height: 900 };
+    const desktop = await loadPage(browser, desktopViewport);
     await assertWorkspace(desktop.page, "desktop");
+    await assertPageNavigation(browser, desktop.page, desktopViewport, "desktop");
     await desktop.page.screenshot({ path: path.join(workDir, "strategy-main-runtime-workspace-desktop.png"), fullPage: true });
     invariant(desktop.runtimeErrors.length === 0, `desktop runtime errors:\n${desktop.runtimeErrors.join("\n")}`);
     await desktop.context.close();
 
-    const mobile = await loadPage(browser, { width: 390, height: 844 });
+    const mobileViewport = { width: 390, height: 844 };
+    const mobile = await loadPage(browser, mobileViewport);
     await assertWorkspace(mobile.page, "mobile");
+    await assertPageNavigation(browser, mobile.page, mobileViewport, "mobile");
     await mobile.page.screenshot({ path: path.join(workDir, "strategy-main-runtime-workspace-mobile.png"), fullPage: true });
     invariant(mobile.runtimeErrors.length === 0, `mobile runtime errors:\n${mobile.runtimeErrors.join("\n")}`);
     await mobile.context.close();
 
-    console.log("strategy decision workspace smoke: PASS (branded light desktop/mobile)");
+    console.log("strategy decision workspace + unified page navigation smoke: PASS (desktop/mobile)");
   } finally {
     await browser.close();
   }
