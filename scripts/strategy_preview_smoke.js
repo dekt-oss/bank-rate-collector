@@ -80,7 +80,16 @@ async function assertMarketIntelligence(page) {
   invariant((await page.locator("#market-intelligence-body").textContent()).trim().length > 0, "Stage C2 body가 비어 있음");
   invariant(await page.locator('[data-mi-sector="savings_bank"]').count() === 1, "C2 저축은행 selector가 없음");
   invariant(await page.locator('[data-mi-term="12"]').count() === 1, "C2 12개월 selector가 없음");
+  invariant(await page.locator('[data-mi-window="7"]').count() === 1, "C2 7D selector가 없음");
   invariant(await page.locator('[data-mi-window="30"]').count() === 1, "C2 30D selector가 없음");
+
+  await page.locator('[data-mi-window="7"]').click();
+  await page.waitForFunction(
+    () => document.querySelector('[data-mi-window="7"]')?.classList.contains("active"),
+    null,
+    { timeout: 5_000 },
+  );
+  invariant((await page.locator("#market-intelligence-body").textContent()).trim().length > 0, "C2 7D 결과가 비어 있음");
 
   await page.locator('[data-mi-sector="nh_local"]').click();
   await page.waitForFunction(
