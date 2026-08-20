@@ -60,13 +60,13 @@ variant와 의미가 일치하므로 이 dated evidence에만 해당 문자열�
 ### 대백저축은행 — 애플정기예금복리식(인터넷뱅킹)
 
 공식 상품공시:
-`https://www.debecbank.co.kr/bbs/ProdList_001.act?rnum=27`
+`https://www.debecbank.co.kr/ProdList_001.act?rnum=27`
 
-- 12개월 단리식 약정이율: 4.00%
-- 복리식 연평균수익률: 4.07%
+- 12개월 단리식 약정이율: 3.80%
+- 복리식 연평균수익률: 3.86%
 
-교차검증의 nominal `base_rate/max_rate`에는 4.00%만 사용한다.
-4.07%는 복리 수익률이며 동일 의미의 nominal rate로 취급하지 않는다.
+교차검증의 nominal `base_rate/max_rate`에는 3.80%만 사용한다.
+3.86%는 복리 수익률이며 동일 의미의 nominal rate로 취급하지 않는다.
 
 공식 페이지의 상품명이 source의 비교 상품명과 다를 수 있어,
 이 evidence에만 수동 `comparison_product=애플정기예금`을 지정한다.
