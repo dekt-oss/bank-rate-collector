@@ -51,6 +51,12 @@ v1의 `FSB ↔ 금융상품한눈에(finlife_savings_bank)` read-only 교차검�
 즉 같은 은행의 공식 surface 두 곳이 현재 서로 다른 nominal rate를 말한다.
 따라서 **개별 저축은행 홈페이지를 단일 truth source로 자동 승격하면 안 된다.**
 
+production source에는 같은 상품이
+`e-회전yes정기예금(1년단위 변동금리상품) (인터넷뱅킹, 스마트뱅킹)`으로 저장되어 있다.
+공식 페이지의 상품개요가 1년 회전주기 변동금리 상품임을 명시하고 인터넷/스마트뱅킹
+variant와 의미가 일치하므로 이 dated evidence에만 해당 문자열을 `comparison_product`로
+지정한다. 이 alias는 official evidence를 현재 source 행에 붙이는 데만 사용한다.
+
 ### 대백저축은행 — 애플정기예금복리식(인터넷뱅킹)
 
 공식 상품공시:
@@ -101,7 +107,7 @@ report에는 `official_product`를 별도로 남겨 실제 공식 페이지 이�
 
 같은 group에서 `base_rate` 또는 `max_rate`가 서로 다르다.
 
-이 경우:
+이 경우 source 매칭 성공 여부보다 conflict gate가 우선한다.
 
 - `source_support.primary = blocked_by_official_conflict`
 - `source_support.secondary = blocked_by_official_conflict`
