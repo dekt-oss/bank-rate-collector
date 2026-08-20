@@ -14,6 +14,7 @@ def test_strategy_main_runtime_e2e_is_isolated_and_observable() -> None:
         "main",
         '"feat/strategy-main-runtime-e2e-*"',
         '"feat/strategy-ux-*"',
+        '"feat/main-strategy-role-*"',
         '"feat/unify-main-strategy-production-*"',
     ):
         assert branch in text
@@ -28,9 +29,16 @@ def test_strategy_main_runtime_e2e_is_isolated_and_observable() -> None:
     assert "strategy_workspace_smoke.js" in text
     assert "strategy_workspace_presentation.py" in text
     assert "strategy_brand_theme_presentation.py" in text
+    assert "strategy_role_separation_presentation.py" in text
+    assert "reporting_presentation.py" in text
+    assert "test_role_separation_reporting.py" in text
+    assert "20260820-main-strategy-role-separation-reporting-v1.md" in text
     assert "test_strategy_brand_theme_presentation.py" in text
     assert "test_strategy_production_release.py" in text
     assert 'grep -q \'id="strategy-brand-theme-script"\'' in text
+    assert 'grep -q \'id="strategy-role-separation-script"\'' in text
+    assert 'grep -q \'id="strategy-reporting-script"\'' in text
+    assert 'grep -q \'id="main-reporting-script"\'' in text
     assert "insufficient_history" in text
     assert "non_consecutive_months" in text
     assert "source_contract_mismatch" not in text
