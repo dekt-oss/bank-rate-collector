@@ -7,10 +7,16 @@ stable product identity, Strategy release gate를 변경하지 않는다.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from rate_monitor.services.dashboard_service import DashboardBuildError
+from rate_monitor.services.main_map_drilldown_refinement import (
+    inject_main_map_drilldown_refinement,
+)
 
 STYLE_MARKER = 'id="dashboard-ui-refinement-style"'
 SCRIPT_MARKER = 'id="dashboard-ui-refinement-script"'
+_STRATEGY_TEMPLATE = Path("web/templates/strategy.html")
 
 DASHBOARD_UI_STYLE = r"""
 <style id="dashboard-ui-refinement-style">
@@ -210,15 +216,22 @@ DASHBOARD_UI_SCRIPT = r"""
 
 def inject_dashboard_ui_refinement(html: str) -> str:
     """공통 헤더와 검색 지도 가독성 presentation을 마지막 계층에 추가한다."""
-    if STYLE_MARKER in html and SCRIPT_MARKER in html:
-        return html
-    if "</head>" not in html:
-        raise DashboardBuildError("dashboard UI refinement를 넣을 head가 없다")
-    if "</body>" not in html:
-        raise DashboardBuildError("dashboard UI refinement를 넣을 body가 없다")
     rendered = html
     if STYLE_MARKER not in rendered:
+        if "</head>" not in rendered:
+            raise DashboardBuildError("dashboard UI refinement를 넣을 head가 없다")
         rendered = rendered.replace("</head>", DASHBOARD_UI_STYLE + "\n</head>", 1)
     if SCRIPT_MARKER not in rendered:
+        if "</body>" not in rendered:
+            raise DashboardBuildError("dashboard UI refinement를 넣을 body가 없다")
         rendered = rendered.replace("</body>", DASHBOARD_UI_SCRIPT + "\n</body>", 1)
+
+    # 검색 조회에는 #reg가 있고 Strategy에는 없다. 같은 public injection entry를
+    # 유지하되 검색 화면일 때만 compact map + 부산 SVG drill-down을 마지막에
+    # 덧씌운다. Strategy Release Gate와는 독립적으로 source template geometry만 읽는다.
+    if 'id="reg"' in rendered:
+        rendered = inject_main_map_drilldown_refinement(
+            rendered,
+            _STRATEGY_TEMPLATE.read_text(encoding="utf-8"),
+        )
     return rendered
