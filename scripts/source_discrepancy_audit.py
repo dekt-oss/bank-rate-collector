@@ -13,12 +13,18 @@ from rate_monitor.services.official_evidence_policy import (
     write_prepared_official_evidence,
 )
 from rate_monitor.services.source_discrepancy_service import write_source_discrepancy_report
+from rate_monitor.services.source_discrepancy_triage import annotate_discrepancy_triage
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--db", required=True, help="감사할 SQLite DB")
     parser.add_argument("--out", default="work/source-discrepancy-report.json")
+    parser.add_argument(
+        "--triage-out",
+        default=None,
+        help="중요도순 mismatch 조사 queue JSON. canonical 값은 수정하지 않는다.",
+    )
     parser.add_argument("--primary-source", default="fsb")
     parser.add_argument("--secondary-source", default="finlife_savings_bank")
     parser.add_argument(
@@ -58,14 +64,36 @@ def _rewrite_report(path: Path, report: dict[str, object]) -> None:
     )
 
 
+def _write_triage_queue(path: Path, report: dict[str, object]) -> None:
+    triage = report["triage"]
+    payload = {
+        "generated_at": report.get("generated_at"),
+        "source_runs": report.get("source_runs"),
+        "triage": triage,
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2, default=str) + "\n",
+        encoding="utf-8",
+    )
+
+
 def main() -> int:
     args = build_parser().parse_args()
     out_path = Path(args.out)
     report = annotate_official_evidence_policy(_build_report(args))
+    report = annotate_discrepancy_triage(report)
     _rewrite_report(out_path, report)
 
+    if args.triage_out:
+        _write_triage_queue(Path(args.triage_out), report)
+
     summary = report["summary"]
+    triage = report["triage"]
+    triage_summary = triage["summary"]
     print(f"report                    : {args.out}")
+    if args.triage_out:
+        print(f"triage queue              : {args.triage_out}")
     print(f"primary products          : {summary['primary_products']}")
     print(f"secondary products        : {summary['secondary_products']}")
     print(f"exact matches             : {summary['exact_matches']}")
@@ -85,6 +113,25 @@ def main() -> int:
     print(f"official evidence         : {summary['official_evidence_records']}")
     print(f"official evidence groups  : {summary['official_evidence_groups']}")
     print(f"official internal conflicts: {summary['official_evidence_conflicts']}")
+    print(
+        "triage priorities          :",
+        f"P0={triage_summary['P0']}",
+        f"P1={triage_summary['P1']}",
+        f"P2={triage_summary['P2']}",
+        f"P3={triage_summary['P3']}",
+    )
+    for item in triage["queue"][:10]:
+        print(
+            "triage",
+            f"#{item['rank']}",
+            item["priority"],
+            f"score={item['score']}",
+            item["classification"],
+            item["institution"],
+            item["product"],
+            f"term={item['term_months']}",
+            f"delta={item['max_rate']['absolute_delta']}",
+        )
     return 0
 
 
