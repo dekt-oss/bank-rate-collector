@@ -53,11 +53,18 @@ from rate_monitor.services.main_map_presentation import (
 from rate_monitor.services.preference_intelligence_service import (
     build_preference_intelligence,
 )
+from rate_monitor.services.reporting_presentation import (
+    inject_main_reporting,
+    inject_strategy_reporting,
+)
 from rate_monitor.services.strategy_contract_service import (
     augment_strategy_table,
     slice_strategy_table,
 )
 from rate_monitor.services.strategy_decision_cockpit import inject_strategy_decision_cockpit
+from rate_monitor.services.strategy_role_separation_presentation import (
+    inject_strategy_role_separation,
+)
 from rate_monitor.services.strategy_service import build_strategy_summary
 
 DEFAULT_TEMPLATE = Path("web/templates/site.html")
@@ -408,6 +415,7 @@ def build_site(
     )
     if strategy_template_path is not None:
         html = _add_strategy_nav(html)
+    html = inject_main_reporting(html)
     _verify(html, page_data)
     page_path = out_dir / "index.html"
     page_path.write_text(html, encoding="utf-8")
@@ -429,6 +437,8 @@ def build_site(
         strategy_template_text = strategy_template_path.read_text(encoding="utf-8")
         strategy_html = render(strategy_template_text, strategy_page_data)
         strategy_html = inject_strategy_decision_cockpit(strategy_html)
+        strategy_html = inject_strategy_role_separation(strategy_html)
+        strategy_html = inject_strategy_reporting(strategy_html)
         _verify_strategy(strategy_html, strategy_page_data)
         strategy_path.write_text(strategy_html, encoding="utf-8")
         strategy_map_path.parent.mkdir(parents=True, exist_ok=True)
@@ -486,6 +496,8 @@ def _verify(html: str, page_data: dict[str, Any]) -> None:
         raise DashboardBuildError("본점 기준 참고값 표기가 없다 (v3.1 §6.4)")
     if MAIN_MAP_MARKER not in html:
         raise DashboardBuildError("메인 대한민국 지도 presentation이 없다")
+    if 'id="main-reporting-script"' not in html:
+        raise DashboardBuildError("메인 보고서 출력 presentation이 없다")
     # 금리표가 페이지에 섞여 들어가면 분리한 의미가 없다.
     raw = json.dumps(parsed, ensure_ascii=False, separators=(",", ":"))
     if '\"rows\":[[' in raw:
@@ -505,6 +517,10 @@ def _verify_strategy(html: str, page_data: dict[str, Any]) -> None:
         raise DashboardBuildError("전략 화면용 시장 변화 집계가 없다")
     if HEAD_OFFICE_NOTICE not in html:
         raise DashboardBuildError("전략 화면에 저축은행 지역근거 주의문이 없다")
+    if 'id="strategy-role-separation-script"' not in html:
+        raise DashboardBuildError("Strategy 역할분리 presentation이 없다")
+    if 'id="strategy-reporting-script"' not in html:
+        raise DashboardBuildError("Strategy 보고서 출력 presentation이 없다")
     raw = json.dumps(parsed, ensure_ascii=False, separators=(",", ":"))
     if '\"rows\":[[' in raw:
         raise DashboardBuildError("전략 화면에 금리표가 인라인됐다")
