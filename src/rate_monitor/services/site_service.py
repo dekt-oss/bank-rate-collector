@@ -79,9 +79,16 @@ STRATEGY_TABLE_FILE = "data/strategy-table.json"
 HEAD_ACTION_MARKER = '<div class="head-right">'
 PAGE_NAV_STYLE = """
 <style id="main-page-nav-style">
+  header.top {
+    display: grid;
+    grid-template-columns: minmax(0,1fr) auto minmax(0,1fr);
+    align-items: center;
+    column-gap: 16px;
+  }
+  header.top > .brand { min-width: 0; }
   header.top > .page-nav {
-    position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
-    z-index: 2; display: flex; padding: 4px; border-radius: 11px;
+    justify-self: center; z-index: 2; display: flex;
+    padding: 4px; border-radius: 11px;
     background: rgba(255,255,255,.10); border: 1px solid rgba(255,255,255,.10);
   }
   header.top > .page-nav a {
@@ -96,19 +103,18 @@ PAGE_NAV_STYLE = """
   header.top > .page-nav a:focus-visible {
     outline: 2px solid rgba(255,255,255,.9); outline-offset: 2px;
   }
-  @media (max-width: 1180px) {
-    header.top > .page-nav {
-      position: static; transform: none; order: 2;
-      margin-left: auto; margin-right: 0;
-    }
-    header.top > .brand { order: 1; }
-    header.top > .head-right { order: 3; flex: 1 1 100%; }
+  header.top > .head-right {
+    min-width: 0; width: 100%; max-width: 100%; margin-left: 0;
+    justify-self: stretch; justify-content: flex-end;
+  }
+  @media (max-width: 900px) {
+    header.top { grid-template-columns: minmax(0,1fr) auto; row-gap: 9px; }
+    header.top > .head-right { grid-column: 1 / -1; }
   }
   @media (max-width: 760px) {
-    header.top > .page-nav {
-      order: 2; flex: 1 1 100%; justify-content: center;
-      margin: 2px 0 0;
-    }
+    header.top { grid-template-columns: 1fr; }
+    header.top > .page-nav { justify-self: stretch; justify-content: center; }
+    header.top > .head-right { grid-column: auto; }
   }
 </style>
 """.strip()
