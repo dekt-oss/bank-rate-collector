@@ -91,7 +91,7 @@ def test_strategy_workspace_smoke_locks_role_separation_and_reports() -> None:
     assert "insightBeforePreference" in text
     assert "preferenceBeforeDetail" in text
     assert "recent changes should start collapsed" in text
-    assert "evidence panel should start collapsed" in text
+    assert "collection evidence should start collapsed" in text
     assert "Strategy map is still a visible explorer" in text
     assert "duplicate Strategy KPI strip visible" in text
     assert "Main region bridge missing" in text
