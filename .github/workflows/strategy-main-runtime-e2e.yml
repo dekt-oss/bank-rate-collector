@@ -16,6 +16,7 @@ on:
       - "src/rate_monitor/services/strategy_workspace_presentation.py"
       - "src/rate_monitor/services/strategy_light_theme_presentation.py"
       - "src/rate_monitor/services/strategy_brand_theme_presentation.py"
+      - "src/rate_monitor/services/strategy_ux_refinement_presentation.py"
       - "src/rate_monitor/services/market_intelligence_service.py"
       - "src/rate_monitor/services/market_intelligence_presentation.py"
       - "src/rate_monitor/services/preference_intelligence_service.py"
@@ -33,6 +34,7 @@ on:
       - "tests/test_strategy_workspace_presentation.py"
       - "tests/test_strategy_light_theme_presentation.py"
       - "tests/test_strategy_brand_theme_presentation.py"
+      - "tests/test_strategy_ux_refinement_presentation.py"
       - "tests/test_strategy_main_runtime_e2e_workflow_contract.py"
       - "tests/test_strategy_production_release.py"
       - ".github/workflows/collect.yml"
@@ -135,6 +137,7 @@ jobs:
           grep -q 'id="strategy-workspace-script"' work/site-public/strategy.html
           grep -q 'id="strategy-light-theme-script"' work/site-public/strategy.html
           grep -q 'id="strategy-brand-theme-script"' work/site-public/strategy.html
+          grep -q 'id="strategy-ux-refinement-script"' work/site-public/strategy.html
 
       - name: Assert external feature contract and record availability
         run: |
