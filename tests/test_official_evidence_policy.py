@@ -94,6 +94,56 @@ def test_official_internal_conflict_blocks_source_authority_signal() -> None:
     assert annotated["scope"]["official_conflict_blocks_authority"] is True
 
 
+def test_official_conflict_blocks_authority_even_without_source_match() -> None:
+    report = {
+        "scope": {"canonical_mutated": False},
+        "summary": {"official_evidence_records": 2},
+        "official_evidence": [
+            {
+                "official": {
+                    "evidence_id": "page",
+                    "evidence_group": "unknown:product:12m",
+                    "institution": "테스트저축은행",
+                    "official_product": "공식상품",
+                    "product": "공식상품",
+                    "product_type": "term_deposit",
+                    "term_months": 12,
+                    "base_rate": "3.90",
+                    "max_rate": "3.90",
+                    "captured_at": "2026-08-20T11:30:00+09:00",
+                    "url": "https://example.invalid/product",
+                },
+                "sources": {"primary": None, "secondary": None},
+            },
+            {
+                "official": {
+                    "evidence_id": "notice",
+                    "evidence_group": "unknown:product:12m",
+                    "institution": "테스트저축은행",
+                    "official_product": "공식상품",
+                    "product": "공식상품",
+                    "product_type": "term_deposit",
+                    "term_months": 12,
+                    "base_rate": "4.05",
+                    "max_rate": "4.05",
+                    "captured_at": "2026-08-20T11:30:00+09:00",
+                    "url": "https://example.invalid/notice",
+                },
+                "sources": {"primary": None, "secondary": None},
+            },
+        ],
+    }
+
+    group = annotate_official_evidence_policy(report)["official_evidence_groups"][0]
+
+    assert group["status"] == "conflict"
+    assert group["source_support"] == {
+        "primary": "blocked_by_official_conflict",
+        "secondary": "blocked_by_official_conflict",
+    }
+    assert group["reconciliation_signal"] == "official_conflict"
+
+
 def test_consistent_official_group_can_support_one_source_without_overwrite() -> None:
     report = {
         "scope": {"canonical_mutated": False},
