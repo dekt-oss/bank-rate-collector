@@ -14,6 +14,9 @@ from rate_monitor.services.official_evidence_policy import (
 )
 from rate_monitor.services.source_discrepancy_service import write_source_discrepancy_report
 from rate_monitor.services.source_discrepancy_triage import annotate_discrepancy_triage
+from rate_monitor.services.source_official_contradiction_triage import (
+    annotate_official_contradictions,
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -24,6 +27,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--triage-out",
         default=None,
         help="중요도순 mismatch 조사 queue JSON. canonical 값은 수정하지 않는다.",
+    )
+    parser.add_argument(
+        "--official-contradiction-out",
+        default=None,
+        help="공식 evidence와 중앙 원천의 모순 queue JSON. canonical 값은 수정하지 않는다.",
     )
     parser.add_argument("--primary-source", default="fsb")
     parser.add_argument("--secondary-source", default="finlife_savings_bank")
@@ -64,12 +72,16 @@ def _rewrite_report(path: Path, report: dict[str, object]) -> None:
     )
 
 
-def _write_triage_queue(path: Path, report: dict[str, object]) -> None:
-    triage = report["triage"]
+def _write_named_queue(
+    path: Path,
+    report: dict[str, object],
+    *,
+    key: str,
+) -> None:
     payload = {
         "generated_at": report.get("generated_at"),
         "source_runs": report.get("source_runs"),
-        "triage": triage,
+        key: report[key],
     }
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
@@ -82,18 +94,29 @@ def main() -> int:
     args = build_parser().parse_args()
     out_path = Path(args.out)
     report = annotate_official_evidence_policy(_build_report(args))
+    report = annotate_official_contradictions(report)
     report = annotate_discrepancy_triage(report)
     _rewrite_report(out_path, report)
 
     if args.triage_out:
-        _write_triage_queue(Path(args.triage_out), report)
+        _write_named_queue(Path(args.triage_out), report, key="triage")
+    if args.official_contradiction_out:
+        _write_named_queue(
+            Path(args.official_contradiction_out),
+            report,
+            key="official_contradictions",
+        )
 
     summary = report["summary"]
     triage = report["triage"]
     triage_summary = triage["summary"]
+    contradictions = report["official_contradictions"]
+    contradiction_summary = contradictions["summary"]
     print(f"report                    : {args.out}")
     if args.triage_out:
         print(f"triage queue              : {args.triage_out}")
+    if args.official_contradiction_out:
+        print(f"official contradiction    : {args.official_contradiction_out}")
     print(f"primary products          : {summary['primary_products']}")
     print(f"secondary products        : {summary['secondary_products']}")
     print(f"exact matches             : {summary['exact_matches']}")
@@ -120,6 +143,13 @@ def main() -> int:
         f"P2={triage_summary['P2']}",
         f"P3={triage_summary['P3']}",
     )
+    print(
+        "official contradictions    :",
+        f"queue={contradiction_summary['queue_size']}",
+        f"P0={contradiction_summary['P0']}",
+        f"P1={contradiction_summary['P1']}",
+        f"consensus={contradiction_summary['source_consensus_contradictions']}",
+    )
     for item in triage["queue"][:10]:
         print(
             "triage",
@@ -131,6 +161,19 @@ def main() -> int:
             item["product"],
             f"term={item['term_months']}",
             f"delta={item['max_rate']['absolute_delta']}",
+        )
+    for item in contradictions["queue"][:10]:
+        print(
+            "official-contradiction",
+            f"#{item['rank']}",
+            item["priority"],
+            f"score={item['score']}",
+            item["classification"],
+            item["institution"],
+            item["official_product"],
+            f"term={item['term_months']}",
+            f"official={item['official_max_rates']}",
+            f"consensus={item['source_consensus_max_rate']}",
         )
     return 0
 
