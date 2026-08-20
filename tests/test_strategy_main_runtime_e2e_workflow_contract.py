@@ -3,6 +3,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "strategy-main-runtime-e2e.yml"
 SMOKE = ROOT / "scripts" / "strategy_main_runtime_external_context_smoke.js"
+PREVIEW_SMOKE = ROOT / "scripts" / "strategy_preview_smoke.js"
 WORKSPACE_SMOKE = ROOT / "scripts" / "strategy_workspace_smoke.js"
 BRAND_SPEC = ROOT / "docs" / "specs" / "20260819-strategy-brand-visual-system-v3.md"
 
@@ -76,7 +77,21 @@ def test_strategy_main_runtime_smoke_accepts_fail_closed_external_context() -> N
     assert "농·축협과 1:1 동일하지 않음" in text
 
 
-def test_strategy_workspace_smoke_locks_decision_first_order_and_mobile_density() -> None:
+def test_strategy_preview_smoke_uses_search_handoff_instead_of_hidden_map() -> None:
+    text = PREVIEW_SMOKE.read_text(encoding="utf-8")
+
+    assert "assertStrategyRoleSplit" in text
+    assert "Strategy 지역 지도는 검색 조회로 이관되어 숨겨져야 함" in text
+    assert "지역·지도 상세는 검색 조회로 통합했습니다." in text
+    assert "금리결정 준비도 카드가 보이지 않음" in text
+    assert "Strategy 보고서 출력 버튼이 보이지 않음" in text
+    assert 'data-market-mode="combined"' in text
+    assert "기본 비교모드가 저축은행 + 상호금융이 아님" in text
+    assert '#geo-map [data-region="부산"]' not in text
+    assert '[data-map-sector="' not in text
+
+
+def test_strategy_workspace_smoke_locks_decision_first_order_and_role_split() -> None:
     text = WORKSPACE_SMOKE.read_text(encoding="utf-8")
 
     assert "decisionBeforeExternal" in text
@@ -85,9 +100,13 @@ def test_strategy_workspace_smoke_locks_decision_first_order_and_mobile_density(
     assert "recent change details should start collapsed" in text
     assert "KPI cards are not two-column" in text
     assert "evidence panel should start collapsed" in text
-    assert "expanded analysis map height" in text
-    assert "result.mapHeight >= 400 && result.mapHeight <= 460" in text
-    assert "result.mapHeight >= 330 && result.mapHeight <= 390" in text
+    assert "detailMapHidden" in text
+    assert "Strategy regional map should be hidden after Search/Strategy role split" in text
+    assert "regionHandoffVisible" in text
+    assert 'result.regionHandoffHref === "./"' in text
+    assert "decision readiness should be visible" in text
+    assert "Strategy report button should be visible" in text
+    assert "expanded analysis map height" not in text
     assert "horizontal overflow" in text
     assert 'strategyPalette === "main-brand-v2"' in text
     assert 'accent.toUpperCase() === "#D33A7C"' in text

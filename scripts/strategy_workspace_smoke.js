@@ -90,8 +90,8 @@ async function assertPageNavigation(browser, strategyPage, viewport, label) {
   }
   invariant(main.scrollWidth <= main.clientWidth + 1, `${label}: main page horizontal overflow ${main.scrollWidth} > ${main.clientWidth}`);
   if (label === "desktop") {
-    invariant(!overlaps(main.navRect, main.brandRect), `desktop: page navigation overlaps main brand`);
-    invariant(!overlaps(main.navRect, main.controlsRect), `desktop: page navigation overlaps main controls`);
+    invariant(!overlaps(main.navRect, main.brandRect), "desktop: page navigation overlaps main brand");
+    invariant(!overlaps(main.navRect, main.controlsRect), "desktop: page navigation overlaps main controls");
   }
 
   await page.screenshot({ path: path.join(workDir, `strategy-main-runtime-navigation-main-${label}.png`), fullPage: false });
@@ -102,6 +102,12 @@ async function assertWorkspace(page, label) {
   const result = await page.evaluate(() => {
     const byId = (id) => document.getElementById(id);
     const order = (a, b) => Boolean(a && b && (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING));
+    const visible = (node) => {
+      if (!node) return false;
+      const style = getComputedStyle(node);
+      const rect = node.getBoundingClientRect();
+      return style.display !== "none" && style.visibility !== "hidden" && rect.width > 0 && rect.height > 0;
+    };
     const planning = byId("planning-zone");
     const external = byId("external-market-context");
     const marketIntel = byId("market-intelligence");
@@ -118,6 +124,10 @@ async function assertWorkspace(page, label) {
     const topbar = document.querySelector(".topbar");
     const koreaMapImage = document.querySelector(".korea-map-image");
     const denseMicrocopy = document.querySelector(".external-context-card small");
+    const detailMap = primary?.querySelector(".mapcard");
+    const regionHandoff = document.querySelector(".ux-region-handoff");
+    const readiness = document.querySelector(".ux-decision-readiness");
+    const reportButton = document.querySelector(".ux-report-button");
     const bodyStyle = getComputedStyle(document.body);
     const cardStyle = firstCard ? getComputedStyle(firstCard) : null;
     const kpiValueStyle = firstKpiValue ? getComputedStyle(firstKpiValue) : null;
@@ -139,7 +149,6 @@ async function assertWorkspace(page, label) {
     const termCard = document.querySelector(".termcard");
     const termCardStyle = termCard ? getComputedStyle(termCard) : null;
     const kpis = Array.from(document.querySelectorAll(".kpis .kpi")).slice(0, 2).map((node) => node.getBoundingClientRect());
-    const mapStage = primary?.querySelector(".mapstage")?.getBoundingClientRect();
     return {
       decisionBeforeExternal: order(planning, external),
       externalBeforeIntel: order(external, marketIntel),
@@ -160,7 +169,14 @@ async function assertWorkspace(page, label) {
       planningTop: planning?.getBoundingClientRect().top,
       externalTop: external?.getBoundingClientRect().top,
       kpis,
-      mapHeight: mapStage?.height || 0,
+      detailMapExists: Boolean(detailMap),
+      detailMapHidden: Boolean(detailMap && getComputedStyle(detailMap).display === "none"),
+      regionHandoffVisible: visible(regionHandoff),
+      regionHandoffHref: regionHandoff?.querySelector("a")?.getAttribute("href") || "",
+      regionHandoffText: regionHandoff?.textContent || "",
+      readinessVisible: visible(readiness),
+      readinessText: readiness?.textContent || "",
+      reportButtonVisible: visible(reportButton),
       clientWidth: document.documentElement.clientWidth,
       scrollWidth: document.documentElement.scrollWidth,
       strategyTheme: document.documentElement.dataset.strategyTheme,
@@ -200,6 +216,13 @@ async function assertWorkspace(page, label) {
   invariant(result.modelDetailHasResults && result.modelDetailHasEvidence, `${label}: model detail lost prediction results or evidence`);
   invariant(result.evidencePanelExists && !result.evidencePanelOpen, `${label}: evidence panel should start collapsed`);
   invariant(result.planningTop < result.externalTop, `${label}: planning visual order is not decision-first`);
+  invariant(result.detailMapExists && result.detailMapHidden, `${label}: Strategy regional map should be hidden after Search/Strategy role split`);
+  invariant(result.regionHandoffVisible, `${label}: Search region handoff should be visible`);
+  invariant(result.regionHandoffHref === "./", `${label}: Search region handoff href=${result.regionHandoffHref}`);
+  invariant(result.regionHandoffText.includes("지역·지도 상세는 검색 조회로 통합했습니다."), `${label}: Search region handoff copy missing`);
+  invariant(result.readinessVisible && result.readinessText.includes("금리결정 준비도"), `${label}: decision readiness should be visible`);
+  invariant(result.readinessText.includes("최종 최적금리 자동추천"), `${label}: calibration boundary missing from decision readiness`);
+  invariant(result.reportButtonVisible, `${label}: Strategy report button should be visible`);
   invariant(result.scrollWidth <= result.clientWidth + 1, `${label}: page horizontal overflow ${result.scrollWidth} > ${result.clientWidth}`);
   invariant(result.strategyTheme === "light-v1", `${label}: light theme marker=${result.strategyTheme}`);
   invariant(result.strategyPalette === "main-brand-v2", `${label}: brand palette marker=${result.strategyPalette}`);
@@ -231,11 +254,9 @@ async function assertWorkspace(page, label) {
 
   if (label === "desktop") {
     invariant(result.bodyFontSize >= 14, `desktop: body type too small=${result.bodyFontSize}`);
-    invariant(result.mapHeight >= 400 && result.mapHeight <= 460, `desktop: expanded analysis map height=${result.mapHeight}`);
   } else {
     invariant(result.bodyFontSize >= 13.5, `mobile: body type too small=${result.bodyFontSize}`);
     invariant(result.kpis.length === 2 && Math.abs(result.kpis[0].y - result.kpis[1].y) < 2 && result.kpis[0].x !== result.kpis[1].x, "mobile: KPI cards are not two-column");
-    invariant(result.mapHeight >= 330 && result.mapHeight <= 390, `mobile: expanded analysis map height=${result.mapHeight}`);
   }
 }
 
