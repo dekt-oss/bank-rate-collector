@@ -151,5 +151,10 @@ def inject_strategy_decision_cockpit(html: str) -> str:
         and 'class="grid primary"' in rendered
     ):
         rendered = inject_strategy_workspace_presentation(rendered)
-        rendered = inject_strategy_ux_refinement(rendered)
+        if (
+            'id="market-scope"' in rendered
+            and 'id="scope-evidence"' in rendered
+            and 'id="map-card"' in rendered
+        ):
+            rendered = inject_strategy_ux_refinement(rendered)
     return rendered
