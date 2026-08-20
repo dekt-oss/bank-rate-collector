@@ -6,11 +6,14 @@ on:
     paths:
       - "src/rate_monitor/services/source_discrepancy_service.py"
       - "src/rate_monitor/services/official_evidence_policy.py"
+      - "src/rate_monitor/services/source_discrepancy_triage.py"
       - "scripts/source_discrepancy_audit.py"
       - "tests/test_source_discrepancy_service.py"
       - "tests/test_official_evidence_policy.py"
+      - "tests/test_source_discrepancy_triage.py"
       - "docs/evidence/source-discrepancy/**"
       - "docs/specs/20260820-source-discrepancy-official-evidence-v2.md"
+      - "docs/specs/20260820-source-discrepancy-priority-triage-v1.md"
       - ".github/workflows/source-discrepancy-audit.yml"
       - "config/storage.yaml"
       - "migrations/**"
@@ -90,15 +93,16 @@ jobs:
           RATE_MONITOR_DB_URL: sqlite+pysqlite:///${{ github.workspace }}/work/rate_monitor.sqlite3
         run: uv run alembic upgrade head
 
-      - name: Build read-only three-way discrepancy report
+      - name: Build read-only three-way discrepancy report and priority queue
         run: |
           set -euo pipefail
           uv run python scripts/source_discrepancy_audit.py \
             --db work/rate_monitor.sqlite3 \
             --out work/source-discrepancy-report.json \
+            --triage-out work/source-discrepancy-priority-queue.json \
             --official-evidence docs/evidence/source-discrepancy/20260820-official-savings-bank.json
 
-      - name: Inspect mismatch and official evidence
+      - name: Inspect mismatch, official evidence, and triage queue
         run: |
           python - <<'PY'
           import json
@@ -107,14 +111,34 @@ jobs:
           report = json.loads(
               Path("work/source-discrepancy-report.json").read_text(encoding="utf-8")
           )
+          queue_payload = json.loads(
+              Path("work/source-discrepancy-priority-queue.json").read_text(encoding="utf-8")
+          )
+
           assert report["scope"]["canonical_mutated"] is False
           assert report["scope"]["official_evidence_authority"] == "read_only_support_only"
           assert report["scope"]["official_conflict_blocks_authority"] is True
+          assert report["scope"]["triage_mutates_canonical"] is False
+          assert report["scope"]["triage_selects_authority"] is False
           assert report["summary"]["official_evidence_records"] >= 5
           assert report["summary"]["official_evidence_groups"] >= 4
 
+          triage = report["triage"]
+          assert triage["authority_semantics"] == (
+              "investigation_priority_only; does_not_select_canonical_source"
+          )
+          assert triage["summary"]["queue_size"] == report["summary"]["mismatch_or_incomplete"]
+          assert queue_payload["triage"] == triage
+          assert [item["rank"] for item in triage["queue"]] == list(
+              range(1, triage["summary"]["queue_size"] + 1)
+          )
+          assert sum(triage["summary"][key] for key in ("P0", "P1", "P2", "P3")) == triage[
+              "summary"
+          ]["queue_size"]
+
           print("source runs:", report["source_runs"])
           print("summary:", report["summary"])
+          print("triage summary:", triage["summary"])
 
           mismatch_statuses = {
               "rate_mismatch",
@@ -200,6 +224,22 @@ jobs:
                       item["primary"]["max_rate"],
                       item["secondary"]["max_rate"],
                   )
+
+          print("priority queue:")
+          for item in triage["queue"][:30]:
+              print(
+                  f"#{item['rank']}",
+                  item["priority"],
+                  f"score={item['score']}",
+                  item["classification"],
+                  item["institution"],
+                  item["product"],
+                  f"term={item['term_months']}",
+                  f"delta={item['max_rate']['absolute_delta']}",
+                  f"date_gap={item['effective_date']['gap_days']}",
+                  f"age={item['effective_date']['max_source_age_days']}",
+                  f"official={item['official_evidence']}",
+              )
           PY
 
       - name: Upload discrepancy evidence
@@ -209,6 +249,7 @@ jobs:
           name: source-discrepancy-evidence-${{ github.run_id }}
           path: |
             work/source-discrepancy-report.json
+            work/source-discrepancy-priority-queue.json
             docs/evidence/source-discrepancy/20260820-official-savings-bank.json
           retention-days: 30
 
@@ -221,10 +262,10 @@ jobs:
         run: |
           if [ "$JOB_STATUS" = "success" ]; then
             STATE=success
-            DESCRIPTION="Production-data source discrepancy audit passed"
+            DESCRIPTION="Production-data source discrepancy + triage audit passed"
           else
             STATE=failure
-            DESCRIPTION="Production-data source discrepancy audit failed"
+            DESCRIPTION="Production-data source discrepancy + triage audit failed"
           fi
           gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
             -f state="$STATE" \
