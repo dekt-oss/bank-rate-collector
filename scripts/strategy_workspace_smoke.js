@@ -156,12 +156,12 @@ async function assertWorkspace(page, label) {
 
   if (label === "desktop") {
     invariant(result.bodyFontSize >= 14, `desktop: body type too small=${result.bodyFontSize}`);
-    invariant(result.mapHeight <= 300, `desktop: compact map height=${result.mapHeight}`);
+    invariant(result.mapHeight >= 400 && result.mapHeight <= 460, `desktop: expanded analysis map height=${result.mapHeight}`);
   } else {
     invariant(result.bodyFontSize >= 13.5, `mobile: body type too small=${result.bodyFontSize}`);
     invariant(result.kpis.length === 2 && Math.abs(result.kpis[0].y - result.kpis[1].y) < 2 && result.kpis[0].x !== result.kpis[1].x, "mobile: KPI cards are not two-column");
     invariant(result.evidence.length === 2 && Math.abs(result.evidence[0].y - result.evidence[1].y) < 2 && result.evidence[0].x !== result.evidence[1].x, "mobile: evidence cards are not two-column");
-    invariant(result.mapHeight <= 310, `mobile: compact map height=${result.mapHeight}`);
+    invariant(result.mapHeight >= 330 && result.mapHeight <= 390, `mobile: expanded analysis map height=${result.mapHeight}`);
   }
 }
 
