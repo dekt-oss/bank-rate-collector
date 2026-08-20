@@ -174,6 +174,7 @@ production DB/R2에 쓰기는 하지 않는다.
 
 - 일반 CI: Ruff + full pytest + empty DB Alembic/model parity
 - Source discrepancy audit: production R2 read-only restore + official contradiction assertions
+- parent PR이 squash merge된 경우 child branch history를 `main` 위로 정리한 뒤 동일 게이트를 재실행한다.
 
 PR 생성이나 merge 가능 상태만으로 기능 동작을 검증한 것으로 보지 않는다. stacked parent가
 merge된 뒤 base를 `main`으로 바꾸는 경우에도 같은 검증을 다시 수행한다.
