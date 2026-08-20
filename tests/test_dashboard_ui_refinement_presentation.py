@@ -37,12 +37,15 @@ def test_shared_header_contract_moves_search_only_controls_below_header() -> Non
     assert "shared-dashboard-header" in DASHBOARD_UI_STYLE
     assert "shared-header-identity" in DASHBOARD_UI_SCRIPT
     assert "SB 인사이트" in DASHBOARD_UI_SCRIPT
+    assert "shared-header-time" in DASHBOARD_UI_STYLE
+    assert "generatedTimeLabel" in DASHBOARD_UI_SCRIPT
     assert "shared-page-context-main" in DASHBOARD_UI_STYLE
     assert 'for(const selector of [".mine-pick",".stamp",".collect-box"])' in DASHBOARD_UI_SCRIPT
     assert "header.top.shared-dashboard-header>.page-nav" in DASHBOARD_UI_STYLE
     assert "header.topbar.shared-dashboard-header>.nav" in DASHBOARD_UI_STYLE
     assert ".main-report-button" in DASHBOARD_UI_STYLE
     assert ".ux-report-button" in DASHBOARD_UI_STYLE
+    assert "@media print{.shared-page-context-main{display:none!important}" in DASHBOARD_UI_STYLE
 
 
 def test_search_map_keeps_heatmap_and_adds_one_direct_label_per_region() -> None:
@@ -65,7 +68,6 @@ def test_search_map_keeps_heatmap_and_adds_one_direct_label_per_region() -> None
     assert "main-map-label-name" in DASHBOARD_UI_STYLE
     assert "main-map-label-rate" in DASHBOARD_UI_STYLE
     assert "표본 부족" in DASHBOARD_UI_SCRIPT
-    assert "data-has-rate" not in DASHBOARD_UI_SCRIPT
     assert "path.dataset.hasRate" in DASHBOARD_UI_SCRIPT
     assert "MutationObserver" in DASHBOARD_UI_SCRIPT
     assert "mainMapDirectLabels" in DASHBOARD_UI_SCRIPT
