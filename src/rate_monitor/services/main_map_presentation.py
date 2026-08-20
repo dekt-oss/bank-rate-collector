@@ -125,6 +125,15 @@ MAIN_MAP_STYLE = r"""
   .main-map-top li { display:flex; gap:8px; justify-content:space-between; font-size:11px; }
   .main-map-top li b { font-family:var(--mono); color:var(--accent-ink); }
   .main-map-hint { color: var(--ink-3); font-size: 10px; line-height: 1.55; }
+
+  .main-report-button {
+    appearance:none; border:1px solid rgba(255,255,255,.28); border-radius:8px;
+    background:rgba(255,255,255,.10); color:#fff; padding:7px 10px;
+    font:760 11px var(--sans); cursor:pointer; white-space:nowrap;
+  }
+  .main-report-button:hover,.main-report-button:focus-visible{background:rgba(255,255,255,.18)}
+  .main-print-head,.main-print-note{display:none}
+
   @media (max-width: 800px) {
     .main-map-shell { grid-template-columns: 1fr; }
     .main-map-stage { min-height: 360px; }
@@ -137,6 +146,19 @@ MAIN_MAP_STYLE = r"""
     .main-map-side { padding: 13px; }
     .main-map-rate { font-size: 28px; }
   }
+
+  @media print {
+    @page { size:A4 landscape; margin:9mm; }
+    html,body{background:#fff!important;color:#111!important}
+    body{font-size:9pt!important;line-height:1.35!important}
+    .wrap,.shell,main{width:100%!important;max-width:none!important;margin:0!important;padding:0!important}
+    header.top,.page-nav,.head-right,.main-report-button,.main-map-tooltip,button,.exports,.download,.admin{display:none!important}
+    .main-print-head{display:block!important;margin:0 0 6mm;padding-bottom:4mm;border-bottom:2px solid #5b2f64}.main-print-head h1{margin:0 0 1.5mm;font-size:18pt;color:#251d27}.main-print-head p{margin:0;color:#665b68;font-size:8.5pt}
+    .main-print-note{display:block!important;margin:0 0 5mm;padding:3mm 4mm;border:1px solid #dacfdc;border-radius:3mm;background:#faf7fa;color:#514653;font-size:8pt}
+    .card,.panel,.main-map-shell,.main-map-stage,.main-map-side{box-shadow:none!important;break-inside:avoid}
+    .main-map-stage{min-height:120mm!important}.main-map-stage svg{max-height:118mm!important}.main-map-side{background:#fff!important}
+    a{text-decoration:none!important;color:inherit!important}
+  }
 </style>
 """.strip()
 
@@ -146,6 +168,32 @@ MAIN_MAP_SCRIPT = r"""
   const TEMPLATE_ID = "main-korea-map-svg";
   const reg = document.getElementById("reg");
   if (!reg) return;
+
+  const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+  const installReport = () => {
+    if (document.querySelector(".main-report-button")) return;
+    const controls = document.querySelector("header.top .head-right") || document.querySelector(".head-right");
+    if (controls) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "main-report-button";
+      button.textContent = "보고서 출력";
+      button.addEventListener("click", () => window.print());
+      controls.prepend(button);
+    }
+    let data = {};
+    try { data = JSON.parse(document.getElementById("rate-monitor-data")?.textContent || "{}"); } catch {}
+    const host = document.querySelector("main") || document.querySelector(".wrap") || document.body;
+    const head = document.createElement("section");
+    head.className = "main-print-head";
+    head.innerHTML = `<h1>전국 예·적금 금리 비교 보고서</h1><p>현재 화면 조회조건 기준 · 생성 ${esc(data.generated_at || "기준시각 미확인")} · 원자료 검색/지역/상품 비교</p>`;
+    const note = document.createElement("div");
+    note.className = "main-print-note";
+    note.textContent = "검색·조회 보고서는 현재 화면의 필터와 비교 결과를 출력합니다. 금리결정 시나리오와 전략 판단은 전략 대시보드 보고서를 사용합니다.";
+    host.prepend(note);
+    host.prepend(head);
+  };
+  installReport();
 
   // SVG는 17개 시도, 기존 통계는 9개 권역이다. 시도별 새 통계를 만들지 않고
   // 기존 권역값을 해당 시도 path에 그대로 칠한다.
@@ -181,8 +229,6 @@ MAIN_MAP_SCRIPT = r"""
     };
   }).filter((d) => d.name);
 
-  // 메인 디자인의 핑크-퍼플 한 계열만 사용한다. 값이 높을수록 채도를 올리되
-  // 길이/면적을 수치처럼 읽게 하지 않는다.
   const heatFill = (t) => {
     const p = Math.max(0, Math.min(1, t));
     const a = [247, 235, 242], b = [183, 65, 116];
@@ -243,7 +289,6 @@ MAIN_MAP_SCRIPT = r"""
   const transform = () => {
     if (rendering) return;
     const title = document.getElementById("reg-title")?.textContent || "";
-    // 부산 구·군은 polygon asset이 없고 기존 타일 drill-down이 안정화되어 있다.
     if (title.includes("부산 구·군별")) {
       reg.classList.remove("main-korea-map");
       return;
