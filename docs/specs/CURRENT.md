@@ -4,6 +4,9 @@
 제품·화면·우선순위:
 docs/specs/20260806-rate-monitor-v4.md
 
+최신 공통 헤더·지도 가독성 UI 결정:
+docs/specs/20260820-dashboard-shared-header-map-readability-v1.md
+
 전략 대시보드 병렬 실험:
 docs/specs/20260812-strategy-dashboard-v1.md
 
@@ -26,6 +29,10 @@ docs/specs/20260810-stabilization-v1.md
 v4는 v3.1을 **폐기하지 않는다.** 아키텍처를 상속하고 제품 우선순위만
 바꾼다. v3.1을 `superseded`로 적으면 데이터 계약이 갈 곳이 없어진다.
 
+`20260820-dashboard-shared-header-map-readability-v1.md`는 사용자가 승인한 최신
+화면 결정으로, 검색/Strategy의 공통 제품 헤더와 검색 권역 지도의 직접
+`지역명 + 금리` 비교 방식을 정의한다. 금리 계산·수집·데이터 계약은 바꾸지 않는다.
+
 `20260812-strategy-dashboard-v1.md`는 `index.html`의 검색·조회 계약을 유지한 채
 같은 발행 데이터로 경쟁사 현황·시장 변화·신상품 시뮬레이션을 제공하는
 `strategy.html` 실험을 정의한다. 안정화 전에는 메인 진입점으로 바꾸지 않는다.
@@ -40,6 +47,7 @@ warning 관측성, source freshness, 업권 용어를 안정화하는 작업 범
 
 | 문서 | 상태 | 비고 |
 |---|---|---|
+| [`20260820-dashboard-shared-header-map-readability-v1.md`](20260820-dashboard-shared-header-map-readability-v1.md) | **implementation/current-work** | 검색/Strategy 공통 헤더 + 검색 권역 지도 직접 `지역명 + 금리` 표시. 계산·수집 계약 불변 |
 | [`20260817-mutual-finance-stage-g-entry-census.md`](20260817-mutual-finance-stage-g-entry-census.md) | **decision/evidence-gate** | 최신 전국 공식 raw 전수 census. NH local G2는 ENTRY GO, KFCC G1은 deterministic official-site linkage 부재로 BLOCKED 유지 |
 | [`20260817-mutual-finance-max-rate-stage-f-evidence.md`](20260817-mutual-finance-max-rate-stage-f-evidence.md) | **decision/evidence-gate** | 상호금융 최고금리 Stage F source evidence. CU GO, KFCC/NH conditional evidence |
 | [`20260817-mutual-finance-max-rate-claude-review.md`](20260817-mutual-finance-max-rate-claude-review.md) | **work-order/review** | 상호금융 최고금리 F→G→H staged work order와 canonical/shared-contract 검증 규칙 |
