@@ -1,0 +1,64 @@
+name: Strategy decision evidence contract
+
+on:
+  push:
+    branches:
+      - main
+      - "feat/strategy-ux-*"
+    paths:
+      - "src/rate_monitor/services/strategy_decision_cockpit.py"
+      - "src/rate_monitor/services/strategy_decision_evidence_refinement_presentation.py"
+      - "src/rate_monitor/services/strategy_decision_handoff_presentation.py"
+      - "tests/test_strategy_decision_cockpit.py"
+      - "tests/test_strategy_decision_evidence_refinement_presentation.py"
+      - "tests/test_strategy_decision_handoff_presentation.py"
+      - "tests/test_strategy_workspace_presentation.py"
+      - "scripts/strategy_preview_smoke.js"
+      - "scripts/strategy_workspace_smoke.js"
+      - "docs/specs/20260821-strategy-decision-evidence-refinement-v1.md"
+      - ".github/workflows/strategy-decision-evidence-contract.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Sync dependencies
+        run: uv sync --locked
+
+      - name: Ruff targeted Strategy files
+        run: |
+          uv run ruff check \
+            src/rate_monitor/services/strategy_decision_cockpit.py \
+            src/rate_monitor/services/strategy_decision_evidence_refinement_presentation.py \
+            src/rate_monitor/services/strategy_decision_handoff_presentation.py \
+            tests/test_strategy_decision_cockpit.py \
+            tests/test_strategy_decision_evidence_refinement_presentation.py \
+            tests/test_strategy_decision_handoff_presentation.py \
+            tests/test_strategy_workspace_presentation.py
+
+      - name: Pytest Strategy decision contracts
+        run: |
+          uv run pytest -q \
+            tests/test_strategy_decision_cockpit.py \
+            tests/test_strategy_decision_evidence_refinement_presentation.py \
+            tests/test_strategy_decision_handoff_presentation.py \
+            tests/test_strategy_workspace_presentation.py
+
+      - name: Check browser smoke syntax
+        run: |
+          node --check scripts/strategy_preview_smoke.js
+          node --check scripts/strategy_workspace_smoke.js
