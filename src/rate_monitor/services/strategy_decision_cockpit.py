@@ -21,6 +21,9 @@ from rate_monitor.services.market_intelligence_presentation import (
 from rate_monitor.services.preference_intelligence_presentation import (
     inject_preference_intelligence_presentation,
 )
+from rate_monitor.services.strategy_readability_preference_v2_presentation import (
+    inject_strategy_readability_preference_v2,
+)
 from rate_monitor.services.strategy_ux_refinement_presentation import (
     inject_strategy_ux_refinement,
 )
@@ -157,4 +160,5 @@ def inject_strategy_decision_cockpit(html: str) -> str:
             and 'id="map-card"' in rendered
         ):
             rendered = inject_strategy_ux_refinement(rendered)
+            rendered = inject_strategy_readability_preference_v2(rendered)
     return rendered
