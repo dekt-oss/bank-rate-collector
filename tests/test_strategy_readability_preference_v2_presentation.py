@@ -29,14 +29,18 @@ def test_readability_v2_is_final_strategy_layer_and_scales_real_css() -> None:
     assert "zoom:" not in html[html.index(STYLE_MARKER) : style_end]
 
 
-def test_preference_v2_renders_one_pooled_mutual_finance_card() -> None:
+def test_preference_v2_renders_product_penetration_and_pooled_mutual_card() -> None:
     html = _render_strategy()
 
     assert "mutual_finance_scopes" in html
     assert 'card("상호금융 통합",mutualScope(selected,intelligence)' in html
+    assert "if(sectors.length===1)return scope(sectors[0],intelligence)" in html
     assert "selected.map(k=>labels[k]).join(\"+\")" in html
-    assert "전체 우대조건 상품" in html
-    assert "상위금리 우대조건 상품" in html
+    assert "c.market_product_share" in html
+    assert "c.top_tier_product_share" in html
+    assert "전체 우대상품 침투율" in html
+    assert "상위금리군 침투율" in html
+    assert "침투율 차이" in html
     assert "preference_bearing_share_among_known" in html
     assert "원천별 판별 가능" in html
     assert "미제공(MISSING)은 조건 없음(NONE)" in html
