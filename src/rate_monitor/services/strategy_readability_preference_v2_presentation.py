@@ -50,7 +50,8 @@ _JS = r"""
   const labels={savings_bank:"저축은행",cu:"신협",kfcc:"새마을금고",nh_local:"농·축협"};
   const mutualOrder=["cu","kfcc","nh_local"];
   const pct=v=>v===null||v===undefined||!Number.isFinite(Number(v))?"—":`${(Number(v)*100).toFixed(0)}%`;
-  const lift=v=>v===null||v===undefined||!Number.isFinite(Number(v))?"—":`${Number(v)>0?"+":""}${Number(v).toFixed(1)}%p`;
+  const penetrationPct=v=>v===null||v===undefined||!Number.isFinite(Number(v))?"—":`${(Number(v)*100).toFixed(2)}%`;
+  const penetrationLift=v=>v===null||v===undefined||!Number.isFinite(Number(v))?"—":`${Number(v)>0?"+":""}${Number(v).toFixed(2)}%p`;
   const esc=v=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
   let term=12;
   function data(){try{return JSON.parse($("rate-monitor-data")?.textContent||"{}")}catch{return{}}}
@@ -58,7 +59,7 @@ _JS = r"""
   function mutualSelected(){return mutualOrder.filter(k=>document.querySelector(`[data-sector="${k}"]`)?.checked&&!document.querySelector(`[data-sector="${k}"]`)?.disabled)}
   function scope(industry,intelligence){return intelligence?.scopes?.find(x=>x.sector===industry&&Number(x.term_months)===term)}
   function mutualScope(sectors,intelligence){const key=mutualOrder.filter(k=>sectors.includes(k)).join("+");if(sectors.length===1)return scope(sectors[0],intelligence);return intelligence?.mutual_finance_scopes?.find(x=>x.scope_key===key&&Number(x.term_months)===term)}
-  function rows(categories){return categories.map(c=>`<tr><td class="${c.is_other?"other":""}">${esc(c.label)}</td><td class="mono">${pct(c.market_product_share)}</td><td class="mono">${pct(c.top_tier_product_share)}</td><td class="mono ${Number(c.top_tier_lift_pp)>0?"positive":Number(c.top_tier_lift_pp)<0?"negative":""}">${lift(c.top_tier_lift_pp)}</td></tr>`).join("")}
+  function rows(categories){return categories.map(c=>`<tr><td class="${c.is_other?"other":""}">${esc(c.label)}</td><td class="mono">${penetrationPct(c.market_product_share)}</td><td class="mono">${penetrationPct(c.top_tier_product_share)}</td><td class="mono ${Number(c.top_tier_lift_pp)>0?"positive":Number(c.top_tier_lift_pp)<0?"negative":""}">${penetrationLift(c.top_tier_lift_pp)}</td></tr>`).join("")}
   function own(ownCompany){if(!ownCompany)return"";const tags=(ownCompany.preference_labels||[]).length?(ownCompany.preference_labels||[]).map(x=>`<span class="pref-intel-tag">${esc(x)}</span>`).join(""):'<span class="pref-intel-tag">표준분류 조건 없음</span>';const raw=(ownCompany.raw_samples||[]).length?`<details class="pref-intel-raw"><summary>당사 우대조건 원문 근거</summary>${ownCompany.raw_samples.map(x=>`<div>${esc(x)}</div>`).join("")}</details>`:"";return`<div class="pref-intel-own ux-pref-own"><h3>고려저축은행 현재 조건</h3><p>${Number(ownCompany.offering_count||0).toLocaleString("ko-KR")}개 대표상품 · 최고 ${Number(ownCompany.max_rate).toFixed(2)}%</p><div class="pref-intel-tags">${tags}</div>${raw}</div>`}
   function sourceStrip(item){const sources=item?.source_coverage||[];if(!sources.length)return"";return`<div class="pref-v2-source"><b>원천별 판별 가능</b>${sources.map(s=>`<span class="${s.coverage_status==="low"?"low":""}">${labels[s.sector]||s.sector} ${pct(s.known_preference_share)} · 조건보유 ${pct(s.preference_bearing_share_among_known)}</span>`).join("")}</div>`}
   function card(title,item,{showOwn=false,sub=""}={}){
