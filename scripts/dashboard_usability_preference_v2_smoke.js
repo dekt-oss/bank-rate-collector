@@ -73,16 +73,33 @@ async function snapshot(page) {
   });
 }
 
-function pct0(value) {
+function penetrationPct(value) {
   return value === null || value === undefined || !Number.isFinite(Number(value))
     ? "—"
-    : `${(Number(value) * 100).toFixed(0)}%`;
+    : `${(Number(value) * 100).toFixed(2)}%`;
 }
 
-function lift1(value) {
+function penetrationLift(value) {
   return value === null || value === undefined || !Number.isFinite(Number(value))
     ? "—"
-    : `${Number(value) > 0 ? "+" : ""}${Number(value).toFixed(1)}%p`;
+    : `${Number(value) > 0 ? "+" : ""}${Number(value).toFixed(2)}%p`;
+}
+
+function displayedNumber(text) {
+  const parsed = Number(String(text).replace(/[+%p]/g, ""));
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function assertDisplayedArithmetic(cells, label) {
+  if (cells.length < 4 || cells[1] === "—" || cells[2] === "—" || cells[3] === "—") return;
+  const market = displayedNumber(cells[1]);
+  const top = displayedNumber(cells[2]);
+  const lift = displayedNumber(cells[3]);
+  invariant(market !== null && top !== null && lift !== null, `${label}: displayed number parse failure`);
+  invariant(
+    Math.abs(Number((top - market).toFixed(2)) - lift) < 0.001,
+    `${label}: displayed lift ${lift} != ${top} - ${market}`,
+  );
 }
 
 async function assertSingleMutualFallback(page, name) {
@@ -106,10 +123,9 @@ async function assertSingleMutualFallback(page, name) {
     const mutual = [...(panel?.querySelectorAll(".ux-pref-sector") || [])].find(
       (node) => node.textContent.includes("상호금융 통합"),
     );
-    const cells = mutual?.querySelector(".pref-intel-table tbody tr")
-      ? [...mutual.querySelector(".pref-intel-table tbody tr").querySelectorAll("td")].map(
-          (node) => node.textContent.trim(),
-        )
+    const row = mutual?.querySelector(".pref-intel-table tbody tr");
+    const cells = row
+      ? [...row.querySelectorAll("td")].map((node) => node.textContent.trim())
       : [];
     const cuScope = intelligence.scopes?.find(
       (item) => item.sector === "cu" && Number(item.term_months) === 12,
@@ -123,17 +139,18 @@ async function assertSingleMutualFallback(page, name) {
   invariant(result.firstCategory, `${name}: single-sector cu scope category missing`);
   invariant(result.cells.length >= 4, `${name}: single-sector mutual row missing`);
   invariant(
-    result.cells[1] === pct0(result.firstCategory.market_product_share),
+    result.cells[1] === penetrationPct(result.firstCategory.market_product_share),
     `${name}: single-sector market penetration mismatch ${result.cells[1]}`,
   );
   invariant(
-    result.cells[2] === pct0(result.firstCategory.top_tier_product_share),
+    result.cells[2] === penetrationPct(result.firstCategory.top_tier_product_share),
     `${name}: single-sector top penetration mismatch ${result.cells[2]}`,
   );
   invariant(
-    result.cells[3] === lift1(result.firstCategory.top_tier_lift_pp),
+    result.cells[3] === penetrationLift(result.firstCategory.top_tier_lift_pp),
     `${name}: single-sector lift mismatch ${result.cells[3]}`,
   );
+  assertDisplayedArithmetic(result.cells, `${name}: single-sector mutual`);
   invariant(result.sourceChipCount === 1, `${name}: single-sector source chips=${result.sourceChipCount}`);
 }
 
@@ -185,17 +202,18 @@ async function runViewport(browser, name, viewport) {
   invariant(result.scopeTags.some((value) => value.includes("상호금융 통합")), `${name}: pooled mutual scope tag missing`);
   if (result.firstSavingsCategory && result.firstSavingsCells.length >= 4) {
     invariant(
-      result.firstSavingsCells[1] === pct0(result.firstSavingsCategory.market_product_share),
+      result.firstSavingsCells[1] === penetrationPct(result.firstSavingsCategory.market_product_share),
       `${name}: rendered market penetration mismatch`,
     );
     invariant(
-      result.firstSavingsCells[2] === pct0(result.firstSavingsCategory.top_tier_product_share),
+      result.firstSavingsCells[2] === penetrationPct(result.firstSavingsCategory.top_tier_product_share),
       `${name}: rendered top penetration mismatch`,
     );
     invariant(
-      result.firstSavingsCells[3] === lift1(result.firstSavingsCategory.top_tier_lift_pp),
+      result.firstSavingsCells[3] === penetrationLift(result.firstSavingsCategory.top_tier_lift_pp),
       `${name}: rendered penetration lift mismatch`,
     );
+    assertDisplayedArithmetic(result.firstSavingsCells, `${name}: savings`);
   }
 
   if (name === "desktop") {
