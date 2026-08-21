@@ -99,6 +99,17 @@ def test_decision_cockpit_composes_workspace_after_existing_presentations() -> N
     assert html.index('id="preference-intelligence-script"') < html.index(SCRIPT_MARKER)
 
 
+def test_full_strategy_template_composes_final_decision_handoff_after_refinement() -> None:
+    template = (ROOT / "web/templates/strategy.html").read_text(encoding="utf-8")
+    html = inject_strategy_decision_cockpit(template)
+
+    refinement = 'id="strategy-decision-evidence-refinement-script"'
+    handoff = 'id="strategy-decision-handoff-script"'
+    assert refinement in html
+    assert handoff in html
+    assert html.index(refinement) < html.index(handoff)
+
+
 def test_workspace_spec_preserves_decision_first_and_busan_boundaries() -> None:
     spec = (ROOT / "docs/specs/20260819-strategy-decision-workspace-ux-v1.md").read_text(
         encoding="utf-8"
