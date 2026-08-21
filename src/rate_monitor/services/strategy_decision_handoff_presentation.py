@@ -21,10 +21,13 @@ _JS = r"""
 <script id="strategy-decision-handoff-script">
 (()=>{
   "use strict";
-  const handoff=document.querySelector(".ux-region-handoff");
-  if(!handoff)return;
-  handoff.hidden=false;
-  handoff.dataset.decisionHandoff="1";
+  function install(){
+    const handoff=document.querySelector(".ux-region-handoff");
+    if(!handoff)return;
+    handoff.hidden=false;
+    handoff.dataset.decisionHandoff="1";
+  }
+  if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",install,{once:true});else install();
 })();
 </script>
 """.strip()
