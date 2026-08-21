@@ -90,6 +90,16 @@ jobs:
       - name: Sync dependencies
         run: uv sync --locked
 
+      - name: Validate main map refinement contracts
+        run: |
+          set -euo pipefail
+          uv run ruff check \
+            src/rate_monitor/services/main_map_drilldown_refinement.py \
+            tests/test_main_map_drilldown_refinement.py
+          uv run pytest -q \
+            tests/test_main_map_drilldown_refinement.py \
+            tests/test_main_map_presentation.py
+
       - name: Restore current production database into local copy
         env:
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
