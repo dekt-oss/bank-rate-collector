@@ -162,7 +162,7 @@ def validate_public_forecast_payload(payload: Any) -> dict[str, Any]:
         raise ValueError("public_forecast:generated_at_required")
 
     status = payload["status"]
-    if status not in PUBLIC_STATUS_VALUES:
+    if not isinstance(status, str) or status not in PUBLIC_STATUS_VALUES:
         raise ValueError("public_forecast:unsupported_status")
 
     scenarios = payload["scenarios"]
