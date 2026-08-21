@@ -34,9 +34,15 @@ def _strategy_table(rows: list[list[object]]) -> dict:
             "급여이체 시 우대",
             "우대조건 없음",
             "",
+            "모바일 가입 및 급여이체 우대",
         ],
         "preference_status": ["present", "none", "missing"],
-        "preference_tags": ["DIGITAL_CHANNEL", "SALARY_TRANSFER", ""],
+        "preference_tags": [
+            "DIGITAL_CHANNEL",
+            "SALARY_TRANSFER",
+            "",
+            "DIGITAL_CHANNEL SALARY_TRANSFER",
+        ],
         "geo_basis": ["head_office", "outlet"],
         "region": ["부산", "서울"],
         "district": [None],
@@ -91,7 +97,7 @@ def _mutual_scope(result: dict, scope_key: str, term: int = 12) -> dict:
 def test_category_share_uses_preference_bearing_products_only() -> None:
     rows: list[list[object]] = []
     # 10개 상품 중 실제 우대조건 보유 상품은 2개이고 둘 다 DIGITAL_CHANNEL이다.
-    # 따라서 전체 상품 대비 20%가 아니라 우대조건 보유 상품 내부 비중 100%가 맞다.
+    # 따라서 전체 상품 대비 20%가 아니라 우대조건 보유 상품 내부 침투율 100%가 맞다.
     rows.append(
         _row(
             sector=0,
@@ -135,6 +141,9 @@ def test_category_share_uses_preference_bearing_products_only() -> None:
 
     assert result["version"] == "preference-intelligence-v2"
     assert result["category_denominator"] == "preference_bearing_products_present_only"
+    assert result["category_composition_denominator"] == (
+        "normalized_preference_category_occurrences_present_only"
+    )
     assert result["effect_calibration"] == (
         "not_available_without_internal_performance_data"
     )
@@ -145,12 +154,69 @@ def test_category_share_uses_preference_bearing_products_only() -> None:
     assert scope["top_tier"]["offering_count"] == 1
     assert scope["top_tier"]["cutoff_rate"] == 4.0
     assert digital["market_count"] == 2
-    assert digital["market_share"] == 1.0
+    assert digital["market_product_share"] == 1.0
     assert digital["top_tier_count"] == 1
-    assert digital["top_tier_share"] == 1.0
+    assert digital["top_tier_product_share"] == 1.0
     assert digital["top_tier_lift_pp"] == 0.0
     assert scope["our_company"]["preference_codes"] == ["DIGITAL_CHANNEL"]
     assert scope["our_company"]["raw_samples"] == ["모바일 가입 시 우대"]
+
+
+def test_category_share_denominator_is_products_not_occurrences() -> None:
+    # 우대조건 보유 3개 상품: P1=[DIGITAL,SALARY], P2=[DIGITAL], P3=[DIGITAL].
+    # 구성비는 DIGITAL=3/4=75%, 상품 침투율은 DIGITAL=3/3=100%로 분모가 갈라진다.
+    rows = [
+        _row(
+            sector=0,
+            institution=0,
+            product_id=0,
+            rate=4.00,
+            preference=4,
+            status=0,
+            tags=3,
+        ),
+        _row(
+            sector=0,
+            institution=1,
+            product_id=1,
+            rate=3.90,
+            preference=0,
+            status=0,
+            tags=0,
+        ),
+        _row(
+            sector=0,
+            institution=1,
+            product_id=2,
+            rate=3.80,
+            preference=0,
+            status=0,
+            tags=0,
+        ),
+    ]
+
+    scope = _scope(build_preference_intelligence(_strategy_table(rows)), "savings_bank")
+    digital = next(
+        item for item in scope["categories"] if item["code"] == "DIGITAL_CHANNEL"
+    )
+    salary = next(
+        item for item in scope["categories"] if item["code"] == "SALARY_TRANSFER"
+    )
+
+    assert scope["coverage"]["present_count"] == 3
+    assert scope["category_occurrence_count"] == 4
+    assert digital["market_share"] == 0.75
+    assert salary["market_share"] == 0.25
+    assert digital["market_product_share"] == 1.0
+    assert salary["market_product_share"] == 0.3333
+    assert sum(item["market_share"] for item in scope["categories"]) == 1.0
+    assert sum(item["market_product_share"] for item in scope["categories"]) > 1.0
+    assert digital["top_tier_product_share"] == 1.0
+    assert salary["top_tier_product_share"] == 1.0
+    assert digital["top_tier_lift_pp"] == 0.0
+    assert salary["top_tier_lift_pp"] == 66.67
+    assert digital["top_tier_composition_lift_pp"] == -25.0
+    assert salary["top_tier_composition_lift_pp"] == 25.0
 
 
 def test_missing_source_preference_is_not_counted_as_explicit_none() -> None:
@@ -197,7 +263,7 @@ def test_missing_source_preference_is_not_counted_as_explicit_none() -> None:
     digital = next(
         item for item in scope["categories"] if item["code"] == "DIGITAL_CHANNEL"
     )
-    assert digital["market_share"] == 1.0
+    assert digital["market_product_share"] == 1.0
     assert scope["coverage"]["missing_count"] == 4
     assert scope["coverage"]["none_count"] == 0
 
@@ -252,6 +318,29 @@ def test_mutual_finance_scope_pools_selected_sectors_before_top_tier() -> None:
         "kfcc",
         "nh_local",
     }
+
+
+def test_mutual_finance_payload_omits_duplicate_single_sector_scopes() -> None:
+    rows = [
+        _row(
+            sector=1,
+            institution=2,
+            product_id=0,
+            rate=4.00,
+            preference=0,
+            status=0,
+            tags=0,
+            geo_basis=1,
+        )
+    ]
+
+    result = build_preference_intelligence(_strategy_table(rows))
+
+    assert len(result["mutual_finance_scopes"]) == 16
+    assert all(len(item["sectors"]) >= 2 for item in result["mutual_finance_scopes"])
+    cu = _scope(result, "cu")
+    assert cu["coverage"]["total_offering_count"] == 1
+    assert cu["source_coverage"][0]["sector"] == "cu"
 
 
 def test_same_strategy_offering_is_reduced_to_highest_rate_once() -> None:
