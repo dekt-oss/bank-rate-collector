@@ -81,7 +81,7 @@ def test_national_tooltip_flips_and_clamps_inside_map_stage() -> None:
 
     assert "fitNationalTooltip" in rendered
     assert "bindNationalTooltipClamp" in rendered
-    assert 'stage.querySelector(".main-map-tooltip")' in rendered
+    assert 'stage?.querySelector(".main-map-tooltip")' in rendered
     assert "top + height > sh - pad" in rendered
     assert 'tip.dataset.viewportFit = "1"' in rendered
     assert 'path.addEventListener("mouseenter"' in rendered
