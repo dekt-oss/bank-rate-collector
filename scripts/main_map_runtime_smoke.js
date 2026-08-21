@@ -4,7 +4,8 @@ const { chromium } = require("@playwright/test");
 
 const baseUrl = process.env.STRATEGY_PREVIEW_BASE_URL || "http://127.0.0.1:4173";
 const prefix = process.env.MAIN_MAP_SMOKE_PREFIX || "main-map";
-const expectCrop = process.env.EXPECT_MAIN_MAP_CROP === "1";
+const cropMode = process.env.EXPECT_MAIN_MAP_CROP;
+const expectCrop = cropMode === "1" || (cropMode == null && /(?:127\.0\.0\.1|localhost)/.test(baseUrl));
 const workDir = path.resolve("work");
 fs.mkdirSync(workDir, { recursive: true });
 
