@@ -3,6 +3,7 @@ const path = require("node:path");
 const { chromium } = require("@playwright/test");
 
 const baseUrl = process.env.STRATEGY_PREVIEW_BASE_URL || "http://127.0.0.1:4173";
+const prefix = process.env.MAIN_MAP_SMOKE_PREFIX || "main-map";
 const workDir = path.resolve("work");
 fs.mkdirSync(workDir, { recursive: true });
 
@@ -65,7 +66,7 @@ async function captureScenario(browser, name, viewport) {
   invariant(national.document.scrollWidth <= national.document.clientWidth + 1, `${name} national horizontal overflow`);
   invariant(national.labels.length === 9, `${name} national direct label count ${national.labels.length}`);
   if (viewport.width >= 1001) invariant(national.card.width <= 990, `${name} desktop region card too wide: ${national.card.width}`);
-  await card.screenshot({ path: path.join(workDir, `main-map-${name}-national.png`) });
+  await card.screenshot({ path: path.join(workDir, `${prefix}-${name}-national.png`) });
 
   const busanPath = page.locator('#reg .main-map-stage svg path[data-region-key="부산"]').first();
   invariant(await busanPath.count() === 1, `${name} 부산 전국지도 path 없음`);
@@ -78,7 +79,7 @@ async function captureScenario(browser, name, viewport) {
   invariant(busan.document.scrollWidth <= busan.document.clientWidth + 1, `${name} 부산 horizontal overflow`);
   invariant(busan.busanPaths === 16, `${name} 부산 path count ${busan.busanPaths}`);
   invariant(busan.labels.length === 16, `${name} 부산 label count ${busan.labels.length}`);
-  await card.screenshot({ path: path.join(workDir, `main-map-${name}-busan.png`) });
+  await card.screenshot({ path: path.join(workDir, `${prefix}-${name}-busan.png`) });
 
   return {
     national: { ...national, overlaps: overlapPairs(national.labels) },
@@ -90,11 +91,14 @@ async function captureScenario(browser, name, viewport) {
   const browser = await chromium.launch({ channel: "chrome", headless: true });
   try {
     const metrics = {
+      baseUrl,
       desktop: await captureScenario(browser, "desktop", { width: 1440, height: 1000 }),
       mobile: await captureScenario(browser, "mobile", { width: 390, height: 844 }),
     };
-    fs.writeFileSync(path.join(workDir, "main-map-layout-metrics.json"), JSON.stringify(metrics, null, 2));
+    fs.writeFileSync(path.join(workDir, `${prefix}-layout-metrics.json`), JSON.stringify(metrics, null, 2));
     console.log(JSON.stringify({
+      baseUrl,
+      prefix,
       desktopNationalOverlaps: metrics.desktop.national.overlaps,
       desktopBusanOverlaps: metrics.desktop.busan.overlaps,
       mobileNationalOverlaps: metrics.mobile.national.overlaps,
