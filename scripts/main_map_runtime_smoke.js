@@ -4,6 +4,7 @@ const { chromium } = require("@playwright/test");
 
 const baseUrl = process.env.STRATEGY_PREVIEW_BASE_URL || "http://127.0.0.1:4173";
 const prefix = process.env.MAIN_MAP_SMOKE_PREFIX || "main-map";
+const expectCrop = process.env.EXPECT_MAIN_MAP_CROP === "1";
 const workDir = path.resolve("work");
 fs.mkdirSync(workDir, { recursive: true });
 
@@ -34,6 +35,13 @@ async function waitForMain(page) {
     null,
     { timeout: 10_000 },
   );
+  if (expectCrop) {
+    await page.waitForFunction(
+      () => document.querySelector("#reg .main-map-stage svg")?.dataset.mainlandJejuCrop === "1",
+      null,
+      { timeout: 10_000 },
+    );
+  }
 }
 
 async function measure(page, mode) {
@@ -41,10 +49,16 @@ async function measure(page, mode) {
     const card = document.querySelector(".charts .card.wide.global");
     const stage = document.querySelector(currentMode === "busan" ? ".main-busan-stage" : ".main-map-stage");
     const names = [...document.querySelectorAll(currentMode === "busan" ? ".main-busan-label-name" : ".main-map-label-name")];
+    const svg = currentMode === "national" ? document.querySelector(".main-map-stage svg") : null;
+    const jeju = svg?.querySelector('#제주특별자치도');
     const rect = (el) => {
       const r = el.getBoundingClientRect();
       return { text: el.textContent.trim(), left: r.left, top: r.top, right: r.right, bottom: r.bottom, width: r.width, height: r.height };
     };
+    const viewBox = svg?.viewBox?.baseVal
+      ? { x: svg.viewBox.baseVal.x, y: svg.viewBox.baseVal.y, width: svg.viewBox.baseVal.width, height: svg.viewBox.baseVal.height }
+      : null;
+    const jejuBox = jeju?.getBBox ? jeju.getBBox() : null;
     return {
       viewport: { width: window.innerWidth, height: window.innerHeight },
       document: { clientWidth: document.documentElement.clientWidth, scrollWidth: document.documentElement.scrollWidth },
@@ -52,6 +66,12 @@ async function measure(page, mode) {
       stage: stage ? rect(stage) : null,
       labels: names.map(rect),
       busanPaths: document.querySelectorAll(".main-busan-stage #busan-boundaries path[id]").length,
+      crop: svg ? {
+        applied: svg.dataset.mainlandJejuCrop === "1",
+        omittedIslandSubpaths: Number(svg.dataset.omittedIslandSubpaths || 0),
+        viewBox,
+        jeju: jejuBox ? { x: jejuBox.x, y: jejuBox.y, width: jejuBox.width, height: jejuBox.height } : null,
+      } : null,
     };
   }, mode);
 }
@@ -63,9 +83,20 @@ async function captureScenario(browser, name, viewport) {
   await card.scrollIntoViewIfNeeded();
 
   const national = await measure(page, "national");
+  const nationalOverlaps = overlapPairs(national.labels);
   invariant(national.document.scrollWidth <= national.document.clientWidth + 1, `${name} national horizontal overflow`);
   invariant(national.labels.length === 9, `${name} national direct label count ${national.labels.length}`);
-  if (viewport.width >= 1001) invariant(national.card.width <= 990, `${name} desktop region card too wide: ${national.card.width}`);
+  if (viewport.width >= 1001) {
+    const maxWidth = expectCrop ? 650 : 990;
+    invariant(national.card.width <= maxWidth, `${name} desktop region card too wide: ${national.card.width}`);
+  }
+  if (expectCrop) {
+    invariant(national.crop?.applied, `${name} mainland+Jeju crop not applied`);
+    invariant(national.crop.omittedIslandSubpaths > 0, `${name} island subpaths were not pruned`);
+    invariant(national.crop.viewBox && national.crop.viewBox.width < 700, `${name} national viewBox not tightened`);
+    invariant(national.crop.jeju && national.crop.jeju.width > 0 && national.crop.jeju.height > 0, `${name} Jeju main island missing`);
+    invariant(nationalOverlaps.length === 0, `${name} national label overlaps: ${JSON.stringify(nationalOverlaps)}`);
+  }
   await card.screenshot({ path: path.join(workDir, `${prefix}-${name}-national.png`) });
 
   const busanPath = page.locator('#reg .main-map-stage svg path[data-region-key="부산"]').first();
@@ -76,14 +107,18 @@ async function captureScenario(browser, name, viewport) {
   await page.waitForFunction(() => document.querySelectorAll(".main-busan-label-name").length === 16);
 
   const busan = await measure(page, "busan");
+  const busanOverlaps = overlapPairs(busan.labels);
   invariant(busan.document.scrollWidth <= busan.document.clientWidth + 1, `${name} 부산 horizontal overflow`);
   invariant(busan.busanPaths === 16, `${name} 부산 path count ${busan.busanPaths}`);
   invariant(busan.labels.length === 16, `${name} 부산 label count ${busan.labels.length}`);
+  if (expectCrop) {
+    invariant(busanOverlaps.length === 0, `${name} 부산 label overlaps: ${JSON.stringify(busanOverlaps)}`);
+  }
   await card.screenshot({ path: path.join(workDir, `${prefix}-${name}-busan.png`) });
 
   return {
-    national: { ...national, overlaps: overlapPairs(national.labels) },
-    busan: { ...busan, overlaps: overlapPairs(busan.labels) },
+    national: { ...national, overlaps: nationalOverlaps },
+    busan: { ...busan, overlaps: busanOverlaps },
   };
 }
 
@@ -92,6 +127,7 @@ async function captureScenario(browser, name, viewport) {
   try {
     const metrics = {
       baseUrl,
+      expectCrop,
       desktop: await captureScenario(browser, "desktop", { width: 1440, height: 1000 }),
       mobile: await captureScenario(browser, "mobile", { width: 390, height: 844 }),
     };
@@ -99,11 +135,14 @@ async function captureScenario(browser, name, viewport) {
     console.log(JSON.stringify({
       baseUrl,
       prefix,
+      expectCrop,
       desktopNationalOverlaps: metrics.desktop.national.overlaps,
       desktopBusanOverlaps: metrics.desktop.busan.overlaps,
       mobileNationalOverlaps: metrics.mobile.national.overlaps,
       mobileBusanOverlaps: metrics.mobile.busan.overlaps,
       desktopCardWidth: metrics.desktop.national.card.width,
+      desktopViewBox: metrics.desktop.national.crop?.viewBox,
+      omittedIslandSubpaths: metrics.desktop.national.crop?.omittedIslandSubpaths,
       mobileScrollWidth: metrics.mobile.busan.document.scrollWidth,
     }, null, 2));
   } finally {
