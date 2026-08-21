@@ -39,7 +39,8 @@ _JS = r"""
   const sectors={savings_bank:"저축은행",cu:"신협",kfcc:"새마을금고",nh_local:"농·축협"};
   const state={sector:"savings_bank",term:12};
   const percent=v=>v===null||v===undefined||!Number.isFinite(Number(v))?"—":`${(Number(v)*100).toFixed(0)}%`;
-  const lift=v=>v===null||v===undefined||!Number.isFinite(Number(v))?"—":`${Number(v)>0?"+":""}${Number(v).toFixed(1)}%p`;
+  const penetrationPercent=v=>v===null||v===undefined||!Number.isFinite(Number(v))?"—":`${(Number(v)*100).toFixed(2)}%`;
+  const penetrationLift=v=>v===null||v===undefined||!Number.isFinite(Number(v))?"—":`${Number(v)>0?"+":""}${Number(v).toFixed(2)}%p`;
   const scope=()=>intelligence.scopes?.find(x=>x.sector===state.sector&&Number(x.term_months)===state.term);
 
   const panel=document.createElement("section");panel.id="preference-intelligence";panel.className="pref-intel";panel.setAttribute("aria-label","우대조건 시장구조 분석");
@@ -52,7 +53,7 @@ _JS = r"""
     if(!item||item.status==="no_data"){body.innerHTML=`<div class="pref-intel-empty">${sectors[state.sector]} · ${state.term}개월 우대조건 비교 데이터가 없습니다.</div>`;return;}
     const coverage=item.coverage||{},top=item.top_tier||{},topCoverage=top.coverage||{};
     const warning=coverage.coverage_status==="low"?`<div class="pref-intel-warning"><b>원천 우대정보 제공률이 낮습니다.</b> 판별 가능 ${percent(coverage.known_preference_share)} · 미제공 ${Number(coverage.missing_count||0).toLocaleString("ko-KR")}건. 미제공을 '조건 없음'으로 해석하지 않습니다.</div>`:"";
-    const rows=(item.categories||[]).slice(0,8).map(c=>`<tr><td class="${c.is_other?"other":""}">${c.label}</td><td class="mono">${percent(c.market_product_share)}</td><td class="mono">${percent(c.top_tier_product_share)}</td><td class="mono ${Number(c.top_tier_lift_pp)>0?"positive":Number(c.top_tier_lift_pp)<0?"negative":""}">${lift(c.top_tier_lift_pp)}</td></tr>`).join("")||'<tr><td colspan="4">우대조건 보유 상품에서 분류 가능한 조건이 없습니다.</td></tr>';
+    const rows=(item.categories||[]).slice(0,8).map(c=>`<tr><td class="${c.is_other?"other":""}">${c.label}</td><td class="mono">${penetrationPercent(c.market_product_share)}</td><td class="mono">${penetrationPercent(c.top_tier_product_share)}</td><td class="mono ${Number(c.top_tier_lift_pp)>0?"positive":Number(c.top_tier_lift_pp)<0?"negative":""}">${penetrationLift(c.top_tier_lift_pp)}</td></tr>`).join("")||'<tr><td colspan="4">우대조건 보유 상품에서 분류 가능한 조건이 없습니다.</td></tr>';
     const own=item.our_company;
     const ownHtml=own?`<div class="pref-intel-own"><h3>고려저축은행 현재 조건</h3><p>${own.offering_count}개 대표상품 · 최고 ${Number(own.max_rate).toFixed(2)}%</p><div class="pref-intel-tags">${(own.preference_labels||[]).length?(own.preference_labels||[]).map(x=>`<span class="pref-intel-tag">${x}</span>`).join(""):'<span class="pref-intel-tag">표준분류 조건 없음</span>'}</div>${(own.raw_samples||[]).length?`<details class="pref-intel-raw"><summary>당사 우대조건 원문 근거</summary>${own.raw_samples.map(x=>`<div>${String(x).replaceAll("<","&lt;").replaceAll(">","&gt;")}</div>`).join("")}</details>`:""}</div>`:`<div class="pref-intel-own"><h3>당사 비교</h3><p>${state.sector==="savings_bank"?"현재 선택 기간의 고려저축은행 우대조건 대표데이터가 없습니다.":"고려저축은행은 저축은행 업권에서만 당사 비교를 제공합니다."}</p></div>`;
     body.innerHTML=`${warning}<div class="pref-intel-grid"><div class="pref-intel-main"><div class="pref-intel-summary"><div><span>원천 우대정보 제공률</span><b>${percent(coverage.known_preference_share)}</b></div><div><span>우대조건 보유율</span><b>${percent(coverage.preference_bearing_share_among_known)}</b></div><div><span>상위군 우대조건 보유율</span><b>${percent(topCoverage.preference_bearing_share_among_known)}</b></div></div><table class="pref-intel-table"><thead><tr><th>조건</th><th>전체 우대상품 침투율</th><th>상위금리군 침투율</th><th>침투율 차이</th></tr></thead><tbody>${rows}</tbody></table></div>${ownHtml}</div>`;
