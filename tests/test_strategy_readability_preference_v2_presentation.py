@@ -20,8 +20,13 @@ def test_readability_v2_is_final_strategy_layer_and_scales_real_css() -> None:
     assert "body{font-size:17px!important;line-height:1.62!important}" in html
     assert ".head h2{font-size:19px!important}" in html
     assert ".tablewrap td{font-size:12.5px!important}" in html
-    assert ".ux-pref-sector .pref-intel-table th,.ux-pref-sector .pref-intel-table td{font-size:11.5px!important" in html
-    assert "zoom:" not in html[html.index(STYLE_MARKER) : html.index("</style>", html.index(STYLE_MARKER))]
+    pref_table_rule = (
+        ".ux-pref-sector .pref-intel-table th,.ux-pref-sector .pref-intel-table td"
+        "{font-size:11.5px!important"
+    )
+    assert pref_table_rule in html
+    style_end = html.index("</style>", html.index(STYLE_MARKER))
+    assert "zoom:" not in html[html.index(STYLE_MARKER) : style_end]
 
 
 def test_preference_v2_renders_one_pooled_mutual_finance_card() -> None:
