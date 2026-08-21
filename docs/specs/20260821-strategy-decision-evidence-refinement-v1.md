@@ -46,7 +46,22 @@ Strategy를 실제 수신상품 담당자가 금리결정 근거를 읽는 순�
 
 세 시나리오는 **미보정 스트레스 가정**이며 확률구간/신뢰구간으로 표현하지 않는다.
 
-### 2.3 계산 수식과 모형 근거 분리
+### 2.3 단일 브라우저 예측 구현 계약
+
+브라우저 예측 산식은 `web/templates/strategy.html`의 `runInflowScenario` / `predictInflow`만
+실행 구현으로 사용한다. 후속 presentation에 `logistic`, `runScenario`, `predictAll` 같은
+두 번째 산식 구현을 만들지 않는다.
+
+최종 Strategy HTML에서는 parity-tested `predictInflow` 반환에 `scenarios` map을 추가하고
+`window.predictInflow = predictInflow`로 명시적으로 export한다. 따라서:
+
+- 기존 Cockpit 금리별 수신반응 표
+- 신규 저민감 / 기준 / 고민감 카드
+
+모두 같은 `window.predictInflow(...)` 실행 결과를 소비한다. `runInflowScenario` drift는
+기존 `tests/test_inflow_prediction_parity.py`의 골든벡터 및 deliberate drift probe가 잡아야 한다.
+
+### 2.4 계산 수식과 모형 근거 분리
 
 `예측모형 상세` 안에서 계산 수식을 먼저 보여준다.
 
@@ -135,8 +150,8 @@ ECOS 월별 자료는 공표시차가 있으므로 `data_month`를 숨기지 않
 
 ## 5. 최근 시장 변화 패널
 
-`최근 시장 변화 · 30일 방향과 주요 이벤트`는 항상 펼친 상태를 유지한다.
-사용자 조작으로 닫혀도 즉시 다시 연다.
+`최근 시장 변화 · 30일 방향과 주요 이벤트`는 최초 로드 시 펼쳐 둔다.
+이후 사용자가 summary를 클릭해 접으면 그 조작을 존중하고 자동으로 다시 열지 않는다.
 제목과 설명에서 `최근 30일 상품변경 이벤트 집계`임을 명시한다.
 
 ## 6. 의사결정 IA
@@ -166,6 +181,8 @@ ECOS 월별 자료는 공표시차가 있으므로 `data_month`를 숨기지 않
 ```
 
 지역 지도는 기존 Search handoff 원칙을 유지하며 Strategy에서 다시 복원하지 않는다.
+중복 지역 shell을 숨길 때 `.ux-region-handoff`는 숨기지 않는다. 별도 handoff
+presentation 단계로 직전 모듈의 상태를 되돌리는 구조를 만들지 않는다.
 
 ## 7. 비범위
 
@@ -181,14 +198,17 @@ ECOS 월별 자료는 공표시차가 있으므로 `data_month`를 숨기지 않
 ## 8. 검증
 
 - 관련 Ruff / pytest
-- 기존 Python inflow prediction 계약 테스트 유지
+- 기존 Python inflow prediction 골든벡터 및 deliberate JS drift probe 유지
+- 최종 HTML의 `runInflowScenario` / `predictInflow` 단일 구현 계약
+- Cockpit `+10bp` 기준 결과와 민감도 `기준` 카드의 총수신·비용 동일
 - presentation idempotency / fail-closed
 - desktop 1440px / mobile 390px Chrome smoke
 - 저/기준/고민감 3개 카드와 수식/근거 details 존재
-- `최근 시장 변화` details 항상 open
+- `최근 시장 변화` details 최초 open, 사용자 click 후 closed 상태 유지
 - market-intelligence unsupported 30D와 event 30D의 근거 설명 동시 노출
 - 추이 그래프 delta 모드에서 실제 첫 관측값 0bp 및 현재 delta와 일치
 - 시장참여폭의 인상/인하/이동없음 건수와 service payload 일치
 - 시장 인사이트 → TOP5가 금리결정 준비도 바로 아래 의사결정 블록에 배치
+- Search 지역 상세 handoff 가시성 유지
 - horizontal overflow 없음
 - Production Strategy Release Gate 불변
