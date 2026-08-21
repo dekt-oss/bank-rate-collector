@@ -258,17 +258,23 @@ def _scope_for_sectors(
     for code in codes:
         market_count = market_category.get(code, 0)
         top_count = top_category.get(code, 0)
-        market_share = market_count / market_occurrences if market_occurrences else None
-        top_share = top_count / top_occurrences if top_occurrences else None
-        market_product_share = market_count / len(market_present) if market_present else None
-        top_product_share = top_count / len(top_present) if top_present else None
+        market_share = (
+            round(market_count / market_occurrences, 4) if market_occurrences else None
+        )
+        top_share = round(top_count / top_occurrences, 4) if top_occurrences else None
+        market_product_share = (
+            round(market_count / len(market_present), 4) if market_present else None
+        )
+        top_product_share = (
+            round(top_count / len(top_present), 4) if top_present else None
+        )
         composition_lift_pp = (
-            (top_share - market_share) * 100
+            round((top_share - market_share) * 100, 2)
             if market_share is not None and top_share is not None
             else None
         )
         product_lift_pp = (
-            (top_product_share - market_product_share) * 100
+            round((top_product_share - market_product_share) * 100, 2)
             if market_product_share is not None and top_product_share is not None
             else None
         )
@@ -277,25 +283,13 @@ def _scope_for_sectors(
                 "code": code,
                 "label": labels.get(code, code),
                 "market_count": market_count,
-                "market_share": round(market_share, 4) if market_share is not None else None,
-                "market_product_share": (
-                    round(market_product_share, 4)
-                    if market_product_share is not None
-                    else None
-                ),
+                "market_share": market_share,
+                "market_product_share": market_product_share,
                 "top_tier_count": top_count,
-                "top_tier_share": round(top_share, 4) if top_share is not None else None,
-                "top_tier_product_share": (
-                    round(top_product_share, 4) if top_product_share is not None else None
-                ),
-                "top_tier_lift_pp": (
-                    round(product_lift_pp, 2) if product_lift_pp is not None else None
-                ),
-                "top_tier_composition_lift_pp": (
-                    round(composition_lift_pp, 2)
-                    if composition_lift_pp is not None
-                    else None
-                ),
+                "top_tier_share": top_share,
+                "top_tier_product_share": top_product_share,
+                "top_tier_lift_pp": product_lift_pp,
+                "top_tier_composition_lift_pp": composition_lift_pp,
                 "is_other": code == OTHER,
             }
         )
