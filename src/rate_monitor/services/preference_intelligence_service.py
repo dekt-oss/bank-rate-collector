@@ -4,8 +4,9 @@
 수신이 늘었다고 추정하지 않는다. 현재 수집 데이터에서 다음 사실만 계산한다.
 
 - 우대조건 정보가 실제로 얼마나 제공되는가
-- 우대조건을 실제 보유한 상품들 안에서 각 표준 조건이 얼마나 흔한가
-- 상위 10% 금리 상품의 우대조건 보유 상품 안에서 조건 구성이 어떻게 달라지는가
+- 표준화된 우대조건 카테고리 전체 출현건수 안에서 각 조건의 구성비가 얼마인가
+- 우대조건 보유 상품 중 해당 조건을 가진 상품 비중은 얼마인가
+- 상위 10% 금리 상품의 조건 구성이 시장 전체 조건 구성과 어떻게 다른가
 - 선택된 상호금융 업권을 하나의 pooled market으로 보면 조건 구성이 어떤가
 - 고려저축은행 현재 상품의 우대조건 구성이 무엇인가
 
@@ -235,6 +236,7 @@ def _scope_for_sectors(
             "status": "no_data",
             "coverage": _coverage(_status_counts([])),
             "source_coverage": _source_coverage(rows, sectors, term),
+            "category_occurrence_count": 0,
             "top_tier": None,
             "categories": [],
             "our_company": None,
@@ -247,6 +249,8 @@ def _scope_for_sectors(
     top_present = _present_rows(top_rows)
     market_category = _category_counts(market_present)
     top_category = _category_counts(top_present)
+    market_occurrences = sum(market_category.values())
+    top_occurrences = sum(top_category.values())
     labels = preference_labels()
     codes = sorted(set(market_category) | set(top_category))
 
@@ -254,8 +258,10 @@ def _scope_for_sectors(
     for code in codes:
         market_count = market_category.get(code, 0)
         top_count = top_category.get(code, 0)
-        market_share = market_count / len(market_present) if market_present else None
-        top_share = top_count / len(top_present) if top_present else None
+        market_share = market_count / market_occurrences if market_occurrences else None
+        top_share = top_count / top_occurrences if top_occurrences else None
+        market_product_share = market_count / len(market_present) if market_present else None
+        top_product_share = top_count / len(top_present) if top_present else None
         lift_pp = (
             (top_share - market_share) * 100
             if market_share is not None and top_share is not None
@@ -267,8 +273,16 @@ def _scope_for_sectors(
                 "label": labels.get(code, code),
                 "market_count": market_count,
                 "market_share": round(market_share, 4) if market_share is not None else None,
+                "market_product_share": (
+                    round(market_product_share, 4)
+                    if market_product_share is not None
+                    else None
+                ),
                 "top_tier_count": top_count,
                 "top_tier_share": round(top_share, 4) if top_share is not None else None,
+                "top_tier_product_share": (
+                    round(top_product_share, 4) if top_product_share is not None else None
+                ),
                 "top_tier_lift_pp": round(lift_pp, 2) if lift_pp is not None else None,
                 "is_other": code == OTHER,
             }
@@ -327,11 +341,13 @@ def _scope_for_sectors(
         "status": status,
         "coverage": market_coverage,
         "source_coverage": _source_coverage(rows, sectors, term),
+        "category_occurrence_count": market_occurrences,
         "top_tier": {
             "definition": "top_ceil_10pct_by_strategy_max_rate",
             "offering_count": len(top_rows),
             "cutoff_rate": round(cutoff, 4) if cutoff is not None else None,
             "coverage": top_coverage,
+            "category_occurrence_count": top_occurrences,
         },
         "categories": categories,
         "our_company": our_company,
@@ -389,8 +405,11 @@ def build_preference_intelligence(strategy_table: dict[str, Any]) -> dict[str, A
         ),
         "unit": "strategy_product_term_geography_representative",
         "top_tier_definition": "top_ceil_10pct_by_strategy_max_rate",
-        "category_denominator": "preference_bearing_products_present_only",
-        "category_share_note": "multi_label_shares_may_exceed_100pct",
+        "category_denominator": "normalized_preference_category_occurrences_present_only",
+        "category_product_penetration_denominator": "preference_bearing_products_present_only",
+        "category_share_note": (
+            "category_occurrence_shares_sum_to_100pct; product_penetration_is_multi_label"
+        ),
         "mutual_finance_scope_policy": "pooled_selected_mutual_sectors",
         "coverage_warning_threshold": LOW_COVERAGE_THRESHOLD,
         "effect_calibration": "not_available_without_internal_performance_data",
