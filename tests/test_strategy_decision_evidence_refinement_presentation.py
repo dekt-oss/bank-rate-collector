@@ -60,8 +60,13 @@ def test_prediction_readability_formula_and_three_sensitivity_contracts_are_expl
     assert 'className="decision-model-evidence"' in html
     assert 'data-sensitivity="${esc(s.key)}"' in html
     assert "decision-range-legacy" in html
-    assert "ensurePredictionBridge" in html
-    assert "window.predictInflow=args=>predictAll(args)" in html
+
+    assert "function runScenario(" not in html
+    assert "function predictAll(" not in html
+    assert "ensurePredictionBridge" not in html
+    assert "const logistic=x=>" not in html
+    assert 'const result=window.predictInflow({baseline,maturity,rollover,ownRate,proposed,top10,term})' in html
+    assert "result.scenarios[s.key]" in html
 
     assert [scenario.label for scenario in SCENARIOS] == ["저민감", "기준", "고민감"]
     assert [scenario.new_money_log_change_per_10bp for scenario in SCENARIOS] == [
@@ -74,6 +79,20 @@ def test_prediction_readability_formula_and_three_sensitivity_contracts_are_expl
         0.08,
         0.16,
     ]
+
+
+def test_full_strategy_exports_parity_tested_predict_inflow_with_scenarios() -> None:
+    template = (ROOT / "web/templates/strategy.html").read_text(encoding="utf-8")
+    html = inject_strategy_decision_cockpit(template)
+
+    assert html.count("function runInflowScenario(") == 1
+    assert html.count("function predictInflow(") == 1
+    assert "window.predictInflow=predictInflow;" in html
+    assert "scenarios={}" in html
+    assert "scenarios[s.key]=results[i]" in html
+    assert "function runScenario(" not in html
+    assert "function predictAll(" not in html
+    assert "ensurePredictionBridge" not in html
 
 
 def test_market_evidence_copy_separates_flows_rates_snapshot_and_events() -> None:
@@ -94,18 +113,20 @@ def test_market_evidence_copy_separates_flows_rates_snapshot_and_events() -> Non
     assert "상위군 churn" not in html
 
 
-def test_trend_defaults_to_bp_delta_and_recent_events_stay_open() -> None:
+def test_trend_defaults_to_bp_delta_and_recent_events_start_open_but_remain_closeable() -> None:
     html = inject_strategy_decision_evidence_refinement(_fixture())
 
     assert 'const trendState={mode:"delta"}' in html
     assert "기준일 대비 변화(bp)" in html
     assert "각 선의 첫 관측값을 0bp" in html
     assert "절대 금리 수준(%)" in html
-    assert "details.open=true" in html
-    assert 'if(!details.open)details.open=true' in html
+    assert 'details.open=true;details.dataset.decisionDefaultOpen="1"' in html
+    assert 'addEventListener("toggle"' not in html
+    assert "항상 펼침" not in html
+    assert "cursor:default!important" not in html
 
 
-def test_decision_ia_moves_insight_and_top5_under_readiness() -> None:
+def test_decision_ia_moves_insight_and_top5_without_hiding_search_handoff() -> None:
     html = inject_strategy_decision_evidence_refinement(_fixture())
 
     assert 'readiness.insertAdjacentElement("afterend",insight)' in html
@@ -114,7 +135,10 @@ def test_decision_ia_moves_insight_and_top5_under_readiness() -> None:
     assert 'if(interpretation)interpretation.hidden=true' in html
     assert 'if(primary)primary.hidden=true' in html
     assert 'labelProduct.querySelector("strong").textContent="상품·우대조건 설계"' in html
-    assert 'tag==="저축은행 시장 방향"||tag==="당사 위치"' in html
+    assert 'if(handoff)handoff.hidden=true' not in html
+    assert "data-decision-insight-role" in html
+    assert 'tag==="저축은행 시장 방향"' not in html
+    assert 'tag==="당사 위치"' not in html
 
 
 def test_full_strategy_cockpit_composes_refinement_after_readability() -> None:
@@ -126,3 +150,4 @@ def test_full_strategy_cockpit_composes_refinement_after_readability() -> None:
     assert html.index('id="strategy-readability-preference-v2-script"') < html.index(
         SCRIPT_MARKER
     )
+    assert "strategy-decision-handoff-script" not in html
