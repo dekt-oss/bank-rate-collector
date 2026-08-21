@@ -103,11 +103,15 @@ def test_full_strategy_template_composes_final_decision_handoff_after_refinement
     template = (ROOT / "web/templates/strategy.html").read_text(encoding="utf-8")
     html = inject_strategy_decision_cockpit(template)
 
+    ux = 'id="strategy-ux-refinement-style"'
     refinement = 'id="strategy-decision-evidence-refinement-script"'
     handoff = 'id="strategy-decision-handoff-script"'
+    assert ux in html
     assert refinement in html
     assert handoff in html
-    assert html.index(refinement) < html.index(handoff)
+    assert html.index(ux) < html.index(refinement) < html.index(handoff)
+    assert 'document.querySelector(".ux-region-handoff")' in html
+    assert 'DOMContentLoaded",install' in html
 
 
 def test_workspace_spec_preserves_decision_first_and_busan_boundaries() -> None:
