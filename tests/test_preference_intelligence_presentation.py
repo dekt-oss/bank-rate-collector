@@ -39,13 +39,17 @@ def test_preference_intelligence_panel_is_injected_once() -> None:
     assert rendered.count(STYLE_MARKER) == 1
     assert rendered.count(SCRIPT_MARKER) == 1
     assert "상품 · 우대조건 전략" in rendered
-    assert "분모는 우대조건 보유 상품입니다" in rendered
+    assert "침투율 분모는 우대조건 보유 상품입니다" in rendered
     assert 'savings_bank:"저축은행"' in rendered
     assert 'nh_local:"농·축협"' in rendered
     assert "[6,12,24,36]" in rendered
     assert "known_preference_share" in rendered
     assert "preference_bearing_share_among_known" in rendered
-    assert "전체 우대조건 상품" in rendered
+    assert "market_product_share" in rendered
+    assert "top_tier_product_share" in rendered
+    assert "전체 우대상품 침투율" in rendered
+    assert "상위금리군 침투율" in rendered
+    assert "침투율 차이" in rendered
     assert "미제공을 '조건 없음'으로 해석하지 않습니다" in rendered
     assert "당사 우대조건 원문 근거" in rendered
     assert inject_preference_intelligence_presentation(rendered) == rendered
@@ -96,9 +100,13 @@ def test_strategy_build_attaches_d1_payload_and_d2_ui(
     assert preference["effect_calibration"] == "not_available_without_internal_performance_data"
     assert preference["top_tier_definition"] == "top_ceil_10pct_by_strategy_max_rate"
     assert preference["category_denominator"] == "preference_bearing_products_present_only"
+    assert preference["category_composition_denominator"] == (
+        "normalized_preference_category_occurrences_present_only"
+    )
     assert preference["mutual_finance_scope_policy"] == "pooled_selected_mutual_sectors"
     assert preference["scopes"]
     assert preference["mutual_finance_scopes"]
+    assert len(preference["mutual_finance_scopes"]) == 16
     assert 'id="preference-intelligence-style"' in strategy_html
     assert 'id="preference-intelligence-script"' in strategy_html
-    assert "분모는 우대조건 보유 상품입니다" in strategy_html
+    assert "침투율 분모는 우대조건 보유 상품입니다" in strategy_html
