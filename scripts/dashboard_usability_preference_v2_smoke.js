@@ -73,6 +73,12 @@ async function snapshot(page) {
   });
 }
 
+function summaryPct(value) {
+  return value === null || value === undefined || !Number.isFinite(Number(value))
+    ? "—"
+    : `${(Number(value) * 100).toFixed(0)}%`;
+}
+
 function penetrationPct(value) {
   return value === null || value === undefined || !Number.isFinite(Number(value))
     ? "—"
@@ -127,31 +133,64 @@ async function assertSingleMutualFallback(page, name) {
     const cells = row
       ? [...row.querySelectorAll("td")].map((node) => node.textContent.trim())
       : [];
+    const summaryValues = mutual
+      ? [...mutual.querySelectorAll(".pref-intel-summary b")].map((node) => node.textContent.trim())
+      : [];
     const cuScope = intelligence.scopes?.find(
       (item) => item.sector === "cu" && Number(item.term_months) === 12,
     ) || null;
     return {
       cells,
+      summaryValues,
       firstCategory: cuScope?.categories?.[0] || null,
+      expected: cuScope ? {
+        marketBearing: cuScope.coverage?.preference_bearing_share_among_known,
+        topBearing: cuScope.top_tier?.coverage?.preference_bearing_share_among_known,
+        cutoff: cuScope.top_tier?.cutoff_rate,
+      } : null,
       sourceChipCount: mutual?.querySelectorAll(".pref-v2-source span").length || 0,
     };
   });
-  invariant(result.firstCategory, `${name}: single-sector cu scope category missing`);
-  invariant(result.cells.length >= 4, `${name}: single-sector mutual row missing`);
+  invariant(result.expected, `${name}: single-sector cu scope missing`);
+  invariant(result.summaryValues.length === 3, `${name}: single-sector summary missing`);
   invariant(
-    result.cells[1] === penetrationPct(result.firstCategory.market_product_share),
-    `${name}: single-sector market penetration mismatch ${result.cells[1]}`,
+    result.summaryValues[0] === summaryPct(result.expected.marketBearing),
+    `${name}: single-sector market bearing mismatch ${result.summaryValues[0]}`,
   );
   invariant(
-    result.cells[2] === penetrationPct(result.firstCategory.top_tier_product_share),
-    `${name}: single-sector top penetration mismatch ${result.cells[2]}`,
+    result.summaryValues[1] === summaryPct(result.expected.topBearing),
+    `${name}: single-sector top bearing mismatch ${result.summaryValues[1]}`,
   );
+  const expectedCutoff = Number.isFinite(Number(result.expected.cutoff))
+    ? `${Number(result.expected.cutoff).toFixed(2)}%`
+    : "—";
   invariant(
-    result.cells[3] === penetrationLift(result.firstCategory.top_tier_lift_pp),
-    `${name}: single-sector lift mismatch ${result.cells[3]}`,
+    result.summaryValues[2] === expectedCutoff,
+    `${name}: single-sector cutoff mismatch ${result.summaryValues[2]}`,
   );
-  assertDisplayedArithmetic(result.cells, `${name}: single-sector mutual`);
   invariant(result.sourceChipCount === 1, `${name}: single-sector source chips=${result.sourceChipCount}`);
+
+  if (result.firstCategory) {
+    invariant(result.cells.length >= 4, `${name}: single-sector mutual row missing`);
+    invariant(
+      result.cells[1] === penetrationPct(result.firstCategory.market_product_share),
+      `${name}: single-sector market penetration mismatch ${result.cells[1]}`,
+    );
+    invariant(
+      result.cells[2] === penetrationPct(result.firstCategory.top_tier_product_share),
+      `${name}: single-sector top penetration mismatch ${result.cells[2]}`,
+    );
+    invariant(
+      result.cells[3] === penetrationLift(result.firstCategory.top_tier_lift_pp),
+      `${name}: single-sector lift mismatch ${result.cells[3]}`,
+    );
+    assertDisplayedArithmetic(result.cells, `${name}: single-sector mutual`);
+  } else {
+    invariant(
+      result.cells.length === 1 && result.cells[0].includes("분류 가능한 조건이 없습니다"),
+      `${name}: single-sector empty category state mismatch ${JSON.stringify(result.cells)}`,
+    );
+  }
 }
 
 async function runViewport(browser, name, viewport) {
