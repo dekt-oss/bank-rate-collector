@@ -1,0 +1,83 @@
+name: Dashboard usability preference v2
+
+on:
+  pull_request:
+    paths:
+      - "src/rate_monitor/services/main_map_drilldown_refinement.py"
+      - "src/rate_monitor/services/preference_intelligence_service.py"
+      - "src/rate_monitor/services/preference_intelligence_presentation.py"
+      - "src/rate_monitor/services/strategy_readability_preference_v2_presentation.py"
+      - "src/rate_monitor/services/strategy_decision_cockpit.py"
+      - "tests/test_main_map_drilldown_refinement.py"
+      - "tests/test_main_map_presentation.py"
+      - "tests/test_preference_intelligence_service.py"
+      - "tests/test_preference_intelligence_presentation.py"
+      - "tests/test_strategy_readability_preference_v2_presentation.py"
+      - "tests/test_strategy_ux_refinement_presentation.py"
+      - "scripts/main_map_runtime_smoke.js"
+      - ".github/workflows/dashboard-usability-preference-v2.yml"
+  push:
+    branches:
+      - "feat/dashboard-usability-preference-v2-20260821"
+    paths:
+      - "src/rate_monitor/services/main_map_drilldown_refinement.py"
+      - "src/rate_monitor/services/preference_intelligence_service.py"
+      - "src/rate_monitor/services/preference_intelligence_presentation.py"
+      - "src/rate_monitor/services/strategy_readability_preference_v2_presentation.py"
+      - "src/rate_monitor/services/strategy_decision_cockpit.py"
+      - "tests/test_main_map_drilldown_refinement.py"
+      - "tests/test_main_map_presentation.py"
+      - "tests/test_preference_intelligence_service.py"
+      - "tests/test_preference_intelligence_presentation.py"
+      - "tests/test_strategy_readability_preference_v2_presentation.py"
+      - "tests/test_strategy_ux_refinement_presentation.py"
+      - "scripts/main_map_runtime_smoke.js"
+      - ".github/workflows/dashboard-usability-preference-v2.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Sync dependencies
+        run: uv sync --locked
+
+      - name: Targeted lint
+        run: |
+          uv run ruff check \
+            src/rate_monitor/services/main_map_drilldown_refinement.py \
+            src/rate_monitor/services/preference_intelligence_service.py \
+            src/rate_monitor/services/preference_intelligence_presentation.py \
+            src/rate_monitor/services/strategy_readability_preference_v2_presentation.py \
+            src/rate_monitor/services/strategy_decision_cockpit.py \
+            tests/test_main_map_drilldown_refinement.py \
+            tests/test_main_map_presentation.py \
+            tests/test_preference_intelligence_service.py \
+            tests/test_preference_intelligence_presentation.py \
+            tests/test_strategy_readability_preference_v2_presentation.py \
+            tests/test_strategy_ux_refinement_presentation.py
+
+      - name: Targeted tests
+        run: |
+          uv run pytest -q \
+            tests/test_main_map_drilldown_refinement.py \
+            tests/test_main_map_presentation.py \
+            tests/test_preference_intelligence_service.py \
+            tests/test_preference_intelligence_presentation.py \
+            tests/test_strategy_readability_preference_v2_presentation.py \
+            tests/test_strategy_ux_refinement_presentation.py
+
+      - name: Browser smoke syntax
+        run: node --check scripts/main_map_runtime_smoke.js
