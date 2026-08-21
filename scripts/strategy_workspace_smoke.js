@@ -28,10 +28,6 @@ async function loadPage(browser, viewport) {
   return { context, page, runtimeErrors };
 }
 
-function before(a, b) {
-  return Boolean(a && b && (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING));
-}
-
 async function assertNavigation(browser, strategyPage, viewport, label) {
   const context = await browser.newContext({ viewport });
   const page = await context.newPage();
@@ -48,6 +44,7 @@ async function assertNavigation(browser, strategyPage, viewport, label) {
 
 async function assertDecisionIA(page, label) {
   const result = await page.evaluate(() => {
+    const precedes = (a, b) => Boolean(a && b && (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING));
     const readiness = document.querySelector(".ux-decision-readiness");
     const insight = document.querySelector(".decision-integrated-insight");
     const top5 = document.querySelector(".decision-integrated-top5");
@@ -58,11 +55,11 @@ async function assertDecisionIA(page, label) {
     const hiddenDetail = document.querySelector(".workspace-detail.primary");
     const handoff = document.querySelector(".ux-region-handoff");
     return {
-      order: [before(readiness, insight), before(insight, top5), before(top5, planning)],
+      order: [precedes(readiness, insight), precedes(insight, top5), precedes(top5, planning)],
       insightTitle: insight?.querySelector(".head h2")?.textContent.trim() || "",
       insightTags: [...(insight?.querySelectorAll(".insight em") || [])].map((x) => x.textContent.trim()),
       productTitle: productLabel?.querySelector("strong")?.textContent.trim() || "",
-      productBeforePreference: before(productLabel, preference),
+      productBeforePreference: precedes(productLabel, preference),
       legacyHidden: Boolean(hiddenLegacy?.hidden),
       detailHidden: Boolean(hiddenDetail?.hidden),
       handoffVisible: Boolean(handoff && !handoff.hidden),
@@ -150,6 +147,7 @@ async function assertPrediction(page, label) {
 async function assertMarketEvidence(page, label) {
   const result = await page.evaluate(() => {
     const external = document.getElementById("external-market-context");
+    const precedes = (a, b) => Boolean(a && b && (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING));
     const flowHead = external?.querySelector(".decision-external-heading:not(.secondary)");
     const flows = external?.querySelector(".external-context-flows");
     const rateHead = external?.querySelector(".decision-external-heading.secondary");
@@ -161,7 +159,7 @@ async function assertMarketEvidence(page, label) {
     const marketBasis = marketIntel?.querySelector(".decision-evidence-basis")?.textContent || "";
     const changes = document.querySelector("#market-flow details.changes");
     return {
-      flowBeforeRate: before(flowHead, flows) && before(flows, rateHead) && before(rateHead, rates),
+      flowBeforeRate: precedes(flowHead, flows) && precedes(flows, rateHead) && precedes(rateHead, rates),
       externalText: external?.textContent || "",
       rateLabels,
       marketCopy,
