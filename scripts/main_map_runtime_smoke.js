@@ -77,6 +77,34 @@ async function measure(page, mode) {
   }, mode);
 }
 
+async function assertJejuTooltip(page, name) {
+  const jejuPath = page.locator('#reg .main-map-stage svg path#제주특별자치도').first();
+  invariant(await jejuPath.count() === 1, `${name} 제주 path 없음`);
+  await jejuPath.hover();
+  await page.waitForFunction(() => {
+    const tip = document.querySelector("#reg .main-map-stage .main-map-tooltip");
+    return tip && !tip.hidden && tip.dataset.viewportFit === "1";
+  }, null, { timeout: 5_000 });
+  const fit = await page.evaluate(() => {
+    const stage = document.querySelector("#reg .main-map-stage");
+    const tip = stage?.querySelector(".main-map-tooltip");
+    if (!stage || !tip) return null;
+    const s = stage.getBoundingClientRect(), t = tip.getBoundingClientRect();
+    return {
+      stage: { left: s.left, top: s.top, right: s.right, bottom: s.bottom },
+      tip: { left: t.left, top: t.top, right: t.right, bottom: t.bottom },
+      text: tip.textContent.trim(),
+    };
+  });
+  invariant(fit, `${name} 제주 tooltip 측정 실패`);
+  invariant(fit.tip.left >= fit.stage.left - 1, `${name} 제주 tooltip left clipped`);
+  invariant(fit.tip.right <= fit.stage.right + 1, `${name} 제주 tooltip right clipped`);
+  invariant(fit.tip.top >= fit.stage.top - 1, `${name} 제주 tooltip top clipped`);
+  invariant(fit.tip.bottom <= fit.stage.bottom + 1, `${name} 제주 tooltip bottom clipped`);
+  invariant(fit.text.includes("제주"), `${name} 제주 tooltip 내용 누락`);
+  return fit;
+}
+
 async function captureScenario(browser, name, viewport) {
   const page = await browser.newPage({ viewport });
   await waitForMain(page);
@@ -88,8 +116,9 @@ async function captureScenario(browser, name, viewport) {
   invariant(national.document.scrollWidth <= national.document.clientWidth + 1, `${name} national horizontal overflow`);
   invariant(national.labels.length === 9, `${name} national direct label count ${national.labels.length}`);
   if (viewport.width >= 1001) {
-    const maxWidth = expectCrop ? 650 : 990;
+    const maxWidth = expectCrop ? 750 : 990;
     invariant(national.card.width <= maxWidth, `${name} desktop region card too wide: ${national.card.width}`);
+    if (expectCrop) invariant(national.stage.width >= 430, `${name} desktop national map remains too small: ${national.stage.width}`);
   }
   if (expectCrop) {
     invariant(national.crop?.applied, `${name} mainland+Jeju crop not applied`);
@@ -98,6 +127,7 @@ async function captureScenario(browser, name, viewport) {
     invariant(national.crop.jeju && national.crop.jeju.width > 0 && national.crop.jeju.height > 0, `${name} Jeju main island missing`);
     invariant(nationalOverlaps.length === 0, `${name} national label overlaps: ${JSON.stringify(nationalOverlaps)}`);
   }
+  const jejuTooltip = expectCrop ? await assertJejuTooltip(page, name) : null;
   await card.screenshot({ path: path.join(workDir, `${prefix}-${name}-national.png`) });
 
   const busanPath = page.locator('#reg .main-map-stage svg path[data-region-key="부산"]').first();
@@ -118,7 +148,7 @@ async function captureScenario(browser, name, viewport) {
   await card.screenshot({ path: path.join(workDir, `${prefix}-${name}-busan.png`) });
 
   return {
-    national: { ...national, overlaps: nationalOverlaps },
+    national: { ...national, overlaps: nationalOverlaps, jejuTooltip },
     busan: { ...busan, overlaps: busanOverlaps },
   };
 }
@@ -142,8 +172,10 @@ async function captureScenario(browser, name, viewport) {
       mobileNationalOverlaps: metrics.mobile.national.overlaps,
       mobileBusanOverlaps: metrics.mobile.busan.overlaps,
       desktopCardWidth: metrics.desktop.national.card.width,
+      desktopStageWidth: metrics.desktop.national.stage.width,
       desktopViewBox: metrics.desktop.national.crop?.viewBox,
       omittedIslandSubpaths: metrics.desktop.national.crop?.omittedIslandSubpaths,
+      desktopJejuTooltip: metrics.desktop.national.jejuTooltip,
       mobileScrollWidth: metrics.mobile.busan.document.scrollWidth,
     }, null, 2));
   } finally {
