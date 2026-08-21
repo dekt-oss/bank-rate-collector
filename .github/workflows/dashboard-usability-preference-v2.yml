@@ -13,7 +13,6 @@ on:
       - "tests/test_preference_intelligence_service.py"
       - "tests/test_preference_intelligence_presentation.py"
       - "tests/test_strategy_readability_preference_v2_presentation.py"
-      - "tests/test_strategy_ux_refinement_presentation.py"
       - "scripts/main_map_runtime_smoke.js"
       - ".github/workflows/dashboard-usability-preference-v2.yml"
   push:
@@ -30,7 +29,6 @@ on:
       - "tests/test_preference_intelligence_service.py"
       - "tests/test_preference_intelligence_presentation.py"
       - "tests/test_strategy_readability_preference_v2_presentation.py"
-      - "tests/test_strategy_ux_refinement_presentation.py"
       - "scripts/main_map_runtime_smoke.js"
       - ".github/workflows/dashboard-usability-preference-v2.yml"
 
@@ -66,8 +64,7 @@ jobs:
             tests/test_main_map_presentation.py \
             tests/test_preference_intelligence_service.py \
             tests/test_preference_intelligence_presentation.py \
-            tests/test_strategy_readability_preference_v2_presentation.py \
-            tests/test_strategy_ux_refinement_presentation.py
+            tests/test_strategy_readability_preference_v2_presentation.py
 
       - name: Targeted tests
         run: |
@@ -76,8 +73,7 @@ jobs:
             tests/test_main_map_presentation.py \
             tests/test_preference_intelligence_service.py \
             tests/test_preference_intelligence_presentation.py \
-            tests/test_strategy_readability_preference_v2_presentation.py \
-            tests/test_strategy_ux_refinement_presentation.py
+            tests/test_strategy_readability_preference_v2_presentation.py
 
       - name: Browser smoke syntax
         run: node --check scripts/main_map_runtime_smoke.js
