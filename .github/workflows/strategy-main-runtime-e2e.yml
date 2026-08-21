@@ -22,6 +22,9 @@ on:
       - "src/rate_monitor/services/preference_intelligence_service.py"
       - "src/rate_monitor/services/preference_intelligence_presentation.py"
       - "src/rate_monitor/services/site_service.py"
+      - "src/rate_monitor/services/main_map_presentation.py"
+      - "src/rate_monitor/services/main_map_drilldown_refinement.py"
+      - "src/rate_monitor/services/dashboard_ui_refinement_presentation.py"
       - "web/templates/strategy.html"
       - "web/templates/site.html"
       - "web/assets/**"
@@ -30,6 +33,7 @@ on:
       - "scripts/strategy_preview_smoke.js"
       - "scripts/strategy_main_runtime_external_context_smoke.js"
       - "scripts/strategy_workspace_smoke.js"
+      - "scripts/main_map_runtime_smoke.js"
       - "scripts/production_smoke.py"
       - "tests/test_strategy_workspace_presentation.py"
       - "tests/test_strategy_light_theme_presentation.py"
@@ -37,6 +41,7 @@ on:
       - "tests/test_strategy_ux_refinement_presentation.py"
       - "tests/test_strategy_main_runtime_e2e_workflow_contract.py"
       - "tests/test_strategy_production_release.py"
+      - "tests/test_main_map_drilldown_refinement.py"
       - ".github/workflows/collect.yml"
       - ".github/workflows/collect-savings-fast.yml"
       - ".github/workflows/nh-attempt.yml"
@@ -85,6 +90,16 @@ jobs:
       - name: Sync dependencies
         run: uv sync --locked
 
+      - name: Validate main map refinement contracts
+        run: |
+          set -euo pipefail
+          uv run ruff check \
+            src/rate_monitor/services/main_map_drilldown_refinement.py \
+            tests/test_main_map_drilldown_refinement.py
+          uv run pytest -q \
+            tests/test_main_map_drilldown_refinement.py \
+            tests/test_main_map_presentation.py
+
       - name: Restore current production database into local copy
         env:
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
@@ -131,8 +146,11 @@ jobs:
             --template web/templates/site.html \
             --out work/site-public
 
+          test -s work/site-public/index.html
           test -s work/site-public/strategy.html
           test -s work/site-public/data/strategy-table.json
+          grep -q 'data-main-map-drilldown-refinement="1"' work/site-public/index.html
+          grep -q 'id="main-busan-map-svg"' work/site-public/index.html
           grep -q 'id="external-market-context-script"' work/site-public/strategy.html
           grep -q 'id="strategy-workspace-script"' work/site-public/strategy.html
           grep -q 'id="strategy-light-theme-script"' work/site-public/strategy.html
@@ -225,8 +243,9 @@ jobs:
           node --check scripts/strategy_preview_smoke.js
           node --check scripts/strategy_main_runtime_external_context_smoke.js
           node --check scripts/strategy_workspace_smoke.js
+          node --check scripts/main_map_runtime_smoke.js
 
-      - name: Run desktop and mobile Chrome smoke against local build
+      - name: Run desktop and mobile Chrome smoke against local build and production
         env:
           STRATEGY_PREVIEW_BASE_URL: http://127.0.0.1:4173
         run: |
@@ -243,6 +262,11 @@ jobs:
             sleep 1
           done
           curl -fsS http://127.0.0.1:4173/strategy.html >/dev/null
+          curl -fsS http://127.0.0.1:4173/ >/dev/null
+          MAIN_MAP_SMOKE_PREFIX=main-map-local node scripts/main_map_runtime_smoke.js
+          STRATEGY_PREVIEW_BASE_URL=https://bank-rate-collector-dekt-oss-projects.vercel.app \
+            MAIN_MAP_SMOKE_PREFIX=main-map-production \
+            node scripts/main_map_runtime_smoke.js
           node scripts/strategy_preview_smoke.js
           node scripts/strategy_main_runtime_external_context_smoke.js
           node scripts/strategy_workspace_smoke.js
@@ -254,6 +278,8 @@ jobs:
           name: strategy-main-runtime-e2e-${{ github.run_id }}
           path: |
             work/strategy-runtime-external-features.json
+            work/main-map-*-layout-metrics.json
+            work/main-map-*.png
             work/strategy-main-runtime-*.png
             work/strategy-smoke-*.png
             work/strategy-main-runtime-http.log

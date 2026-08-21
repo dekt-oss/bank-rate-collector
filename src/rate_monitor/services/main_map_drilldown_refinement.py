@@ -4,13 +4,19 @@
 이 계층은 기존 ``site.html``이 계산한 권역/구·군 중앙값 타일 DOM만 읽는다.
 새 금리 집계, source precedence, stable identity, DB 계약을 만들지 않는다.
 
-전국 지도는 기존 ``main_map_presentation``이 맡고, 이 모듈은 두 가지만 한다.
+presentation 책임은 세 가지다.
 
-1. 데스크톱에서 전국 지도 카드가 화면 폭 전체를 먹지 않게 읽기 폭을 제한한다.
-2. 부산 drill-down이 기존 16개 네모 타일에서 끝나지 않고, Strategy에서 이미
-   사용하는 SGIS 2020 부산 구·군 경계 geometry 위에 같은 중앙값을 표시한다.
+1. 전국 지도는 본토 + 제주 본섬 중심으로 군소 도서 subpath를 생략하고 viewBox를
+   다시 맞춰 비교용 지도를 더 크게 읽히게 한다.
+2. 데스크톱에서 세로형 전국 지도가 불필요하게 넓은 카드 폭을 차지하지 않게 한다.
+3. 부산 drill-down은 기존 16개 네모 타일 대신 Strategy에서 이미 사용하는
+   SGIS 2020 부산 구·군 경계 geometry 위에 같은 중앙값을 표시한다.
 
-부산 geometry는 Strategy **배포 산출물**에 의존하지 않는다. 저장소의
+전국 source SVG 자체는 수정하지 않는다. 브라우저에 인라인된 clone에서 각 시도의
+가장 큰 polygon subpath만 남기므로 울릉도·독도와 서해/동해 군소 도서는 검색 비교
+화면에서 생략되지만 제주특별자치도의 가장 큰 본섬은 유지된다.
+
+부산 geometry도 Strategy **배포 산출물**에 의존하지 않는다. 저장소의
 ``web/templates/strategy.html`` source에 있는 ``BUSAN_BOUNDARY_SVG``를 빌드 시
 추출해 메인 HTML ``template`` 안에 인라인한다. 따라서 Strategy Release Gate를
 켜거나 ``assets/``를 공개하지 않아도 검색 화면이 독립적으로 동작한다.
@@ -27,19 +33,27 @@ BUSAN_TEMPLATE_ID = "main-busan-map-svg"
 
 _STYLE = r"""
 <style data-main-map-drilldown-refinement="1">
-  /* Desktop: 지도는 비교 도구이지 전체 폭 hero가 아니다. */
+  /* Desktop: 세로형 전국 지도는 본토+제주 중심의 읽기 폭만 사용한다. */
   .charts .card.wide.global {
     width: 100%;
     max-width: 980px;
     margin-inline: auto;
   }
+  .charts .card.wide.global.main-national-map-card {
+    max-width: 640px;
+  }
   .main-map-shell,
   .main-busan-map-shell {
     display: grid;
-    grid-template-columns: minmax(0, 700px) minmax(190px, 220px) !important;
     justify-content: center;
     gap: 12px !important;
     align-items: stretch;
+  }
+  .main-map-shell {
+    grid-template-columns: minmax(0, 380px) minmax(190px, 220px) !important;
+  }
+  .main-busan-map-shell {
+    grid-template-columns: minmax(0, 700px) minmax(190px, 220px) !important;
   }
   .main-map-stage {
     min-height: 410px !important;
@@ -144,7 +158,8 @@ _STYLE = r"""
   .main-busan-hint { color: var(--ink-3); font-size: 9.5px; line-height: 1.45; }
 
   @media (max-width: 1000px) {
-    .charts .card.wide.global { max-width: none; }
+    .charts .card.wide.global,
+    .charts .card.wide.global.main-national-map-card { max-width: none; }
     .main-map-shell,
     .main-busan-map-shell { grid-template-columns: 1fr !important; }
     .main-busan-side {
@@ -170,7 +185,8 @@ _STYLE = r"""
     .main-busan-side { padding: 11px; }
   }
   @media print {
-    .charts .card.wide.global { max-width: none; }
+    .charts .card.wide.global,
+    .charts .card.wide.global.main-national-map-card { max-width: none; }
     .main-busan-stage, .main-busan-side { box-shadow: none !important; }
   }
 </style>
@@ -191,6 +207,7 @@ _SCRIPT = r"""
     "수영구": [54,4,"start"],
     "동구": [38,-18,"start"],
     "중구": [42,18,"start"],
+    "사하구": [-40,0,"end"],
     "서구": [-44,22,"end"]
   };
   const cleanName = (text) => String(text || "").replace(/\s*▾\s*$/, "").trim();
@@ -214,6 +231,58 @@ _SCRIPT = r"""
     const a = [247,235,242], b = [183,65,116];
     const rgb = a.map((v, i) => Math.round(v + (b[i] - v) * p));
     return `rgb(${rgb.join(",")})`;
+  };
+
+  const subpathArea = (part) => {
+    const nums = String(part || "").match(/[-+]?(?:\d*\.)?\d+(?:e[-+]?\d+)?/gi) || [];
+    if (nums.length < 4) return 0;
+    const xs = [], ys = [];
+    for (let i = 0; i + 1 < nums.length; i += 2) {
+      xs.push(Number(nums[i]));
+      ys.push(Number(nums[i + 1]));
+    }
+    if (!xs.length || !ys.length) return 0;
+    return (Math.max(...xs) - Math.min(...xs)) * (Math.max(...ys) - Math.min(...ys));
+  };
+
+  const keepLargestSubpath = (path) => {
+    const d = path.getAttribute("d") || "";
+    const parts = d.match(/M[^M]+/g) || [];
+    if (parts.length <= 1) return 0;
+    const largest = parts.slice().sort((a,b) => subpathArea(b) - subpathArea(a))[0];
+    if (largest) path.setAttribute("d", largest.trim());
+    return Math.max(0, parts.length - 1);
+  };
+
+  const refineNational = () => {
+    const title = document.getElementById("reg-title")?.textContent || "";
+    const card = reg.closest(".card.wide.global");
+    if (title.includes("부산 구·군별")) {
+      card?.classList.remove("main-national-map-card");
+      return;
+    }
+    const svg = reg.querySelector(":scope .main-map-stage svg");
+    if (!svg) return;
+    card?.classList.add("main-national-map-card");
+    reg.classList.remove("main-busan-map");
+    if (svg.dataset.mainlandJejuCrop === "1") return;
+
+    let omitted = 0;
+    const paths = [...svg.querySelectorAll("#전국_시도_경계 path[id]")];
+    for (const path of paths) omitted += keepLargestSubpath(path);
+
+    const boxes = paths.map((path) => path.getBBox()).filter((box) => box.width > 0 && box.height > 0);
+    if (boxes.length) {
+      const x1 = Math.min(...boxes.map((box) => box.x));
+      const y1 = Math.min(...boxes.map((box) => box.y));
+      const x2 = Math.max(...boxes.map((box) => box.x + box.width));
+      const y2 = Math.max(...boxes.map((box) => box.y + box.height));
+      const padX = 14, padY = 10;
+      svg.setAttribute("viewBox", `${(x1-padX).toFixed(1)} ${(y1-padY).toFixed(1)} ${(x2-x1+padX*2).toFixed(1)} ${(y2-y1+padY*2).toFixed(1)}`);
+      svg.setAttribute("preserveAspectRatio", "xMidYMid meet");
+    }
+    svg.dataset.mainlandJejuCrop = "1";
+    svg.dataset.omittedIslandSubpaths = String(omitted);
   };
 
   const renderSide = (side, data, all) => {
@@ -251,6 +320,7 @@ _SCRIPT = r"""
     if (rendering) return;
     const title = document.getElementById("reg-title")?.textContent || "";
     if (!title.includes("부산 구·군별")) return;
+    reg.closest(".card.wide.global")?.classList.remove("main-national-map-card");
     if (reg.querySelector(":scope > .main-busan-map-shell")) return;
 
     const all = tileData();
@@ -349,8 +419,14 @@ _SCRIPT = r"""
     renderSide(side, selected, all);
   };
 
-  new MutationObserver(() => queueMicrotask(transformBusan)).observe(reg, { childList: true });
-  queueMicrotask(transformBusan);
+  const syncMaps = () => {
+    queueMicrotask(() => {
+      refineNational();
+      transformBusan();
+    });
+  };
+  new MutationObserver(syncMaps).observe(reg, { childList: true });
+  syncMaps();
 })();
 </script>
 """.strip()
@@ -371,7 +447,7 @@ def _extract_busan_boundary(strategy_template_text: str) -> str:
 
 
 def inject_main_map_drilldown_refinement(html: str, strategy_template_text: str) -> str:
-    """검색 화면에 compact 전국 지도 폭 + 부산 16구·군 SVG drill-down을 주입한다."""
+    """검색 화면에 전국 compact/crop + 부산 16구·군 SVG drill-down을 주입한다."""
     if MAIN_MAP_DRILLDOWN_MARKER in html:
         return html
     if "</head>" not in html:
