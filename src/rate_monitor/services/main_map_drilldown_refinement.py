@@ -4,12 +4,14 @@
 이 계층은 기존 ``site.html``이 계산한 권역/구·군 중앙값 타일 DOM만 읽는다.
 새 금리 집계, source precedence, stable identity, DB 계약을 만들지 않는다.
 
-presentation 책임은 세 가지다.
+presentation 책임은 네 가지다.
 
 1. 전국 지도는 본토 + 제주 본섬 중심으로 군소 도서 subpath를 생략하고 viewBox를
    다시 맞춰 비교용 지도를 더 크게 읽히게 한다.
-2. 데스크톱에서 세로형 전국 지도가 불필요하게 넓은 카드 폭을 차지하지 않게 한다.
-3. 부산 drill-down은 기존 16개 네모 타일 대신 Strategy에서 이미 사용하는
+2. 데스크톱에서 세로형 전국 지도가 불필요하게 넓은 카드 폭을 차지하지 않되,
+   100% 브라우저 배율에서 너무 작아지지 않도록 적정 읽기 크기를 유지한다.
+3. 제주 등 하단 권역 tooltip이 지도 stage 밖으로 잘리지 않도록 flip + clamp한다.
+4. 부산 drill-down은 기존 16개 네모 타일 대신 Strategy에서 이미 사용하는
    SGIS 2020 부산 구·군 경계 geometry 위에 같은 중앙값을 표시한다.
 
 전국 source SVG 자체는 수정하지 않는다. 브라우저에 인라인된 clone에서 각 시도의
@@ -33,14 +35,14 @@ BUSAN_TEMPLATE_ID = "main-busan-map-svg"
 
 _STYLE = r"""
 <style data-main-map-drilldown-refinement="1">
-  /* Desktop: 세로형 전국 지도는 본토+제주 중심의 읽기 폭만 사용한다. */
+  /* Desktop: 본토+제주 crop은 유지하되 100% zoom에서 한 단계 크게 읽힌다. */
   .charts .card.wide.global {
     width: 100%;
     max-width: 980px;
     margin-inline: auto;
   }
   .charts .card.wide.global.main-national-map-card {
-    max-width: 640px;
+    max-width: 740px;
   }
   .main-map-shell,
   .main-busan-map-shell {
@@ -50,16 +52,16 @@ _STYLE = r"""
     align-items: stretch;
   }
   .main-map-shell {
-    grid-template-columns: minmax(0, 380px) minmax(190px, 220px) !important;
+    grid-template-columns: minmax(0, 460px) minmax(190px, 220px) !important;
   }
   .main-busan-map-shell {
     grid-template-columns: minmax(0, 700px) minmax(190px, 220px) !important;
   }
   .main-map-stage {
-    min-height: 410px !important;
+    min-height: 460px !important;
   }
   .main-map-stage svg {
-    max-height: 430px !important;
+    max-height: 490px !important;
   }
 
   .main-busan-stage {
@@ -171,7 +173,7 @@ _STYLE = r"""
     .main-busan-hint { grid-column: 1 / -1; }
   }
   @media (max-width: 760px) {
-    .main-map-stage { min-height: 350px !important; }
+    .main-map-stage { min-height: 390px !important; }
     .main-busan-stage { min-height: 390px; }
     .main-busan-stage svg { padding: 5px; }
     .main-busan-label-name { font-size: 20px; stroke-width: 6px; }
@@ -254,6 +256,41 @@ _SCRIPT = r"""
     return Math.max(0, parts.length - 1);
   };
 
+  const fitNationalTooltip = (stage) => {
+    requestAnimationFrame(() => {
+      const tip = stage?.querySelector(".main-map-tooltip");
+      if (!tip || tip.hidden) return;
+      const width = tip.offsetWidth, height = tip.offsetHeight;
+      const sw = stage.clientWidth, sh = stage.clientHeight;
+      if (!width || !height || !sw || !sh) return;
+      const rawLeft = Number.parseFloat(tip.style.left || "50");
+      const rawTop = Number.parseFloat(tip.style.top || "50");
+      let left = tip.style.left.endsWith("%") ? sw * rawLeft / 100 : rawLeft;
+      let top = tip.style.top.endsWith("%") ? sh * rawTop / 100 : rawTop;
+      const pad = 8;
+      const offset = 10;
+      left += offset;
+      top += offset;
+      if (top + height > sh - pad) top = top - height - offset * 2;
+      left = Math.max(pad, Math.min(left, sw - width - pad));
+      top = Math.max(pad, Math.min(top, sh - height - pad));
+      tip.style.left = `${left.toFixed(1)}px`;
+      tip.style.top = `${top.toFixed(1)}px`;
+      tip.style.transform = "none";
+      tip.dataset.viewportFit = "1";
+    });
+  };
+
+  const bindNationalTooltipClamp = () => {
+    const stage = reg.querySelector(":scope .main-map-stage");
+    if (!stage || stage.dataset.tooltipClampBound === "1") return;
+    stage.dataset.tooltipClampBound = "1";
+    stage.querySelectorAll("svg path[data-region-key]").forEach((path) => {
+      path.addEventListener("mouseenter", () => fitNationalTooltip(stage));
+      path.addEventListener("focus", () => fitNationalTooltip(stage));
+    });
+  };
+
   const refineNational = () => {
     const title = document.getElementById("reg-title")?.textContent || "";
     const card = reg.closest(".card.wide.global");
@@ -265,6 +302,7 @@ _SCRIPT = r"""
     if (!svg) return;
     card?.classList.add("main-national-map-card");
     reg.classList.remove("main-busan-map");
+    bindNationalTooltipClamp();
     if (svg.dataset.mainlandJejuCrop === "1") return;
 
     let omitted = 0;

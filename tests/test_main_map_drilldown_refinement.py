@@ -36,7 +36,7 @@ def test_busan_geometry_extraction_fails_closed() -> None:
         _extract_busan_boundary("const BUSAN_BOUNDARY_SVG=`<g></g>`;")
 
 
-def test_refinement_injects_once_and_keeps_compact_desktop_map_contract() -> None:
+def test_refinement_injects_once_and_uses_larger_readable_national_map() -> None:
     html = '<html><head></head><body><div id="reg"></div></body></html>'
     strategy = STRATEGY_TEMPLATE.read_text(encoding="utf-8")
 
@@ -47,8 +47,10 @@ def test_refinement_injects_once_and_keeps_compact_desktop_map_contract() -> Non
     assert rendered.count(MAIN_MAP_DRILLDOWN_MARKER) == 3  # style + template + script
     assert f'id="{BUSAN_TEMPLATE_ID}"' in rendered
     assert "main-national-map-card" in rendered
-    assert "max-width: 640px" in rendered
-    assert "minmax(0, 380px)" in rendered
+    assert "max-width: 740px" in rendered
+    assert "minmax(0, 460px)" in rendered
+    assert "min-height: 460px" in rendered
+    assert "max-height: 490px" in rendered
     assert "minmax(0, 700px)" in rendered  # Busan remains wider
     assert "minmax(190px, 220px)" in rendered
     assert "@media (max-width: 1000px)" in rendered
@@ -68,6 +70,22 @@ def test_national_map_prunes_island_subpaths_and_refits_viewbox() -> None:
     assert '#전국_시도_경계 path[id]' in rendered
     assert 'svg.setAttribute("viewBox"' in rendered
     assert 'svg.setAttribute("preserveAspectRatio", "xMidYMid meet")' in rendered
+
+
+def test_national_tooltip_flips_and_clamps_inside_map_stage() -> None:
+    strategy = STRATEGY_TEMPLATE.read_text(encoding="utf-8")
+    rendered = inject_main_map_drilldown_refinement(
+        '<html><head></head><body><div id="reg"></div></body></html>',
+        strategy,
+    )
+
+    assert "fitNationalTooltip" in rendered
+    assert "bindNationalTooltipClamp" in rendered
+    assert 'stage?.querySelector(".main-map-tooltip")' in rendered
+    assert "top + height > sh - pad" in rendered
+    assert 'tip.dataset.viewportFit = "1"' in rendered
+    assert 'path.addEventListener("mouseenter"' in rendered
+    assert 'path.addEventListener("focus"' in rendered
 
 
 def test_busan_mode_is_transformed_from_existing_district_tiles_to_svg() -> None:
