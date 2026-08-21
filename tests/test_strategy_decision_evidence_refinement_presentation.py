@@ -65,7 +65,11 @@ def test_prediction_readability_formula_and_three_sensitivity_contracts_are_expl
     assert "function predictAll(" not in html
     assert "ensurePredictionBridge" not in html
     assert "const logistic=x=>" not in html
-    assert 'const result=window.predictInflow({baseline,maturity,rollover,ownRate,proposed,top10,term})' in html
+    predict_call = (
+        "const result=window.predictInflow({baseline,maturity,rollover,"
+        "ownRate,proposed,top10,term})"
+    )
+    assert predict_call in html
     assert "result.scenarios[s.key]" in html
 
     assert [scenario.label for scenario in SCENARIOS] == ["저민감", "기준", "고민감"]
