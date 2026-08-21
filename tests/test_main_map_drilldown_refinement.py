@@ -12,7 +12,13 @@ from rate_monitor.services.main_map_drilldown_refinement import (
 
 ROOT = Path(__file__).resolve().parents[1]
 STRATEGY_TEMPLATE = ROOT / "web" / "templates" / "strategy.html"
-DASHBOARD_UI = ROOT / "src" / "rate_monitor" / "services" / "dashboard_ui_refinement_presentation.py"
+DASHBOARD_UI = (
+    ROOT
+    / "src"
+    / "rate_monitor"
+    / "services"
+    / "dashboard_ui_refinement_presentation.py"
+)
 SITE_TEMPLATE = ROOT / "web" / "templates" / "site.html"
 
 
