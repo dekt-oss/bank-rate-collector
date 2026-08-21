@@ -4,9 +4,9 @@
 수신이 늘었다고 추정하지 않는다. 현재 수집 데이터에서 다음 사실만 계산한다.
 
 - 우대조건 정보가 실제로 얼마나 제공되는가
-- 표준화된 우대조건 카테고리 전체 출현건수 안에서 각 조건의 구성비가 얼마인가
 - 우대조건 보유 상품 중 해당 조건을 가진 상품 비중은 얼마인가
-- 상위 10% 금리 상품의 조건 구성이 시장 전체 조건 구성과 어떻게 다른가
+- 표준화된 우대조건 카테고리 전체 출현건수 안에서 각 조건의 구성비가 얼마인가
+- 상위 10% 금리 상품의 조건 침투율이 시장 전체와 어떻게 다른가
 - 선택된 상호금융 업권을 하나의 pooled market으로 보면 조건 구성이 어떤가
 - 고려저축은행 현재 상품의 우대조건 구성이 무엇인가
 
@@ -262,9 +262,14 @@ def _scope_for_sectors(
         top_share = top_count / top_occurrences if top_occurrences else None
         market_product_share = market_count / len(market_present) if market_present else None
         top_product_share = top_count / len(top_present) if top_present else None
-        lift_pp = (
+        composition_lift_pp = (
             (top_share - market_share) * 100
             if market_share is not None and top_share is not None
+            else None
+        )
+        product_lift_pp = (
+            (top_product_share - market_product_share) * 100
+            if market_product_share is not None and top_product_share is not None
             else None
         )
         categories.append(
@@ -283,20 +288,27 @@ def _scope_for_sectors(
                 "top_tier_product_share": (
                     round(top_product_share, 4) if top_product_share is not None else None
                 ),
-                "top_tier_lift_pp": round(lift_pp, 2) if lift_pp is not None else None,
+                "top_tier_lift_pp": (
+                    round(product_lift_pp, 2) if product_lift_pp is not None else None
+                ),
+                "top_tier_composition_lift_pp": (
+                    round(composition_lift_pp, 2)
+                    if composition_lift_pp is not None
+                    else None
+                ),
                 "is_other": code == OTHER,
             }
         )
     categories.sort(
         key=lambda item: (
             -(
-                item["top_tier_share"]
-                if item["top_tier_share"] is not None
+                item["top_tier_product_share"]
+                if item["top_tier_product_share"] is not None
                 else -1
             ),
             -(
-                item["market_share"]
-                if item["market_share"] is not None
+                item["market_product_share"]
+                if item["market_product_share"] is not None
                 else -1
             ),
             item["label"],
@@ -364,7 +376,7 @@ def _mutual_scope_key(sectors: tuple[str, ...]) -> str:
 
 def _mutual_scopes(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     scopes: list[dict[str, Any]] = []
-    for size in range(1, len(MUTUAL_SECTORS) + 1):
+    for size in range(2, len(MUTUAL_SECTORS) + 1):
         for selected in itertools.combinations(MUTUAL_SECTORS, size):
             key = _mutual_scope_key(selected)
             for term in TERMS:
@@ -405,10 +417,12 @@ def build_preference_intelligence(strategy_table: dict[str, Any]) -> dict[str, A
         ),
         "unit": "strategy_product_term_geography_representative",
         "top_tier_definition": "top_ceil_10pct_by_strategy_max_rate",
-        "category_denominator": "normalized_preference_category_occurrences_present_only",
-        "category_product_penetration_denominator": "preference_bearing_products_present_only",
+        "category_denominator": "preference_bearing_products_present_only",
+        "category_composition_denominator": (
+            "normalized_preference_category_occurrences_present_only"
+        ),
         "category_share_note": (
-            "category_occurrence_shares_sum_to_100pct; product_penetration_is_multi_label"
+            "product_penetration_is_multi_label; category_occurrence_shares_sum_to_100pct"
         ),
         "mutual_finance_scope_policy": "pooled_selected_mutual_sectors",
         "coverage_warning_threshold": LOW_COVERAGE_THRESHOLD,
