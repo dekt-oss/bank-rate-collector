@@ -56,6 +56,7 @@ async function assertDecisionIA(page, label) {
     const preference = document.getElementById("preference-intelligence");
     const hiddenLegacy = document.querySelector(".workspace-insights");
     const hiddenDetail = document.querySelector(".workspace-detail.primary");
+    const handoff = document.querySelector(".ux-region-handoff");
     return {
       order: [before(readiness, insight), before(insight, top5), before(top5, planning)],
       insightTitle: insight?.querySelector(".head h2")?.textContent.trim() || "",
@@ -64,6 +65,8 @@ async function assertDecisionIA(page, label) {
       productBeforePreference: before(productLabel, preference),
       legacyHidden: Boolean(hiddenLegacy?.hidden),
       detailHidden: Boolean(hiddenDetail?.hidden),
+      handoffVisible: Boolean(handoff && !handoff.hidden),
+      handoffHref: handoff?.querySelector("a")?.getAttribute("href") || "",
       scrollWidth: document.documentElement.scrollWidth,
       clientWidth: document.documentElement.clientWidth,
     };
@@ -73,6 +76,7 @@ async function assertDecisionIA(page, label) {
   invariant(!result.insightTags.includes("저축은행 시장 방향") && !result.insightTags.includes("당사 위치"), `${label}: duplicated decision insight remains=${result.insightTags}`);
   invariant(result.productTitle === "상품·우대조건 설계" && result.productBeforePreference, `${label}: product section label/order wrong`);
   invariant(result.legacyHidden && result.detailHidden, `${label}: duplicated legacy/detail shell not hidden`);
+  invariant(result.handoffVisible && result.handoffHref === "./", `${label}: Search 지역 상세 handoff가 유지되지 않음`);
   invariant(result.scrollWidth <= result.clientWidth + 1, `${label}: horizontal overflow ${result.scrollWidth} > ${result.clientWidth}`);
 }
 
@@ -118,20 +122,29 @@ async function assertPrediction(page, label) {
   await page.locator("#bonus-n").dispatchEvent("input");
   await page.waitForFunction(() => document.querySelectorAll(".decision-sensitivity-card").length === 3, null, { timeout: 10_000 });
 
-  const result = await page.evaluate(() => ({
-    labels: [...document.querySelectorAll(".decision-sensitivity-card .decision-sensitivity-title b")].map((x) => x.textContent.trim()),
-    totals: [...document.querySelectorAll(".decision-sensitivity-card .decision-sensitivity-total")].map((x) => x.textContent.trim()),
-    cards: [...document.querySelectorAll(".decision-sensitivity-card")].map((card) => ({
-      key: card.dataset.sensitivity,
-      text: card.textContent,
-    })),
-    rateResponseRows: document.querySelectorAll("#rate-response-body tbody tr").length,
-    rateResponseText: document.getElementById("rate-response-body")?.textContent || "",
-  }));
+  const result = await page.evaluate(() => {
+    const cards = [...document.querySelectorAll(".decision-sensitivity-card")];
+    const baseCard = document.querySelector('.decision-sensitivity-card[data-sensitivity="base"]');
+    const baseMetrics = [...(baseCard?.querySelectorAll(".decision-sensitivity-metrics div") || [])];
+    const plus10 = [...document.querySelectorAll("#rate-response-body tbody tr")].find((row) => row.querySelector(".scenario-name")?.textContent.trim() === "+10bp");
+    return {
+      labels: cards.map((card) => card.querySelector(".decision-sensitivity-title b")?.textContent.trim()),
+      totals: cards.map((card) => card.querySelector(".decision-sensitivity-total")?.textContent.trim()),
+      cards: cards.map((card) => ({ key: card.dataset.sensitivity, text: card.textContent })),
+      rateResponseRows: document.querySelectorAll("#rate-response-body tbody tr").length,
+      rateResponseText: document.getElementById("rate-response-body")?.textContent || "",
+      baseTotal: baseCard?.querySelector(".decision-sensitivity-total")?.textContent.trim() || "",
+      baseCost: baseMetrics.at(-1)?.querySelector("strong")?.textContent.trim() || "",
+      cockpitTotal: plus10?.children[4]?.textContent.trim() || "",
+      cockpitCost: plus10?.children[6]?.textContent.trim() || "",
+    };
+  });
   invariant(JSON.stringify(result.labels) === JSON.stringify(["저민감", "기준", "고민감"]), `${label}: sensitivity labels=${result.labels}`);
   invariant(new Set(result.totals).size >= 2, `${label}: sensitivity totals do not react to beta/gamma=${result.totals}`);
   invariant(result.cards.every((x) => x.text.includes("신규자금") && x.text.includes("재예치") && x.text.includes("현재 대비") && x.text.includes("추가 표면이자비용")), `${label}: sensitivity card metrics missing`);
   invariant(result.rateResponseRows >= 4 && !result.rateResponseText.includes("예측엔진 확인"), `${label}: rate response bridge did not feed existing comparison table`);
+  invariant(result.baseTotal && result.baseTotal === result.cockpitTotal, `${label}: 기준 민감도 총수신 불일치 card=${result.baseTotal} cockpit=${result.cockpitTotal}`);
+  invariant(result.baseCost && result.baseCost === result.cockpitCost, `${label}: 기준 민감도 비용 불일치 card=${result.baseCost} cockpit=${result.cockpitCost}`);
 }
 
 async function assertMarketEvidence(page, label) {
@@ -169,12 +182,14 @@ async function assertMarketEvidence(page, label) {
   if (result.breadth) {
     invariant(result.breadth.includes("인상") && result.breadth.includes("인하") && result.breadth.includes("이동없음") && result.breadth.includes("상위 10% 구성 교체율"), `${label}: participation counts/turnover missing=${result.breadth}`);
   }
-  invariant(result.changesOpen && result.changesText.includes("상품변경 이벤트") && result.changesText.includes("별도 지표"), `${label}: recent event panel not permanently open/basis missing`);
+  invariant(result.changesOpen && result.changesText.includes("상품변경 이벤트") && result.changesText.includes("별도 지표"), `${label}: recent event panel default-open/basis missing`);
 
   const details = page.locator("#market-flow details.changes");
-  await details.evaluate((node) => { node.open = false; node.dispatchEvent(new Event("toggle")); });
-  await page.waitForTimeout(50);
-  invariant(await details.evaluate((node) => node.open), `${label}: recent market events could be closed`);
+  await details.locator("summary").click();
+  await page.waitForTimeout(100);
+  invariant(!(await details.evaluate((node) => node.open)), `${label}: 사용자가 최근 시장 이벤트를 접을 수 없음`);
+  await page.waitForTimeout(100);
+  invariant(!(await details.evaluate((node) => node.open)), `${label}: 접은 최근 시장 이벤트가 자동으로 다시 열림`);
 }
 
 async function assertTrend(page, label) {
