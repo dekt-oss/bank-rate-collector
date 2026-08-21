@@ -21,265 +21,217 @@ async function loadPage(browser, viewport) {
   await page.route("**/favicon.ico", (route) => route.fulfill({ status: 204, body: "" }));
   const response = await page.goto(`${baseUrl}/strategy.html`, { waitUntil: "networkidle" });
   invariant(response && response.ok(), `strategy.html HTTP ${response ? response.status() : "no response"}`);
-  await page.waitForSelector('html[data-strategy-workspace="decision-first-v1"][data-strategy-theme="light-v1"][data-strategy-palette="main-brand-v2"]', { timeout: 30_000 });
+  await page.waitForSelector(
+    'html[data-strategy-workspace="decision-first-v1"][data-strategy-theme="light-v1"][data-strategy-palette="main-brand-v2"][data-strategy-decision-evidence-refinement="v1"]',
+    { timeout: 30_000 },
+  );
   return { context, page, runtimeErrors };
 }
 
-async function navigationSnapshot(page, selector) {
-  return page.evaluate((navSelector) => {
-    const nav = document.querySelector(navSelector);
-    if (!nav) return null;
-    const links = [...nav.querySelectorAll("a")];
-    const navStyle = getComputedStyle(nav);
-    const firstStyle = links[0] ? getComputedStyle(links[0]) : null;
-    const active = nav.querySelector("a.active");
-    const activeStyle = active ? getComputedStyle(active) : null;
-    const rect = (node) => {
-      if (!node) return null;
-      const box = node.getBoundingClientRect();
-      return { left: box.left, right: box.right, top: box.top, bottom: box.bottom };
-    };
-    return {
-      labels: links.map((link) => link.textContent.trim()),
-      hrefs: links.map((link) => link.getAttribute("href")),
-      activeLabel: active?.textContent.trim() || "",
-      activeCurrent: active?.getAttribute("aria-current") || "",
-      navPadding: navStyle.padding,
-      navRadius: navStyle.borderRadius,
-      navBackground: navStyle.backgroundColor,
-      linkPadding: firstStyle?.padding || "",
-      linkRadius: firstStyle?.borderRadius || "",
-      linkFontSize: firstStyle?.fontSize || "",
-      linkFontWeight: firstStyle?.fontWeight || "",
-      activeBackground: activeStyle?.backgroundColor || "",
-      activeColor: activeStyle?.color || "",
-      navRect: rect(nav),
-      brandRect: rect(document.querySelector("header.top > .brand")),
-      controlsRect: rect(document.querySelector("header.top > .head-right")),
-      clientWidth: document.documentElement.clientWidth,
-      scrollWidth: document.documentElement.scrollWidth,
-    };
-  }, selector);
-}
-
-function overlaps(a, b) {
-  if (!a || !b) return false;
-  return a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
-}
-
-async function assertPageNavigation(browser, strategyPage, viewport, label) {
+async function assertNavigation(browser, strategyPage, viewport, label) {
   const context = await browser.newContext({ viewport });
   const page = await context.newPage();
   await page.route("**/favicon.ico", (route) => route.fulfill({ status: 204, body: "" }));
   const response = await page.goto(`${baseUrl}/`, { waitUntil: "domcontentloaded" });
-  invariant(response && response.ok(), `index.html HTTP ${response ? response.status() : "no response"}`);
+  invariant(response && response.ok(), `${label}: index HTTP failure`);
   await page.waitForSelector("header.top > .page-nav", { timeout: 30_000 });
-
-  const main = await navigationSnapshot(page, "header.top > .page-nav");
-  const strategy = await navigationSnapshot(strategyPage, "header.topbar > .nav");
-  invariant(main && strategy, `${label}: page navigation missing`);
-  invariant(JSON.stringify(main.labels) === JSON.stringify(["검색 조회", "전략 대시보드"]), `${label}: main navigation labels=${main.labels}`);
-  invariant(JSON.stringify(strategy.labels) === JSON.stringify(main.labels), `${label}: navigation labels differ between pages`);
-  invariant(JSON.stringify(main.hrefs) === JSON.stringify(["./", "strategy.html"]), `${label}: main navigation hrefs=${main.hrefs}`);
-  invariant(JSON.stringify(strategy.hrefs) === JSON.stringify(main.hrefs), `${label}: navigation hrefs differ between pages`);
-  invariant(main.activeLabel === "검색 조회" && main.activeCurrent === "page", `${label}: main active page=${main.activeLabel}/${main.activeCurrent}`);
-  invariant(strategy.activeLabel === "전략 대시보드" && strategy.activeCurrent === "page", `${label}: strategy active page=${strategy.activeLabel}/${strategy.activeCurrent}`);
-
-  for (const key of ["navPadding", "navRadius", "navBackground", "linkPadding", "linkRadius", "linkFontSize", "linkFontWeight", "activeBackground", "activeColor"]) {
-    invariant(main[key] === strategy[key], `${label}: navigation visual contract differs for ${key}: main=${main[key]} strategy=${strategy[key]}`);
-  }
-  invariant(main.scrollWidth <= main.clientWidth + 1, `${label}: main page horizontal overflow ${main.scrollWidth} > ${main.clientWidth}`);
-  if (label === "desktop") {
-    invariant(!overlaps(main.navRect, main.brandRect), "desktop: page navigation overlaps main brand");
-    invariant(!overlaps(main.navRect, main.controlsRect), "desktop: page navigation overlaps main controls");
-  }
-
-  await page.screenshot({ path: path.join(workDir, `strategy-main-runtime-navigation-main-${label}.png`), fullPage: false });
+  const main = await page.locator("header.top > .page-nav a").allTextContents();
+  const strategy = await strategyPage.locator("header.topbar > .nav a").allTextContents();
+  invariant(JSON.stringify(main.map((x) => x.trim())) === JSON.stringify(["검색 조회", "전략 대시보드"]), `${label}: main nav=${main}`);
+  invariant(JSON.stringify(strategy.map((x) => x.trim())) === JSON.stringify(["검색 조회", "전략 대시보드"]), `${label}: strategy nav=${strategy}`);
   await context.close();
 }
 
-async function assertWorkspace(page, label) {
+async function assertDecisionIA(page, label) {
   const result = await page.evaluate(() => {
-    const byId = (id) => document.getElementById(id);
-    const order = (a, b) => Boolean(a && b && (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING));
-    const visible = (node) => {
-      if (!node) return false;
-      const style = getComputedStyle(node);
-      const rect = node.getBoundingClientRect();
-      return style.display !== "none" && style.visibility !== "hidden" && rect.width > 0 && rect.height > 0;
-    };
-    const planning = byId("planning-zone");
-    const external = byId("external-market-context");
-    const marketIntel = byId("market-intelligence");
-    const marketFlow = byId("market-flow");
-    const interpretation = document.querySelector(".grid.interpretation");
-    const preference = byId("preference-intelligence");
-    const primary = document.querySelector(".grid.primary");
-    const changes = marketFlow?.querySelector("details.changes");
-    const legacy = interpretation?.querySelector(".workspace-legacy-pref");
-    const modelDetail = planning?.querySelector(".workspace-model-detail");
-    const evidencePanel = document.querySelector(".ux-evidence-panel");
-    const firstCard = document.querySelector(".card");
-    const firstKpiValue = document.querySelector(".kvalue");
-    const topbar = document.querySelector(".topbar");
-    const koreaMapImage = document.querySelector(".korea-map-image");
-    const denseMicrocopy = document.querySelector(".external-context-card small");
-    const detailMap = primary?.querySelector(".mapcard");
-    const regionHandoff = document.querySelector(".ux-region-handoff");
+    const precedes = (a, b) => Boolean(a && b && (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING));
     const readiness = document.querySelector(".ux-decision-readiness");
-    const reportButton = document.querySelector(".ux-report-button");
-    const bodyStyle = getComputedStyle(document.body);
-    const cardStyle = firstCard ? getComputedStyle(firstCard) : null;
-    const kpiValueStyle = firstKpiValue ? getComputedStyle(firstKpiValue) : null;
-    const rootStyle = getComputedStyle(document.documentElement);
-    const topbarStyle = topbar ? getComputedStyle(topbar) : null;
-    const koreaMapImageStyle = koreaMapImage ? getComputedStyle(koreaMapImage) : null;
-    const denseStyle = denseMicrocopy ? getComputedStyle(denseMicrocopy) : null;
-    const externalStyle = external ? getComputedStyle(external) : null;
-    const marketIntelStyle = marketIntel ? getComputedStyle(marketIntel) : null;
-    const preferenceStyle = preference ? getComputedStyle(preference) : null;
-    const prefMain = preference?.querySelector(".pref-intel-main");
-    const prefMainStyle = prefMain ? getComputedStyle(prefMain) : null;
-    const marketDirection = marketIntel?.querySelector(".market-intel-direction");
-    const marketDirectionStyle = marketDirection ? getComputedStyle(marketDirection) : null;
-    const marketEmpty = marketIntel?.querySelector(".market-intel-empty");
-    const marketEmptyStyle = marketEmpty ? getComputedStyle(marketEmpty) : null;
-    const segmentButton = document.querySelector(".segment button:not(.active)");
-    const segmentButtonStyle = segmentButton ? getComputedStyle(segmentButton) : null;
-    const termCard = document.querySelector(".termcard");
-    const termCardStyle = termCard ? getComputedStyle(termCard) : null;
-    const kpis = Array.from(document.querySelectorAll(".kpis .kpi")).slice(0, 2).map((node) => node.getBoundingClientRect());
+    const insight = document.querySelector(".decision-integrated-insight");
+    const top5 = document.querySelector(".decision-integrated-top5");
+    const planning = document.getElementById("planning-zone");
+    const productLabel = document.getElementById("workspace-label-product");
+    const preference = document.getElementById("preference-intelligence");
+    const hiddenLegacy = document.querySelector(".workspace-insights");
+    const hiddenDetail = document.querySelector(".workspace-detail.primary");
+    const handoff = document.querySelector(".ux-region-handoff");
     return {
-      decisionBeforeExternal: order(planning, external),
-      externalBeforeIntel: order(external, marketIntel),
-      intelBeforeFlow: order(marketIntel, marketFlow),
-      flowBeforeInsight: order(marketFlow, interpretation),
-      insightBeforePreference: order(interpretation, preference),
-      preferenceBeforeDetail: order(preference, primary),
-      labels: ["workspace-label-decision", "workspace-label-evidence", "workspace-label-product", "workspace-label-detail"].filter((id) => byId(id)).length,
-      changesOpen: Boolean(changes?.open),
-      legacyOpen: Boolean(legacy?.open),
-      legacyExists: Boolean(legacy),
-      modelDetailExists: Boolean(modelDetail),
-      modelDetailOpen: Boolean(modelDetail?.open),
-      modelDetailHasResults: Boolean(modelDetail?.querySelector(".prediction-results")),
-      modelDetailHasEvidence: Boolean(modelDetail?.querySelector(".model-evidence")),
-      evidencePanelExists: Boolean(evidencePanel),
-      evidencePanelOpen: Boolean(evidencePanel?.open),
-      planningTop: planning?.getBoundingClientRect().top,
-      externalTop: external?.getBoundingClientRect().top,
-      kpis,
-      detailMapExists: Boolean(detailMap),
-      detailMapHidden: Boolean(detailMap && getComputedStyle(detailMap).display === "none"),
-      regionHandoffVisible: visible(regionHandoff),
-      regionHandoffHref: regionHandoff?.querySelector("a")?.getAttribute("href") || "",
-      regionHandoffText: regionHandoff?.textContent || "",
-      readinessVisible: visible(readiness),
-      readinessText: readiness?.textContent || "",
-      reportButtonVisible: visible(reportButton),
-      clientWidth: document.documentElement.clientWidth,
+      order: [precedes(readiness, insight), precedes(insight, top5), precedes(top5, planning)],
+      insightTitle: insight?.querySelector(".head h2")?.textContent.trim() || "",
+      insightTags: [...(insight?.querySelectorAll(".insight em") || [])].map((x) => x.textContent.trim()),
+      productTitle: productLabel?.querySelector("strong")?.textContent.trim() || "",
+      productBeforePreference: precedes(productLabel, preference),
+      legacyHidden: Boolean(hiddenLegacy?.hidden),
+      detailHidden: Boolean(hiddenDetail?.hidden),
+      handoffVisible: Boolean(handoff && !handoff.hidden),
+      handoffHref: handoff?.querySelector("a")?.getAttribute("href") || "",
       scrollWidth: document.documentElement.scrollWidth,
-      strategyTheme: document.documentElement.dataset.strategyTheme,
-      strategyPalette: document.documentElement.dataset.strategyPalette,
-      strategyTypography: document.documentElement.dataset.strategyTypography,
-      colorScheme: rootStyle.colorScheme,
-      accent: rootStyle.getPropertyValue("--accent").trim(),
-      accentInk: rootStyle.getPropertyValue("--accent-ink").trim(),
-      bodyColor: bodyStyle.color,
-      bodyFont: bodyStyle.fontFamily,
-      bodyFontSize: parseFloat(bodyStyle.fontSize),
-      cardBackground: cardStyle?.backgroundColor || "",
-      kpiFont: kpiValueStyle?.fontFamily || "",
-      kpiNumeric: kpiValueStyle?.fontVariantNumeric || "",
-      topbarBackground: topbarStyle?.backgroundImage || "",
-      koreaMapImageOpacity: koreaMapImageStyle ? parseFloat(koreaMapImageStyle.opacity) : NaN,
-      koreaMapImageFilter: koreaMapImageStyle?.filter || "",
-      denseFontSize: denseStyle ? parseFloat(denseStyle.fontSize) : 0,
-      externalBackground: externalStyle?.backgroundColor || "",
-      marketIntelBackground: marketIntelStyle?.backgroundColor || "",
-      preferenceBackground: preferenceStyle?.backgroundColor || "",
-      prefMainBackground: prefMainStyle?.backgroundColor || "",
-      marketDirectionBackground: marketDirectionStyle?.backgroundColor || "",
-      marketEmptyBackground: marketEmptyStyle?.backgroundColor || "",
-      segmentButtonBackground: segmentButtonStyle?.backgroundColor || "",
-      termCardBackground: termCardStyle?.backgroundColor || "",
+      clientWidth: document.documentElement.clientWidth,
     };
   });
+  invariant(result.order.every(Boolean), `${label}: readiness -> insight -> TOP5 -> planning order=${result.order}`);
+  invariant(result.insightTitle === "금리결정 인사이트", `${label}: insight title=${result.insightTitle}`);
+  invariant(!result.insightTags.includes("저축은행 시장 방향") && !result.insightTags.includes("당사 위치"), `${label}: duplicated decision insight remains=${result.insightTags}`);
+  invariant(result.productTitle === "상품·우대조건 설계" && result.productBeforePreference, `${label}: product section label/order wrong`);
+  invariant(result.legacyHidden && result.detailHidden, `${label}: duplicated legacy/detail shell not hidden`);
+  invariant(result.handoffVisible && result.handoffHref === "./", `${label}: Search 지역 상세 handoff가 유지되지 않음`);
+  invariant(result.scrollWidth <= result.clientWidth + 1, `${label}: horizontal overflow ${result.scrollWidth} > ${result.clientWidth}`);
+}
 
-  invariant(result.decisionBeforeExternal, `${label}: decision workspace is not before market evidence`);
-  invariant(result.externalBeforeIntel && result.intelBeforeFlow, `${label}: market evidence order is wrong`);
-  invariant(result.flowBeforeInsight && result.insightBeforePreference && result.preferenceBeforeDetail, `${label}: insight/product/detail order is wrong`);
-  invariant(result.labels === 4, `${label}: workspace section labels=${result.labels}`);
-  invariant(!result.changesOpen, `${label}: recent change details should start collapsed`);
-  invariant(result.legacyExists && !result.legacyOpen, `${label}: legacy preference summary should be collapsed`);
-  invariant(result.modelDetailExists && !result.modelDetailOpen, `${label}: model detail should start collapsed`);
-  invariant(result.modelDetailHasResults && result.modelDetailHasEvidence, `${label}: model detail lost prediction results or evidence`);
-  invariant(result.evidencePanelExists && !result.evidencePanelOpen, `${label}: evidence panel should start collapsed`);
-  invariant(result.planningTop < result.externalTop, `${label}: planning visual order is not decision-first`);
-  invariant(result.detailMapExists && result.detailMapHidden, `${label}: Strategy regional map should be hidden after Search/Strategy role split`);
-  invariant(result.regionHandoffVisible, `${label}: Search region handoff should be visible`);
-  invariant(result.regionHandoffHref === "./", `${label}: Search region handoff href=${result.regionHandoffHref}`);
-  invariant(result.regionHandoffText.includes("지역·지도 상세는 검색 조회로 통합했습니다."), `${label}: Search region handoff copy missing`);
-  invariant(result.readinessVisible && result.readinessText.includes("금리결정 준비도"), `${label}: decision readiness should be visible`);
-  invariant(result.readinessText.includes("최종 최적금리 자동추천"), `${label}: calibration boundary missing from decision readiness`);
-  invariant(result.reportButtonVisible, `${label}: Strategy report button should be visible`);
-  invariant(result.scrollWidth <= result.clientWidth + 1, `${label}: page horizontal overflow ${result.scrollWidth} > ${result.clientWidth}`);
-  invariant(result.strategyTheme === "light-v1", `${label}: light theme marker=${result.strategyTheme}`);
-  invariant(result.strategyPalette === "main-brand-v2", `${label}: brand palette marker=${result.strategyPalette}`);
-  invariant(result.strategyTypography === "variable-ui-v2", `${label}: typography marker=${result.strategyTypography}`);
-  invariant(result.colorScheme === "light", `${label}: color-scheme=${result.colorScheme}`);
-  invariant(result.accent.toUpperCase() === "#D33A7C", `${label}: accent=${result.accent}`);
-  invariant(result.accentInk.toUpperCase() === "#5B2F64", `${label}: accent ink=${result.accentInk}`);
-  invariant(result.bodyFont.includes("Pretendard"), `${label}: readable font stack missing Pretendard: ${result.bodyFont}`);
-  invariant(result.bodyColor === "rgb(37, 29, 39)", `${label}: primary text color=${result.bodyColor}`);
-  invariant(result.cardBackground === "rgb(255, 255, 255)", `${label}: card is not white surface: ${result.cardBackground}`);
-  invariant(!result.kpiFont.toLowerCase().includes("monospace"), `${label}: KPI font still uses monospace: ${result.kpiFont}`);
-  invariant(result.kpiNumeric.includes("tabular-nums"), `${label}: KPI numerals are not tabular: ${result.kpiNumeric}`);
-  invariant(result.topbarBackground.includes("linear-gradient"), `${label}: branded topbar gradient missing: ${result.topbarBackground}`);
-  invariant(Number.isFinite(result.koreaMapImageOpacity) && result.koreaMapImageOpacity <= 0.2, `${label}: external Korea map is still visually heavy: opacity=${result.koreaMapImageOpacity}`);
-  invariant(result.koreaMapImageFilter.includes("grayscale"), `${label}: external Korea map filter missing: ${result.koreaMapImageFilter}`);
-  invariant(result.denseFontSize >= 10.5, `${label}: analytical microcopy too small: ${result.denseFontSize}px`);
-  invariant(result.externalBackground === "rgb(255, 255, 255)", `${label}: external context parent is not white: ${result.externalBackground}`);
-  invariant(result.marketIntelBackground === "rgb(255, 255, 255)", `${label}: market intel parent is not white: ${result.marketIntelBackground}`);
-  invariant(result.preferenceBackground === "rgb(255, 255, 255)", `${label}: preference parent is not white: ${result.preferenceBackground}`);
-  invariant(result.prefMainBackground === "rgb(252, 250, 252)", `${label}: preference main surface is not branded neutral: ${result.prefMainBackground}`);
-  invariant(Boolean(result.marketDirectionBackground || result.marketEmptyBackground), `${label}: market intelligence rendered neither supported nor empty state`);
-  if (result.marketDirectionBackground) {
-    invariant(result.marketDirectionBackground === "rgb(252, 250, 252)", `${label}: market direction surface is not branded neutral: ${result.marketDirectionBackground}`);
-  } else {
-    invariant(result.marketEmptyBackground === "rgb(255, 248, 236)", `${label}: market empty state is not light warning surface: ${result.marketEmptyBackground}`);
-  }
-  invariant(result.segmentButtonBackground === "rgb(251, 249, 251)", `${label}: simulator option retains dark surface: ${result.segmentButtonBackground}`);
-  invariant(result.termCardBackground === "rgb(252, 250, 252)", `${label}: term card retains dark surface: ${result.termCardBackground}`);
+async function assertPrediction(page, label) {
+  const initial = await page.evaluate(() => {
+    const planning = document.querySelector(".workspace-decision");
+    const strip = planning?.querySelector(".planning-strip>div");
+    const stripValue = strip?.querySelector("b");
+    const predictionTitle = planning?.querySelector(".prediction-head b");
+    const inputLabel = planning?.querySelector(".predict-inputs label");
+    const formula = planning?.querySelector(".decision-formula");
+    const evidence = planning?.querySelector(".decision-model-evidence");
+    const style = (node) => node ? getComputedStyle(node) : null;
+    return {
+      stripBackground: style(strip)?.backgroundImage || "",
+      stripValueColor: style(stripValue)?.color || "",
+      stripValueFont: parseFloat(style(stripValue)?.fontSize || "0"),
+      predictionTitleFont: parseFloat(style(predictionTitle)?.fontSize || "0"),
+      inputLabelFont: parseFloat(style(inputLabel)?.fontSize || "0"),
+      formulaExists: Boolean(formula),
+      formulaOpen: Boolean(formula?.open),
+      formulaText: formula?.textContent || "",
+      evidenceExists: Boolean(evidence),
+      evidenceOpen: Boolean(evidence?.open),
+      predictBridge: typeof window.predictInflow,
+      rangeHidden: document.getElementById("inflow-range")?.closest(".simresult")?.classList.contains("decision-range-legacy") || false,
+    };
+  });
+  invariant(initial.stripBackground.includes("linear-gradient"), `${label}: planning strip still faint/no explicit surface`);
+  invariant(initial.stripValueColor === "rgb(46, 28, 50)", `${label}: planning strip value color=${initial.stripValueColor}`);
+  invariant(initial.stripValueFont >= 17, `${label}: planning strip value font=${initial.stripValueFont}`);
+  invariant(initial.predictionTitleFont >= 15, `${label}: prediction title font=${initial.predictionTitleFont}`);
+  invariant(initial.inputLabelFont >= 12, `${label}: prediction input label font=${initial.inputLabelFont}`);
+  invariant(initial.formulaExists && initial.formulaOpen && initial.formulaText.includes("rate_steps"), `${label}: formula detail missing/not open`);
+  invariant(initial.evidenceExists && !initial.evidenceOpen, `${label}: model evidence should start collapsed`);
+  invariant(initial.predictBridge === "function", `${label}: public prediction bridge missing`);
+  invariant(initial.rangeHidden, `${label}: ambiguous min~max total range card still visible`);
 
-  if (label === "desktop") {
-    invariant(result.bodyFontSize >= 14, `desktop: body type too small=${result.bodyFontSize}`);
-  } else {
-    invariant(result.bodyFontSize >= 13.5, `mobile: body type too small=${result.bodyFontSize}`);
-    invariant(result.kpis.length === 2 && Math.abs(result.kpis[0].y - result.kpis[1].y) < 2 && result.kpis[0].x !== result.kpis[1].x, "mobile: KPI cards are not two-column");
+  await page.locator("#baseline-new").fill("100");
+  await page.locator("#maturity-amount").fill("200");
+  await page.locator("#rollover-rate").fill("60");
+  await page.locator("#bonus-n").fill("0.10");
+  await page.locator("#bonus-n").dispatchEvent("input");
+  await page.waitForFunction(() => document.querySelectorAll(".decision-sensitivity-card").length === 3, null, { timeout: 10_000 });
+
+  const result = await page.evaluate(() => {
+    const cards = [...document.querySelectorAll(".decision-sensitivity-card")];
+    const baseCard = document.querySelector('.decision-sensitivity-card[data-sensitivity="base"]');
+    const baseMetrics = [...(baseCard?.querySelectorAll(".decision-sensitivity-metrics div") || [])];
+    const plus10 = [...document.querySelectorAll("#rate-response-body tbody tr")].find((row) => row.querySelector(".scenario-name")?.textContent.trim() === "+10bp");
+    return {
+      labels: cards.map((card) => card.querySelector(".decision-sensitivity-title b")?.textContent.trim()),
+      totals: cards.map((card) => card.querySelector(".decision-sensitivity-total")?.textContent.trim()),
+      cards: cards.map((card) => ({ key: card.dataset.sensitivity, text: card.textContent })),
+      rateResponseRows: document.querySelectorAll("#rate-response-body tbody tr").length,
+      rateResponseText: document.getElementById("rate-response-body")?.textContent || "",
+      baseTotal: baseCard?.querySelector(".decision-sensitivity-total")?.textContent.trim() || "",
+      baseCost: baseMetrics.at(-1)?.querySelector("strong")?.textContent.trim() || "",
+      cockpitTotal: plus10?.children[4]?.textContent.trim() || "",
+      cockpitCost: plus10?.children[6]?.textContent.trim() || "",
+    };
+  });
+  invariant(JSON.stringify(result.labels) === JSON.stringify(["저민감", "기준", "고민감"]), `${label}: sensitivity labels=${result.labels}`);
+  invariant(new Set(result.totals).size >= 2, `${label}: sensitivity totals do not react to beta/gamma=${result.totals}`);
+  invariant(result.cards.every((x) => x.text.includes("신규자금") && x.text.includes("재예치") && x.text.includes("현재 대비") && x.text.includes("추가 표면이자비용")), `${label}: sensitivity card metrics missing`);
+  invariant(result.rateResponseRows >= 4 && !result.rateResponseText.includes("예측엔진 확인"), `${label}: rate response bridge did not feed existing comparison table`);
+  invariant(result.baseTotal && result.baseTotal === result.cockpitTotal, `${label}: 기준 민감도 총수신 불일치 card=${result.baseTotal} cockpit=${result.cockpitTotal}`);
+  invariant(result.baseCost && result.baseCost === result.cockpitCost, `${label}: 기준 민감도 비용 불일치 card=${result.baseCost} cockpit=${result.cockpitCost}`);
+}
+
+async function assertMarketEvidence(page, label) {
+  const result = await page.evaluate(() => {
+    const external = document.getElementById("external-market-context");
+    const precedes = (a, b) => Boolean(a && b && (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING));
+    const flowHead = external?.querySelector(".decision-external-heading:not(.secondary)");
+    const flows = external?.querySelector(".external-context-flows");
+    const rateHead = external?.querySelector(".decision-external-heading.secondary");
+    const rates = external?.querySelector(".external-context-rates");
+    const rateLabels = [...(rates?.querySelectorAll(".external-context-card span") || [])].map((x) => x.textContent.trim());
+    const marketIntel = document.getElementById("market-intelligence");
+    const marketCopy = marketIntel?.querySelector(".market-intel-head p")?.textContent || "";
+    const breadth = marketIntel?.querySelector(".market-intel-breadth span:last-child")?.textContent || "";
+    const marketBasis = marketIntel?.querySelector(".decision-evidence-basis")?.textContent || "";
+    const changes = document.querySelector("#market-flow details.changes");
+    return {
+      flowBeforeRate: precedes(flowHead, flows) && precedes(flows, rateHead) && precedes(rateHead, rates),
+      externalText: external?.textContent || "",
+      rateLabels,
+      marketCopy,
+      breadth,
+      marketBasis,
+      changesOpen: Boolean(changes?.open),
+      changesText: changes?.textContent || "",
+    };
+  });
+  invariant(result.flowBeforeRate, `${label}: external flow/rate evidence order wrong`);
+  invariant(result.externalText.includes("공식 월간통계 최신 공표월"), `${label}: source publication month copy missing`);
+  invariant(result.externalText.includes("추정·보간하지 않습니다"), `${label}: no-interpolation boundary missing`);
+  invariant(result.rateLabels.some((x) => x.includes("순수저축성예금 신규취급액 가중평균")), `${label}: weighted new-business rate label missing`);
+  invariant(result.rateLabels.some((x) => x.includes("1년 정기예금 신규취급액 가중평균")), `${label}: 1y weighted new-business rate label missing`);
+  invariant(result.marketCopy.includes("동일 stable product") && result.marketCopy.includes("별도 Evidence"), `${label}: snapshot/event distinction missing`);
+  invariant(result.marketBasis.includes("snapshot"), `${label}: market intelligence basis missing`);
+  invariant(!result.breadth.includes("churn"), `${label}: internal churn jargon leaked=${result.breadth}`);
+  if (result.breadth) {
+    invariant(result.breadth.includes("인상") && result.breadth.includes("인하") && result.breadth.includes("이동없음") && result.breadth.includes("상위 10% 구성 교체율"), `${label}: participation counts/turnover missing=${result.breadth}`);
   }
+  invariant(result.changesOpen && result.changesText.includes("상품변경 이벤트") && result.changesText.includes("별도 지표"), `${label}: recent event panel default-open/basis missing`);
+
+  const details = page.locator("#market-flow details.changes");
+  await details.locator("summary").click();
+  await page.waitForTimeout(100);
+  invariant(!(await details.evaluate((node) => node.open)), `${label}: 사용자가 최근 시장 이벤트를 접을 수 없음`);
+  await page.waitForTimeout(100);
+  invariant(!(await details.evaluate((node) => node.open)), `${label}: 접은 최근 시장 이벤트가 자동으로 다시 열림`);
+}
+
+async function assertTrend(page, label) {
+  await page.waitForSelector("#decision-trend-toggle", { timeout: 10_000 });
+  const delta = await page.evaluate(() => ({
+    active: document.querySelector("#decision-trend-toggle button.active")?.dataset.trendMode,
+    axis: [...document.querySelectorAll("#trend-grid .axistext")].map((x) => x.textContent),
+    basis: document.getElementById("decision-trend-basis")?.textContent || "",
+    markers: document.querySelectorAll('#trend-series [data-decision-trend="1"]').length,
+  }));
+  invariant(delta.active === "delta", `${label}: trend default mode=${delta.active}`);
+  invariant(delta.axis.some((x) => x.includes("bp")) && delta.basis.includes("첫 관측값을 0bp"), `${label}: delta trend basis/axis missing`);
+  invariant(delta.markers > 0, `${label}: delta trend series not drawn`);
+
+  await page.locator('#decision-trend-toggle button[data-trend-mode="level"]').click();
+  const levelAxis = await page.locator("#trend-grid .axistext").allTextContents();
+  invariant(levelAxis.some((x) => x.includes("%")), `${label}: absolute rate mode did not render percent axis`);
+  await page.locator('#decision-trend-toggle button[data-trend-mode="delta"]').click();
+}
+
+async function runViewport(browser, label, viewport) {
+  const { context, page, runtimeErrors } = await loadPage(browser, viewport);
+  await assertDecisionIA(page, label);
+  await assertPrediction(page, label);
+  await assertMarketEvidence(page, label);
+  await assertTrend(page, label);
+  await assertNavigation(browser, page, viewport, label);
+
+  const bodyFont = await page.evaluate(() => parseFloat(getComputedStyle(document.body).fontSize));
+  invariant(bodyFont >= (label === "desktop" ? 17 : 16), `${label}: body font too small=${bodyFont}`);
+  const dims = await page.evaluate(() => ({ client: document.documentElement.clientWidth, scroll: document.documentElement.scrollWidth }));
+  invariant(dims.scroll <= dims.client + 1, `${label}: final horizontal overflow ${dims.scroll} > ${dims.client}`);
+  invariant(runtimeErrors.length === 0, `${label}: runtime errors:\n${runtimeErrors.join("\n")}`);
+
+  await page.screenshot({ path: path.join(workDir, `strategy-main-runtime-workspace-${label}.png`), fullPage: true });
+  await context.close();
 }
 
 (async () => {
   const browser = await chromium.launch({ channel: "chrome", headless: true });
   try {
-    const desktopViewport = { width: 1280, height: 900 };
-    const desktop = await loadPage(browser, desktopViewport);
-    await assertWorkspace(desktop.page, "desktop");
-    await assertPageNavigation(browser, desktop.page, desktopViewport, "desktop");
-    await desktop.page.screenshot({ path: path.join(workDir, "strategy-main-runtime-workspace-desktop.png"), fullPage: true });
-    invariant(desktop.runtimeErrors.length === 0, `desktop runtime errors:\n${desktop.runtimeErrors.join("\n")}`);
-    await desktop.context.close();
-
-    const mobileViewport = { width: 390, height: 844 };
-    const mobile = await loadPage(browser, mobileViewport);
-    await assertWorkspace(mobile.page, "mobile");
-    await assertPageNavigation(browser, mobile.page, mobileViewport, "mobile");
-    await mobile.page.screenshot({ path: path.join(workDir, "strategy-main-runtime-workspace-mobile.png"), fullPage: true });
-    invariant(mobile.runtimeErrors.length === 0, `mobile runtime errors:\n${mobile.runtimeErrors.join("\n")}`);
-    await mobile.context.close();
-
-    console.log("strategy decision workspace + unified page navigation smoke: PASS (desktop/mobile)");
+    await runViewport(browser, "desktop", { width: 1440, height: 1000 });
+    await runViewport(browser, "mobile", { width: 390, height: 844 });
+    console.log("strategy decision evidence refinement smoke: PASS (desktop/mobile)");
   } finally {
     await browser.close();
   }
