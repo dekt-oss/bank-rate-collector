@@ -191,6 +191,7 @@ _SCRIPT = r"""
     "수영구": [54,4,"start"],
     "동구": [38,-18,"start"],
     "중구": [42,18,"start"],
+    "사하구": [-40,0,"end"],
     "서구": [-44,22,"end"]
   };
   const cleanName = (text) => String(text || "").replace(/\s*▾\s*$/, "").trim();
