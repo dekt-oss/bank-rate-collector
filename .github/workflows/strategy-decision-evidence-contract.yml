@@ -20,6 +20,7 @@ on:
 
 permissions:
   contents: read
+  statuses: write
 
 jobs:
   contract:
@@ -27,6 +28,17 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+
+      - name: Publish contract locator
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            -f state=pending \
+            -f context=strategy-decision-evidence-contract \
+            -f description="Strategy decision/parity contract running" \
+            -f target_url="$TARGET_URL"
 
       - uses: astral-sh/setup-uv@v5
         with:
@@ -60,3 +72,23 @@ jobs:
         run: |
           node --check scripts/strategy_preview_smoke.js
           node --check scripts/strategy_workspace_smoke.js
+
+      - name: Publish contract conclusion
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          if [ "$JOB_STATUS" = "success" ]; then
+            STATE=success
+            DESCRIPTION="Strategy decision/parity contract passed"
+          else
+            STATE=failure
+            DESCRIPTION="Strategy decision/parity contract failed"
+          fi
+          gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            -f state="$STATE" \
+            -f context=strategy-decision-evidence-contract \
+            -f description="$DESCRIPTION" \
+            -f target_url="$TARGET_URL"
