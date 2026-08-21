@@ -114,6 +114,14 @@ def test_ready_payload_requires_at_least_one_scenario() -> None:
         validate_public_forecast_payload(payload)
 
 
+def test_malformed_status_fails_as_contract_error() -> None:
+    payload = _ready_payload()
+    payload["status"] = ["ready"]
+
+    with pytest.raises(ValueError, match="public_forecast:unsupported_status"):
+        validate_public_forecast_payload(payload)
+
+
 def test_predicted_total_must_equal_public_components() -> None:
     payload = _ready_payload()
     scenario = payload["scenarios"][0]
@@ -152,7 +160,11 @@ def test_prediction_interval_requires_both_bounds_and_must_cover_total() -> None
         ("surface_interest_delta", float("inf"), "surface_interest_delta:must_be_finite_number"),
     ],
 )
-def test_invalid_public_financial_values_fail_closed(field: str, value: float, message: str) -> None:
+def test_invalid_public_financial_values_fail_closed(
+    field: str,
+    value: float,
+    message: str,
+) -> None:
     payload = _ready_payload()
     scenario = payload["scenarios"][0]
     assert isinstance(scenario, dict)
