@@ -20,9 +20,15 @@ def _strategy_table(rows: list[list[object]]) -> dict:
         "district",
     ]
     lookups = {
-        "sector": ["savings_bank", "kfcc"],
-        "institution": ["고려저축은행", "경쟁저축은행", "테스트새마을금고"],
-        "product_id": [f"p{i}" for i in range(1, 20)],
+        "sector": ["savings_bank", "cu", "kfcc", "nh_local"],
+        "institution": [
+            "고려저축은행",
+            "경쟁저축은행",
+            "테스트신협",
+            "테스트새마을금고",
+            "테스트농협",
+        ],
+        "product_id": [f"p{i}" for i in range(1, 30)],
         "preference": [
             "모바일 가입 시 우대",
             "급여이체 시 우대",
@@ -74,10 +80,18 @@ def _scope(result: dict, sector: str, term: int = 12) -> dict:
     )
 
 
-def test_top_tier_lift_is_descriptive_and_uses_known_preference_denominator() -> None:
+def _mutual_scope(result: dict, scope_key: str, term: int = 12) -> dict:
+    return next(
+        item
+        for item in result["mutual_finance_scopes"]
+        if item["scope_key"] == scope_key and item["term_months"] == term
+    )
+
+
+def test_category_share_uses_preference_bearing_products_only() -> None:
     rows: list[list[object]] = []
-    # 10개 상품 중 DIGITAL_CHANNEL은 2개다. 그중 최고금리 상품이 DIGITAL이다.
-    # top ceil(10%) = 1개이므로 market 20%, top 100%, lift +80%p가 된다.
+    # 10개 상품 중 실제 우대조건 보유 상품은 2개이고 둘 다 DIGITAL_CHANNEL이다.
+    # 따라서 전체 상품 대비 20%가 아니라 우대조건 보유 상품 내부 비중 100%가 맞다.
     rows.append(
         _row(
             sector=0,
@@ -119,18 +133,22 @@ def test_top_tier_lift_is_descriptive_and_uses_known_preference_denominator() ->
         item for item in scope["categories"] if item["code"] == "DIGITAL_CHANNEL"
     )
 
+    assert result["version"] == "preference-intelligence-v2"
+    assert result["category_denominator"] == "preference_bearing_products_present_only"
     assert result["effect_calibration"] == (
         "not_available_without_internal_performance_data"
     )
     assert scope["status"] == "supported"
     assert scope["coverage"]["known_preference_share"] == 1.0
+    assert scope["coverage"]["preference_bearing_share_among_known"] == 0.2
+    assert scope["coverage"]["explicit_none_share_among_known"] == 0.8
     assert scope["top_tier"]["offering_count"] == 1
     assert scope["top_tier"]["cutoff_rate"] == 4.0
     assert digital["market_count"] == 2
-    assert digital["market_share"] == 0.2
+    assert digital["market_share"] == 1.0
     assert digital["top_tier_count"] == 1
     assert digital["top_tier_share"] == 1.0
-    assert digital["top_tier_lift_pp"] == 80.0
+    assert digital["top_tier_lift_pp"] == 0.0
     assert scope["our_company"]["preference_codes"] == ["DIGITAL_CHANNEL"]
     assert scope["our_company"]["raw_samples"] == ["모바일 가입 시 우대"]
 
@@ -138,8 +156,8 @@ def test_top_tier_lift_is_descriptive_and_uses_known_preference_denominator() ->
 def test_missing_source_preference_is_not_counted_as_explicit_none() -> None:
     rows = [
         _row(
-            sector=1,
-            institution=2,
+            sector=2,
+            institution=3,
             product_id=0,
             rate=3.80,
             preference=0,
@@ -151,8 +169,8 @@ def test_missing_source_preference_is_not_counted_as_explicit_none() -> None:
     for product_id in range(1, 5):
         rows.append(
             _row(
-                sector=1,
-                institution=2,
+                sector=2,
+                institution=3,
                 product_id=product_id,
                 rate=3.70 - product_id * 0.01,
                 preference=3,
@@ -172,6 +190,8 @@ def test_missing_source_preference_is_not_counted_as_explicit_none() -> None:
         "none_count": 0,
         "missing_count": 4,
         "known_preference_share": 0.2,
+        "preference_bearing_share_among_known": 1.0,
+        "explicit_none_share_among_known": 0.0,
         "coverage_status": "low",
     }
     digital = next(
@@ -180,6 +200,58 @@ def test_missing_source_preference_is_not_counted_as_explicit_none() -> None:
     assert digital["market_share"] == 1.0
     assert scope["coverage"]["missing_count"] == 4
     assert scope["coverage"]["none_count"] == 0
+
+
+def test_mutual_finance_scope_pools_selected_sectors_before_top_tier() -> None:
+    rows = [
+        _row(
+            sector=1,
+            institution=2,
+            product_id=0,
+            rate=4.00,
+            preference=0,
+            status=0,
+            tags=0,
+            geo_basis=1,
+        ),
+        _row(
+            sector=2,
+            institution=3,
+            product_id=1,
+            rate=3.90,
+            preference=1,
+            status=0,
+            tags=1,
+            geo_basis=1,
+        ),
+        _row(
+            sector=3,
+            institution=4,
+            product_id=2,
+            rate=3.80,
+            preference=2,
+            status=1,
+            tags=2,
+            geo_basis=1,
+        ),
+    ]
+
+    result = build_preference_intelligence(_strategy_table(rows))
+    scope = _mutual_scope(result, "cu+kfcc+nh_local")
+
+    assert scope["sector"] == "mutual_finance"
+    assert scope["sectors"] == ["cu", "kfcc", "nh_local"]
+    assert scope["coverage"]["total_offering_count"] == 3
+    assert scope["coverage"]["present_count"] == 2
+    assert scope["coverage"]["none_count"] == 1
+    assert scope["coverage"]["preference_bearing_share_among_known"] == 0.6667
+    assert scope["top_tier"]["offering_count"] == 1
+    assert scope["top_tier"]["cutoff_rate"] == 4.0
+    assert {item["sector"] for item in scope["source_coverage"]} == {
+        "cu",
+        "kfcc",
+        "nh_local",
+    }
 
 
 def test_same_strategy_offering_is_reduced_to_highest_rate_once() -> None:
@@ -219,6 +291,7 @@ def test_schema_unavailable_fails_closed() -> None:
     assert result["status"] == "schema_unavailable"
     assert "preference_tags" in result["missing_columns"]
     assert result["scopes"] == []
+    assert result["mutual_finance_scopes"] == []
     assert result["effect_calibration"] == (
         "not_available_without_internal_performance_data"
     )
