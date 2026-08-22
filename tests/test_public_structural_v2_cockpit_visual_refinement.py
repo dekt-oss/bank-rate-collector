@@ -34,9 +34,10 @@ def test_visual_refinement_merges_same_rate_ladder_markers() -> None:
 
 def test_visual_refinement_gives_mobile_candidate_table_room_to_scroll_without_overlap() -> None:
     assert "@media(max-width:520px)" in _CSS
-    assert ".psv2-table{min-width:1040px!important}" in _CSS
-    assert ".psv2-table th:nth-child(6),.psv2-table td:nth-child(6){min-width:190px}" in _CSS
-    assert ".psv2-table th:nth-child(8),.psv2-table td:nth-child(8){min-width:150px}" in _CSS
+    assert ".psv2-table{min-width:1240px!important}" in _CSS
+    assert ".psv2-table th:nth-child(1),.psv2-table td:nth-child(1){min-width:115px}" in _CSS
+    assert ".psv2-table th:nth-child(6),.psv2-table td:nth-child(6){min-width:220px}" in _CSS
+    assert ".psv2-table th:nth-child(8),.psv2-table td:nth-child(8){min-width:165px}" in _CSS
 
 
 def test_visual_refinement_is_idempotent() -> None:
