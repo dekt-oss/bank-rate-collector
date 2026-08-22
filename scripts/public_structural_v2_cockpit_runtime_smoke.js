@@ -46,23 +46,52 @@ async function assertUniqueLadderRates(cockpit, label) {
 async function assertCandidateTableVisualSpace(cockpit, viewport, label) {
   const metrics = await cockpit.locator(".psv2-table-wrap").evaluate((wrapper) => {
     const table = wrapper.querySelector(".psv2-table");
+    const head = wrapper.querySelector("thead");
+    const body = wrapper.querySelector("tbody");
+    const firstRow = wrapper.querySelector("tbody tr");
+    const cells = firstRow ? [...firstRow.querySelectorAll("td")] : [];
     const overflowingCells = [...wrapper.querySelectorAll("th,td")]
       .filter((cell) => cell.scrollWidth > cell.clientWidth + 1)
       .map((cell) => cell.textContent.trim());
+    const rects = cells.map((cell, index) => {
+      const rect = cell.getBoundingClientRect();
+      return { index, left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom };
+    });
+    const overlaps = [];
+    for (let i = 0; i < rects.length; i += 1) {
+      for (let j = i + 1; j < rects.length; j += 1) {
+        const a = rects[i];
+        const b = rects[j];
+        const width = Math.min(a.right, b.right) - Math.max(a.left, b.left);
+        const height = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
+        if (width > 1 && height > 1) overlaps.push([a.index + 1, b.index + 1]);
+      }
+    }
     return {
       wrapperClientWidth: wrapper.clientWidth,
       wrapperScrollWidth: wrapper.scrollWidth,
       tableWidth: table?.getBoundingClientRect().width || 0,
+      headDisplay: head ? getComputedStyle(head).display : null,
+      bodyDisplay: body ? getComputedStyle(body).display : null,
+      rowDisplay: firstRow ? getComputedStyle(firstRow).display : null,
+      cellDisplays: cells.map((cell) => getComputedStyle(cell).display),
+      firstRowHeight: firstRow?.getBoundingClientRect().height || 0,
+      cellCount: cells.length,
       overflowingCells,
+      overlaps,
     };
   });
   invariant(metrics.overflowingCells.length === 0, `${label}: 후보금리 cell text overflow ${JSON.stringify(metrics.overflowingCells)}`);
+  invariant(metrics.overlaps.length === 0, `${label}: 후보금리 cell box overlap ${JSON.stringify(metrics.overlaps)}`);
   if (viewport.width <= 520) {
-    invariant(metrics.tableWidth >= 1239, `${label}: mobile 후보금리표 최소폭 부족 ${metrics.tableWidth}`);
-    invariant(
-      metrics.wrapperScrollWidth > metrics.wrapperClientWidth,
-      `${label}: mobile 후보금리표가 wrapper 내부 가로스크롤을 확보하지 못함`,
-    );
+    invariant(metrics.cellCount === 8, `${label}: mobile 후보금리 카드 cell 수 ${metrics.cellCount}`);
+    invariant(metrics.headDisplay === "none", `${label}: mobile 후보금리 header가 숨겨지지 않음`);
+    invariant(metrics.bodyDisplay === "grid", `${label}: mobile 후보금리 tbody가 grid가 아님`);
+    invariant(metrics.rowDisplay === "grid", `${label}: mobile 후보금리 row가 grid가 아님`);
+    invariant(metrics.cellDisplays.every((display) => display === "block"), `${label}: mobile 후보금리 cell이 block이 아님`);
+    invariant(metrics.tableWidth <= metrics.wrapperClientWidth + 1, `${label}: mobile 후보금리 카드가 wrapper보다 넓음`);
+    invariant(metrics.wrapperScrollWidth <= metrics.wrapperClientWidth + 1, `${label}: mobile 후보금리 카드에 불필요한 가로스크롤이 남음`);
+    invariant(metrics.firstRowHeight >= 100, `${label}: mobile 후보금리 카드 높이가 비정상 ${metrics.firstRowHeight}`);
   }
 }
 
