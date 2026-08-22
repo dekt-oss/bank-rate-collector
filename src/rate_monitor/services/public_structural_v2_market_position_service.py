@@ -177,7 +177,5 @@ def market_position(
         "top25_exceeded": proposal > top25,
         "top10_reached": proposal >= top10,
         "top10_exceeded": proposal > top10,
-        "market_max_reached": proposal >= market_max,
-        "market_max_exceeded": proposal > market_max,
         **transitions,
     }
