@@ -9,12 +9,14 @@ on:
       - "src/rate_monitor/services/strategy_readability_preference_v2_presentation.py"
       - "src/rate_monitor/services/strategy_decision_cockpit.py"
       - "src/rate_monitor/services/public_structural_v2_cockpit_presentation.py"
+      - "src/rate_monitor/services/public_structural_v2_cockpit_visual_refinement.py"
       - "tests/test_main_map_drilldown_refinement.py"
       - "tests/test_main_map_presentation.py"
       - "tests/test_preference_intelligence_service.py"
       - "tests/test_preference_intelligence_presentation.py"
       - "tests/test_strategy_readability_preference_v2_presentation.py"
       - "tests/test_public_structural_v2_cockpit_presentation.py"
+      - "tests/test_public_structural_v2_cockpit_visual_refinement.py"
       - "scripts/main_map_runtime_smoke.js"
       - "scripts/dashboard_usability_preference_v2_smoke.js"
       - "scripts/public_structural_v2_cockpit_runtime_smoke.js"
@@ -49,12 +51,14 @@ jobs:
             src/rate_monitor/services/strategy_readability_preference_v2_presentation.py \
             src/rate_monitor/services/strategy_decision_cockpit.py \
             src/rate_monitor/services/public_structural_v2_cockpit_presentation.py \
+            src/rate_monitor/services/public_structural_v2_cockpit_visual_refinement.py \
             tests/test_main_map_drilldown_refinement.py \
             tests/test_main_map_presentation.py \
             tests/test_preference_intelligence_service.py \
             tests/test_preference_intelligence_presentation.py \
             tests/test_strategy_readability_preference_v2_presentation.py \
-            tests/test_public_structural_v2_cockpit_presentation.py
+            tests/test_public_structural_v2_cockpit_presentation.py \
+            tests/test_public_structural_v2_cockpit_visual_refinement.py
 
       - name: Targeted tests
         run: |
@@ -64,7 +68,8 @@ jobs:
             tests/test_preference_intelligence_service.py \
             tests/test_preference_intelligence_presentation.py \
             tests/test_strategy_readability_preference_v2_presentation.py \
-            tests/test_public_structural_v2_cockpit_presentation.py
+            tests/test_public_structural_v2_cockpit_presentation.py \
+            tests/test_public_structural_v2_cockpit_visual_refinement.py
 
       - name: Browser smoke syntax
         run: |
@@ -140,6 +145,7 @@ jobs:
           grep -q 'preference_bearing_products_present_only' work/site-public/strategy.html
           grep -q 'id="public-structural-v2-cockpit-script"' work/site-public/strategy.html
           grep -q 'id="public-structural-v2-engine-bundle"' work/site-public/strategy.html
+          grep -q 'id="public-structural-v2-cockpit-visual-refinement-script"' work/site-public/strategy.html
 
       - name: Set up Node
         uses: actions/setup-node@v4
