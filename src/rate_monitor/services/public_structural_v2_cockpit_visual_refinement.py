@@ -18,10 +18,16 @@ _CSS = r"""
 <style id="public-structural-v2-cockpit-visual-refinement-style">
 .psv2-rung[data-merged-rate-markers] label:after{content:" · 동일금리"!important;color:#8a6f36}
 @media(max-width:520px){
-  .psv2-table{min-width:1040px!important}
+  .psv2-table{min-width:1240px!important}
   .psv2-table th,.psv2-table td{padding-left:12px!important;padding-right:12px!important}
-  .psv2-table th:nth-child(6),.psv2-table td:nth-child(6){min-width:190px}
-  .psv2-table th:nth-child(8),.psv2-table td:nth-child(8){min-width:150px}
+  .psv2-table th:nth-child(1),.psv2-table td:nth-child(1){min-width:115px}
+  .psv2-table th:nth-child(2),.psv2-table td:nth-child(2){min-width:145px}
+  .psv2-table th:nth-child(3),.psv2-table td:nth-child(3){min-width:70px}
+  .psv2-table th:nth-child(4),.psv2-table td:nth-child(4){min-width:105px}
+  .psv2-table th:nth-child(5),.psv2-table td:nth-child(5){min-width:115px}
+  .psv2-table th:nth-child(6),.psv2-table td:nth-child(6){min-width:220px}
+  .psv2-table th:nth-child(7),.psv2-table td:nth-child(7){min-width:105px}
+  .psv2-table th:nth-child(8),.psv2-table td:nth-child(8){min-width:165px}
 }
 </style>
 """.strip()
