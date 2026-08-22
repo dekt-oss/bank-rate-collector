@@ -149,7 +149,8 @@ def test_stage_g_js_fails_closed_for_invalid_contracts() -> None:
             f"const cases={json.dumps(invalid, ensure_ascii=False)};",
             (
                 "const out=cases.map(args=>{try{"
-                "PublicStructuralV2FactualRateFinder.factualRateConstraints(args);return 'accepted';}"
+                "PublicStructuralV2FactualRateFinder."
+                "factualRateConstraints(args);return 'accepted';}"
                 "catch(error){return String(error.message||error);}});"
             ),
             "process.stdout.write(JSON.stringify(out));",
