@@ -9,6 +9,7 @@ from rate_monitor.services.public_structural_v2_factual_rate_finder_presentation
     STYLE_MARKER,
     inject_public_structural_v2_factual_rate_finder,
 )
+from tests.strategy_output_helper import built_strategy_html
 
 
 def _html() -> str:
@@ -19,6 +20,17 @@ def _html() -> str:
 <script id="public-structural-v2-cockpit-script"></script>
 <script id="public-structural-v2-cockpit-visual-refinement-script"></script>
 </body></html>"""
+
+
+def test_built_strategy_wires_stage_g_after_stage_f_visual_refinement() -> None:
+    rendered = built_strategy_html()
+
+    assert STYLE_MARKER in rendered
+    assert ENGINE_MARKER in rendered
+    assert SCRIPT_MARKER in rendered
+    assert rendered.index('id="public-structural-v2-cockpit-visual-refinement-script"') < rendered.index(
+        SCRIPT_MARKER
+    )
 
 
 def test_stage_g_presentation_injects_independent_engine_and_factual_copy() -> None:
