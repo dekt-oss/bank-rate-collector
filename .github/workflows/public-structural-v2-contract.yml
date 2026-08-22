@@ -1,0 +1,53 @@
+name: Public Structural v2 Contract
+
+on:
+  push:
+    branches: ["**"]
+    paths:
+      - "docs/specs/20260822-public-structural-v2-decision-cockpit-final.md"
+      - "src/rate_monitor/services/public_structural_v2_*.py"
+      - "tests/test_public_structural_v2_*.py"
+      - "tests/data/public_structural_v2_*.json"
+      - "web/public-structural-v2/**"
+      - ".github/workflows/public-structural-v2-contract.yml"
+  pull_request:
+    paths:
+      - "docs/specs/20260822-public-structural-v2-decision-cockpit-final.md"
+      - "src/rate_monitor/services/public_structural_v2_*.py"
+      - "tests/test_public_structural_v2_*.py"
+      - "tests/data/public_structural_v2_*.json"
+      - "web/public-structural-v2/**"
+      - ".github/workflows/public-structural-v2-contract.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Sync dependencies
+        run: uv sync --locked
+
+      - name: Ruff Public Structural v2 files
+        run: |
+          files=$(find src/rate_monitor/services tests -type f \
+            \( -name 'public_structural_v2_*.py' -o -name 'test_public_structural_v2_*.py' \) \
+            -print)
+          if [ -n "$files" ]; then
+            uv run ruff check $files
+          fi
+
+      - name: Test Public Structural v2 contracts
+        run: uv run pytest -q tests/test_public_structural_v2_*.py
