@@ -68,6 +68,10 @@ def _decision_template(function_name: str, next_function_name: str) -> str:
 
 def test_cockpit_mobile_contract_preserves_reading_order_without_single_row_squeeze() -> None:
     html = built_strategy_html()
+    market_card = '<div class="psv2-card market"><span class="psv2-kicker">실제 시장 위치'
+    scenario_card = (
+        '<div class="psv2-card scenario"><span class="psv2-kicker">미보정 구조 시나리오'
+    )
 
     assert "@media(max-width:520px)" in html
     assert ".psv2-decision{grid-template-columns:1fr}" in html
@@ -76,7 +80,7 @@ def test_cockpit_mobile_contract_preserves_reading_order_without_single_row_sque
         _decision_template("marketOnlyHtml", "fullHtml"),
         _decision_template("fullHtml", "render"),
     ):
-        assert template.index("실제 시장 위치") < template.index("미보정 구조 시나리오")
+        assert template.index(market_card) < template.index(scenario_card)
 
 
 def test_cockpit_injection_is_idempotent_on_built_strategy() -> None:
