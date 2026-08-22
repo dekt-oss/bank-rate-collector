@@ -124,13 +124,17 @@ def build_public_structural_v2_forecast(
         )
         base = result["base"]
         bounds = result["predicted_total_range"]
+        public_new = float(base["predicted_new_money"])
+        public_rollover = float(base["predicted_rollover"])
+        public_total = round(public_new + public_rollover, 4)
+        public_incremental = round(public_total - float(base["baseline_total"]), 4)
         rows.append(
             {
                 "rate_pct": float(rate),
-                "predicted_new_money": float(base["predicted_new_money"]),
-                "predicted_rollover": float(base["predicted_rollover"]),
-                "predicted_total": float(base["predicted_total"]),
-                "incremental_total": float(base["incremental_total"]),
+                "predicted_new_money": public_new,
+                "predicted_rollover": public_rollover,
+                "predicted_total": public_total,
+                "incremental_total": public_incremental,
                 "surface_interest_delta": float(base["surface_interest_delta"]),
                 "predicted_total_lower": float(bounds["min"]),
                 "predicted_total_upper": float(bounds["max"]),
