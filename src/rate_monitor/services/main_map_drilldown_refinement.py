@@ -212,6 +212,9 @@ _SCRIPT = r"""
     "사하구": [-40,0,"end"],
     "서구": [-44,22,"end"]
   };
+  const MOBILE_LABEL_OFFSETS = {
+    "해운대구": [58,-8,"start"]
+  };
   const cleanName = (text) => String(text || "").replace(/\s*▾\s*$/, "").trim();
   const num = (value) => Number.parseFloat(String(value || "").replace(/[^0-9.+-]/g, ""));
   const tileData = () => [...reg.querySelectorAll(":scope > .regtile")].map((tile) => {
@@ -430,7 +433,10 @@ _SCRIPT = r"""
       const box = path.getBBox();
       const cx = box.x + box.width / 2;
       const cy = box.y + box.height / 2;
-      const offset = LABEL_OFFSETS[path.id] || [0,0,"middle"];
+      const mobileOffset = window.matchMedia("(max-width: 760px)").matches
+        ? MOBILE_LABEL_OFFSETS[path.id]
+        : null;
+      const offset = mobileOffset || LABEL_OFFSETS[path.id] || [0,0,"middle"];
       const x = cx + offset[0], y = cy + offset[1], anchor = offset[2];
       if (offset[0] || offset[1]) {
         const line = document.createElementNS(NS, "line");
