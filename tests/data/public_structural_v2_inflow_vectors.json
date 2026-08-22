@@ -1,0 +1,71 @@
+{
+  "version": "public-structural-v2-inflow-v1",
+  "vectors": [
+    {
+      "name": "zero_step_60pct",
+      "inputs": {
+        "baseline_new_money": 100.0,
+        "maturity_amount": 200.0,
+        "current_rollover_rate_pct": 60.0,
+        "current_own_rate": 3.5,
+        "proposed_rate": 3.5,
+        "term_months": 12
+      }
+    },
+    {
+      "name": "plus_10bp_60pct",
+      "inputs": {
+        "baseline_new_money": 100.0,
+        "maturity_amount": 200.0,
+        "current_rollover_rate_pct": 60.0,
+        "current_own_rate": 3.5,
+        "proposed_rate": 3.6,
+        "term_months": 12
+      }
+    },
+    {
+      "name": "tiny_raise_100pct",
+      "inputs": {
+        "baseline_new_money": 100.0,
+        "maturity_amount": 200.0,
+        "current_rollover_rate_pct": 100.0,
+        "current_own_rate": 3.5,
+        "proposed_rate": 3.5001,
+        "term_months": 12
+      }
+    },
+    {
+      "name": "tiny_cut_100pct",
+      "inputs": {
+        "baseline_new_money": 100.0,
+        "maturity_amount": 200.0,
+        "current_rollover_rate_pct": 100.0,
+        "current_own_rate": 3.5,
+        "proposed_rate": 3.4999,
+        "term_months": 12
+      }
+    },
+    {
+      "name": "plus_10bp_0pct",
+      "inputs": {
+        "baseline_new_money": 100.0,
+        "maturity_amount": 200.0,
+        "current_rollover_rate_pct": 0.0,
+        "current_own_rate": 3.5,
+        "proposed_rate": 3.6,
+        "term_months": 12
+      }
+    },
+    {
+      "name": "minus_10bp_99_9pct",
+      "inputs": {
+        "baseline_new_money": 100.0,
+        "maturity_amount": 200.0,
+        "current_rollover_rate_pct": 99.9,
+        "current_own_rate": 3.5,
+        "proposed_rate": 3.4,
+        "term_months": 6
+      }
+    }
+  ]
+}
