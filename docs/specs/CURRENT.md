@@ -34,7 +34,7 @@ v4는 v3.1을 **폐기하지 않는다.** 아키텍처를 상속하고 제품 �
 `지역명 + 금리` 비교 방식을 정의한다. 금리 계산·수집·데이터 계약은 바꾸지 않는다.
 
 `20260812-strategy-dashboard-v1.md`는 `index.html`의 검색·조회 계약을 유지한 채
-같은 발행 데이터로 경쟁사 현황·시장 변화·신상품 시뮬레이션을 제공하는
+같은 발행 데이터로 경쟁사 현황·시장 변화·신상품 금리 시나리오를 제공하는
 `strategy.html` 실험을 정의한다. 안정화 전에는 메인 진입점으로 바꾸지 않는다.
 
 `20260810-stabilization-v1.md`도 v4/v3.1을 대체하지 않는다. 기존 구조와
@@ -47,6 +47,7 @@ warning 관측성, source freshness, 업권 용어를 안정화하는 작업 범
 
 | 문서 | 상태 | 비고 |
 |---|---|---|
+| [`20260822-public-structural-v2-decision-cockpit-final.md`](20260822-public-structural-v2-decision-cockpit-final.md) | **implementation/current-work** | #170 리뷰 반영 최종안. Public Structural v2 시장위치·수신 stress surface·표면비용·Decision Cockpit 단계별 구현 기준 |
 | [`20260820-dashboard-shared-header-map-readability-v1.md`](20260820-dashboard-shared-header-map-readability-v1.md) | **implementation/current-work** | 검색/Strategy 공통 헤더 + 검색 권역 지도 직접 `지역명 + 금리` 표시. 계산·수집 계약 불변 |
 | [`20260817-mutual-finance-stage-g-entry-census.md`](20260817-mutual-finance-stage-g-entry-census.md) | **decision/evidence-gate** | 최신 전국 공식 raw 전수 census. NH local G2는 ENTRY GO, KFCC G1은 deterministic official-site linkage 부재로 BLOCKED 유지 |
 | [`20260817-mutual-finance-max-rate-stage-f-evidence.md`](20260817-mutual-finance-max-rate-stage-f-evidence.md) | **decision/evidence-gate** | 상호금융 최고금리 Stage F source evidence. CU GO, KFCC/NH conditional evidence |
