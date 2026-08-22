@@ -33,6 +33,7 @@ def test_visual_refinement_merges_same_rate_ladder_markers() -> None:
 
 
 def test_visual_refinement_gives_mobile_candidate_table_room_to_scroll_without_overlap() -> None:
+    assert ".psv2>div{min-width:0}" in _CSS
     assert "@media(max-width:520px)" in _CSS
     assert ".psv2-table{min-width:1240px!important}" in _CSS
     assert ".psv2-table th:nth-child(1),.psv2-table td:nth-child(1){min-width:115px}" in _CSS
