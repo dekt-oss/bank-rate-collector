@@ -5,6 +5,11 @@
 밴드다. 계산 구조와 단위를 고정해 두고, 향후 내부 실적을 확보하면 같은 공개
 계약을 유지한 채 계수만 보정하는 것이 목적이다.
 
+현재 계산식의 단계별 설명과 숫자 예제:
+``docs/specs/20260822-inflow-structural-v1-calculation-guide.md``
+외부 방법론 근거와 현재 미검증 가정의 구분:
+``docs/specs/20260822-inflow-structural-v1-evidence-registry.md``
+
 금리 숫자는 ``3.70 == 연 3.70%``처럼 percent 단위다. 10bp는 0.10%p다.
 금액은 억원, 기간은 개월이다.
 """
