@@ -32,13 +32,17 @@ def test_visual_refinement_merges_same_rate_ladder_markers() -> None:
     assert 'content:" · 동일금리"!important' in _CSS
 
 
-def test_visual_refinement_gives_mobile_candidate_table_room_to_scroll_without_overlap() -> None:
+def test_visual_refinement_uses_mobile_candidate_card_grid_without_overlap() -> None:
     assert ".psv2>div{min-width:0}" in _CSS
     assert "@media(max-width:520px)" in _CSS
-    assert ".psv2-table{min-width:1240px!important}" in _CSS
-    assert ".psv2-table th:nth-child(1),.psv2-table td:nth-child(1){min-width:115px}" in _CSS
-    assert ".psv2-table th:nth-child(6),.psv2-table td:nth-child(6){min-width:220px}" in _CSS
-    assert ".psv2-table th:nth-child(8),.psv2-table td:nth-child(8){min-width:165px}" in _CSS
+    assert ".psv2-table{display:block!important;width:100%!important;min-width:0!important" in _CSS
+    assert ".psv2-table thead{display:none!important}" in _CSS
+    assert ".psv2-table tbody{display:grid!important;gap:8px}" in _CSS
+    assert "grid-template-columns:repeat(2,minmax(0,1fr))" in _CSS
+    assert ".psv2-table td{display:block!important;min-width:0!important" in _CSS
+    assert '.psv2-table td:nth-child(2):before{content:"공동순위 범위"}' in _CSS
+    assert ".psv2-table td:nth-child(6){grid-column:1/-1}" in _CSS
+    assert '.psv2-table td:nth-child(8):before{content:"직전 5bp 표면비용"}' in _CSS
 
 
 def test_visual_refinement_is_idempotent() -> None:
