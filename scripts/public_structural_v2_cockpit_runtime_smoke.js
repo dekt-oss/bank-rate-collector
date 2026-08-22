@@ -58,7 +58,7 @@ async function assertCandidateTableVisualSpace(cockpit, viewport, label) {
   });
   invariant(metrics.overflowingCells.length === 0, `${label}: 후보금리 cell text overflow ${JSON.stringify(metrics.overflowingCells)}`);
   if (viewport.width <= 520) {
-    invariant(metrics.tableWidth >= 1039, `${label}: mobile 후보금리표 최소폭 부족 ${metrics.tableWidth}`);
+    invariant(metrics.tableWidth >= 1239, `${label}: mobile 후보금리표 최소폭 부족 ${metrics.tableWidth}`);
     invariant(
       metrics.wrapperScrollWidth > metrics.wrapperClientWidth,
       `${label}: mobile 후보금리표가 wrapper 내부 가로스크롤을 확보하지 못함`,
