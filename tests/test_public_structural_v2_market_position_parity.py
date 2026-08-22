@@ -96,7 +96,10 @@ def _run_node(payloads: list[dict], *, drift: bool = False) -> list[dict]:
             script,
             f"const config={json.dumps(config, ensure_ascii=False)};",
             f"const payloads={json.dumps(payloads, ensure_ascii=False)};",
-            "const out=payloads.map(p=>({name:p.name,result:PublicStructuralV2MarketPosition.marketPosition(p.args,config)}));",
+            (
+                "const out=payloads.map(p=>({name:p.name,result:"
+                "PublicStructuralV2MarketPosition.marketPosition(p.args,config)}));"
+            ),
             "process.stdout.write(JSON.stringify(out));",
         ]
     )
