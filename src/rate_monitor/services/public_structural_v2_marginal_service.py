@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 from decimal import Decimal
+from itertools import pairwise
 from typing import Any
 
 from rate_monitor.services.public_structural_v2_market_position_service import normalize_rate
@@ -27,16 +28,18 @@ def build_fixed_5bp_marginals(surface: dict[str, Any]) -> dict[str, Any]:
     if not scenarios:
         raise ValueError("forecast scenarios가 필요하다")
 
+    ordered = sorted(grid)
+    adjacent_pairs = list(pairwise(ordered))
+    if any(right - left != FIXED_STEP_PP for left, right in adjacent_pairs):
+        raise ValueError("marginal은 정확히 5bp 인접점에서만 계산한다")
+
     by_rate = {normalize_rate(row["rate_pct"]): row for row in scenarios}
     missing = [rate for rate in grid if rate not in by_rate]
     if missing:
         raise ValueError("economics_grid와 forecast rate가 일치하지 않는다")
 
     marginals: list[dict[str, float | int]] = []
-    ordered = sorted(grid)
-    for left, right in zip(ordered, ordered[1:], strict=True):
-        if right - left != FIXED_STEP_PP:
-            raise ValueError("marginal은 정확히 5bp 인접점에서만 계산한다")
+    for left, right in adjacent_pairs:
         before = by_rate[left]
         after = by_rate[right]
         delta_total = round(
