@@ -64,7 +64,11 @@ _JS = r"""
     if(!el)throw new Error("rate-monitor-data:missing");
     return JSON.parse(String(el.textContent||"").replace(/<\\\//g,"</"));
   }
-  function finite(value){const number=Number(value);return Number.isFinite(number)?number:null;}
+  function finite(value){
+    if(value===null||value===undefined||String(value).trim()==="")return null;
+    const number=Number(value);
+    return Number.isFinite(number)?number:null;
+  }
   function pct(value,digits=2){return Number.isFinite(value)?`${Number(value).toFixed(digits)}%`:"—";}
   function amount(value){return Number.isFinite(value)?`${Number(value).toLocaleString("ko-KR",{maximumFractionDigits:1})}억원`:"—";}
   function signedAmount(value){return Number.isFinite(value)?`${value>=0?"+":""}${Number(value).toLocaleString("ko-KR",{maximumFractionDigits:1})}억원`:"—";}
