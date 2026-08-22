@@ -1,0 +1,137 @@
+{
+  "version": "public-structural-v2-market-position-v1",
+  "rate_normalization_decimals": 4,
+  "counterfactual": "replace_anchor_product",
+  "cases": [
+    {
+      "name": "dense_tie_raise_10bp",
+      "clusters": [
+        {"rate": "3.7000", "count": 2},
+        {"rate": "3.6500", "count": 5},
+        {"rate": "3.6000", "count": 18},
+        {"rate": "3.5500", "count": 30},
+        {"rate": "3.5000", "count": 35},
+        {"rate": "3.4500", "count": 15},
+        {"rate": "3.4000", "count": 7}
+      ],
+      "anchor_rate": "3.5000",
+      "current_rate": "3.5000",
+      "proposal_rate": "3.6000",
+      "expected": {
+        "universe_count": 112,
+        "higher_count": 7,
+        "tie_competitor_count": 18,
+        "rank_best": 8,
+        "rank_worst": 26,
+        "top10_cutoff": "3.6000",
+        "top25_cutoff": "3.5500",
+        "newly_outpriced": 64,
+        "newly_tied": 18,
+        "newly_lost_to": 0,
+        "newly_tied_down": 0
+      }
+    },
+    {
+      "name": "dense_tie_raise_5bp",
+      "clusters": [
+        {"rate": "3.7000", "count": 2},
+        {"rate": "3.6500", "count": 5},
+        {"rate": "3.6000", "count": 18},
+        {"rate": "3.5500", "count": 30},
+        {"rate": "3.5000", "count": 35},
+        {"rate": "3.4500", "count": 15},
+        {"rate": "3.4000", "count": 7}
+      ],
+      "anchor_rate": "3.5000",
+      "current_rate": "3.5000",
+      "proposal_rate": "3.5500",
+      "expected": {
+        "universe_count": 112,
+        "higher_count": 25,
+        "tie_competitor_count": 30,
+        "rank_best": 26,
+        "rank_worst": 56,
+        "top10_cutoff": "3.6000",
+        "top25_cutoff": "3.5500",
+        "newly_outpriced": 34,
+        "newly_tied": 30,
+        "newly_lost_to": 0,
+        "newly_tied_down": 0
+      }
+    },
+    {
+      "name": "dense_tie_cut_5bp",
+      "clusters": [
+        {"rate": "3.7000", "count": 2},
+        {"rate": "3.6500", "count": 5},
+        {"rate": "3.6000", "count": 18},
+        {"rate": "3.5500", "count": 30},
+        {"rate": "3.5000", "count": 35},
+        {"rate": "3.4500", "count": 15},
+        {"rate": "3.4000", "count": 7}
+      ],
+      "anchor_rate": "3.5000",
+      "current_rate": "3.5000",
+      "proposal_rate": "3.4500",
+      "expected": {
+        "universe_count": 112,
+        "higher_count": 89,
+        "tie_competitor_count": 15,
+        "rank_best": 90,
+        "rank_worst": 105,
+        "top10_cutoff": "3.6000",
+        "top25_cutoff": "3.5500",
+        "newly_outpriced": 0,
+        "newly_tied": 0,
+        "newly_lost_to": 34,
+        "newly_tied_down": 15
+      }
+    },
+    {
+      "name": "four_decimal_exact_tie_only",
+      "clusters": [
+        {"rate": "3.5451", "count": 1},
+        {"rate": "3.5450", "count": 2},
+        {"rate": "3.5400", "count": 1}
+      ],
+      "anchor_rate": "3.5400",
+      "current_rate": "3.5400",
+      "proposal_rate": "3.5450",
+      "expected": {
+        "universe_count": 4,
+        "higher_count": 1,
+        "tie_competitor_count": 2,
+        "rank_best": 2,
+        "rank_worst": 4,
+        "top10_cutoff": "3.5451",
+        "top25_cutoff": "3.5451",
+        "newly_outpriced": 0,
+        "newly_tied": 2,
+        "newly_lost_to": 0,
+        "newly_tied_down": 0
+      }
+    },
+    {
+      "name": "single_product_anchor_replacement",
+      "clusters": [
+        {"rate": "3.5000", "count": 1}
+      ],
+      "anchor_rate": "3.5000",
+      "current_rate": "3.5000",
+      "proposal_rate": "3.6000",
+      "expected": {
+        "universe_count": 1,
+        "higher_count": 0,
+        "tie_competitor_count": 0,
+        "rank_best": 1,
+        "rank_worst": 1,
+        "top10_cutoff": "3.6000",
+        "top25_cutoff": "3.6000",
+        "newly_outpriced": 0,
+        "newly_tied": 0,
+        "newly_lost_to": 0,
+        "newly_tied_down": 0
+      }
+    }
+  ]
+}
