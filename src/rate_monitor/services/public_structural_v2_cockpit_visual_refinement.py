@@ -101,10 +101,14 @@ def inject_public_structural_v2_cockpit_visual_refinement(html: str) -> str:
     if all(states):
         return html
     if any(states):
-        raise DashboardBuildError("Public Structural v2 Cockpit visual refinement 주입 상태가 불완전하다")
+        raise DashboardBuildError(
+            "Public Structural v2 Cockpit visual refinement 주입 상태가 불완전하다"
+        )
     if 'id="public-structural-v2-cockpit-script"' not in html:
         raise DashboardBuildError("Public Structural v2 Cockpit 선행 script가 없다")
     if "</head>" not in html or "</body>" not in html:
-        raise DashboardBuildError("Public Structural v2 Cockpit visual refinement 주입 위치를 찾지 못했다")
+        raise DashboardBuildError(
+            "Public Structural v2 Cockpit visual refinement 주입 위치를 찾지 못했다"
+        )
     rendered = html.replace("</head>", _CSS + "\n</head>", 1)
     return rendered.replace("</body>", _SCRIPT + "\n</body>", 1)
