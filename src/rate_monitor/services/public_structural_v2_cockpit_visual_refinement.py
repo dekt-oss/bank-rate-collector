@@ -1,0 +1,131 @@
+# ruff: noqa: E501
+"""Public Structural v2 Cockpit의 최종 visual QA 보정.
+
+Stage F 계산/시장위치 계약은 건드리지 않는다. production-derived Chrome screenshot에서
+확인된 presentation 결함 두 가지만 후처리한다.
+
+1. 같은 금리의 Ladder marker가 같은 좌표에서 겹치면 하나의 marker로 병합한다.
+2. 520px 이하 후보금리표는 8열 표를 2열 label/value 카드 grid로 바꿔 겹침을 막는다.
+"""
+
+from __future__ import annotations
+
+from rate_monitor.services.dashboard_service import DashboardBuildError
+
+STYLE_MARKER = 'id="public-structural-v2-cockpit-visual-refinement-style"'
+SCRIPT_MARKER = 'id="public-structural-v2-cockpit-visual-refinement-script"'
+
+_CSS = r"""
+<style id="public-structural-v2-cockpit-visual-refinement-style">
+.psv2-rung[data-merged-rate-markers] label:after{content:" · 동일금리"!important;color:#8a6f36}
+.psv2>div{min-width:0}
+@media(max-width:520px){
+  .psv2-table-wrap{overflow:visible;border:0;background:transparent}
+  .psv2-table{display:block!important;width:100%!important;min-width:0!important;border-collapse:separate}
+  .psv2-table thead{display:none!important}
+  .psv2-table tbody{display:grid!important;gap:8px}
+  .psv2-table tr{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 10px;padding:10px;border:1px solid rgba(91,47,100,.09);border-radius:10px;background:#fff}
+  .psv2-table tr.current{background:#f3faf6}
+  .psv2-table tr.proposal{background:#fff9eb}
+  .psv2-table td{display:block!important;min-width:0!important;padding:0!important;border:0!important;text-align:left!important;white-space:normal!important;font-size:8.5px;line-height:1.45}
+  .psv2-table td:before{display:block;margin-bottom:2px;color:#806f83;font:700 7.5px/1.25 var(--sans);letter-spacing:.02em}
+  .psv2-table td:nth-child(1):before{content:"금리"}
+  .psv2-table td:nth-child(2):before{content:"공동순위 범위"}
+  .psv2-table td:nth-child(3):before{content:"동률"}
+  .psv2-table td:nth-child(4):before{content:"시장 threshold"}
+  .psv2-table td:nth-child(5):before{content:"기준 총수신"}
+  .psv2-table td:nth-child(6){grid-column:1/-1}
+  .psv2-table td:nth-child(6):before{content:"stress range"}
+  .psv2-table td:nth-child(7):before{content:"현재 대비"}
+  .psv2-table td:nth-child(8):before{content:"직전 5bp 표면비용"}
+  .psv2-table .rate-label{font-size:9.5px}
+}
+</style>
+""".strip()
+
+_SCRIPT = r"""
+<script id="public-structural-v2-cockpit-visual-refinement-script">
+(()=>{
+  "use strict";
+  const HOST_ID="public-structural-v2-cockpit";
+
+  function mergeSameRateRungs(){
+    const ladder=document.querySelector(`#${HOST_ID} .psv2-ladder`);
+    if(!ladder)return;
+    const groups=new Map();
+    for(const rung of [...ladder.querySelectorAll(":scope > .psv2-rung")]){
+      const rate=rung.querySelector("strong")?.textContent?.trim();
+      if(!rate)continue;
+      const group=groups.get(rate)||[];
+      group.push(rung);
+      groups.set(rate,group);
+    }
+    for(const group of groups.values()){
+      if(group.length<2)continue;
+      const primary=group.find(rung=>rung.classList.contains("proposal"))
+        ||group.find(rung=>rung.classList.contains("current"))
+        ||group[0];
+      const labels=[];
+      let hasCurrent=false,hasProposal=false;
+      for(const rung of group){
+        const label=rung.querySelector("label")?.textContent?.trim();
+        if(label&&!labels.includes(label))labels.push(label);
+        hasCurrent=hasCurrent||rung.classList.contains("current");
+        hasProposal=hasProposal||rung.classList.contains("proposal");
+      }
+      let mergedLabels=labels;
+      if(hasCurrent&&hasProposal){
+        mergedLabels=labels.filter(label=>label!=="고려저축은행 현재"&&label!=="제안금리");
+        mergedLabels.push("현재 · 제안금리");
+      }
+      const labelNode=primary.querySelector("label");
+      if(labelNode)labelNode.textContent=mergedLabels.join(" · ");
+      primary.dataset.mergedRateMarkers=String(group.length);
+      primary.classList.add("same");
+      for(const rung of group){
+        if(rung!==primary)rung.remove();
+      }
+    }
+  }
+
+  function install(){
+    const host=document.getElementById(HOST_ID);
+    if(!host||host.dataset.visualRefinementInstalled==="1")return;
+    host.dataset.visualRefinementInstalled="1";
+    let queued=false;
+    const refine=()=>{
+      if(queued)return;
+      queued=true;
+      queueMicrotask(()=>{
+        queued=false;
+        mergeSameRateRungs();
+      });
+    };
+    new MutationObserver(refine).observe(host,{childList:true,subtree:true});
+    refine();
+  }
+
+  if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",install,{once:true});
+  else install();
+})();
+</script>
+""".strip()
+
+
+def inject_public_structural_v2_cockpit_visual_refinement(html: str) -> str:
+    """Stage F Cockpit 뒤에 visual-only refinement를 주입한다."""
+    states = (STYLE_MARKER in html, SCRIPT_MARKER in html)
+    if all(states):
+        return html
+    if any(states):
+        raise DashboardBuildError(
+            "Public Structural v2 Cockpit visual refinement 주입 상태가 불완전하다"
+        )
+    if 'id="public-structural-v2-cockpit-script"' not in html:
+        raise DashboardBuildError("Public Structural v2 Cockpit 선행 script가 없다")
+    if "</head>" not in html or "</body>" not in html:
+        raise DashboardBuildError(
+            "Public Structural v2 Cockpit visual refinement 주입 위치를 찾지 못했다"
+        )
+    rendered = html.replace("</head>", _CSS + "\n</head>", 1)
+    return rendered.replace("</body>", _SCRIPT + "\n</body>", 1)

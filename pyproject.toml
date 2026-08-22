@@ -53,3 +53,6 @@ select = ["E", "F", "I", "UP", "B", "SIM", "W"]
 # 메인 지도 presentation은 브라우저에 그대로 주입하는 CSS/JS 원문이다.
 # Python line wrapping으로 JS template literal을 훼손하지 않도록 E501만 제외한다.
 "src/rate_monitor/services/main_map_presentation.py" = ["E501"]
+# Public Structural v2 Cockpit도 build-time에 브라우저 CSS/JS를 그대로 주입한다.
+# Python line wrapping이 SVG/JS template literal의 runtime source를 바꾸지 않게 E501만 제외한다.
+"src/rate_monitor/services/public_structural_v2_cockpit_presentation.py" = ["E501"]

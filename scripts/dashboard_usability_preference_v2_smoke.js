@@ -16,7 +16,7 @@ async function snapshot(page) {
     const payload = JSON.parse(document.getElementById("rate-monitor-data")?.textContent || "{}");
     const intelligence = payload.strategy?.preference_intelligence || {};
     const bodyStyle = getComputedStyle(document.body);
-    const head = document.querySelector(".head h2");
+    const head = document.querySelector("#planning-zone .head h2");
     const headStyle = head ? getComputedStyle(head) : null;
     const tableCell = document.querySelector(".tablewrap td");
     const tableCellStyle = tableCell ? getComputedStyle(tableCell) : null;
