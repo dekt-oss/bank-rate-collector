@@ -36,6 +36,15 @@ def test_cockpit_consumes_surface_and_marginal_not_raw_structural_formula() -> N
     assert "rollover_log_odds_change_per_10bp" not in _JS
 
 
+def test_cockpit_keeps_blank_scenario_inputs_as_missing_not_numeric_zero() -> None:
+    blank_guard = 'if(value===null||value===undefined||String(value).trim()==="")return null;'
+    number_conversion = "const number=Number(value);"
+
+    assert blank_guard in _JS
+    assert _JS.index(blank_guard) < _JS.index(number_conversion)
+    assert "입력 3개 필요" in _JS
+
+
 def test_cockpit_keeps_factual_and_uncalibrated_scenario_language_separate() -> None:
     html = built_strategy_html()
 
