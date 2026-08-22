@@ -35,6 +35,37 @@ async function assertNoHorizontalOverflow(page, label) {
   );
 }
 
+async function assertUniqueLadderRates(cockpit, label) {
+  const duplicates = await cockpit.locator(".psv2-rung").evaluateAll((nodes) => {
+    const rates = nodes.map((node) => node.querySelector("strong")?.textContent?.trim()).filter(Boolean);
+    return rates.filter((rate, index) => rates.indexOf(rate) !== index);
+  });
+  invariant(duplicates.length === 0, `${label}: Ladder 동일금리 marker 중복 ${JSON.stringify(duplicates)}`);
+}
+
+async function assertCandidateTableVisualSpace(cockpit, viewport, label) {
+  const metrics = await cockpit.locator(".psv2-table-wrap").evaluate((wrapper) => {
+    const table = wrapper.querySelector(".psv2-table");
+    const overflowingCells = [...wrapper.querySelectorAll("th,td")]
+      .filter((cell) => cell.scrollWidth > cell.clientWidth + 1)
+      .map((cell) => cell.textContent.trim());
+    return {
+      wrapperClientWidth: wrapper.clientWidth,
+      wrapperScrollWidth: wrapper.scrollWidth,
+      tableWidth: table?.getBoundingClientRect().width || 0,
+      overflowingCells,
+    };
+  });
+  invariant(metrics.overflowingCells.length === 0, `${label}: 후보금리 cell text overflow ${JSON.stringify(metrics.overflowingCells)}`);
+  if (viewport.width <= 520) {
+    invariant(metrics.tableWidth >= 1039, `${label}: mobile 후보금리표 최소폭 부족 ${metrics.tableWidth}`);
+    invariant(
+      metrics.wrapperScrollWidth > metrics.wrapperClientWidth,
+      `${label}: mobile 후보금리표가 wrapper 내부 가로스크롤을 확보하지 못함`,
+    );
+  }
+}
+
 async function populateStructuralInputs(page) {
   await page.locator("#baseline-new").fill("100");
   await page.locator("#maturity-amount").fill("200");
@@ -51,6 +82,15 @@ async function populateStructuralInputs(page) {
     },
     null,
     { timeout: 10_000 },
+  );
+  await page.waitForFunction(
+    () => {
+      const rates = [...document.querySelectorAll("#public-structural-v2-cockpit .psv2-rung strong")]
+        .map((node) => node.textContent.trim());
+      return new Set(rates).size === rates.length;
+    },
+    null,
+    { timeout: 5_000 },
   );
 }
 
@@ -72,6 +112,7 @@ async function runViewport(browser, viewport, label) {
   invariant(marketOnlyText.includes("Market Position Ladder"), `${label}: Ladder가 없음`);
   invariant(!marketOnlyText.includes("추천금리"), `${label}: 금지된 추천금리 표현이 있음`);
   invariant(!marketOnlyText.includes("최적금리"), `${label}: 금지된 최적금리 표현이 있음`);
+  await assertUniqueLadderRates(cockpit, `${label} market-only`);
 
   await populateStructuralInputs(page);
   const fullText = await cockpit.textContent();
@@ -82,6 +123,8 @@ async function runViewport(browser, viewport, label) {
   invariant(await cockpit.locator(".psv2-table tbody tr").count() >= 2, `${label}: 후보금리 표가 비어 있음`);
   invariant(await page.locator(".prediction-results").isHidden(), `${label}: v1 결과 카드가 primary로 남아 있음`);
   invariant(await page.locator(".rate-response-wrap").isHidden(), `${label}: 구형 scenario table이 primary로 남아 있음`);
+  await assertUniqueLadderRates(cockpit, `${label} full`);
+  await assertCandidateTableVisualSpace(cockpit, viewport, label);
 
   await assertNoHorizontalOverflow(page, label);
   await cockpit.screenshot({ path: path.join(workDir, `public-structural-v2-cockpit-${label}.png`) });
