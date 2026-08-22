@@ -60,13 +60,23 @@ def test_cockpit_keeps_factual_and_uncalibrated_scenario_language_separate() -> 
     assert "달성확률" not in _JS
 
 
+def _decision_template(function_name: str, next_function_name: str) -> str:
+    start = _JS.index(f"function {function_name}")
+    end = _JS.index(f"function {next_function_name}", start)
+    return _JS[start:end]
+
+
 def test_cockpit_mobile_contract_preserves_reading_order_without_single_row_squeeze() -> None:
     html = built_strategy_html()
 
     assert "@media(max-width:520px)" in html
     assert ".psv2-decision{grid-template-columns:1fr}" in html
     assert "제안금리" in _JS
-    assert _JS.index("실제 시장 위치") < _JS.index("미보정 구조 시나리오")
+    for template in (
+        _decision_template("marketOnlyHtml", "fullHtml"),
+        _decision_template("fullHtml", "render"),
+    ):
+        assert template.index("실제 시장 위치") < template.index("미보정 구조 시나리오")
 
 
 def test_cockpit_injection_is_idempotent_on_built_strategy() -> None:
