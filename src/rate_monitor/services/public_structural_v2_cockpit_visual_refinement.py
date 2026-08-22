@@ -17,6 +17,7 @@ SCRIPT_MARKER = 'id="public-structural-v2-cockpit-visual-refinement-script"'
 _CSS = r"""
 <style id="public-structural-v2-cockpit-visual-refinement-style">
 .psv2-rung[data-merged-rate-markers] label:after{content:" · 동일금리"!important;color:#8a6f36}
+.psv2>div{min-width:0}
 @media(max-width:520px){
   .psv2-table{min-width:1240px!important}
   .psv2-table th,.psv2-table td{padding-left:12px!important;padding-right:12px!important}
