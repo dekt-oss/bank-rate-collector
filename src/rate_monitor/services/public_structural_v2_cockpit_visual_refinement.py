@@ -4,7 +4,7 @@ Stage F 계산/시장위치 계약은 건드리지 않는다. production-derived
 확인된 presentation 결함 두 가지만 후처리한다.
 
 1. 같은 금리의 Ladder marker가 같은 좌표에서 겹치면 하나의 marker로 병합한다.
-2. 520px 이하 후보금리표는 충분한 최소폭을 확보해 숫자 열끼리 겹치지 않게 한다.
+2. 520px 이하 후보금리표는 8열 표를 2열 label/value 카드 grid로 바꿔 겹침을 막는다.
 """
 
 from __future__ import annotations
@@ -19,16 +19,25 @@ _CSS = r"""
 .psv2-rung[data-merged-rate-markers] label:after{content:" · 동일금리"!important;color:#8a6f36}
 .psv2>div{min-width:0}
 @media(max-width:520px){
-  .psv2-table{min-width:1240px!important}
-  .psv2-table th,.psv2-table td{padding-left:12px!important;padding-right:12px!important}
-  .psv2-table th:nth-child(1),.psv2-table td:nth-child(1){min-width:115px}
-  .psv2-table th:nth-child(2),.psv2-table td:nth-child(2){min-width:145px}
-  .psv2-table th:nth-child(3),.psv2-table td:nth-child(3){min-width:70px}
-  .psv2-table th:nth-child(4),.psv2-table td:nth-child(4){min-width:105px}
-  .psv2-table th:nth-child(5),.psv2-table td:nth-child(5){min-width:115px}
-  .psv2-table th:nth-child(6),.psv2-table td:nth-child(6){min-width:220px}
-  .psv2-table th:nth-child(7),.psv2-table td:nth-child(7){min-width:105px}
-  .psv2-table th:nth-child(8),.psv2-table td:nth-child(8){min-width:165px}
+  .psv2-table-wrap{overflow:visible;border:0;background:transparent}
+  .psv2-table{display:block!important;width:100%!important;min-width:0!important;border-collapse:separate}
+  .psv2-table thead{display:none!important}
+  .psv2-table tbody{display:grid!important;gap:8px}
+  .psv2-table tr{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 10px;padding:10px;border:1px solid rgba(91,47,100,.09);border-radius:10px;background:#fff}
+  .psv2-table tr.current{background:#f3faf6}
+  .psv2-table tr.proposal{background:#fff9eb}
+  .psv2-table td{display:block!important;min-width:0!important;padding:0!important;border:0!important;text-align:left!important;white-space:normal!important;font-size:8.5px;line-height:1.45}
+  .psv2-table td:before{display:block;margin-bottom:2px;color:#806f83;font:700 7.5px/1.25 var(--sans);letter-spacing:.02em}
+  .psv2-table td:nth-child(1):before{content:"금리"}
+  .psv2-table td:nth-child(2):before{content:"공동순위 범위"}
+  .psv2-table td:nth-child(3):before{content:"동률"}
+  .psv2-table td:nth-child(4):before{content:"시장 threshold"}
+  .psv2-table td:nth-child(5):before{content:"기준 총수신"}
+  .psv2-table td:nth-child(6){grid-column:1/-1}
+  .psv2-table td:nth-child(6):before{content:"stress range"}
+  .psv2-table td:nth-child(7):before{content:"현재 대비"}
+  .psv2-table td:nth-child(8):before{content:"직전 5bp 표면비용"}
+  .psv2-table .rate-label{font-size:9.5px}
 }
 </style>
 """.strip()
