@@ -176,9 +176,10 @@ jobs:
           curl -fsS http://127.0.0.1:4173/strategy.html >/dev/null
           EXPECT_MAIN_MAP_CROP=1 MAIN_MAP_SMOKE_PREFIX=main-map-v2-local \
             node scripts/main_map_runtime_smoke.js
+          # Stage F runtime evidence must execute before the older usability gate.
+          node scripts/public_structural_v2_cockpit_runtime_smoke.js
           node scripts/dashboard_usability_preference_v2_smoke.js
           node scripts/strategy_preview_smoke.js
-          node scripts/public_structural_v2_cockpit_runtime_smoke.js
 
       - name: Upload runtime evidence
         if: always()
