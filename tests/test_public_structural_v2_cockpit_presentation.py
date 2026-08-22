@@ -4,10 +4,10 @@ import pytest
 
 from rate_monitor.services.dashboard_service import DashboardBuildError
 from rate_monitor.services.public_structural_v2_cockpit_presentation import (
+    _JS,
     ENGINE_MARKER,
     SCRIPT_MARKER,
     STYLE_MARKER,
-    _JS,
     inject_public_structural_v2_cockpit,
 )
 from tests.strategy_output_helper import built_strategy_html
