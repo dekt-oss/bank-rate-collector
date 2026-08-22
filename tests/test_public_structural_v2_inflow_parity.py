@@ -54,7 +54,10 @@ def _node_results(vectors: list[dict], *, drift: bool = False) -> list[dict]:
             script,
             f"const config={json.dumps(config, ensure_ascii=False)};",
             f"const vectors={json.dumps(vectors, ensure_ascii=False)};",
-            "const out=vectors.map(v=>({name:v.name,result:PublicStructuralV2Inflow.predictRange(v.inputs,config)}));",
+            (
+                "const out=vectors.map(v=>({name:v.name,result:"
+                "PublicStructuralV2Inflow.predictRange(v.inputs,config)}));"
+            ),
             "process.stdout.write(JSON.stringify(out));",
         ]
     )
