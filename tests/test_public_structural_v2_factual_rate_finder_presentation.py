@@ -24,13 +24,12 @@ def _html() -> str:
 
 def test_built_strategy_wires_stage_g_after_stage_f_visual_refinement() -> None:
     rendered = built_strategy_html()
+    visual_marker = 'id="public-structural-v2-cockpit-visual-refinement-script"'
 
     assert STYLE_MARKER in rendered
     assert ENGINE_MARKER in rendered
     assert SCRIPT_MARKER in rendered
-    assert rendered.index('id="public-structural-v2-cockpit-visual-refinement-script"') < rendered.index(
-        SCRIPT_MARKER
-    )
+    assert rendered.index(visual_marker) < rendered.index(SCRIPT_MARKER)
 
 
 def test_stage_g_presentation_injects_independent_engine_and_factual_copy() -> None:
