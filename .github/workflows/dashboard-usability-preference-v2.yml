@@ -8,13 +8,16 @@ on:
       - "src/rate_monitor/services/preference_intelligence_presentation.py"
       - "src/rate_monitor/services/strategy_readability_preference_v2_presentation.py"
       - "src/rate_monitor/services/strategy_decision_cockpit.py"
+      - "src/rate_monitor/services/public_structural_v2_cockpit_presentation.py"
       - "tests/test_main_map_drilldown_refinement.py"
       - "tests/test_main_map_presentation.py"
       - "tests/test_preference_intelligence_service.py"
       - "tests/test_preference_intelligence_presentation.py"
       - "tests/test_strategy_readability_preference_v2_presentation.py"
+      - "tests/test_public_structural_v2_cockpit_presentation.py"
       - "scripts/main_map_runtime_smoke.js"
       - "scripts/dashboard_usability_preference_v2_smoke.js"
+      - "scripts/public_structural_v2_cockpit_runtime_smoke.js"
       - ".github/workflows/dashboard-usability-preference-v2.yml"
 
 permissions:
@@ -45,11 +48,13 @@ jobs:
             src/rate_monitor/services/preference_intelligence_presentation.py \
             src/rate_monitor/services/strategy_readability_preference_v2_presentation.py \
             src/rate_monitor/services/strategy_decision_cockpit.py \
+            src/rate_monitor/services/public_structural_v2_cockpit_presentation.py \
             tests/test_main_map_drilldown_refinement.py \
             tests/test_main_map_presentation.py \
             tests/test_preference_intelligence_service.py \
             tests/test_preference_intelligence_presentation.py \
-            tests/test_strategy_readability_preference_v2_presentation.py
+            tests/test_strategy_readability_preference_v2_presentation.py \
+            tests/test_public_structural_v2_cockpit_presentation.py
 
       - name: Targeted tests
         run: |
@@ -58,12 +63,14 @@ jobs:
             tests/test_main_map_presentation.py \
             tests/test_preference_intelligence_service.py \
             tests/test_preference_intelligence_presentation.py \
-            tests/test_strategy_readability_preference_v2_presentation.py
+            tests/test_strategy_readability_preference_v2_presentation.py \
+            tests/test_public_structural_v2_cockpit_presentation.py
 
       - name: Browser smoke syntax
         run: |
           node --check scripts/main_map_runtime_smoke.js
           node --check scripts/dashboard_usability_preference_v2_smoke.js
+          node --check scripts/public_structural_v2_cockpit_runtime_smoke.js
 
   production-data-runtime:
     needs: contract
@@ -131,6 +138,8 @@ jobs:
           grep -q 'id="strategy-readability-preference-v2-script"' work/site-public/strategy.html
           grep -q 'preference-intelligence-v2' work/site-public/strategy.html
           grep -q 'preference_bearing_products_present_only' work/site-public/strategy.html
+          grep -q 'id="public-structural-v2-cockpit-script"' work/site-public/strategy.html
+          grep -q 'id="public-structural-v2-engine-bundle"' work/site-public/strategy.html
 
       - name: Set up Node
         uses: actions/setup-node@v4
@@ -146,6 +155,7 @@ jobs:
           node --check scripts/main_map_runtime_smoke.js
           node --check scripts/dashboard_usability_preference_v2_smoke.js
           node --check scripts/strategy_preview_smoke.js
+          node --check scripts/public_structural_v2_cockpit_runtime_smoke.js
 
       - name: Run desktop and mobile Chrome smoke
         env:
@@ -168,6 +178,7 @@ jobs:
             node scripts/main_map_runtime_smoke.js
           node scripts/dashboard_usability_preference_v2_smoke.js
           node scripts/strategy_preview_smoke.js
+          node scripts/public_structural_v2_cockpit_runtime_smoke.js
 
       - name: Upload runtime evidence
         if: always()
@@ -180,6 +191,7 @@ jobs:
             work/dashboard-usability-preference-v2-*.png
             work/dashboard-usability-preference-v2-metrics.json
             work/strategy-smoke-*.png
+            work/public-structural-v2-cockpit-*.png
             work/dashboard-v2-http.log
           retention-days: 30
           if-no-files-found: warn
