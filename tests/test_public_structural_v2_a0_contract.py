@@ -103,7 +103,7 @@ def test_final_plan_closes_review_blockers_before_implementation() -> None:
         "소수점 4자리로 정규화",
         "replace",
         "newly_outpriced",
-        "시장 순위·밀집도는 금액식에 직접 반영되지 않습니다",
+        "시장 순위·밀집도 변화는 금액식에 직접 반영되지 않습니다",
         "structural amount target finder 제외",
         "`rank efficiency` 삭제",
         "absorbing boundary",
