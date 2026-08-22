@@ -75,12 +75,16 @@
         term_months:args.term_months
       },inflowConfig);
       const base=result.base,bounds=result.predicted_total_range;
+      const publicNew=base.predicted_new_money;
+      const publicRollover=base.predicted_rollover;
+      const publicTotal=Number((publicNew+publicRollover).toFixed(4));
+      const publicIncremental=Number((publicTotal-base.baseline_total).toFixed(4));
       return {
         rate_pct:rate,
-        predicted_new_money:base.predicted_new_money,
-        predicted_rollover:base.predicted_rollover,
-        predicted_total:base.predicted_total,
-        incremental_total:base.incremental_total,
+        predicted_new_money:publicNew,
+        predicted_rollover:publicRollover,
+        predicted_total:publicTotal,
+        incremental_total:publicIncremental,
         surface_interest_delta:base.surface_interest_delta,
         predicted_total_lower:bounds.min,
         predicted_total_upper:bounds.max
