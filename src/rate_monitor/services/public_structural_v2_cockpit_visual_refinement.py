@@ -1,3 +1,4 @@
+# ruff: noqa: E501
 """Public Structural v2 Cockpit의 최종 visual QA 보정.
 
 Stage F 계산/시장위치 계약은 건드리지 않는다. production-derived Chrome screenshot에서
