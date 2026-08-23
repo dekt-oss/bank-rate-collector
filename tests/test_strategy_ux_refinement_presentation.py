@@ -35,16 +35,18 @@ def test_strategy_ux_refinement_defaults_available_mutual_sectors_to_checked() -
     assert 'host.dataset.savingsOnly=String(activeMode()==="savings_bank")' in html
 
 
-def test_strategy_ux_refinement_demotes_collection_evidence_and_enlarges_map() -> None:
+def test_strategy_ux_refinement_demotes_evidence_and_hands_region_map_to_search() -> None:
     html = _render_strategy()
 
     assert "ux-evidence-panel" in html
     assert "데이터 기준 · ${sectors} · 업권별 수집률/기준일은 필요할 때 확인" in html
-    assert "min-height:530px" in html
-    assert "height:435px" in html
-    assert "색 기준 · 12개월 ${unit} 대표 최고금리 평균" in html
-    assert "낮은 금리" in html
-    assert "높은 금리" in html
+    assert ".workspace-detail.primary .mapcard{display:none!important}" in html
+    assert ".workspace-detail.primary{grid-template-columns:1fr!important}" in html
+    assert "지역·지도 상세는 검색 조회로 통합했습니다." in html
+    assert "경쟁상단·금리결정 근거만 남깁니다." in html
+    assert "지역 상세 보기" in html
+    assert ".maplegend{display:none!important}" in html
+    assert "height:435px" not in html
 
 
 def test_strategy_ux_refinement_preference_follows_top_scope_and_uses_top_n() -> None:
