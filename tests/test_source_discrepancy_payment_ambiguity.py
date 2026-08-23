@@ -88,6 +88,7 @@ def test_official_wildcard_cannot_bypass_payment_method_ambiguity() -> None:
 
     assert matched is None
     assert meta["status"] == "ambiguous_variant"
+    assert len(meta["candidate_variants"]) == 3
     assert {item["join_channel"] for item in meta["candidate_variants"]} == {
         "branch",
         "internet",
@@ -114,6 +115,8 @@ def test_dimension_ambiguity_preserves_non_ambiguous_counterpart() -> None:
 
     assert record["counterpart_side"] == "primary"
     assert record["counterpart"]["source_id"] == "fsb"
+    assert record["counterpart"]["join_channel"] == "branch"
+    assert record["counterpart"]["payment_method"] is None
     assert record["counterpart"]["base_rate"] == "2.10"
     assert record["counterpart"]["max_rate"] == "2.10"
 
