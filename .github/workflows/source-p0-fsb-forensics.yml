@@ -1,0 +1,112 @@
+name: Source P0 FSB forensics
+
+on:
+  push:
+    branches: ["investigate/source-p0-forensics-20260823"]
+    paths:
+      - ".github/workflows/source-p0-fsb-forensics.yml"
+  pull_request:
+    branches: ["main"]
+    paths:
+      - ".github/workflows/source-p0-fsb-forensics.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  capture-fsb:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv python install 3.12
+      - run: uv sync --locked
+      - name: Prepare isolated database
+        env:
+          RATE_MONITOR_DB_URL: sqlite+pysqlite:///${{ github.workspace }}/work/fsb.sqlite3
+        run: |
+          set -euo pipefail
+          mkdir -p work/raw work/evidence
+          uv run alembic upgrade head
+      - name: Fresh FSB capture
+        run: |
+          set -euo pipefail
+          uv run rate-monitor collect \
+            --source fsb \
+            --db work/fsb.sqlite3 \
+            --raw-root work/raw
+      - name: Extract all Cheongju and Daebaek source rows
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          import json
+          import shutil
+          from pathlib import Path
+
+          root = Path('work/raw')
+          out = Path('work/evidence')
+          rows = []
+          copied = set()
+
+          for path in sorted(root.rglob('*.json')):
+              try:
+                  payload = json.loads(path.read_text(encoding='utf-8'))
+              except Exception:
+                  continue
+              recs = payload.get('REC') if isinstance(payload, dict) else None
+              if not isinstance(recs, list):
+                  continue
+              for idx, rec in enumerate(recs):
+                  bank = str(rec.get('BANK_NAME') or '').strip()
+                  if '청주' not in bank and '대백' not in bank:
+                      continue
+                  product = str(rec.get('PRODUCT_NAME') or '').strip()
+                  rows.append({
+                      'file': str(path),
+                      'rec_index': idx,
+                      'bank': bank,
+                      'product': product,
+                      'record': rec,
+                  })
+                  key = str(path)
+                  if key not in copied:
+                      copied.add(key)
+                      shutil.copy2(path, out / path.name)
+
+          assert rows, 'no Cheongju/Daebaek FSB rows found'
+          targetish = [
+              x for x in rows
+              if ('청주' in x['bank'] and '정기적금' in x['product'])
+              or ('대백' in x['bank'] and '애플' in x['product'])
+          ]
+          result = {'all_bank_rows': rows, 'targetish_rows': targetish}
+          (out / 'fsb-p0-candidates.json').write_text(
+              json.dumps(result, ensure_ascii=False, indent=2) + '\n', encoding='utf-8'
+          )
+          print('all rows', len(rows), 'targetish', len(targetish))
+          for x in targetish:
+              rec = x['record']
+              print(json.dumps({
+                  'file': x['file'], 'rec_index': x['rec_index'],
+                  'bank': x['bank'], 'product': x['product'],
+                  'JOIN_LOCATION': rec.get('JOIN_LOCATION'),
+                  'JUNG_6M_DAN': rec.get('JUNG_6M_DAN'),
+                  'TOP_6M_DAN': rec.get('TOP_6M_DAN'),
+                  'JUNG_12M_DAN': rec.get('JUNG_12M_DAN'),
+                  'TOP_12M_DAN': rec.get('TOP_12M_DAN'),
+                  'JUNG_12M_BOK': rec.get('JUNG_12M_BOK'),
+                  'TOP_12M_BOK': rec.get('TOP_12M_BOK'),
+                  'FINAN_COMP_SUBMIT_DATE': rec.get('FINAN_COMP_SUBMIT_DATE'),
+                  'START_DATE': rec.get('START_DATE'),
+              }, ensure_ascii=False))
+          PY
+      - name: Upload FSB forensic evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: source-p0-fsb-forensics-${{ github.run_id }}
+          path: work/evidence/
+          retention-days: 30
+          if-no-files-found: error
