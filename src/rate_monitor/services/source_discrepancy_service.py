@@ -579,13 +579,21 @@ def build_source_discrepancy_report(
     dimension_ambiguities = [
         *(
             _dimension_ambiguity_record(
-                key, candidates, side="primary", as_of=generated_at, counterpart=secondary.get(key)
+                key,
+                candidates,
+                side="primary",
+                as_of=generated_at,
+                counterpart=secondary.get(key),
             )
             for key, candidates in primary_ambiguous.items()
         ),
         *(
             _dimension_ambiguity_record(
-                key, candidates, side="secondary", as_of=generated_at, counterpart=primary.get(key)
+                key,
+                candidates,
+                side="secondary",
+                as_of=generated_at,
+                counterpart=primary.get(key),
             )
             for key, candidates in secondary_ambiguous.items()
         ),
