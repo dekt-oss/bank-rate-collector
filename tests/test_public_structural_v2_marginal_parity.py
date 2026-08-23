@@ -85,3 +85,36 @@ def test_marginal_js_matches_python() -> None:
     )
     assert completed.returncode == 0, completed.stderr
     assert json.loads(completed.stdout) == expected
+
+
+def test_unavailable_marginal_js_matches_python_empty_set() -> None:
+    node = shutil.which("node")
+    assert node is not None
+    surface = {
+        "candidate_set": {"economics_grid": [3.50, 3.55]},
+        "forecast": {
+            "version": "inflow-public-forecast-v1",
+            "generated_at": "2026-08-23T09:00:00+09:00",
+            "status": "unavailable",
+            "amount_unit": "KRW_100M",
+            "rate_unit": "percent",
+            "scenarios": [],
+        },
+    }
+    expected = build_fixed_5bp_marginals(surface)
+    sources = [
+        (WEB / "marginal.js").read_text(encoding="utf-8"),
+        f"const surface={json.dumps(surface, ensure_ascii=False)};",
+        "const out=PublicStructuralV2Marginal.buildFixed5bpMarginals(surface);",
+        "process.stdout.write(JSON.stringify(out));",
+    ]
+    completed = subprocess.run(
+        [node, "-e", "\n".join(sources)],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert json.loads(completed.stdout) == expected
