@@ -1,6 +1,6 @@
 {
-  "captured_at": "2026-08-23T16:01:00+09:00",
-  "policy": "dated_manual_official_evidence_read_only_variant_freshness_v3",
+  "captured_at": "2026-08-23T19:57:45+09:00",
+  "policy": "dated_live_official_evidence_read_only_dimension_ambiguity_v4",
   "records": [
     {
       "evidence_id": "cheongju-installment-6m-product-20260823",
@@ -89,9 +89,12 @@
       "interest_method": "simple",
       "base_rate": "4.10",
       "max_rate": "4.10",
-      "captured_at": "2026-08-23T16:01:00+09:00",
+      "captured_at": "2026-08-23T19:57:45+09:00",
+      "capture_method": "live_http_artifact",
+      "capture_run_id": "32635180304",
+      "capture_artifact_id": "9492104054",
       "url": "https://www.debecbank.co.kr/ProdList_001.act?rnum=26",
-      "note": "인터넷뱅킹 단리식 상품의 12개월 약정이율."
+      "note": "2026-08-23 19:57 KST 은행 직접 페이지 live HTTP 캡처. 12개월 nominal 약정이율 4.10%. forensic run 32635180304, artifact 9492104054. #187의 이전 수동 evidence 값은 superseded."
     },
     {
       "evidence_id": "debec-apple-internet-compound-12m-20260823",
@@ -105,11 +108,14 @@
       "term_months": 12,
       "join_channel": "internet",
       "interest_method": "compound",
-      "base_rate": "4.00",
-      "max_rate": "4.00",
-      "captured_at": "2026-08-23T16:01:00+09:00",
+      "base_rate": "4.10",
+      "max_rate": "4.10",
+      "captured_at": "2026-08-23T19:57:45+09:00",
+      "capture_method": "live_http_artifact",
+      "capture_run_id": "32635180304",
+      "capture_artifact_id": "9492104054",
       "url": "https://www.debecbank.co.kr/ProdList_001.act?rnum=27",
-      "note": "인터넷뱅킹 복리식 상품의 12개월 nominal 약정이율 4.00%. 연평균수익률 4.07%는 max_rate로 사용하지 않음."
+      "note": "2026-08-23 19:57 KST 은행 직접 페이지 live HTTP 캡처. 12개월 nominal 약정이율 4.10%, 연평균수익률 4.17%. forensic run 32635180304, artifact 9492104054. #187의 이전 수동 evidence 값은 superseded."
     },
     {
       "evidence_id": "debec-apple-mobile-simple-12m-20260823",
@@ -123,11 +129,14 @@
       "term_months": 12,
       "join_channel": "mobile",
       "interest_method": "simple",
-      "base_rate": "3.80",
-      "max_rate": "3.80",
-      "captured_at": "2026-08-23T17:12:00+09:00",
+      "base_rate": "4.10",
+      "max_rate": "4.10",
+      "captured_at": "2026-08-23T19:57:45+09:00",
+      "capture_method": "live_http_artifact",
+      "capture_run_id": "32635180304",
+      "capture_artifact_id": "9492104054",
       "url": "https://www.debecbank.co.kr/ProdList_001.act?rnum=28",
-      "note": "2026-08-23 17:12 KST 재확인. 스마트뱅킹 단리식 상품의 12개월 약정이율 3.80%."
+      "note": "2026-08-23 19:57 KST 은행 직접 페이지 live HTTP 캡처. 12개월 nominal 약정이율 4.10%. forensic run 32635180304, artifact 9492104054. #187의 이전 수동 evidence 값은 superseded."
     },
     {
       "evidence_id": "debec-apple-mobile-compound-12m-20260823",
@@ -143,9 +152,12 @@
       "interest_method": "compound",
       "base_rate": "4.10",
       "max_rate": "4.10",
-      "captured_at": "2026-08-23T16:01:00+09:00",
+      "captured_at": "2026-08-23T19:57:45+09:00",
+      "capture_method": "live_http_artifact",
+      "capture_run_id": "32635180304",
+      "capture_artifact_id": "9492104054",
       "url": "https://www.debecbank.co.kr/ProdList_001.act?rnum=29",
-      "note": "스마트뱅킹 복리식 상품의 12개월 nominal 약정이율 4.10%. 연평균수익률 4.17%는 max_rate로 사용하지 않음."
+      "note": "2026-08-23 19:57 KST 은행 직접 페이지 live HTTP 캡처. 12개월 nominal 약정이율 4.10%, 연평균수익률 4.17%. forensic run 32635180304, artifact 9492104054. #187의 이전 수동 evidence 값은 superseded."
     }
   ]
 }

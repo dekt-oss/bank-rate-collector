@@ -11,6 +11,7 @@ on:
       - "scripts/source_discrepancy_audit.py"
       - "tests/test_source_discrepancy_service.py"
       - "tests/test_source_discrepancy_variant_freshness.py"
+      - "tests/test_source_discrepancy_payment_ambiguity.py"
       - "tests/test_official_evidence_policy.py"
       - "tests/test_official_evidence_variant_grouping.py"
       - "tests/test_source_discrepancy_triage.py"
@@ -22,6 +23,7 @@ on:
       - "docs/specs/20260820-source-discrepancy-priority-triage-v1.md"
       - "docs/specs/20260820-source-official-contradiction-triage-v1.md"
       - "docs/specs/20260823-source-discrepancy-variant-freshness-v3.md"
+      - "docs/specs/20260823-source-discrepancy-payment-ambiguity-v4.md"
       - ".github/workflows/source-discrepancy-audit.yml"
       - "config/storage.yaml"
       - "migrations/**"
@@ -66,7 +68,7 @@ jobs:
       - name: Sync dependencies
         run: uv sync --locked
 
-      - name: Validate variant-aware audit contracts
+      - name: Validate discrepancy contracts
         run: |
           set -euo pipefail
           uv run ruff check \
@@ -76,6 +78,7 @@ jobs:
             src/rate_monitor/services/source_official_contradiction_triage.py \
             tests/test_source_discrepancy_service.py \
             tests/test_source_discrepancy_variant_freshness.py \
+            tests/test_source_discrepancy_payment_ambiguity.py \
             tests/test_official_evidence_policy.py \
             tests/test_official_evidence_variant_grouping.py \
             tests/test_source_discrepancy_triage.py \
@@ -85,6 +88,7 @@ jobs:
           uv run pytest -q \
             tests/test_source_discrepancy_service.py \
             tests/test_source_discrepancy_variant_freshness.py \
+            tests/test_source_discrepancy_payment_ambiguity.py \
             tests/test_official_evidence_policy.py \
             tests/test_official_evidence_variant_grouping.py \
             tests/test_source_discrepancy_triage.py \
@@ -127,7 +131,7 @@ jobs:
           RATE_MONITOR_DB_URL: sqlite+pysqlite:///${{ github.workspace }}/work/rate_monitor.sqlite3
         run: uv run alembic upgrade head
 
-      - name: Build read-only three-way discrepancy report and priority queues
+      - name: Build read-only three-way report and queues
         run: |
           set -euo pipefail
           uv run python scripts/source_discrepancy_audit.py \
@@ -137,8 +141,9 @@ jobs:
             --official-contradiction-out work/source-discrepancy-official-contradictions.json \
             --official-evidence docs/evidence/source-discrepancy/20260823-official-savings-bank.json
 
-      - name: Inspect variant identity, freshness, and priority queues
+      - name: Inspect payment-method ambiguity and current evidence
         run: |
+          set -euo pipefail
           python - <<'PY'
           import json
           from pathlib import Path
@@ -157,6 +162,7 @@ jobs:
           assert scope["canonical_mutated"] is False
           assert "join_channel" in scope["automatic_match_method"]
           assert "interest_method" in scope["automatic_match_method"]
+          assert "multiple payment_method" in scope["dimension_ambiguity_policy"]
           assert scope["freshness_metadata_policy"].startswith("observational_only")
           assert scope["official_evidence_authority"] == "read_only_support_only"
           assert scope["official_conflict_blocks_authority"] is True
@@ -167,7 +173,8 @@ jobs:
           assert scope["official_contradiction_selects_authority"] is False
 
           summary = report["summary"]
-          assert "unmatched_variant" in summary
+          assert summary["ambiguous_variant_dimension"] >= 2
+          assert summary["ambiguous_payment_method"] >= 2
           assert summary["official_evidence_records"] >= 8
           assert summary["official_evidence_groups"] >= 7
 
@@ -180,6 +187,25 @@ jobs:
                   assert "effective_age_days" in freshness
                   assert "last_seen_age_days" in freshness
 
+          ambiguities = report["dimension_ambiguities"]
+          cheongju = [
+              item for item in ambiguities
+              if item["institution"] == "청주저축은행"
+              and item["product"] == "정기적금"
+              and item["term_months"] in {6, 12}
+              and item["dimension"] == "payment_method"
+              and item["side"] == "secondary"
+          ]
+          assert {item["term_months"] for item in cheongju} == {6, 12}
+          for item in cheongju:
+              assert len(set(item["candidate_payment_methods"])) >= 2
+              rate_pairs = {
+                  (candidate.get("base_rate"), candidate.get("max_rate"))
+                  for candidate in item["candidate_variants"]
+              }
+              assert len(rate_pairs) >= 2
+              assert all(entry.get("raw_artifact_path") for entry in item["provenance"])
+
           triage = report["triage"]
           assert triage["authority_semantics"] == (
               "investigation_priority_only; does_not_select_canonical_source"
@@ -187,6 +213,12 @@ jobs:
           assert "exact or uniquely compatible variant" in triage["variant_evidence_semantics"]
           assert triage["summary"]["queue_size"] == summary["mismatch_or_incomplete"]
           assert queue_payload["triage"] == triage
+          assert not any(
+              item["institution"] == "청주저축은행"
+              and item["product"] == "정기적금"
+              and item["term_months"] in {6, 12}
+              for item in triage["queue"]
+          )
           assert [item["rank"] for item in triage["queue"]] == list(
               range(1, triage["summary"]["queue_size"] + 1)
           )
@@ -208,6 +240,9 @@ jobs:
           assert sum(
               contradictions["summary"][key] for key in ("P0", "P1", "P2", "P3")
           ) == contradictions["summary"]["queue_size"]
+          assert not any(
+              item["institution"] == "대백저축은행" for item in contradictions["queue"]
+          )
 
           groups = {item["evidence_group"]: item for item in report["official_evidence_groups"]}
           kiwoom = groups["kiwoomyes:e-revolving:any:simple:12m"]
@@ -222,59 +257,50 @@ jobs:
           )
 
           daebaek_expected = {
-              "debec:apple-deposit:internet:simple:12m": ("internet", "simple", "4.10"),
-              "debec:apple-deposit:internet:compound:12m": ("internet", "compound", "4.00"),
-              "debec:apple-deposit:mobile:simple:12m": ("mobile", "simple", "3.80"),
-              "debec:apple-deposit:mobile:compound:12m": ("mobile", "compound", "4.10"),
+              "debec:apple-deposit:internet:simple:12m": ("internet", "simple"),
+              "debec:apple-deposit:internet:compound:12m": ("internet", "compound"),
+              "debec:apple-deposit:mobile:simple:12m": ("mobile", "simple"),
+              "debec:apple-deposit:mobile:compound:12m": ("mobile", "compound"),
           }
-          for group_id, (channel, method, rate) in daebaek_expected.items():
+          for group_id, (channel, method) in daebaek_expected.items():
               group = groups[group_id]
               assert group["status"] == "consistent"
               assert group["join_channel"] == channel
               assert group["interest_method"] == method
-              assert group["official_max_rates"] == [rate]
+              assert group["official_max_rates"] == ["4.10"]
               assert len(group["records"]) == 1
-              assert group["records"][0]["freshness"]["captured_age_days"] is not None
-
-          assert not any(
-              item["institution"] == "대백저축은행"
-              and item["classification"] == "official_internal_conflict"
-              for item in contradictions["queue"]
-          )
+              record = group["records"][0]
+              assert record.get("capture_method") == "live_http_artifact"
+              assert record.get("capture_run_id") == "32635180304"
+              assert record.get("capture_artifact_id") == "9492104054"
 
           print("source runs:", report["source_runs"])
           print("summary:", summary)
           print("triage summary:", triage["summary"])
           print("official contradiction summary:", contradictions["summary"])
-          print("official groups:")
-          for group in report["official_evidence_groups"]:
+          print("dimension ambiguities:")
+          for item in ambiguities:
               print(
-                  group["evidence_group"],
-                  f"variant={group.get('join_channel')}/{group.get('interest_method')}",
-                  f"status={group['status']}",
-                  f"signal={group['reconciliation_signal']}",
-                  f"official_max={group['official_max_rates']}",
+                  item["side"], item["institution"], item["product"],
+                  f"term={item['term_months']}",
+                  f"variant={item['join_channel']}/{item['interest_method']}",
+                  f"payment={item['candidate_payment_methods']}",
+                  f"rates={[v.get('max_rate') for v in item['candidate_variants']]}",
               )
-
           print("priority queue:")
-          for item in triage["queue"][:30]:
+          for item in triage["queue"]:
               print(
                   f"#{item['rank']}", item["priority"], f"score={item['score']}",
                   item["classification"], item["institution"], item["product"],
                   f"term={item['term_months']}",
                   f"variant={item['join_channel']}/{item['interest_method']}",
                   f"delta={item['max_rate']['absolute_delta']}",
-                  f"date_gap={item['effective_date']['gap_days']}",
-                  f"age={item['effective_date']['max_source_age_days']}",
               )
-
           print("official contradiction queue:")
-          for item in contradictions["queue"][:30]:
+          for item in contradictions["queue"]:
               print(
                   f"#{item['rank']}", item["priority"], f"score={item['score']}",
                   item["classification"], item["institution"], item["official_product"],
-                  f"term={item['term_months']}",
-                  f"variant={item['join_channel']}/{item['interest_method']}",
                   f"official={item['official_max_rates']}",
                   f"consensus={item['source_consensus_max_rate']}",
               )
@@ -301,10 +327,10 @@ jobs:
         run: |
           if [ "$JOB_STATUS" = "success" ]; then
             STATE=success
-            DESCRIPTION="Production-data variant-aware discrepancy audit passed"
+            DESCRIPTION="Production-data payment-dimension audit passed"
           else
             STATE=failure
-            DESCRIPTION="Production-data variant-aware discrepancy audit failed"
+            DESCRIPTION="Production-data payment-dimension audit failed"
           fi
           gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
             -f state="$STATE" \
