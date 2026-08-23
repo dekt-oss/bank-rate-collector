@@ -161,6 +161,7 @@ def main() -> int:
             item["institution"],
             item["product"],
             f"term={item['term_months']}",
+            f"variant={item['join_channel']}/{item['interest_method']}",
             f"delta={item['max_rate']['absolute_delta']}",
         )
     for item in contradictions["queue"][:10]:
