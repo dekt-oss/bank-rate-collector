@@ -16,7 +16,7 @@ async function loadPage(browser, viewport) {
   const runtimeErrors = [];
   page.on("pageerror", (error) => runtimeErrors.push(`pageerror: ${error.message}`));
   page.on("console", (message) => {
-    if (message.type() === "error") runtimeErrors.push(`console: ${message.text()}`));
+    if (message.type() === "error") runtimeErrors.push(`console: ${message.text()}`);
   });
   await page.route("**/favicon.ico", (route) => route.fulfill({ status: 204, body: "" }));
   const response = await page.goto(`${baseUrl}/strategy.html`, { waitUntil: "networkidle" });
