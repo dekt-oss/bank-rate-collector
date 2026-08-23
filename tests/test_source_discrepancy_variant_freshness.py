@@ -42,7 +42,8 @@ def _db(
           product_id TEXT NOT NULL,
           term_months INTEGER,
           join_channel TEXT,
-          interest_method TEXT
+          interest_method TEXT,
+          payment_method TEXT
         );
         CREATE TABLE raw_artifacts (
           id TEXT PRIMARY KEY,
@@ -174,7 +175,12 @@ def _db(
             ]
         )
 
-    conn.executemany("INSERT INTO product_variants VALUES (?, ?, ?, ?, ?)", variants)
+    conn.executemany(
+        "INSERT INTO product_variants "
+        "(id, product_id, term_months, join_channel, interest_method) "
+        "VALUES (?, ?, ?, ?, ?)",
+        variants,
+    )
     conn.executemany("INSERT INTO raw_artifacts VALUES (?, ?, ?)", artifacts)
     conn.executemany(
         """

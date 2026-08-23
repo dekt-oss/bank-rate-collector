@@ -38,7 +38,8 @@ def _db(tmp_path: Path) -> Path:
           product_id TEXT NOT NULL,
           term_months INTEGER,
           join_channel TEXT,
-          interest_method TEXT
+          interest_method TEXT,
+          payment_method TEXT
         );
         CREATE TABLE raw_artifacts (
           id TEXT PRIMARY KEY,
@@ -106,7 +107,9 @@ def _db(tmp_path: Path) -> Path:
         ],
     )
     conn.executemany(
-        "INSERT INTO product_variants VALUES (?, ?, 12, ?, ?)",
+        "INSERT INTO product_variants "
+        "(id, product_id, term_months, join_channel, interest_method) "
+        "VALUES (?, ?, 12, ?, ?)",
         [
             ("v-fsb", "p-fsb", "internet", "simple"),
             ("v-fin", "p-fin", "internet", "simple"),
