@@ -27,8 +27,9 @@ stable product identity, 수집 schedule은 변경하지 않는다.
 공시 금리도 달라질 수 있으므로, 대표 최고금리 한 행을 먼저 뽑은 뒤 비교하면
 다른 variant를 같은 값처럼 취급할 위험이 있다.
 
-2026-08-23 직접 확인한 대백저축은행 애플정기예금 공식 surface는 12개월 기준으로
-채널/이자방식별 nominal 약정이율이 4.00%와 4.10%로 나뉜다.
+2026-08-23 직접 재확인한 대백저축은행 애플정기예금 공식 surface는 12개월 기준으로
+인터넷 단리 4.10%, 인터넷 복리 4.00%, 스마트뱅킹 단리 3.80%, 스마트뱅킹 복리
+4.10%다. 서로 다른 variant의 금리 차이는 그 자체로 official conflict가 아니다.
 
 ## 3. source-source identity v3
 
@@ -60,6 +61,26 @@ stable product identity, 수집 schedule은 변경하지 않는다.
 
 이 규칙은 official evidence를 source 행에 붙이는 감사 경로에만 사용한다.
 canonical identity나 FSB↔FINLIFE source-source matching에는 사용하지 않는다.
+
+### 4.1 downstream triage도 같은 variant 계약을 사용한다
+
+P0~P3 triage와 official contradiction queue에서도 base product 4필드만으로 official
+근거를 붙이지 않는다. source match의 `join_channel`과 `interest_method`를 포함해 exact 또는
+유일하게 호환되는 official variant만 연결한다.
+
+- `branch/simple` 공식 근거는 `mobile/simple` mismatch에 붙지 않는다.
+- source variant가 `unknown`이고 branch/mobile 공식 후보가 둘 이상이면 임의 선택하지 않는다.
+- official variant가 `any`이고 source 후보가 둘 이상이면 source consensus를 임의 선택하지 않는다.
+- 매칭이 모호하면 official 근거는 우선순위 점수에서 제외하고 ambiguity metadata만 남긴다.
+
+### 4.2 official conflict는 같은 variant 안에서만 판정한다
+
+공식 evidence group의 truth question도 6D variant 기준으로 분리한다. 서로 다른 채널이나
+이자방식의 정상적인 금리 차이를 하나의 `mixed/mixed` group에 합쳐 `official_conflict`로
+판정하지 않는다.
+
+`official_conflict`는 **같은 기관·상품·유형·기간·가입채널·이자방식**에 대해 공식 상품공시와
+시행 공지 등 복수 공식 evidence가 서로 다른 rate를 제시할 때만 의미가 있다.
 
 ## 5. freshness metadata
 
@@ -98,10 +119,15 @@ observational-only 계약이다.
 - 키움예스 e-회전yes 12개월 — 직접 상품공시 + 2026-08-20 시행 금리변경 공지
 - 대백 애플정기예금 12개월 — internet/mobile × simple/compound 4개 surface
 
-대백 4개 surface가 서로 다른 금리를 말하는 것은 하나를 오류로 단정하기 위한 것이 아니다.
-동일 product family 안에서도 channel/method가 실제 truth question의 일부라는 증거로 사용한다.
-공식 evidence group이 서로 다른 금리를 포함하면 기존 v2 계약대로 `official_conflict`가
-우선하며 source authority를 선택하지 않는다.
+대백은 다음 네 group으로 분리한다.
+
+- `debec:apple-deposit:internet:simple:12m` — 4.10%
+- `debec:apple-deposit:internet:compound:12m` — 4.00%
+- `debec:apple-deposit:mobile:simple:12m` — 3.80%
+- `debec:apple-deposit:mobile:compound:12m` — 4.10%
+
+이 네 값의 차이는 서로 다른 variant의 공식 공시이므로 official internal conflict가 아니다.
+각 group이 해당 source variant를 지지하는지 여부를 독립적으로 평가한다.
 
 ## 7. 운영 Evidence Gate
 
@@ -125,6 +151,8 @@ observational-only 계약이다.
 - source-source exact match가 channel/method를 포함한다.
 - 다른 channel/method는 `unmatched_variant`로 surfaced한다.
 - official evidence는 unique non-conflicting wildcard만 허용한다.
+- P0~P3와 official contradiction의 official/source 연결도 variant-aware다.
+- 서로 다른 variant의 공식 금리차는 official conflict로 분류하지 않는다.
 - source/official freshness metadata가 report에 보존된다.
 - freshness metadata가 authority를 자동 선택하지 않는다.
 - 2026-08-23 dated official evidence가 production R2 audit에 사용된다.
