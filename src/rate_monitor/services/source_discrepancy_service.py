@@ -251,6 +251,18 @@ def _rows_by_base(
     return grouped
 
 
+def _rows_by_base_with_ambiguities(
+    mapping: dict[ProductKey, dict[str, Any]],
+    ambiguities: dict[ProductKey, list[dict[str, Any]]],
+) -> dict[BaseProductKey, list[dict[str, Any]]]:
+    """Official wildcard matching에서도 차단된 variant를 candidate에서 보존한다."""
+    grouped = _rows_by_base(mapping)
+    for candidates in ambiguities.values():
+        for row in candidates:
+            grouped[_base_product_key(row)].append(row)
+    return grouped
+
+
 def _freshness(row: dict[str, Any], as_of: datetime) -> dict[str, Any]:
     return {
         "as_of": as_of.isoformat(),
@@ -341,6 +353,7 @@ def _dimension_ambiguity_record(
     *,
     side: str,
     as_of: datetime,
+    counterpart: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     first = candidates[0]
     return {
@@ -358,6 +371,8 @@ def _dimension_ambiguity_record(
         ),
         "candidate_variants": [_candidate_variant(item) for item in candidates],
         "provenance": [_provenance(item, as_of) for item in candidates],
+        "counterpart_side": "secondary" if side == "primary" else "primary",
+        "counterpart": _provenance(counterpart, as_of) if counterpart is not None else None,
         "reason": (
             "same 6D source key has multiple payment_method values with different rates; "
             "rate comparison is blocked instead of selecting the highest representative"
@@ -559,13 +574,19 @@ def build_source_discrepancy_report(
     secondary, secondary_ambiguous = _representatives(by_source.get(secondary_source, []))
     primary_by_base = _rows_by_base(primary)
     secondary_by_base = _rows_by_base(secondary)
+    primary_official_by_base = _rows_by_base_with_ambiguities(primary, primary_ambiguous)
+    secondary_official_by_base = _rows_by_base_with_ambiguities(secondary, secondary_ambiguous)
     dimension_ambiguities = [
         *(
-            _dimension_ambiguity_record(key, candidates, side="primary", as_of=generated_at)
+            _dimension_ambiguity_record(
+                key, candidates, side="primary", as_of=generated_at, counterpart=secondary.get(key)
+            )
             for key, candidates in primary_ambiguous.items()
         ),
         *(
-            _dimension_ambiguity_record(key, candidates, side="secondary", as_of=generated_at)
+            _dimension_ambiguity_record(
+                key, candidates, side="secondary", as_of=generated_at, counterpart=primary.get(key)
+            )
             for key, candidates in secondary_ambiguous.items()
         ),
     ]
@@ -640,8 +661,8 @@ def build_source_discrepancy_report(
     evidence = _load_official_evidence(official_evidence_path)
     evidence_comparisons = _compare_official_evidence(
         evidence,
-        primary_by_base,
-        secondary_by_base,
+        primary_official_by_base,
+        secondary_official_by_base,
         generated_at,
     )
 
