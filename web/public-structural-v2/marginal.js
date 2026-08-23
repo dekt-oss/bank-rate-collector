@@ -11,10 +11,22 @@
     return Number(number.toFixed(4));
   }
 
+  function emptyMarginals(){
+    return {
+      version:"public-structural-v2-marginal-v1",
+      step_bp:5,
+      ratio_metric_status:"not_exposed_uncalibrated_denominator",
+      annualized_marginal_rate_status:"not_exposed",
+      marginals:[]
+    };
+  }
+
   function buildFixed5bpMarginals(surface){
     const grid=(surface.candidate_set?.economics_grid||[]).map(normalizeRate).sort((a,b)=>a-b);
-    const scenarios=surface.forecast?.scenarios||[];
+    const forecast=surface.forecast||{};
+    const scenarios=forecast.scenarios||[];
     if(grid.length<2)throw new Error("economics_grid:requires_two_rates");
+    if(forecast.status==="unavailable")return emptyMarginals();
     if(!scenarios.length)throw new Error("forecast_scenarios:required");
     const byRate=new Map(scenarios.map(row=>[normalizeRate(row.rate_pct),row]));
     for(const rate of grid){if(!byRate.has(rate))throw new Error("economics_grid:forecast_mismatch");}
