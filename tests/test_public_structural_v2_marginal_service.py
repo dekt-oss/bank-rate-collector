@@ -68,6 +68,24 @@ def test_marginal_delta_is_difference_between_public_forecast_rows() -> None:
         )
 
 
+def test_unavailable_forecast_propagates_as_empty_marginal_set() -> None:
+    surface = deepcopy(_surface())
+    surface["forecast"] = {
+        "version": "inflow-public-forecast-v1",
+        "generated_at": "2026-08-23T09:00:00+09:00",
+        "status": "unavailable",
+        "amount_unit": "KRW_100M",
+        "rate_unit": "percent",
+        "scenarios": [],
+    }
+
+    result = build_fixed_5bp_marginals(surface)
+
+    assert result["version"] == "public-structural-v2-marginal-v1"
+    assert result["marginals"] == []
+    assert result["ratio_metric_status"] == "not_exposed_uncalibrated_denominator"
+
+
 def test_non_5bp_grid_fails_closed_instead_of_annualizing() -> None:
     surface = deepcopy(_surface())
     surface["candidate_set"]["economics_grid"] = [3.50, 3.53, 3.58]

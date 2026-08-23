@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from rate_monitor.services.public_structural_v2_surface_service import (
     DISCLOSURE,
     build_public_structural_v2_surface,
@@ -32,6 +34,34 @@ def _surface(**overrides):
     }
     args.update(overrides)
     return build_public_structural_v2_surface(**args)
+
+
+def _provider_payload(request) -> dict:
+    scenarios = []
+    for index, rate in enumerate(request.candidate_rates):
+        new_money = 100.0 + index
+        rollover = 120.0 + index
+        total = new_money + rollover
+        scenarios.append(
+            {
+                "rate_pct": rate,
+                "predicted_new_money": new_money,
+                "predicted_rollover": rollover,
+                "predicted_total": total,
+                "incremental_total": total - 220.0,
+                "surface_interest_delta": index * 0.1,
+                "predicted_total_lower": total - 5.0,
+                "predicted_total_upper": total + 5.0,
+            }
+        )
+    return {
+        "version": "inflow-public-forecast-v1",
+        "generated_at": request.generated_at,
+        "status": "ready",
+        "amount_unit": "KRW_100M",
+        "rate_unit": "percent",
+        "scenarios": scenarios,
+    }
 
 
 def test_surface_keeps_market_and_structural_sections_separate() -> None:
@@ -105,3 +135,26 @@ def test_market_rank_changes_independently_from_amount_disclosure_contract() -> 
 
     assert low_proposal["rank_best"] != high_proposal["rank_best"]
     assert low_forecast == high_forecast
+
+
+def test_surface_accepts_sanitized_provider_without_provider_identity() -> None:
+    surface = _surface(proposal_rate=3.63, forecast_provider=_provider_payload)
+
+    assert surface["forecast"]["status"] == "ready"
+    assert [row["rate_pct"] for row in surface["forecast"]["scenarios"]] == [
+        row["proposal_rate"] for row in surface["market_positions"]
+    ]
+    serialized = repr(surface).lower()
+    assert "provider" not in serialized
+    assert "private_model" not in serialized
+    assert "training_metric" not in serialized
+
+
+def test_surface_rejects_provider_private_metadata_before_view_model() -> None:
+    def leaking_provider(request) -> dict:
+        payload = _provider_payload(request)
+        payload["private_model"] = "confidential-v9"
+        return payload
+
+    with pytest.raises(ValueError, match="unknown_fields:private_model"):
+        _surface(forecast_provider=leaking_provider)

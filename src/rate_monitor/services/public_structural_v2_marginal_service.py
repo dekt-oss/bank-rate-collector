@@ -17,6 +17,16 @@ MARGINAL_VERSION = "public-structural-v2-marginal-v1"
 FIXED_STEP_PP = Decimal("0.05")
 
 
+def _empty_marginals() -> dict[str, Any]:
+    return {
+        "version": MARGINAL_VERSION,
+        "step_bp": 5,
+        "ratio_metric_status": "not_exposed_uncalibrated_denominator",
+        "annualized_marginal_rate_status": "not_exposed",
+        "marginals": [],
+    }
+
+
 def build_fixed_5bp_marginals(surface: dict[str, Any]) -> dict[str, Any]:
     """Decision Surface의 economics grid 인접점 사이 변화액만 계산한다."""
     candidate_set = surface.get("candidate_set") or {}
@@ -25,6 +35,8 @@ def build_fixed_5bp_marginals(surface: dict[str, Any]) -> dict[str, Any]:
     scenarios = forecast.get("scenarios") or []
     if len(grid) < 2:
         raise ValueError("economics_grid는 최소 2개 금리가 필요하다")
+    if forecast.get("status") == "unavailable":
+        return _empty_marginals()
     if not scenarios:
         raise ValueError("forecast scenarios가 필요하다")
 

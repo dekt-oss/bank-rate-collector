@@ -2,8 +2,8 @@
 """Public Structural v2 Cockpit의 최종 post-processing.
 
 Stage F 계산/시장위치 계약은 건드리지 않는다. production-derived Chrome screenshot에서
-확인된 presentation 결함 두 가지를 후처리한 뒤, 별도 Stage G factual-only rate finder
-presentation을 마지막 확장으로 연결한다. Stage G 계산은 이 모듈에 구현하지 않는다.
+확인된 presentation 결함 두 가지를 후처리하고 Stage H provider adapter를 Cockpit
+실행 직전에 연결한 뒤 Stage G factual-only rate finder를 마지막 확장으로 유지한다.
 
 1. 같은 금리의 Ladder marker가 같은 좌표에서 겹치면 하나의 marker로 병합한다.
 2. 520px 이하 후보금리표는 8열 표를 2열 label/value 카드 grid로 바꿔 겹침을 막는다.
@@ -14,6 +14,9 @@ from __future__ import annotations
 from rate_monitor.services.dashboard_service import DashboardBuildError
 from rate_monitor.services.public_structural_v2_factual_rate_finder_presentation import (
     inject_public_structural_v2_factual_rate_finder,
+)
+from rate_monitor.services.public_structural_v2_forecast_provider_presentation import (
+    inject_public_structural_v2_forecast_provider,
 )
 
 STYLE_MARKER = 'id="public-structural-v2-cockpit-visual-refinement-style"'
@@ -117,7 +120,7 @@ _SCRIPT = r"""
 
 
 def inject_public_structural_v2_cockpit_visual_refinement(html: str) -> str:
-    """Stage F visual refinement 후 Stage G factual finder extension을 연결한다."""
+    """Stage F visual refinement 후 Stage H adapter와 Stage G finder를 연결한다."""
     states = (STYLE_MARKER in html, SCRIPT_MARKER in html)
     if all(states):
         rendered = html
@@ -134,4 +137,5 @@ def inject_public_structural_v2_cockpit_visual_refinement(html: str) -> str:
             )
         rendered = html.replace("</head>", _CSS + "\n</head>", 1)
         rendered = rendered.replace("</body>", _SCRIPT + "\n</body>", 1)
+    rendered = inject_public_structural_v2_forecast_provider(rendered)
     return inject_public_structural_v2_factual_rate_finder(rendered)

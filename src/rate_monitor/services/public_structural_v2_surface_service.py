@@ -8,9 +8,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from rate_monitor.services.public_structural_v2_decision_contract import (
-    build_candidate_rate_sets,
-    build_public_structural_v2_forecast,
+from rate_monitor.services.public_structural_v2_decision_contract import build_candidate_rate_sets
+from rate_monitor.services.public_structural_v2_forecast_provider import (
+    ForecastProvider,
+    PublicForecastRequest,
+    resolve_public_forecast,
 )
 from rate_monitor.services.public_structural_v2_market_position_service import market_position
 
@@ -40,8 +42,9 @@ def build_public_structural_v2_surface(
     maturity_amount: float,
     current_rollover_rate_pct: float,
     term_months: int,
+    forecast_provider: ForecastProvider | None = None,
 ) -> dict[str, Any]:
-    """시장 factual + sanitized structural forecast를 분리된 view model로 반환한다."""
+    """시장 factual + provider forecast를 분리된 sanitized view model로 반환한다."""
     proposal_position = market_position(
         rows=market_rows,
         anchor_product_id=anchor_product_id,
@@ -69,14 +72,17 @@ def build_public_structural_v2_surface(
         )
         for rate in display_rates
     ]
-    forecast = build_public_structural_v2_forecast(
-        generated_at=generated_at,
-        candidate_rates=display_rates,
-        baseline_new_money=baseline_new_money,
-        maturity_amount=maturity_amount,
-        current_rollover_rate_pct=current_rollover_rate_pct,
-        current_own_rate=current_own_rate,
-        term_months=term_months,
+    forecast = resolve_public_forecast(
+        request=PublicForecastRequest(
+            generated_at=generated_at,
+            candidate_rates=tuple(display_rates),
+            baseline_new_money=baseline_new_money,
+            maturity_amount=maturity_amount,
+            current_rollover_rate_pct=current_rollover_rate_pct,
+            current_own_rate=current_own_rate,
+            term_months=term_months,
+        ),
+        provider=forecast_provider,
     )
 
     return {
