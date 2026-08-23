@@ -12,8 +12,11 @@ on:
       - "tests/test_source_discrepancy_service.py"
       - "tests/test_source_discrepancy_variant_freshness.py"
       - "tests/test_official_evidence_policy.py"
+      - "tests/test_official_evidence_variant_grouping.py"
       - "tests/test_source_discrepancy_triage.py"
+      - "tests/test_source_discrepancy_triage_variant.py"
       - "tests/test_source_official_contradiction_triage.py"
+      - "tests/test_source_official_contradiction_variant.py"
       - "docs/evidence/source-discrepancy/**"
       - "docs/specs/20260820-source-discrepancy-official-evidence-v2.md"
       - "docs/specs/20260820-source-discrepancy-priority-triage-v1.md"
@@ -69,15 +72,25 @@ jobs:
           uv run ruff check \
             src/rate_monitor/services/source_discrepancy_service.py \
             src/rate_monitor/services/official_evidence_policy.py \
+            src/rate_monitor/services/source_discrepancy_triage.py \
+            src/rate_monitor/services/source_official_contradiction_triage.py \
             tests/test_source_discrepancy_service.py \
             tests/test_source_discrepancy_variant_freshness.py \
-            tests/test_official_evidence_policy.py
+            tests/test_official_evidence_policy.py \
+            tests/test_official_evidence_variant_grouping.py \
+            tests/test_source_discrepancy_triage.py \
+            tests/test_source_discrepancy_triage_variant.py \
+            tests/test_source_official_contradiction_triage.py \
+            tests/test_source_official_contradiction_variant.py
           uv run pytest -q \
             tests/test_source_discrepancy_service.py \
             tests/test_source_discrepancy_variant_freshness.py \
             tests/test_official_evidence_policy.py \
+            tests/test_official_evidence_variant_grouping.py \
             tests/test_source_discrepancy_triage.py \
-            tests/test_source_official_contradiction_triage.py
+            tests/test_source_discrepancy_triage_variant.py \
+            tests/test_source_official_contradiction_triage.py \
+            tests/test_source_official_contradiction_variant.py
 
       - name: Restore current production database read-only
         env:
@@ -156,7 +169,7 @@ jobs:
           summary = report["summary"]
           assert "unmatched_variant" in summary
           assert summary["official_evidence_records"] >= 8
-          assert summary["official_evidence_groups"] >= 4
+          assert summary["official_evidence_groups"] >= 7
 
           for match in report["matches"]:
               identity = match["match"]
@@ -171,6 +184,7 @@ jobs:
           assert triage["authority_semantics"] == (
               "investigation_priority_only; does_not_select_canonical_source"
           )
+          assert "exact or uniquely compatible variant" in triage["variant_evidence_semantics"]
           assert triage["summary"]["queue_size"] == summary["mismatch_or_incomplete"]
           assert queue_payload["triage"] == triage
           assert [item["rank"] for item in triage["queue"]] == list(
@@ -185,6 +199,9 @@ jobs:
           assert contradictions["authority_semantics"] == (
               "investigation_priority_only; official evidence never overwrites canonical values"
           )
+          assert "exact or uniquely compatible variant" in contradictions[
+              "variant_pairing_semantics"
+          ]
           assert [item["rank"] for item in contradictions["queue"]] == list(
               range(1, contradictions["summary"]["queue_size"] + 1)
           )
@@ -204,22 +221,26 @@ jobs:
               for record in kiwoom["records"]
           )
 
-          daebaek = groups["debec:apple-deposit:channel-method-surfaces:12m"]
-          assert daebaek["status"] == "conflict"
-          assert daebaek["reconciliation_signal"] == "official_conflict"
-          assert daebaek["official_max_rates"] == ["4.00", "4.10"]
-          assert daebaek["join_channel"] == "mixed"
-          assert daebaek["interest_method"] == "mixed"
-          assert len(daebaek["records"]) == 4
-          assert all(record["freshness"]["captured_age_days"] is not None for record in daebaek["records"])
+          daebaek_expected = {
+              "debec:apple-deposit:internet:simple:12m": ("internet", "simple", "4.10"),
+              "debec:apple-deposit:internet:compound:12m": ("internet", "compound", "4.00"),
+              "debec:apple-deposit:mobile:simple:12m": ("mobile", "simple", "3.80"),
+              "debec:apple-deposit:mobile:compound:12m": ("mobile", "compound", "4.10"),
+          }
+          for group_id, (channel, method, rate) in daebaek_expected.items():
+              group = groups[group_id]
+              assert group["status"] == "consistent"
+              assert group["join_channel"] == channel
+              assert group["interest_method"] == method
+              assert group["official_max_rates"] == [rate]
+              assert len(group["records"]) == 1
+              assert group["records"][0]["freshness"]["captured_age_days"] is not None
 
-          daebaek_queue = [
-              item for item in contradictions["queue"]
-              if item["evidence_group"] == "debec:apple-deposit:channel-method-surfaces:12m"
-          ]
-          assert len(daebaek_queue) == 1
-          assert daebaek_queue[0]["classification"] == "official_internal_conflict"
-          assert daebaek_queue[0]["priority"] == "P0"
+          assert not any(
+              item["institution"] == "대백저축은행"
+              and item["classification"] == "official_internal_conflict"
+              for item in contradictions["queue"]
+          )
 
           print("source runs:", report["source_runs"])
           print("summary:", summary)
@@ -240,7 +261,9 @@ jobs:
               print(
                   f"#{item['rank']}", item["priority"], f"score={item['score']}",
                   item["classification"], item["institution"], item["product"],
-                  f"term={item['term_months']}", f"delta={item['max_rate']['absolute_delta']}",
+                  f"term={item['term_months']}",
+                  f"variant={item['join_channel']}/{item['interest_method']}",
+                  f"delta={item['max_rate']['absolute_delta']}",
                   f"date_gap={item['effective_date']['gap_days']}",
                   f"age={item['effective_date']['max_source_age_days']}",
               )
@@ -250,7 +273,9 @@ jobs:
               print(
                   f"#{item['rank']}", item["priority"], f"score={item['score']}",
                   item["classification"], item["institution"], item["official_product"],
-                  f"term={item['term_months']}", f"official={item['official_max_rates']}",
+                  f"term={item['term_months']}",
+                  f"variant={item['join_channel']}/{item['interest_method']}",
+                  f"official={item['official_max_rates']}",
                   f"consensus={item['source_consensus_max_rate']}",
               )
           PY
