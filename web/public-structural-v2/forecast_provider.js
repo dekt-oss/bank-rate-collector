@@ -58,6 +58,10 @@
     return number;
   }
 
+  function isClose(a,b,relTol=1e-9,absTol=1e-6){
+    return Math.abs(a-b)<=Math.max(absTol,relTol*Math.max(Math.abs(a),Math.abs(b)));
+  }
+
   function validateScenario(row,index){
     if(!row||typeof row!=="object"||Array.isArray(row)){
       throw new Error(`scenario_${index}:must_be_object`);
@@ -88,7 +92,7 @@
       }
     }
     const component=numeric.predicted_new_money+numeric.predicted_rollover;
-    if(Math.abs(numeric.predicted_total-component)>1e-6){
+    if(!isClose(numeric.predicted_total,component)){
       throw new Error(`scenario_${index}:predicted_total_component_mismatch`);
     }
     if(lower&&!(numeric.predicted_total_lower<=numeric.predicted_total&&
