@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: read
+  issues: write
 
 jobs:
   inspect:
@@ -89,12 +90,35 @@ jobs:
               }
               output['deposit_non_null_rsrv' if service.startswith('deposit') else 'saving_non_null_rsrv'] = examples
 
-          Path('work/evidence/finlife-payment-dimension.json').write_text(
+          evidence = Path('work/evidence/finlife-payment-dimension.json')
+          evidence.write_text(
               json.dumps(output, ensure_ascii=False, indent=2) + '\n', encoding='utf-8'
           )
           print(json.dumps(output['counts'], ensure_ascii=False, indent=2))
           print('deposit examples:', json.dumps(output['deposit_non_null_rsrv'][:50], ensure_ascii=False, indent=2))
+
+          deposit = output['counts']['depositProductsSearch']
+          saving = output['counts']['savingProductsSearch']
+          lines = [
+              '## Fresh FINLIFE payment-dimension forensic',
+              '',
+              f'- run: `{__import__("os").environ.get("GITHUB_RUN_ID", "unknown")}`',
+              f'- deposit options: {deposit["total_options"]}, non-null `rsrv_type`: {deposit["non_null_rsrv_type"]}, codes={deposit["codes"]}',
+              f'- saving options: {saving["total_options"]}, non-null `rsrv_type`: {saving["non_null_rsrv_type"]}, codes={saving["codes"]}',
+              '',
+              '### Deposit non-null examples',
+              '```json',
+              json.dumps(output['deposit_non_null_rsrv'][:20], ensure_ascii=False, indent=2),
+              '```',
+              '',
+              'Read-only isolated fresh capture. No production/R2/rate-data write.',
+          ]
+          Path('work/evidence/comment.md').write_text('\n'.join(lines) + '\n', encoding='utf-8')
           PY
+      - name: Publish forensic summary to investigation PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh issue comment 188 --body-file work/evidence/comment.md
       - name: Upload evidence
         uses: actions/upload-artifact@v4
         with:
