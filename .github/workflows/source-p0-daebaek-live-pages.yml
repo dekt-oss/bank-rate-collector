@@ -1,0 +1,77 @@
+name: Source P0 Daebaek live pages
+
+on:
+  push:
+    branches: ["investigate/source-p0-forensics-20260823"]
+    paths:
+      - ".github/workflows/source-p0-daebaek-live-pages.yml"
+  pull_request:
+    branches: ["main"]
+    paths:
+      - ".github/workflows/source-p0-daebaek-live-pages.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  capture-pages:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv python install 3.12
+      - run: uv sync --locked
+      - name: Capture bank-direct product disclosure HTML
+        run: |
+          set -euo pipefail
+          mkdir -p work/evidence
+          uv run python - <<'PY'
+          import json
+          import re
+          from datetime import UTC, datetime
+          from pathlib import Path
+
+          import httpx
+
+          urls = {
+              'internet_simple': 'https://www.debecbank.co.kr/ProdList_001.act?rnum=26',
+              'internet_compound': 'https://www.debecbank.co.kr/ProdList_001.act?rnum=27',
+              'mobile_simple': 'https://www.debecbank.co.kr/ProdList_001.act?rnum=28',
+              'mobile_compound': 'https://www.debecbank.co.kr/ProdList_001.act?rnum=29',
+          }
+          out = Path('work/evidence')
+          summary = {'captured_at': datetime.now(UTC).isoformat(), 'pages': {}}
+          headers = {'User-Agent': 'Mozilla/5.0 source-evidence-audit/1.0'}
+          with httpx.Client(follow_redirects=True, timeout=30, headers=headers) as client:
+              for label, url in urls.items():
+                  response = client.get(url)
+                  response.raise_for_status()
+                  html = response.text
+                  (out / f'{label}.html').write_text(html, encoding='utf-8')
+                  # Preserve a text-only excerpt around every occurrence of 12개월.
+                  text = re.sub(r'<script.*?</script>|<style.*?</style>', ' ', html, flags=re.I | re.S)
+                  text = re.sub(r'<[^>]+>', ' ', text)
+                  text = re.sub(r'&nbsp;|&#160;', ' ', text)
+                  text = re.sub(r'\s+', ' ', text).strip()
+                  positions = [m.start() for m in re.finditer('12개월', text)]
+                  excerpts = [text[max(0, p-180):p+300] for p in positions[:10]]
+                  summary['pages'][label] = {
+                      'url': str(response.url),
+                      'status_code': response.status_code,
+                      'bytes': len(response.content),
+                      'twelve_month_excerpts': excerpts,
+                  }
+          (out / 'daebaek-live-summary.json').write_text(
+              json.dumps(summary, ensure_ascii=False, indent=2) + '\n', encoding='utf-8'
+          )
+          print(json.dumps(summary, ensure_ascii=False, indent=2))
+          PY
+      - name: Upload live page evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: source-p0-daebaek-live-${{ github.run_id }}
+          path: work/evidence/
+          retention-days: 30
+          if-no-files-found: error
