@@ -240,6 +240,9 @@ async function assertVisualRuntimeContracts(page, label) {
     const candidateBeforeContent = candidateBeforeStyle?.content || "";
     const candidateBeforeDisplay = candidateBeforeStyle?.display || "none";
     const candidateBeforeVisibility = candidateBeforeStyle?.visibility || "hidden";
+    const chart = document.querySelector("#public-structural-v2-cockpit .psv2-chart");
+    const chartStyle = chart ? getComputedStyle(chart) : null;
+    const chartRect = chart?.getBoundingClientRect();
     const xTicks = [...document.querySelectorAll('#public-structural-v2-cockpit .psv2-chart text.axis[text-anchor="middle"]')]
       .filter((node) => getComputedStyle(node).visibility !== "hidden")
       .map((node) => {
@@ -263,6 +266,11 @@ async function assertVisualRuntimeContracts(page, label) {
       cockpitVisible: Boolean(cockpitHost && getComputedStyle(cockpitHost).display !== "none"),
       factualFinderVisible: Boolean(factualHost && getComputedStyle(factualHost).display !== "none"),
       chartCount: document.querySelectorAll("#public-structural-v2-cockpit .psv2-chart").length,
+      chartDisplay: chartStyle?.display || "none",
+      chartVisibility: chartStyle?.visibility || "hidden",
+      chartBox: chartRect
+        ? { width: chartRect.width, height: chartRect.height }
+        : { width: 0, height: 0 },
       fontCount: fontSizes.length,
       tooSmall,
       candidateBeforeFont,
@@ -279,6 +287,13 @@ async function assertVisualRuntimeContracts(page, label) {
   invariant(result.accentInk.toUpperCase() === "#5B2F64", `${label}: computed brand accent ink=${result.accentInk}`);
   invariant(result.mapCardDisplay === "none", `${label}: Strategy regional map resurfaced display=${result.mapCardDisplay}`);
   invariant(result.cockpitVisible && result.chartCount === 1, `${label}: active Public Structural Response Surface missing`);
+  invariant(
+    result.chartDisplay !== "none"
+      && result.chartVisibility !== "hidden"
+      && result.chartBox.width > 0
+      && result.chartBox.height > 0,
+    `${label}: Public Structural Response Surface not rendered display=${result.chartDisplay} visibility=${result.chartVisibility} box=${JSON.stringify(result.chartBox)}`,
+  );
   invariant(result.factualFinderVisible, `${label}: Factual Finder runtime host missing`);
   invariant(result.fontCount > 0 && result.tooSmall.length === 0, `${label}: Public Structural computed font below 10.5px=${JSON.stringify(result.tooSmall)}`);
   if (label === "mobile") {
