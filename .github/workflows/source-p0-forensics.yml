@@ -1,0 +1,211 @@
+name: Source P0 forensics
+
+on:
+  push:
+    branches: ["investigate/source-p0-forensics-20260823"]
+    paths:
+      - ".github/workflows/source-p0-forensics.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Sync dependencies
+        run: uv sync --locked
+
+      - name: Prepare isolated database
+        env:
+          RATE_MONITOR_DB_URL: sqlite+pysqlite:///${{ github.workspace }}/work/forensics.sqlite3
+        run: |
+          set -euo pipefail
+          mkdir -p work/raw work/evidence
+          uv run alembic upgrade head
+
+      - name: Fresh FINLIFE savings-bank capture
+        env:
+          FINLIFE_API_KEY: ${{ secrets.FINLIFE_API_KEY }}
+        run: |
+          set -euo pipefail
+          uv run rate-monitor collect \
+            --source finlife_savings_bank \
+            --db work/forensics.sqlite3 \
+            --raw-root work/raw \
+            --groups 030300
+
+      - name: Fresh FSB capture
+        run: |
+          set -euo pipefail
+          uv run rate-monitor collect \
+            --source fsb \
+            --db work/forensics.sqlite3 \
+            --raw-root work/raw
+
+      - name: Extract exact P0 raw records
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          import json
+          import shutil
+          from pathlib import Path
+
+          root = Path("work/raw")
+          out = Path("work/evidence")
+          out.mkdir(parents=True, exist_ok=True)
+
+          def clean(value):
+              return str(value or "").strip()
+
+          result = {
+              "scope": "fresh live read-only collector capture; no production/R2/rate-data write",
+              "finlife": {},
+              "fsb": {},
+          }
+          copied = set()
+
+          def copy_once(path: Path) -> None:
+              key = str(path)
+              if key in copied:
+                  return
+              copied.add(key)
+              shutil.copy2(path, out / path.name)
+
+          # FINLIFE: retain the exact baseList row and every matching optionList row.
+          fin_targets = {
+              ("청주저축은행", "정기적금"): "cheongju_regular_savings",
+              ("대백저축은행", "애플정기예금"): "daebaek_apple_deposit",
+          }
+          for path in sorted(root.rglob("*ProductsSearch_030300_page*.json")):
+              payload = json.loads(path.read_text(encoding="utf-8"))
+              r = payload.get("result") or {}
+              bases = r.get("baseList") or []
+              opts = r.get("optionList") or []
+              for base_idx, base in enumerate(bases):
+                  target_key = (clean(base.get("kor_co_nm")), clean(base.get("fin_prdt_nm")))
+                  label = fin_targets.get(target_key)
+                  if label is None:
+                      continue
+                  key = (clean(base.get("fin_co_no")), clean(base.get("fin_prdt_cd")))
+                  matches = [
+                      {"option_index": idx, "raw": opt}
+                      for idx, opt in enumerate(opts)
+                      if (clean(opt.get("fin_co_no")), clean(opt.get("fin_prdt_cd"))) == key
+                  ]
+                  result["finlife"][label] = {
+                      "file": str(path),
+                      "base_index": base_idx,
+                      "base": base,
+                      "options": matches,
+                  }
+                  copy_once(path)
+
+          # FSB: retain the exact REC row used by the same product family.
+          fsb_targets = {
+              ("청주저축은행", "정기적금", "rateinst"): "cheongju_regular_savings",
+              ("대백저축은행", "애플정기예금", "ratedepo"): "daebaek_apple_deposit",
+          }
+          for path in sorted(root.rglob("rate*.json")):
+              name = path.name
+              screen = "rateinst" if name.startswith("rateinst") else (
+                  "ratedepo" if name.startswith("ratedepo") else None
+              )
+              if screen is None:
+                  continue
+              payload = json.loads(path.read_text(encoding="utf-8"))
+              for rec_idx, rec in enumerate(payload.get("REC") or []):
+                  target_key = (clean(rec.get("BANK_NAME")), clean(rec.get("PRODUCT_NAME")), screen)
+                  label = fsb_targets.get(target_key)
+                  if label is None or label in result["fsb"]:
+                      continue
+                  result["fsb"][label] = {
+                      "file": str(path),
+                      "rec_index": rec_idx,
+                      "record": rec,
+                  }
+                  copy_once(path)
+
+          missing = [
+              f"{source}:{label}"
+              for source in ("finlife", "fsb")
+              for label in ("cheongju_regular_savings", "daebaek_apple_deposit")
+              if label not in result[source]
+          ]
+          assert not missing, f"target raw rows missing: {missing}"
+
+          # Explicit forensic facts. These assertions deliberately fail if live source shape changes.
+          cj = result["finlife"]["cheongju_regular_savings"]
+          cj_simple = [
+              x["raw"] for x in cj["options"]
+              if clean(x["raw"].get("intr_rate_type")) == "S"
+              and clean(x["raw"].get("save_trm")) in {"6", "12"}
+          ]
+          cj_pairs = {
+              (clean(x.get("save_trm")), clean(x.get("rsrv_type"))): (
+                  clean(x.get("intr_rate")), clean(x.get("intr_rate2"))
+              )
+              for x in cj_simple
+          }
+          result["derived_cheongju_simple_6_12"] = {
+              f"{term}:{rsrv}": {"intr_rate": rates[0], "intr_rate2": rates[1]}
+              for (term, rsrv), rates in sorted(cj_pairs.items())
+          }
+          assert {rsrv for (_, rsrv) in cj_pairs} >= {"S", "F"}, cj_pairs
+
+          db = result["finlife"]["daebaek_apple_deposit"]
+          result["derived_daebaek_join_way"] = clean(db["base"].get("join_way"))
+          db_12 = [
+              x["raw"] for x in db["options"] if clean(x["raw"].get("save_trm")) == "12"
+          ]
+          result["derived_daebaek_12m_options"] = db_12
+
+          fsb_db = result["fsb"]["daebaek_apple_deposit"]["record"]
+          result["derived_fsb_daebaek"] = {
+              "JOIN_LOCATION": clean(fsb_db.get("JOIN_LOCATION")),
+              "JUNG_12M_DAN": clean(fsb_db.get("JUNG_12M_DAN")),
+              "TOP_12M_DAN": clean(fsb_db.get("TOP_12M_DAN")),
+              "JUNG_12M_BOK": clean(fsb_db.get("JUNG_12M_BOK")),
+              "TOP_12M_BOK": clean(fsb_db.get("TOP_12M_BOK")),
+          }
+
+          fsb_cj = result["fsb"]["cheongju_regular_savings"]["record"]
+          result["derived_fsb_cheongju"] = {
+              "JOIN_LOCATION": clean(fsb_cj.get("JOIN_LOCATION")),
+              "JUNG_6M_DAN": clean(fsb_cj.get("JUNG_6M_DAN")),
+              "TOP_6M_DAN": clean(fsb_cj.get("TOP_6M_DAN")),
+              "JUNG_12M_DAN": clean(fsb_cj.get("JUNG_12M_DAN")),
+              "TOP_12M_DAN": clean(fsb_cj.get("TOP_12M_DAN")),
+          }
+
+          (out / "p0-forensics.json").write_text(
+              json.dumps(result, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          print(json.dumps({
+              "cheongju": result["derived_cheongju_simple_6_12"],
+              "daebaek_join_way": result["derived_daebaek_join_way"],
+              "daebaek_finlife_12m": result["derived_daebaek_12m_options"],
+              "daebaek_fsb": result["derived_fsb_daebaek"],
+              "cheongju_fsb": result["derived_fsb_cheongju"],
+          }, ensure_ascii=False, indent=2))
+          PY
+
+      - name: Upload forensic evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: source-p0-forensics-${{ github.run_id }}
+          path: work/evidence/
+          retention-days: 30
+          if-no-files-found: error
