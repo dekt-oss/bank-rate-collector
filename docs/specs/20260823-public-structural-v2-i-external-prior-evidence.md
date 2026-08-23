@@ -1,16 +1,20 @@
 # Public Structural v2 Stage I — External Prior Evidence Gate
 
 ```yaml
-document_type: research_contract
-status: implementation/current-work
+document_type: research_result
+status: verified-no-go
 date: 2026-08-23
 issue: 169
 parent_issue: 167
 base_main: 0546e9d3f11df2f5d32e4dd50e433f66874b8f47
 stage: I
-coefficient_change: prohibited_without_identifying_evidence
+coefficient_change: NO_GO
+public_prior_role: context_only_not_parameter_calibration
+stress_range_status: retain_uncalibrated_stress_assumptions
 production_strategy_release_gate: unchanged_off
 internal_data: prohibited_in_public_repo
+verified_workflow: 32610792776
+verified_artifact: 9485468743
 ```
 
 ## 1. 연구 질문
@@ -18,10 +22,22 @@ internal_data: prohibited_in_public_repo
 > 공개 업권/거시 시계열만으로 현재 Public Structural v2의 임의 stress range 크기에
 > 은행별 수신반응 계수로 사용할 수 있을 정도의 근거를 줄 수 있는가?
 
-Stage I는 **계수 튜닝 단계가 아니다.** 공개 집계 시계열에서 관찰 가능한 시간순서,
+**결론: NO-GO.**
+
+Stage I는 계수 튜닝 단계가 아니다. 공개 집계 시계열에서 관찰 가능한 시간순서,
 시차, regime, 표본길이와 기술적 association을 점검하고, 그 결과가 현재
 `uncalibrated_stress_assumptions`의 계수 변경을 허용할 수 있는지 Evidence Gate로
-판정한다.
+판정했다.
+
+이번 NO-GO의 핵심은 **공개 BOK 시계열의 길이 부족이 아니라 식별 대상의 불일치**다.
+실제 production-derived 공개자료에는 46개월 시계열과 최대 45개 정렬 pair가 있어
+24개월 + 12개월의 aggregate 시간분할 screen 자체는 가능했다. 그러나 관찰되는 것은
+예금은행 집계금리와 업권 전체 수신잔액이며, 당사 신규자금·재예치 반응을 분해하거나
+당사 금리변경의 인과효과를 식별하지 못한다.
+
+따라서 현재 low/base/high stress coefficient는 그대로 **미보정 가정**으로 유지한다.
+공개자료가 이를 검증된 coefficient로 승격시키거나 stress range를 축소·확대하는 근거는
+확보하지 못했다.
 
 `NO-GO`는 실패가 아니라 정상적인 연구결과다.
 
@@ -41,7 +57,7 @@ Stage I는 **계수 튜닝 단계가 아니다.** 공개 집계 시계열에서 
 
 ### 3.1 한국은행 ECOS — repo에 이미 수집 중
 
-`bok_ecos_macro`의 48개월 월별 계약을 그대로 사용한다.
+`bok_ecos_macro`의 월별 계약을 그대로 사용한다.
 
 금리:
 
@@ -68,6 +84,10 @@ Stage I는 **계수 튜닝 단계가 아니다.** 공개 집계 시계열에서 
 
 Stage I에서 짧은 repo history를 장기 은행별 flow calibration 표본으로 확대해석하지
 않는다. 상품별 raw row나 내부자료를 evidence artifact로 반출하지 않는다.
+
+실제 production-derived 점검에서 `savings_bank`, `cu`, `kfcc`, `nh_local` 모두 현재
+**distinct calendar month = 1**이었다. 따라서 repo 상품금리 history는 Stage I 시점에
+장기 수신반응 calibration 증거를 추가하지 못한다.
 
 ## 4. 외부 공개근거 검토
 
@@ -170,7 +190,61 @@ Pearson 부호를 비교한다.
 임의의 1bp tolerance로 regime을 다시 정의하지 않는다.
 각 regime에서 업권 balance growth의 표본수와 median만 기술한다.
 
-## 6. Identification Gate
+## 6. Production-derived evidence
+
+검증 workflow `32610792776`은 production DB를 runner-local 복원본으로 읽어
+aggregate evidence만 생성했다. 원본 상품행이나 내부실적은 artifact에 포함하지 않았다.
+
+### 6.1 Coverage
+
+주요 예금은행 수신금리와 4개 업권 수신잔액은 모두:
+
+- 관측월: **46개월**
+- 범위: **2022-09 ~ 2026-06**
+- 연속월 변화량 기준 최대 정렬 pair: **45개**
+- 24개월 + 12개월 aggregate temporal split feasibility: **4개 업권 모두 true**
+
+따라서 **“시계열이 너무 짧아서 NO-GO”라고 해석하지 않는다.**
+
+### 6.2 Descriptive association
+
+주 signal인 `bok_bank_pure_savings_deposit_rate` 월변화와 업권 수신잔액 MoM의 lag 0
+Pearson은 다음 범위였다.
+
+- savings_bank: `+0.2133`
+- credit_union: `-0.3301`
+- broad_mutual_finance: `-0.2223`
+- kfcc: `-0.1585`
+
+값의 방향이 업권마다 같지 않다. 더 중요하게 lag 1~3의 chronological early/late
+screen에서는 대부분 전·후반 Pearson 부호가 뒤집혔다. 예를 들어:
+
+- credit_union lag 3: early `+0.6601` → late `-0.7306`
+- kfcc lag 3: early `+0.5403` → late `-0.6066`
+- broad_mutual_finance lag 2: early `+0.1669` → late `-0.6565`
+- savings_bank lag 0도 early `+0.3855` → late `-0.0620`
+
+이는 인과추정이나 통계적 유의성 검정 결과가 아니다. 다만 **고정된 단일 방향의 공개
+prior를 은행별 +10bp 수신반응 coefficient로 치환하기 어렵다**는 추가 경고 신호다.
+
+### 6.3 Regime context
+
+주요 수신금리 월변화 기준 표본수는:
+
+- rising: 17개월
+- flat: 2개월
+- falling: 26개월
+
+`flat`은 2개월뿐이므로 별도 구조적 해석을 하지 않는다. rising/falling에서도 업권별
+수신잔액 성장 중앙값의 방향과 크기가 서로 달랐다. 이 결과 역시 시장/regime context로만
+사용하며 bank-specific elasticity로 변환하지 않는다.
+
+### 6.4 Repo market-history
+
+현재 repo의 실제 상품금리 수집 history는 4개 Strategy 업권 모두 **1 calendar month**다.
+이는 장기 event/panel calibration에 사용할 수 없다.
+
+## 7. Identification Gate
 
 현재 공개자료에는 다음이 없다.
 
@@ -193,9 +267,7 @@ aggregate correlation
   != causal +10bp response
 ```
 
-## 7. Stage I Gate 결과 계약
-
-Stage I public source contract만으로는 coefficient 변경을 허용하지 않는다.
+## 8. Stage I Gate 최종판정
 
 ```yaml
 coefficient_change: NO_GO
@@ -207,10 +279,17 @@ blocking_reasons:
   - causal_identification_not_established_by_descriptive_time_series
 ```
 
-실제 production-derived 공개 시계열의 coverage/association/regime 결과는 CI artifact로
-생성하고 이 문서에 최종 evidence를 추가한다.
+### 판정 해석
 
-## 8. 보안 / 공개 경계
+1. 공개 BOK 시계열은 **시장/regime context**로 활용 가치가 있다.
+2. 공개 시계열의 표본길이는 aggregate 시간분할 screen을 할 정도로 확보되어 있다.
+3. 그러나 공개 결과는 당사 신규자금과 재예치를 식별하지 못한다.
+4. 관찰된 association의 방향도 lag/regime에 따라 안정적이지 않다.
+5. 따라서 현재 β/γ 계수와 low/base/high stress range를 공개자료로 재보정하지 않는다.
+6. 현재 stress range는 여전히 **검증된 confidence/prediction interval이 아니라 미보정
+   sensitivity range**다.
+
+## 9. 보안 / 공개 경계
 
 허용:
 
@@ -228,20 +307,54 @@ blocking_reasons:
 - confidential repository/path
 - aggregate association을 β/γ로 변환한 값
 
-## 9. Verification Gate
+최종 evidence artifact를 직접 점검한 결과 다음이 포함되지 않았다.
 
-- targeted Ruff
-- targeted pytest
-- production DB snapshot은 runner-local read-only 분석
-- migrations는 local copy에만 적용
-- evidence JSON/Markdown artifact 생성
-- artifact에 raw 상품행/내부자료 없음
-- `coefficient_change == NO_GO` assertion
-- Public Structural v2의 `CALIBRATION_STATUS == uncalibrated` 유지 확인
-- General CI baseline debt와 Stage I diff 분리 보고
-- adversarial self-review
+- `beta` / `gamma`
+- private model / training row / feature importance
+- 당사 baseline 신규자금 / 만기도래액 / 재예치율
+- 추천금리 / 최적금리 / 달성확률
+- raw 상품행
 
-## 10. Non-goals
+## 10. Verification
+
+검증 기준 head는 이 문서의 최종 commit 이후 workflow에서 다시 확정한다.
+
+완료된 evidence:
+
+- targeted Ruff: PASS
+- targeted pytest: **6 passed**
+- production DB: runner-local 복원본에서만 분석
+- migrations: runner-local copy에만 적용
+- aggregate evidence JSON/Markdown 생성: PASS
+- `coefficient_change == NO_GO`: PASS
+- `public_prior_role == context_only_not_parameter_calibration`: PASS
+- `CALIBRATION_STATUS == uncalibrated` 유지: PASS
+- evidence artifact private/model field leak screen: PASS
+- artifact ID: `9485468743`
+- evidence workflow run: `32610792776`
+
+General CI의 기존 unrelated Ruff debt는 Stage I diff와 별도로 판정한다.
+
+## 11. Adversarial self-review
+
+“내 결론이 틀렸다고 가정”하고 다음을 재검토했다.
+
+- **강한 상관이 숨어 있는가?** 일부 구간/업권에서 중간 정도 correlation이 있지만
+  업권·lag·시간분할에 따라 방향이 달라 bank-specific causal coefficient를 식별하지 못한다.
+- **표본 부족만 해결하면 되는가?** 아니다. 46개월/45 pair로 aggregate 시간분할은
+  가능했지만 identification mismatch가 남는다.
+- **광의 상호금융을 NH local로 오인했는가?** 아니다. 별도 aggregate sector로 유지했고
+  `nh_local` coefficient 근거로 매핑하지 않았다.
+- **현재 repo 상품금리 history로 보완 가능한가?** 아직 1 calendar month라 불가능하다.
+- **8/6/24/12 같은 숫자가 임의 모델 threshold인가?** 아니다. 8·6은 퇴화한 소표본
+  기술통계 노출 방지 screen, 24+12는 aggregate 비중첩 시간분할 가능성 screen이며
+  coefficient 채택 기준이 아니다.
+- **결과가 기존 coefficient를 암묵적으로 검증하는가?** 아니다. coefficient provenance와
+  calibration status를 변경하지 않았고 stress range도 그대로 미보정 가정이다.
+
+새 P0/P1 blocker는 확인되지 않았다.
+
+## 12. Non-goals
 
 - coefficient 변경
 - stress range 축소/확대
