@@ -1,0 +1,169 @@
+name: Apply source discrepancy ambiguity fix
+
+on:
+  push:
+    branches: ["feat/source-discrepancy-dimension-ambiguity-20260823"]
+    paths:
+      - ".github/workflows/apply-dimension-ambiguity-fix.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/source-discrepancy-dimension-ambiguity-20260823
+      - name: Apply reviewed patch
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          service_path = Path('src/rate_monitor/services/source_discrepancy_service.py')
+          text = service_path.read_text(encoding='utf-8')
+
+          old = '"       p.product_type, pv.term_months, pv.join_channel, pv.interest_method, "\n'
+          new = (
+              '"       p.product_type, pv.term_months, pv.join_channel, pv.interest_method, "\n'
+              '"       pv.payment_method, "\n'
+          )
+          assert text.count(old) == 1
+          text = text.replace(old, new)
+
+          old = '''def _representatives(\n    rows: list[dict[str, Any]],\n) -> dict[ProductKey, dict[str, Any]]:\n    result: dict[ProductKey, dict[str, Any]] = {}\n    for row in rows:\n        key = _product_key(row)\n        result[key] = _prefer_representative(result.get(key), row)\n    return result\n'''
+          new = '''def _representatives(\n    rows: list[dict[str, Any]],\n) -> tuple[\n    dict[ProductKey, dict[str, Any]],\n    dict[ProductKey, list[dict[str, Any]]],\n]:\n    \"\"\"6D key별 대표행과 payment-method 금리 모호성을 분리한다.\n\n    FSB처럼 payment_method를 제공하지 않는 source와 FINLIFE처럼 정액/자유를\n    구분하는 source를 비교할 때, 서로 다른 payment_method가 **서로 다른 금리**를\n    가지면 최고금리 하나를 임의 대표로 고르지 않는다. 같은 금리라면 금리 감사\n    관점에서는 어느 payment_method를 대표로 잡아도 결론이 같으므로 비교를 허용한다.\n    \"\"\"\n    grouped: dict[ProductKey, list[dict[str, Any]]] = defaultdict(list)\n    for row in rows:\n        grouped[_product_key(row)].append(row)\n\n    result: dict[ProductKey, dict[str, Any]] = {}\n    ambiguous: dict[ProductKey, list[dict[str, Any]]] = {}\n    for key, candidates in grouped.items():\n        payment_methods = {_facet(item.get(\"payment_method\")) for item in candidates}\n        rate_pairs = {\n            (\n                _decimal_json(_decimal(item.get(\"base_rate\"))),\n                _decimal_json(_decimal(item.get(\"max_rate\"))),\n            )\n            for item in candidates\n        }\n        if len(payment_methods) > 1 and len(rate_pairs) > 1:\n            ambiguous[key] = candidates\n            continue\n\n        representative: dict[str, Any] | None = None\n        for candidate in candidates:\n            representative = _prefer_representative(representative, candidate)\n        if representative is not None:\n            result[key] = representative\n    return result, ambiguous\n'''
+          assert text.count(old) == 1
+          text = text.replace(old, new)
+
+          old = '''        \"join_channel\": row.get(\"join_channel\"),\n        \"interest_method\": row.get(\"interest_method\"),\n        \"base_rate\": _decimal_json(_decimal(row.get(\"base_rate\"))),\n'''
+          new = '''        \"join_channel\": row.get(\"join_channel\"),\n        \"interest_method\": row.get(\"interest_method\"),\n        \"payment_method\": row.get(\"payment_method\"),\n        \"base_rate\": _decimal_json(_decimal(row.get(\"base_rate\"))),\n'''
+          assert text.count(old) == 2
+          text = text.replace(old, new)
+
+          marker = '''def _source_only_record(\n'''
+          helper = '''def _dimension_ambiguity_record(\n    key: ProductKey,\n    candidates: list[dict[str, Any]],\n    *,\n    side: str,\n    as_of: datetime,\n) -> dict[str, Any]:\n    first = candidates[0]\n    return {\n        \"status\": \"ambiguous_variant_dimension\",\n        \"dimension\": \"payment_method\",\n        \"side\": side,\n        \"institution\": first.get(\"institution\"),\n        \"product\": first.get(\"product\"),\n        \"product_type\": first.get(\"product_type\"),\n        \"term_months\": key[3],\n        \"join_channel\": key[4],\n        \"interest_method\": key[5],\n        \"candidate_payment_methods\": sorted(\n            {_facet(item.get(\"payment_method\")) for item in candidates}\n        ),\n        \"candidate_variants\": [_candidate_variant(item) for item in candidates],\n        \"provenance\": [_provenance(item, as_of) for item in candidates],\n        \"reason\": (\n            \"same 6D source key has multiple payment_method values with different rates; \"\n            \"rate comparison is blocked instead of selecting the highest representative\"\n        ),\n    }\n\n\n'''
+          assert text.count(marker) == 1
+          text = text.replace(marker, helper + marker)
+
+          old = '''    primary = _representatives(by_source.get(primary_source, []))\n    secondary = _representatives(by_source.get(secondary_source, []))\n    primary_by_base = _rows_by_base(primary)\n    secondary_by_base = _rows_by_base(secondary)\n'''
+          new = '''    primary, primary_ambiguous = _representatives(by_source.get(primary_source, []))\n    secondary, secondary_ambiguous = _representatives(by_source.get(secondary_source, []))\n    primary_by_base = _rows_by_base(primary)\n    secondary_by_base = _rows_by_base(secondary)\n    dimension_ambiguities = [\n        *(\n            _dimension_ambiguity_record(key, candidates, side=\"primary\", as_of=generated_at)\n            for key, candidates in primary_ambiguous.items()\n        ),\n        *(\n            _dimension_ambiguity_record(key, candidates, side=\"secondary\", as_of=generated_at)\n            for key, candidates in secondary_ambiguous.items()\n        ),\n    ]\n'''
+          assert text.count(old) == 1
+          text = text.replace(old, new)
+
+          old = '''            for key, row in primary.items()\n            if key not in secondary\n'''
+          new = '''            for key, row in primary.items()\n            if key not in secondary and key not in secondary_ambiguous\n'''
+          assert text.count(old) == 1
+          text = text.replace(old, new)
+
+          old = '''            for key, row in secondary.items()\n            if key not in primary\n'''
+          new = '''            for key, row in secondary.items()\n            if key not in primary and key not in primary_ambiguous\n'''
+          assert text.count(old) == 1
+          text = text.replace(old, new)
+
+          old = '''            \"variant_unknown_policy\": (\n                \"source-to-source requires exact stored facet; official evidence may use \"\n                \"only a unique non-conflicting wildcard candidate\"\n            ),\n            \"freshness_metadata_policy\": \"observational_only; never_selects_source_authority\",\n'''
+          new = '''            \"variant_unknown_policy\": (\n                \"source-to-source requires exact stored facet; official evidence may use \"\n                \"only a unique non-conflicting wildcard candidate\"\n            ),\n            \"dimension_ambiguity_policy\": (\n                \"if one source has multiple payment_method values with different rates under \"\n                \"the same 6D key, block rate comparison; never select the highest rate\"\n            ),\n            \"freshness_metadata_policy\": \"observational_only; never_selects_source_authority\",\n'''
+          assert text.count(old) == 1
+          text = text.replace(old, new)
+
+          old = '''            \"primary_products\": len(primary),\n            \"secondary_products\": len(secondary),\n            \"exact_matches\": len(matches),\n'''
+          new = '''            \"primary_products\": len(primary) + len(primary_ambiguous),\n            \"secondary_products\": len(secondary) + len(secondary_ambiguous),\n            \"comparable_primary_products\": len(primary),\n            \"comparable_secondary_products\": len(secondary),\n            \"ambiguous_variant_dimension\": len(dimension_ambiguities),\n            \"ambiguous_payment_method\": sum(\n                item[\"dimension\"] == \"payment_method\" for item in dimension_ambiguities\n            ),\n            \"exact_matches\": len(matches),\n'''
+          assert text.count(old) == 1
+          text = text.replace(old, new)
+
+          old = '''        \"matches\": matches,\n        \"source_only\": source_only,\n        \"official_evidence\": evidence_comparisons,\n'''
+          new = '''        \"matches\": matches,\n        \"dimension_ambiguities\": dimension_ambiguities,\n        \"source_only\": source_only,\n        \"official_evidence\": evidence_comparisons,\n'''
+          assert text.count(old) == 1
+          text = text.replace(old, new)
+          service_path.write_text(text, encoding='utf-8')
+
+          evidence_path = Path('docs/evidence/source-discrepancy/20260823-official-savings-bank.json')
+          evidence = json.loads(evidence_path.read_text(encoding='utf-8'))
+          changed = 0
+          for record in evidence['records']:
+              if record.get('institution') != '대백저축은행':
+                  continue
+              record['base_rate'] = '4.10'
+              record['max_rate'] = '4.10'
+              record['captured_at'] = '2026-08-23T19:57:45+09:00'
+              record['capture_method'] = 'live_http_artifact'
+              record['capture_run_id'] = '32635180304'
+              record['capture_artifact_id'] = '9492104054'
+              record['note'] = (\n                  '2026-08-23 19:57 KST 은행 직접 페이지 live HTTP 캡처. '
+                  '12개월 nominal 약정이율 4.10%. forensic run 32635180304, '
+                  'artifact 9492104054. #187의 이전 수동 evidence 값은 superseded.'
+              )
+              changed += 1
+          assert changed == 4
+          evidence['captured_at'] = '2026-08-23T19:57:45+09:00'
+          evidence['policy'] = 'dated_live_official_evidence_read_only_dimension_ambiguity_v4'
+          evidence_path.write_text(json.dumps(evidence, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+
+          test_path = Path('tests/test_source_discrepancy_payment_ambiguity.py')
+          test_path.write_text('''from __future__ import annotations\n\nfrom rate_monitor.services.source_discrepancy_service import _representatives\n\n\ndef _row(*, payment_method: str | None, rate: str) -> dict[str, object]:\n    return {\n        \"source_id\": \"finlife_savings_bank\",\n        \"institution\": \"청주저축은행\",\n        \"product\": \"정기적금\",\n        \"product_type\": \"installment_savings\",\n        \"term_months\": 6,\n        \"join_channel\": \"branch\",\n        \"interest_method\": \"simple\",\n        \"payment_method\": payment_method,\n        \"base_rate\": rate,\n        \"max_rate\": rate,\n        \"source_effective_at\": \"2026-08-20\",\n    }\n\n\ndef test_different_payment_methods_with_different_rates_fail_closed() -> None:\n    representatives, ambiguous = _representatives(\n        [\n            _row(payment_method=\"S\", rate=\"2.10\"),\n            _row(payment_method=\"F\", rate=\"3.05\"),\n        ]\n    )\n\n    assert representatives == {}\n    assert len(ambiguous) == 1\n    candidates = next(iter(ambiguous.values()))\n    assert {item[\"payment_method\"] for item in candidates} == {\"S\", \"F\"}\n\n\ndef test_different_payment_methods_with_same_rate_remain_comparable() -> None:\n    representatives, ambiguous = _representatives(\n        [\n            _row(payment_method=\"S\", rate=\"2.10\"),\n            _row(payment_method=\"F\", rate=\"2.10\"),\n        ]\n    )\n\n    assert ambiguous == {}\n    assert len(representatives) == 1\n    assert next(iter(representatives.values()))[\"max_rate\"] == \"2.10\"\n\n\ndef test_same_payment_method_can_still_choose_latest_or_highest_representative() -> None:\n    representatives, ambiguous = _representatives(\n        [\n            _row(payment_method=\"S\", rate=\"2.10\"),\n            _row(payment_method=\"S\", rate=\"2.20\"),\n        ]\n    )\n\n    assert ambiguous == {}\n    assert next(iter(representatives.values()))[\"max_rate\"] == \"2.20\"\n''', encoding='utf-8')
+
+          workflow_path = Path('.github/workflows/source-discrepancy-audit.yml')
+          workflow = workflow_path.read_text(encoding='utf-8')
+          workflow = workflow.replace(
+              '      - "tests/test_source_discrepancy_variant_freshness.py"\n',
+              '      - "tests/test_source_discrepancy_variant_freshness.py"\n'
+              '      - "tests/test_source_discrepancy_payment_ambiguity.py"\n',
+              1,
+          )
+          workflow = workflow.replace(
+              '            tests/test_source_discrepancy_variant_freshness.py \\\n',
+              '            tests/test_source_discrepancy_variant_freshness.py \\\n'
+              '            tests/test_source_discrepancy_payment_ambiguity.py \\\n',
+              1,
+          )
+          workflow = workflow.replace(
+              '            tests/test_source_discrepancy_variant_freshness.py \\\n',
+              '            tests/test_source_discrepancy_variant_freshness.py \\\n'
+              '            tests/test_source_discrepancy_payment_ambiguity.py \\\n',
+              1,
+          )
+          workflow = workflow.replace(
+              '          assert scope["freshness_metadata_policy"].startswith("observational_only")\n',
+              '          assert scope["freshness_metadata_policy"].startswith("observational_only")\n'
+              '          assert "multiple payment_method" in scope["dimension_ambiguity_policy"]\n',
+              1,
+          )
+          workflow = workflow.replace(
+              '          assert "unmatched_variant" in summary\n',
+              '          assert "unmatched_variant" in summary\n'
+              '          assert summary["ambiguous_payment_method"] >= 1\n',
+              1,
+          )
+          old_expected = '''          daebaek_expected = {\n              \"debec:apple-deposit:internet:simple:12m\": (\"internet\", \"simple\", \"4.10\"),\n              \"debec:apple-deposit:internet:compound:12m\": (\"internet\", \"compound\", \"4.00\"),\n              \"debec:apple-deposit:mobile:simple:12m\": (\"mobile\", \"simple\", \"3.80\"),\n              \"debec:apple-deposit:mobile:compound:12m\": (\"mobile\", \"compound\", \"4.10\"),\n          }\n'''
+          new_expected = '''          daebaek_expected = {\n              \"debec:apple-deposit:internet:simple:12m\": (\"internet\", \"simple\", \"4.10\"),\n              \"debec:apple-deposit:internet:compound:12m\": (\"internet\", \"compound\", \"4.10\"),\n              \"debec:apple-deposit:mobile:simple:12m\": (\"mobile\", \"simple\", \"4.10\"),\n              \"debec:apple-deposit:mobile:compound:12m\": (\"mobile\", \"compound\", \"4.10\"),\n          }\n'''
+          assert workflow.count(old_expected) == 1
+          workflow = workflow.replace(old_expected, new_expected)
+          anchor = '''          assert not any(\n              item[\"institution\"] == \"대백저축은행\"\n              and item[\"classification\"] == \"official_internal_conflict\"\n              for item in contradictions[\"queue\"]\n          )\n'''
+          extra = anchor + '''\n          cheongju_ambiguities = [\n              item for item in report[\"dimension_ambiguities\"]\n              if item[\"institution\"] == \"청주저축은행\"\n              and item[\"product\"] == \"정기적금\"\n              and item[\"dimension\"] == \"payment_method\"\n          ]\n          assert {item[\"term_months\"] for item in cheongju_ambiguities} >= {6, 12}\n          assert not any(\n              item[\"institution\"] == \"청주저축은행\"\n              and item[\"product\"] == \"정기적금\"\n              and item[\"term_months\"] in {6, 12}\n              for item in triage[\"queue\"]\n          )\n          assert not any(\n              item[\"institution\"] == \"대백저축은행\"\n              for item in contradictions[\"queue\"]\n          )\n'''
+          assert workflow.count(anchor) == 1
+          workflow = workflow.replace(anchor, extra)
+          workflow_path.write_text(workflow, encoding='utf-8')
+
+          spec_path = Path('docs/specs/20260823-source-discrepancy-variant-freshness-v3.md')
+          spec = spec_path.read_text(encoding='utf-8')
+          appendix = '''\n## 10. 2026-08-23 P0 forensic 보강 — payment_method ambiguity + raw official capture\n\nP0 재조사에서 FINLIFE 정기적금은 같은 기관/상품/기간/채널/이자방식 안에서도\n`payment_method`(정액적립식/자유적립식)에 따라 금리가 달라질 수 있음이 live raw로\n확인됐다. FSB는 이 차원을 제공하지 않는다. 따라서 7D strict equality로 미지 값을\n억지 비교하지 않고 다음 fail-closed 계약을 적용한다.\n\n- 같은 6D key 안에서 한 source에 복수 `payment_method`가 있고 금리도 다르면 비교 중단\n- 최고금리 대표행을 임의 선택하지 않음\n- `dimension_ambiguities`에 candidate/provenance를 보존\n- payment_method가 달라도 금리가 완전히 같다면 금리 감사 결론이 같으므로 비교 허용\n- canonical identity/source precedence는 변경하지 않음\n\n또한 대백 공식 홈페이지 수동 evidence가 이후 live HTML과 달라진 사례가 확인됐다.\n공식 evidence는 URL+숫자만으로는 당시 truth를 재현할 수 없으므로, 원인조사나 authority\n판단에 사용할 때는 가능하면 raw HTML/응답 artifact와 capture timestamp를 함께 보존한다.\n2026-08-23 19:57 KST live HTTP capture에서는 대백 애플정기예금 12개월 네 surface가\n모두 nominal 4.10%였고, forensic run `32635180304` / artifact `9492104054`에 보존됐다.\n'''
+          if '## 10. 2026-08-23 P0 forensic 보강' not in spec:
+              spec += appendix
+          spec_path.write_text(spec, encoding='utf-8')
+          PY
+
+      - name: Commit patch
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            src/rate_monitor/services/source_discrepancy_service.py \
+            docs/evidence/source-discrepancy/20260823-official-savings-bank.json \
+            docs/specs/20260823-source-discrepancy-variant-freshness-v3.md \
+            tests/test_source_discrepancy_payment_ambiguity.py \
+            .github/workflows/source-discrepancy-audit.yml
+          git commit -m "fix: fail closed on ambiguous payment methods"
+          git push origin HEAD:feat/source-discrepancy-dimension-ambiguity-20260823
