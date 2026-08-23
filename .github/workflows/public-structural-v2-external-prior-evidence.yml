@@ -1,0 +1,120 @@
+name: Public Structural v2 External Prior Evidence
+
+on:
+  pull_request:
+    paths:
+      - "src/rate_monitor/services/public_structural_v2_external_prior_evidence.py"
+      - "tests/test_public_structural_v2_external_prior_evidence.py"
+      - "scripts/public_structural_v2_external_prior_evidence.py"
+      - "docs/specs/20260823-public-structural-v2-i-external-prior-evidence.md"
+      - ".github/workflows/public-structural-v2-external-prior-evidence.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Sync dependencies
+        run: uv sync --locked
+
+      - name: Targeted lint
+        run: |
+          uv run ruff check \
+            src/rate_monitor/services/public_structural_v2_external_prior_evidence.py \
+            tests/test_public_structural_v2_external_prior_evidence.py \
+            scripts/public_structural_v2_external_prior_evidence.py
+
+      - name: Targeted tests
+        run: uv run pytest -q tests/test_public_structural_v2_external_prior_evidence.py
+
+  production-evidence:
+    needs: contract
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Sync dependencies
+        run: uv sync --locked
+
+      - name: Restore production database into runner-local copy
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+          R2_REGION: ${{ vars.R2_REGION }}
+        run: |
+          set -euo pipefail
+          mkdir -p work
+          BACKEND=$(uv run python -c "
+          from pathlib import Path
+          from rate_monitor.services.storage_service import load_backend
+          print(load_backend(Path('config/storage.yaml')).backend.value)
+          ")
+          echo "Stage I runtime source backend=$BACKEND"
+          if [ "$BACKEND" = "r2" ]; then
+            uv run rate-monitor storage restore --dest work/rate_monitor.sqlite3
+          else
+            git fetch --force origin +rate-data:refs/remotes/origin/rate-data --depth=1
+            git show refs/remotes/origin/rate-data:latest/rate_monitor.sqlite3.gz \
+              > work/rate_monitor.sqlite3.gz
+            gunzip work/rate_monitor.sqlite3.gz
+          fi
+          test -s work/rate_monitor.sqlite3
+          echo "restored bytes=$(stat -c%s work/rate_monitor.sqlite3)"
+
+      - name: Apply migrations to runner-local copy
+        env:
+          RATE_MONITOR_DB_URL: sqlite+pysqlite:///${{ github.workspace }}/work/rate_monitor.sqlite3
+        run: uv run alembic upgrade head
+
+      - name: Build aggregate public evidence artifact
+        run: |
+          set -euo pipefail
+          uv run python scripts/public_structural_v2_external_prior_evidence.py \
+            --db work/rate_monitor.sqlite3 \
+            --json-out work/stage-i-external-prior-evidence.json \
+            --md-out work/stage-i-external-prior-evidence.md
+          grep -q '"coefficient_change": "NO_GO"' work/stage-i-external-prior-evidence.json
+          grep -q '"public_prior_role": "context_only_not_parameter_calibration"' \
+            work/stage-i-external-prior-evidence.json
+          grep -q 'CALIBRATION_STATUS = "uncalibrated"' \
+            src/rate_monitor/services/public_structural_v2_inflow_service.py
+          if grep -Eqi '"(beta|gamma|private_model|training_rows|feature_importance)"' \
+            work/stage-i-external-prior-evidence.json; then
+            echo "private/model parameter field leaked into Stage I artifact"
+            exit 1
+          fi
+
+      - name: Upload Stage I evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: public-structural-v2-stage-i-${{ github.run_id }}
+          path: |
+            work/stage-i-external-prior-evidence.json
+            work/stage-i-external-prior-evidence.md
+          retention-days: 30
+          if-no-files-found: error
