@@ -50,6 +50,15 @@ def test_visual_refinement_merges_same_rate_ladder_markers() -> None:
     assert 'content:" · 동일금리"!important' in _CSS
 
 
+def test_visual_refinement_deconflicts_enlarged_chart_x_axis_labels() -> None:
+    assert "deconflictChartAxisLabels" in _SCRIPT
+    assert '.psv2-chart text.axis[text-anchor="middle"]' in _SCRIPT
+    assert 'for(const tick of ticks)tick.style.visibility="";' in _SCRIPT
+    assert "rect.left<previousRight" in _SCRIPT
+    assert 'tick.style.visibility="hidden"' in _SCRIPT
+    assert 'window.addEventListener("resize",refine,{passive:true})' in _SCRIPT
+
+
 def test_public_structural_base_css_enforces_brand_microcopy_floor() -> None:
     sizes = _absolute_font_sizes(COCKPIT_CSS + FACTUAL_FINDER_CSS + _CSS)
 
