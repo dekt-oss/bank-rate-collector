@@ -130,12 +130,16 @@ def _seed_public_series(conn: sqlite3.Connection, months: int = 48) -> None:
         )
 
     primary = rate_levels[PRIMARY_RATE_CODE]
-    for sector_index, (sector, code) in enumerate(BALANCE_CODES.items()):
+    for sector_index, (_sector, code) in enumerate(BALANCE_CODES.items()):
         balance = 100.0 + sector_index * 20.0
         for offset in range(months):
             when = _month_end(2022, 1, offset)
             if offset:
-                prior_rate_change_bp = (primary[offset - 1] - primary[offset - 2]) * 100 if offset > 1 else 0
+                prior_rate_change_bp = 0.0
+                if offset > 1:
+                    prior_rate_change_bp = (
+                        primary[offset - 1] - primary[offset - 2]
+                    ) * 100
                 growth_pct = 0.15 + 0.025 * prior_rate_change_bp + sector_index * 0.005
                 balance *= 1.0 + growth_pct / 100.0
             _insert_indicator(
