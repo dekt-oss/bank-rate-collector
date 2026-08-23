@@ -109,7 +109,13 @@ def test_triage_queue_preserves_variant_identity() -> None:
 def test_official_evidence_never_crosses_channel_variant() -> None:
     report = _report(
         _match(join_channel="mobile", interest_method="simple"),
-        [_official_group(evidence_group="branch", join_channel="branch", interest_method="simple")],
+        [
+            _official_group(
+                evidence_group="branch",
+                join_channel="branch",
+                interest_method="simple",
+            )
+        ],
     )
 
     item = annotate_discrepancy_triage(report)["triage"]["queue"][0]
@@ -123,8 +129,16 @@ def test_unknown_source_variant_does_not_guess_between_official_channels() -> No
     report = _report(
         _match(join_channel="unknown", interest_method="simple"),
         [
-            _official_group(evidence_group="branch", join_channel="branch", interest_method="simple"),
-            _official_group(evidence_group="mobile", join_channel="mobile", interest_method="simple"),
+            _official_group(
+                evidence_group="branch",
+                join_channel="branch",
+                interest_method="simple",
+            ),
+            _official_group(
+                evidence_group="mobile",
+                join_channel="mobile",
+                interest_method="simple",
+            ),
         ],
     )
 
@@ -139,8 +153,16 @@ def test_exact_official_variant_beats_wildcard_group() -> None:
     report = _report(
         _match(join_channel="branch", interest_method="simple"),
         [
-            _official_group(evidence_group="wildcard", join_channel="any", interest_method="simple"),
-            _official_group(evidence_group="branch", join_channel="branch", interest_method="simple"),
+            _official_group(
+                evidence_group="wildcard",
+                join_channel="any",
+                interest_method="simple",
+            ),
+            _official_group(
+                evidence_group="branch",
+                join_channel="branch",
+                interest_method="simple",
+            ),
         ],
     )
 
