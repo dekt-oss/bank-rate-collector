@@ -8,6 +8,7 @@ Stage F 계산/시장위치 계약은 건드리지 않는다. production-derived
 1. 같은 금리의 Ladder marker가 같은 좌표에서 겹치면 하나의 marker로 병합한다.
 2. 520px 이하 후보금리표는 8열 표를 2열 label/value 카드 grid로 바꿔 겹침을 막는다.
 3. stress range 설명은 통계적 신뢰수준처럼 읽힐 수 있는 금지 용어를 제거한다.
+4. 최종 Public Structural 분석 microcopy는 Brand v3의 10.5px 가독성 floor를 지킨다.
 """
 
 from __future__ import annotations
@@ -27,6 +28,8 @@ _CSS = r"""
 <style id="public-structural-v2-cockpit-visual-refinement-style">
 .psv2-rung[data-merged-rate-markers] label:after{content:" · 동일금리"!important;color:#8a6f36}
 .psv2>div{min-width:0}
+/* Brand v3 contract: analytical microcopy must not render below 10.5px. */
+.psv2-head p,.psv2-badge,.psv2-kicker,.psv2-card small,.psv2-card .minor,.psv2-separator,.psv2-panel-head span,.psv2-rung label,.psv2-rung strong,.psv2-mini span,.psv2-mini b,.psv2-chart .axis,.psv2-chart .label,.psv2-chart-legend,.psv2-empty,.psv2-disclosure,.psv2-table th,.psv2-table td,.psv2-table .rate-label,.psv2-table .rate-note,.psv2-table-foot,.psv2-error,.psv2-table td:before{font-size:10.5px!important}
 @media(max-width:520px){
   .psv2-table-wrap{overflow:visible;border:0;background:transparent}
   .psv2-table{display:block!important;width:100%!important;min-width:0!important;border-collapse:separate}
@@ -35,8 +38,8 @@ _CSS = r"""
   .psv2-table tr{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 10px;padding:10px;border:1px solid rgba(91,47,100,.09);border-radius:10px;background:#fff}
   .psv2-table tr.current{background:#f3faf6}
   .psv2-table tr.proposal{background:#fff9eb}
-  .psv2-table td{display:block!important;min-width:0!important;padding:0!important;border:0!important;text-align:left!important;white-space:normal!important;font-size:8.5px;line-height:1.45}
-  .psv2-table td:before{display:block;margin-bottom:2px;color:#806f83;font:700 7.5px/1.25 var(--sans);letter-spacing:.02em}
+  .psv2-table td{display:block!important;min-width:0!important;padding:0!important;border:0!important;text-align:left!important;white-space:normal!important;font-size:10.5px;line-height:1.45}
+  .psv2-table td:before{display:block;margin-bottom:2px;color:#806f83;font:700 10.5px/1.25 var(--sans);letter-spacing:.02em}
   .psv2-table td:nth-child(1):before{content:"금리"}
   .psv2-table td:nth-child(2):before{content:"공동순위 범위"}
   .psv2-table td:nth-child(3):before{content:"동률"}
@@ -46,7 +49,7 @@ _CSS = r"""
   .psv2-table td:nth-child(6):before{content:"stress range"}
   .psv2-table td:nth-child(7):before{content:"현재 대비"}
   .psv2-table td:nth-child(8):before{content:"직전 5bp 표면비용"}
-  .psv2-table .rate-label{font-size:9.5px}
+  .psv2-table .rate-label{font-size:10.5px}
 }
 </style>
 """.strip()
@@ -140,7 +143,7 @@ def inject_public_structural_v2_cockpit_visual_refinement(html: str) -> str:
     else:
         if any(states):
             raise DashboardBuildError(
-                "Public Structural v2 Cockpit visual refinement 주입 상태가 불완전하다"
+                "Public Structural v2 Cockpit visual refinement 주입 상태가 불완전"
             )
         if 'id="public-structural-v2-cockpit-script"' not in html:
             raise DashboardBuildError("Public Structural v2 Cockpit 선행 script가 없다")
