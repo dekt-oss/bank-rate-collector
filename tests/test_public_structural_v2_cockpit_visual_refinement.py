@@ -1,8 +1,13 @@
 from __future__ import annotations
 
+import re
+
 import pytest
 
 from rate_monitor.services.dashboard_service import DashboardBuildError
+from rate_monitor.services.public_structural_v2_cockpit_presentation import (
+    _CSS as COCKPIT_CSS,
+)
 from rate_monitor.services.public_structural_v2_cockpit_visual_refinement import (
     _CSS,
     _SCRIPT,
@@ -10,7 +15,20 @@ from rate_monitor.services.public_structural_v2_cockpit_visual_refinement import
     STYLE_MARKER,
     inject_public_structural_v2_cockpit_visual_refinement,
 )
+from rate_monitor.services.public_structural_v2_factual_rate_finder_presentation import (
+    _CSS as FACTUAL_FINDER_CSS,
+)
 from tests.strategy_output_helper import built_strategy_html
+
+
+def _absolute_font_sizes(css: str) -> list[float]:
+    return [
+        float(match)
+        for match in re.findall(
+            r"(?:font-size:|font:(?:[^;{}]*?\s)?)([0-9]+(?:\.[0-9]+)?)px",
+            css,
+        )
+    ]
 
 
 def test_built_strategy_wires_visual_refinement_after_public_structural_cockpit() -> None:
@@ -32,12 +50,16 @@ def test_visual_refinement_merges_same_rate_ladder_markers() -> None:
     assert 'content:" · 동일금리"!important' in _CSS
 
 
-def test_visual_refinement_enforces_brand_microcopy_floor() -> None:
-    assert "Brand v3 contract" in _CSS
-    assert ".psv2-head p" in _CSS
-    assert ".psv2-chart .axis" in _CSS
-    assert ".psv2-table td:before" in _CSS
-    assert "font-size:10.5px!important" in _CSS
+def test_public_structural_base_css_enforces_brand_microcopy_floor() -> None:
+    sizes = _absolute_font_sizes(COCKPIT_CSS + FACTUAL_FINDER_CSS + _CSS)
+
+    assert sizes, "Public Structural v2 font contract를 검사할 CSS가 없습니다"
+    too_small = sorted({size for size in sizes if size < 10.5})
+    assert not too_small, f"Public Structural v2 10.5px 미만 font가 남아 있습니다: {too_small}"
+    assert ".psv2-chart .axis" in COCKPIT_CSS
+    assert ".psv2-chart .label" in COCKPIT_CSS
+    assert ".psv2-finder-item small" in FACTUAL_FINDER_CSS
+    assert "font-size:7.8px" not in FACTUAL_FINDER_CSS
     assert "font:700 10.5px/1.25 var(--sans)" in _CSS
 
 
