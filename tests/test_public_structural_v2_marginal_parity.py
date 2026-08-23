@@ -48,15 +48,31 @@ def test_marginal_js_matches_python() -> None:
         (WEB / "market_position.js").read_text(encoding="utf-8"),
         (WEB / "decision_contract.js").read_text(encoding="utf-8"),
         (WEB / "surface.js").read_text(encoding="utf-8"),
+        (WEB / "forecast_provider.js").read_text(encoding="utf-8"),
         (WEB / "marginal.js").read_text(encoding="utf-8"),
         f"const args={json.dumps(args, ensure_ascii=False)};",
         f"const marketConfig={json.dumps(public_market_position_config())};",
         f"const inflowConfig={json.dumps(public_structural_v2_config(), ensure_ascii=False)};",
         (
-            "const surface=PublicStructuralV2Surface.buildSurface(args,"
-            "PublicStructuralV2MarketPosition,marketConfig,"
+            "const frame=PublicStructuralV2Surface.buildSurfaceFrame(args,"
+            "PublicStructuralV2MarketPosition,marketConfig,PublicStructuralV2DecisionContract);"
+        ),
+        (
+            "const request={generated_at:args.generated_at,"
+            "candidate_rates:frame.market_positions.map(row=>row.proposal_rate),"
+            "baseline_new_money:args.baseline_new_money,maturity_amount:args.maturity_amount,"
+            "current_rollover_rate_pct:args.current_rollover_rate_pct,"
+            "current_own_rate:args.current_own_rate,term_months:args.term_months};"
+        ),
+        (
+            "const provider=PublicStructuralV2ForecastProvider.createStructuralProvider("
             "PublicStructuralV2DecisionContract,PublicStructuralV2Inflow,inflowConfig);"
         ),
+        (
+            "const forecast=PublicStructuralV2ForecastProvider.validatePublicForecast("
+            "provider(request),request);"
+        ),
+        "const surface=PublicStructuralV2Surface.attachForecast(frame,forecast);",
         "const out=PublicStructuralV2Marginal.buildFixed5bpMarginals(surface);",
         "process.stdout.write(JSON.stringify(out));",
     ]
