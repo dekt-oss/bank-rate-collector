@@ -143,7 +143,7 @@ def inject_public_structural_v2_cockpit_visual_refinement(html: str) -> str:
     else:
         if any(states):
             raise DashboardBuildError(
-                "Public Structural v2 Cockpit visual refinement 주입 상태가 불완전"
+                "Public Structural v2 Cockpit visual refinement 주입 상태가 불완전하다"
             )
         if 'id="public-structural-v2-cockpit-script"' not in html:
             raise DashboardBuildError("Public Structural v2 Cockpit 선행 script가 없다")
