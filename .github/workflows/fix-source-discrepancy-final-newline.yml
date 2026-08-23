@@ -1,0 +1,37 @@
+name: Fix source discrepancy final newline
+
+on:
+  push:
+    branches: ["feat/source-discrepancy-dimension-ambiguity-20260823"]
+    paths:
+      - ".github/workflows/fix-source-discrepancy-final-newline.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/source-discrepancy-dimension-ambiguity-20260823
+          fetch-depth: 0
+      - name: Append byte-level final LF and remove this helper
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("src/rate_monitor/services/source_discrepancy_service.py")
+          data = path.read_bytes()
+          if not data.endswith(b"\n"):
+              path.write_bytes(data + b"\n")
+          assert path.read_bytes().endswith(b"\n")
+          PY
+          git rm .github/workflows/fix-source-discrepancy-final-newline.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/rate_monitor/services/source_discrepancy_service.py
+          git commit -m "style: preserve source discrepancy final newline"
+          git push origin HEAD:feat/source-discrepancy-dimension-ambiguity-20260823
