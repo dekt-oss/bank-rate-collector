@@ -155,7 +155,8 @@ def _seed_public_series(conn: sqlite3.Connection, months: int = 48) -> None:
         source_id = f"source-{sector}"
         conn.execute("INSERT INTO sources (id, sector) VALUES (?, ?)", (source_id, sector))
         for offset in range(3):
-            started = datetime(2026, 6, 1) + timedelta(days=30 * offset)
+            month = _month_end(2026, 6, offset)
+            started = datetime(month.year, month.month, 1)
             conn.execute(
                 """
                 INSERT INTO collection_runs (id, source_id, started_at, finished_at, status)
