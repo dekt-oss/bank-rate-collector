@@ -248,6 +248,13 @@ def annotate_official_evidence_policy(report: dict[str, Any]) -> dict[str, Any]:
                         "interest_method": item["official"].get("interest_method"),
                         "effective_at": item["official"].get("effective_at"),
                         "captured_at": item["official"].get("captured_at"),
+                        "capture_method": item["official"].get("capture_method"),
+                        "capture_run_id": item["official"].get("capture_run_id"),
+                        "capture_artifact_id": item["official"].get("capture_artifact_id"),
+                        "capture_artifact_sha256": item["official"].get(
+                            "capture_artifact_sha256"
+                        ),
+                        "note": item["official"].get("note"),
                         "freshness": {
                             "as_of": generated_at,
                             "effective_age_days": _age_days(
