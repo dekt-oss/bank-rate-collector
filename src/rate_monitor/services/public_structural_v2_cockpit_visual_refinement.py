@@ -8,6 +8,7 @@ Stage F 계산/시장위치 계약은 건드리지 않는다. production-derived
 1. 같은 금리의 Ladder marker가 같은 좌표에서 겹치면 하나의 marker로 병합한다.
 2. 520px 이하 후보금리표는 8열 표를 2열 label/value 카드 grid로 바꿔 겹침을 막는다.
 3. stress range 설명은 통계적 신뢰수준처럼 읽힐 수 있는 금지 용어를 제거한다.
+4. 10.5px로 확대한 SVG X축 라벨은 실제 렌더 box가 겹칠 때 뒤 라벨만 숨긴다.
 """
 
 from __future__ import annotations
@@ -35,8 +36,8 @@ _CSS = r"""
   .psv2-table tr{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 10px;padding:10px;border:1px solid rgba(91,47,100,.09);border-radius:10px;background:#fff}
   .psv2-table tr.current{background:#f3faf6}
   .psv2-table tr.proposal{background:#fff9eb}
-  .psv2-table td{display:block!important;min-width:0!important;padding:0!important;border:0!important;text-align:left!important;white-space:normal!important;font-size:8.5px;line-height:1.45}
-  .psv2-table td:before{display:block;margin-bottom:2px;color:#806f83;font:700 7.5px/1.25 var(--sans);letter-spacing:.02em}
+  .psv2-table td{display:block!important;min-width:0!important;padding:0!important;border:0!important;text-align:left!important;white-space:normal!important;line-height:1.45}
+  .psv2-table td:before{display:block;margin-bottom:2px;color:#806f83;font:700 10.5px/1.25 var(--sans);letter-spacing:.02em}
   .psv2-table td:nth-child(1):before{content:"금리"}
   .psv2-table td:nth-child(2):before{content:"공동순위 범위"}
   .psv2-table td:nth-child(3):before{content:"동률"}
@@ -46,7 +47,6 @@ _CSS = r"""
   .psv2-table td:nth-child(6):before{content:"stress range"}
   .psv2-table td:nth-child(7):before{content:"현재 대비"}
   .psv2-table td:nth-child(8):before{content:"직전 5bp 표면비용"}
-  .psv2-table .rate-label{font-size:9.5px}
 }
 </style>
 """.strip()
@@ -98,6 +98,21 @@ _SCRIPT = r"""
     }
   }
 
+  function deconflictChartAxisLabels(){
+    const ticks=[...document.querySelectorAll(`#${HOST_ID} .psv2-chart text.axis[text-anchor="middle"]`)];
+    if(!ticks.length)return;
+    for(const tick of ticks)tick.style.visibility="";
+    let previousRight=null;
+    for(const tick of ticks){
+      const rect=tick.getBoundingClientRect();
+      if(previousRight!==null&&rect.left<previousRight){
+        tick.style.visibility="hidden";
+        continue;
+      }
+      previousRight=rect.right;
+    }
+  }
+
   function normalizeStressDisclosure(){
     const disclosure=document.querySelector(`#${HOST_ID} .psv2-disclosure`);
     if(!disclosure||!disclosure.textContent.includes(FORBIDDEN_RANGE_DISCLOSURE))return;
@@ -118,10 +133,12 @@ _SCRIPT = r"""
       queueMicrotask(()=>{
         queued=false;
         mergeSameRateRungs();
+        deconflictChartAxisLabels();
         normalizeStressDisclosure();
       });
     };
     new MutationObserver(refine).observe(host,{childList:true,subtree:true});
+    window.addEventListener("resize",refine,{passive:true});
     refine();
   }
 
