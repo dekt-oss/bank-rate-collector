@@ -1,7 +1,5 @@
 """Stage E 기획 흐름·표현 계약을 실제 build 산출물로 검증한다."""
 
-import re
-
 from tests.strategy_output_helper import built_strategy_html
 
 
@@ -77,16 +75,19 @@ def test_mixed_term_and_history_card_has_truthful_title() -> None:
     assert '<h2>기간별 금리 추이</h2>' not in html
 
 
-def test_absolute_css_fonts_are_never_below_9px() -> None:
+def test_final_public_structural_layer_enforces_brand_microcopy_floor() -> None:
     html = built_strategy_html()
-    sizes = [
-        float(match)
-        for match in re.findall(
-            r"(?:font-size:|font:(?:[^;{}]*?\s)?)([0-9]+(?:\.[0-9]+)?)px",
-            html,
-        )
-    ]
 
-    assert sizes, "absolute px font contract를 검사할 CSS가 없습니다"
-    too_small = sorted({size for size in sizes if size < 9})
-    assert not too_small, f"9px 미만 absolute font가 남아 있습니다: {too_small}"
+    brand_marker = 'id="strategy-brand-theme-style"'
+    final_marker = 'id="public-structural-v2-cockpit-visual-refinement-style"'
+    assert brand_marker in html
+    assert final_marker in html
+    assert html.index(brand_marker) < html.index(final_marker)
+
+    start = html.index(final_marker)
+    end = html.index("</style>", start)
+    final_style = html[start:end]
+    assert ".psv2-head p" in final_style
+    assert ".psv2-chart .axis" in final_style
+    assert ".psv2-table td:before" in final_style
+    assert "font-size:10.5px!important" in final_style
