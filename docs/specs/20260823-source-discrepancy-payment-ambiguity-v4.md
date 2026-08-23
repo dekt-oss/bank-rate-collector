@@ -144,6 +144,7 @@ Freshness/provenance는 authority score가 아니다. 더 최근에 캡처됐다
 
 - payment_method가 다르고 rate도 다른 동일 6D 후보는 fail-closed 된다.
 - payment_method가 달라도 rate가 동일하면 비교 가능하다.
+- 손수 만드는 SQLite regression fixture도 production `product_variants.payment_method` nullable schema를 반영한다.
 - 청주 정기적금 6/12개월이 `dimension_ambiguities`에 surfaced 된다.
 - 청주 6/12개월 false mismatch가 P0~P3 queue에서 제거된다.
 - 대백 4개 official evidence group이 모두 current 4.10%로 평가된다.
