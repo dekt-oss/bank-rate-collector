@@ -1,0 +1,188 @@
+name: Public Structural v2 Stage J QA
+
+on:
+  pull_request:
+    paths:
+      - "scripts/public_structural_v2_stage_j_runtime_smoke.js"
+      - "src/rate_monitor/services/public_structural_v2_*.py"
+      - "web/public-structural-v2/**"
+      - "docs/specs/20260823-public-structural-v2-j-integrated-qa.md"
+      - ".github/workflows/public-structural-v2-stage-j-qa.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Sync dependencies
+        run: uv sync --locked
+
+      - name: Public Structural v2 targeted lint
+        run: |
+          set -euo pipefail
+          files=$(find src/rate_monitor/services tests -type f \
+            \( -name 'public_structural_v2_*.py' -o -name 'test_public_structural_v2_*.py' \) \
+            -print)
+          if [ -n "$files" ]; then
+            uv run ruff check $files
+          fi
+
+      - name: Public Structural v2 targeted tests
+        run: uv run pytest -q tests/test_public_structural_v2_*.py
+
+      - name: Browser smoke syntax
+        run: |
+          node --check scripts/public_structural_v2_cockpit_runtime_smoke.js
+          node --check scripts/public_structural_v2_stage_j_runtime_smoke.js
+
+  production-integrated-qa:
+    needs: contract
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Sync dependencies
+        run: uv sync --locked
+
+      - name: Restore production database into runner-local copy
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+          R2_REGION: ${{ vars.R2_REGION }}
+        run: |
+          set -euo pipefail
+          mkdir -p work
+          BACKEND=$(uv run python -c "
+          from pathlib import Path
+          from rate_monitor.services.storage_service import load_backend
+          print(load_backend(Path('config/storage.yaml')).backend.value)
+          ")
+          echo "Stage J runtime source backend=$BACKEND"
+          if [ "$BACKEND" = "r2" ]; then
+            uv run rate-monitor storage restore --dest work/rate_monitor.sqlite3
+          else
+            git fetch --force origin +rate-data:refs/remotes/origin/rate-data --depth=1
+            git show refs/remotes/origin/rate-data:latest/rate_monitor.sqlite3.gz \
+              > work/rate_monitor.sqlite3.gz
+            gunzip work/rate_monitor.sqlite3.gz
+          fi
+          test -s work/rate_monitor.sqlite3
+
+      - name: Apply migrations to runner-local copy
+        env:
+          RATE_MONITOR_DB_URL: sqlite+pysqlite:///${{ github.workspace }}/work/rate_monitor.sqlite3
+        run: uv run alembic upgrade head
+
+      - name: Verify Production Strategy Release Gate defaults OFF
+        run: |
+          set -euo pipefail
+          env -u RATE_MONITOR_STRATEGY_DASHBOARD \
+            uv run rate-monitor build-site \
+              --db work/rate_monitor.sqlite3 \
+              --template web/templates/site.html \
+              --out work/site-release-off
+          test -s work/site-release-off/index.html
+          test ! -e work/site-release-off/strategy.html
+          test ! -e work/site-release-off/data/strategy-table.json
+          if grep -q 'href="strategy.html"' work/site-release-off/index.html; then
+            echo "Strategy navigation leaked while Release Gate is OFF"
+            exit 1
+          fi
+
+      - name: Build isolated Strategy QA site from production data
+        env:
+          RATE_MONITOR_STRATEGY_DASHBOARD: "1"
+        run: |
+          set -euo pipefail
+          uv run rate-monitor build-site \
+            --db work/rate_monitor.sqlite3 \
+            --template web/templates/site.html \
+            --out work/site-stage-j
+          test -s work/site-stage-j/index.html
+          test -s work/site-stage-j/strategy.html
+          test -s work/site-stage-j/data/strategy-table.json
+          grep -q 'id="public-structural-v2-cockpit-script"' work/site-stage-j/strategy.html
+          grep -q 'id="public-structural-v2-forecast-provider-engine"' work/site-stage-j/strategy.html
+          grep -q 'id="public-structural-v2-factual-rate-finder-script"' work/site-stage-j/strategy.html
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install Korean visual QA font
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends fonts-noto-cjk
+          fc-match "Noto Sans CJK KR"
+
+      - name: Install Playwright runner
+        run: |
+          set -euo pipefail
+          command -v google-chrome
+          google-chrome --version
+          npm install --no-save --package-lock=false @playwright/test@1.61.1
+          node --check scripts/public_structural_v2_cockpit_runtime_smoke.js
+          node --check scripts/public_structural_v2_stage_j_runtime_smoke.js
+
+      - name: Run actual-data desktop/mobile integrated QA
+        env:
+          STRATEGY_PREVIEW_BASE_URL: http://127.0.0.1:4173
+        run: |
+          set -euo pipefail
+          python -m http.server 4173 --directory work/site-stage-j \
+            > work/stage-j-http.log 2>&1 &
+          SERVER_PID=$!
+          trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:4173/strategy.html >/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:4173/strategy.html >/dev/null
+          node scripts/public_structural_v2_cockpit_runtime_smoke.js
+          node scripts/public_structural_v2_stage_j_runtime_smoke.js
+          test -s work/public-structural-v2-stage-j-metrics.json
+          grep -q '"self_replacement_checked": true' work/public-structural-v2-stage-j-metrics.json
+          grep -q '"factual_handcalc_checked": true' work/public-structural-v2-stage-j-metrics.json
+          grep -q '"ratio_metric_exposed": false' work/public-structural-v2-stage-j-metrics.json
+
+      - name: Upload Stage J evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: public-structural-v2-stage-j-${{ github.run_id }}
+          path: |
+            work/public-structural-v2-stage-j-metrics.json
+            work/public-structural-v2-stage-j-desktop.png
+            work/public-structural-v2-stage-j-mobile.png
+            work/public-structural-v2-cockpit-desktop.png
+            work/public-structural-v2-cockpit-mobile.png
+            work/stage-j-http.log
+          retention-days: 30
+          if-no-files-found: warn
