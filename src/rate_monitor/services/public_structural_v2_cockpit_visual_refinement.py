@@ -2,11 +2,12 @@
 """Public Structural v2 Cockpit의 최종 post-processing.
 
 Stage F 계산/시장위치 계약은 건드리지 않는다. production-derived Chrome screenshot에서
-확인된 presentation 결함 두 가지를 후처리하고 Stage H provider adapter를 Cockpit
+확인된 presentation 결함을 후처리하고 Stage H provider adapter를 Cockpit
 실행 직전에 연결한 뒤 Stage G factual-only rate finder를 마지막 확장으로 유지한다.
 
 1. 같은 금리의 Ladder marker가 같은 좌표에서 겹치면 하나의 marker로 병합한다.
 2. 520px 이하 후보금리표는 8열 표를 2열 label/value 카드 grid로 바꿔 겹침을 막는다.
+3. stress range 설명은 통계적 신뢰수준처럼 읽힐 수 있는 금지 용어를 제거한다.
 """
 
 from __future__ import annotations
@@ -55,6 +56,8 @@ _SCRIPT = r"""
 (()=>{
   "use strict";
   const HOST_ID="public-structural-v2-cockpit";
+  const FORBIDDEN_RANGE_DISCLOSURE="음영은 confidence/prediction interval이 아니라 저·기준·고 민감도 결과의 실제 최소~최대 범위입니다.";
+  const SAFE_RANGE_DISCLOSURE="음영은 저·기준·고 민감도 결과를 단순히 묶은 실제 최소~최대 범위이며 통계적 신뢰수준을 뜻하지 않습니다.";
 
   function mergeSameRateRungs(){
     const ladder=document.querySelector(`#${HOST_ID} .psv2-ladder`);
@@ -95,6 +98,15 @@ _SCRIPT = r"""
     }
   }
 
+  function normalizeStressDisclosure(){
+    const disclosure=document.querySelector(`#${HOST_ID} .psv2-disclosure`);
+    if(!disclosure||!disclosure.textContent.includes(FORBIDDEN_RANGE_DISCLOSURE))return;
+    disclosure.innerHTML=disclosure.innerHTML.replace(
+      FORBIDDEN_RANGE_DISCLOSURE,
+      SAFE_RANGE_DISCLOSURE,
+    );
+  }
+
   function install(){
     const host=document.getElementById(HOST_ID);
     if(!host||host.dataset.visualRefinementInstalled==="1")return;
@@ -106,6 +118,7 @@ _SCRIPT = r"""
       queueMicrotask(()=>{
         queued=false;
         mergeSameRateRungs();
+        normalizeStressDisclosure();
       });
     };
     new MutationObserver(refine).observe(host,{childList:true,subtree:true});
