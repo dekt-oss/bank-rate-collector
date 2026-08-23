@@ -10,13 +10,18 @@ on:
       - "src/rate_monitor/services/source_official_contradiction_triage.py"
       - "scripts/source_discrepancy_audit.py"
       - "tests/test_source_discrepancy_service.py"
+      - "tests/test_source_discrepancy_variant_freshness.py"
       - "tests/test_official_evidence_policy.py"
+      - "tests/test_official_evidence_variant_grouping.py"
       - "tests/test_source_discrepancy_triage.py"
+      - "tests/test_source_discrepancy_triage_variant.py"
       - "tests/test_source_official_contradiction_triage.py"
+      - "tests/test_source_official_contradiction_variant.py"
       - "docs/evidence/source-discrepancy/**"
       - "docs/specs/20260820-source-discrepancy-official-evidence-v2.md"
       - "docs/specs/20260820-source-discrepancy-priority-triage-v1.md"
       - "docs/specs/20260820-source-official-contradiction-triage-v1.md"
+      - "docs/specs/20260823-source-discrepancy-variant-freshness-v3.md"
       - ".github/workflows/source-discrepancy-audit.yml"
       - "config/storage.yaml"
       - "migrations/**"
@@ -61,6 +66,32 @@ jobs:
       - name: Sync dependencies
         run: uv sync --locked
 
+      - name: Validate variant-aware audit contracts
+        run: |
+          set -euo pipefail
+          uv run ruff check \
+            src/rate_monitor/services/source_discrepancy_service.py \
+            src/rate_monitor/services/official_evidence_policy.py \
+            src/rate_monitor/services/source_discrepancy_triage.py \
+            src/rate_monitor/services/source_official_contradiction_triage.py \
+            tests/test_source_discrepancy_service.py \
+            tests/test_source_discrepancy_variant_freshness.py \
+            tests/test_official_evidence_policy.py \
+            tests/test_official_evidence_variant_grouping.py \
+            tests/test_source_discrepancy_triage.py \
+            tests/test_source_discrepancy_triage_variant.py \
+            tests/test_source_official_contradiction_triage.py \
+            tests/test_source_official_contradiction_variant.py
+          uv run pytest -q \
+            tests/test_source_discrepancy_service.py \
+            tests/test_source_discrepancy_variant_freshness.py \
+            tests/test_official_evidence_policy.py \
+            tests/test_official_evidence_variant_grouping.py \
+            tests/test_source_discrepancy_triage.py \
+            tests/test_source_discrepancy_triage_variant.py \
+            tests/test_source_official_contradiction_triage.py \
+            tests/test_source_official_contradiction_variant.py
+
       - name: Restore current production database read-only
         env:
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
@@ -104,17 +135,15 @@ jobs:
             --out work/source-discrepancy-report.json \
             --triage-out work/source-discrepancy-priority-queue.json \
             --official-contradiction-out work/source-discrepancy-official-contradictions.json \
-            --official-evidence docs/evidence/source-discrepancy/20260820-official-savings-bank.json
+            --official-evidence docs/evidence/source-discrepancy/20260823-official-savings-bank.json
 
-      - name: Inspect mismatch, official evidence, and priority queues
+      - name: Inspect variant identity, freshness, and priority queues
         run: |
           python - <<'PY'
           import json
           from pathlib import Path
 
-          report = json.loads(
-              Path("work/source-discrepancy-report.json").read_text(encoding="utf-8")
-          )
+          report = json.loads(Path("work/source-discrepancy-report.json").read_text(encoding="utf-8"))
           queue_payload = json.loads(
               Path("work/source-discrepancy-priority-queue.json").read_text(encoding="utf-8")
           )
@@ -124,21 +153,39 @@ jobs:
               )
           )
 
-          assert report["scope"]["canonical_mutated"] is False
-          assert report["scope"]["official_evidence_authority"] == "read_only_support_only"
-          assert report["scope"]["official_conflict_blocks_authority"] is True
-          assert report["scope"]["triage_mutates_canonical"] is False
-          assert report["scope"]["triage_selects_authority"] is False
-          assert report["scope"]["official_contradiction_mutates_canonical"] is False
-          assert report["scope"]["official_contradiction_selects_authority"] is False
-          assert report["summary"]["official_evidence_records"] >= 5
-          assert report["summary"]["official_evidence_groups"] >= 4
+          scope = report["scope"]
+          assert scope["canonical_mutated"] is False
+          assert "join_channel" in scope["automatic_match_method"]
+          assert "interest_method" in scope["automatic_match_method"]
+          assert scope["freshness_metadata_policy"].startswith("observational_only")
+          assert scope["official_evidence_authority"] == "read_only_support_only"
+          assert scope["official_conflict_blocks_authority"] is True
+          assert scope["official_freshness_metadata_policy"] == "observational_only"
+          assert scope["triage_mutates_canonical"] is False
+          assert scope["triage_selects_authority"] is False
+          assert scope["official_contradiction_mutates_canonical"] is False
+          assert scope["official_contradiction_selects_authority"] is False
+
+          summary = report["summary"]
+          assert "unmatched_variant" in summary
+          assert summary["official_evidence_records"] >= 8
+          assert summary["official_evidence_groups"] >= 7
+
+          for match in report["matches"]:
+              identity = match["match"]
+              assert "join_channel" in identity and "interest_method" in identity
+              for side in ("primary", "secondary"):
+                  freshness = match[side]["freshness"]
+                  assert freshness["as_of"] == report["generated_at"]
+                  assert "effective_age_days" in freshness
+                  assert "last_seen_age_days" in freshness
 
           triage = report["triage"]
           assert triage["authority_semantics"] == (
               "investigation_priority_only; does_not_select_canonical_source"
           )
-          assert triage["summary"]["queue_size"] == report["summary"]["mismatch_or_incomplete"]
+          assert "exact or uniquely compatible variant" in triage["variant_evidence_semantics"]
+          assert triage["summary"]["queue_size"] == summary["mismatch_or_incomplete"]
           assert queue_payload["triage"] == triage
           assert [item["rank"] for item in triage["queue"]] == list(
               range(1, triage["summary"]["queue_size"] + 1)
@@ -152,6 +199,9 @@ jobs:
           assert contradictions["authority_semantics"] == (
               "investigation_priority_only; official evidence never overwrites canonical values"
           )
+          assert "exact or uniquely compatible variant" in contradictions[
+              "variant_pairing_semantics"
+          ]
           assert [item["rank"] for item in contradictions["queue"]] == list(
               range(1, contradictions["summary"]["queue_size"] + 1)
           )
@@ -159,136 +209,74 @@ jobs:
               contradictions["summary"][key] for key in ("P0", "P1", "P2", "P3")
           ) == contradictions["summary"]["queue_size"]
 
-          daebaek = [
-              item for item in contradictions["queue"]
-              if "대백" in (item["institution"] or "")
-          ]
-          assert any(
-              item["classification"] == "source_consensus_official_contradiction"
-              and item["source_consensus_max_rate"] == "4.1000"
-              and item["official_max_rates"] == ["3.80"]
-              for item in daebaek
+          groups = {item["evidence_group"]: item for item in report["official_evidence_groups"]}
+          kiwoom = groups["kiwoomyes:e-revolving:any:simple:12m"]
+          assert kiwoom["status"] == "consistent"
+          assert kiwoom["official_max_rates"] == ["3.70"]
+          assert all(
+              record["evidence_surface"] in {
+                  "bank_direct_product_disclosure",
+                  "bank_direct_rate_change_notice",
+              }
+              for record in kiwoom["records"]
+          )
+
+          daebaek_expected = {
+              "debec:apple-deposit:internet:simple:12m": ("internet", "simple", "4.10"),
+              "debec:apple-deposit:internet:compound:12m": ("internet", "compound", "4.00"),
+              "debec:apple-deposit:mobile:simple:12m": ("mobile", "simple", "3.80"),
+              "debec:apple-deposit:mobile:compound:12m": ("mobile", "compound", "4.10"),
+          }
+          for group_id, (channel, method, rate) in daebaek_expected.items():
+              group = groups[group_id]
+              assert group["status"] == "consistent"
+              assert group["join_channel"] == channel
+              assert group["interest_method"] == method
+              assert group["official_max_rates"] == [rate]
+              assert len(group["records"]) == 1
+              assert group["records"][0]["freshness"]["captured_age_days"] is not None
+
+          assert not any(
+              item["institution"] == "대백저축은행"
+              and item["classification"] == "official_internal_conflict"
+              for item in contradictions["queue"]
           )
 
           print("source runs:", report["source_runs"])
-          print("summary:", report["summary"])
+          print("summary:", summary)
           print("triage summary:", triage["summary"])
           print("official contradiction summary:", contradictions["summary"])
-
-          mismatch_statuses = {
-              "rate_mismatch",
-              "rate_mismatch_date_diff",
-              "rate_mismatch_date_unknown",
-              "incomplete_rate",
-          }
-          mismatches = [
-              item for item in report["matches"] if item["status"] in mismatch_statuses
-          ]
-          print(f"max-rate mismatch evidence rows={len(mismatches)}")
-          for item in mismatches[:20]:
-              left = item["primary"]
-              right = item["secondary"]
-              print(
-                  item["status"],
-                  left["institution"],
-                  left["product"],
-                  f"term={left['term_months']}",
-                  f"fsb={left['max_rate']}@{left['source_effective_at']}",
-                  f"finlife={right['max_rate']}@{right['source_effective_at']}",
-                  f"delta={item['delta_max_rate_primary_minus_secondary']}",
-                  f"raw={left['raw_artifact_path']}",
-              )
-
-          base_mismatches = [
-              item for item in report["matches"]
-              if item["base_rate_comparison"]["status"] in {"mismatch", "incomplete"}
-          ]
-          print(f"base-rate mismatch/incomplete evidence rows={len(base_mismatches)}")
-          for item in base_mismatches[:20]:
-              left = item["primary"]
-              base = item["base_rate_comparison"]
-              print(
-                  base["status"],
-                  left["institution"],
-                  left["product"],
-                  f"term={left['term_months']}",
-                  f"fsb={base['primary']}",
-                  f"finlife={base['secondary']}",
-                  f"delta={base['delta_primary_minus_secondary']}",
-              )
-
-          print("official evidence groups:")
+          print("official groups:")
           for group in report["official_evidence_groups"]:
               print(
                   group["evidence_group"],
+                  f"variant={group.get('join_channel')}/{group.get('interest_method')}",
                   f"status={group['status']}",
                   f"signal={group['reconciliation_signal']}",
-                  f"primary={group['source_support']['primary']}",
-                  f"secondary={group['source_support']['secondary']}",
                   f"official_max={group['official_max_rates']}",
               )
-
-          conflicts = [
-              group for group in report["official_evidence_groups"]
-              if group["status"] == "conflict"
-          ]
-          print(f"official internal conflicts={len(conflicts)}")
-          for group in conflicts:
-              print(
-                  "official-conflict",
-                  group["institution"],
-                  group["official_product"],
-                  f"term={group['term_months']}",
-                  f"fields={group['conflict_fields']}",
-                  f"rates={group['official_max_rates']}",
-              )
-
-          for target in ("대백", "청주", "키움YES", "키움예스"):
-              found = [
-                  item for item in report["matches"]
-                  if target in (item["primary"]["institution"] or "")
-                  or target in (item["secondary"]["institution"] or "")
-              ]
-              print(f"target={target} exact_matches={len(found)}")
-              for item in found[:20]:
-                  print(
-                      " ",
-                      item["status"],
-                      item["primary"]["product"],
-                      f"term={item['primary']['term_months']}",
-                      item["primary"]["max_rate"],
-                      item["secondary"]["max_rate"],
-                  )
 
           print("priority queue:")
           for item in triage["queue"][:30]:
               print(
-                  f"#{item['rank']}",
-                  item["priority"],
-                  f"score={item['score']}",
-                  item["classification"],
-                  item["institution"],
-                  item["product"],
+                  f"#{item['rank']}", item["priority"], f"score={item['score']}",
+                  item["classification"], item["institution"], item["product"],
                   f"term={item['term_months']}",
+                  f"variant={item['join_channel']}/{item['interest_method']}",
                   f"delta={item['max_rate']['absolute_delta']}",
                   f"date_gap={item['effective_date']['gap_days']}",
                   f"age={item['effective_date']['max_source_age_days']}",
-                  f"official={item['official_evidence']}",
               )
 
           print("official contradiction queue:")
           for item in contradictions["queue"][:30]:
               print(
-                  f"#{item['rank']}",
-                  item["priority"],
-                  f"score={item['score']}",
-                  item["classification"],
-                  item["institution"],
-                  item["official_product"],
+                  f"#{item['rank']}", item["priority"], f"score={item['score']}",
+                  item["classification"], item["institution"], item["official_product"],
                   f"term={item['term_months']}",
+                  f"variant={item['join_channel']}/{item['interest_method']}",
                   f"official={item['official_max_rates']}",
                   f"consensus={item['source_consensus_max_rate']}",
-                  f"delta={item['consensus_official_absolute_delta']}",
               )
           PY
 
@@ -301,7 +289,7 @@ jobs:
             work/source-discrepancy-report.json
             work/source-discrepancy-priority-queue.json
             work/source-discrepancy-official-contradictions.json
-            docs/evidence/source-discrepancy/20260820-official-savings-bank.json
+            docs/evidence/source-discrepancy/20260823-official-savings-bank.json
           retention-days: 30
 
       - name: Publish discrepancy audit conclusion
@@ -313,10 +301,10 @@ jobs:
         run: |
           if [ "$JOB_STATUS" = "success" ]; then
             STATE=success
-            DESCRIPTION="Production-data discrepancy + triage + official contradiction audit passed"
+            DESCRIPTION="Production-data variant-aware discrepancy audit passed"
           else
             STATE=failure
-            DESCRIPTION="Production-data discrepancy + triage + official contradiction audit failed"
+            DESCRIPTION="Production-data variant-aware discrepancy audit failed"
           fi
           gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
             -f state="$STATE" \

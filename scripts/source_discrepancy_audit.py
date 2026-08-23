@@ -131,6 +131,7 @@ def main() -> int:
     print(f"base mismatch             : {summary['base_rate_mismatch']}")
     print(f"base incomplete           : {summary['base_rate_incomplete']}")
     print(f"base both missing         : {summary['base_rate_both_missing']}")
+    print(f"unmatched variant         : {summary['unmatched_variant']}")
     print(f"unmatched product         : {summary['unmatched_product']}")
     print(f"source only               : {summary['source_only']}")
     print(f"official evidence         : {summary['official_evidence_records']}")
@@ -160,6 +161,7 @@ def main() -> int:
             item["institution"],
             item["product"],
             f"term={item['term_months']}",
+            f"variant={item['join_channel']}/{item['interest_method']}",
             f"delta={item['max_rate']['absolute_delta']}",
         )
     for item in contradictions["queue"][:10]:

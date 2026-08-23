@@ -1,12 +1,12 @@
 """저축은행 금리 원천 간 불일치를 read-only로 감사한다.
 
 이 서비스는 canonical 값을 고치지 않는다. FSB를 화면의 1차 원천으로 유지한 채
-DB에 보존된 finlife_savings_bank 관측과 나란히 놓고, 확실히 같은 상품으로
-매칭되는 경우에만 금리를 비교한다. 상품명이 안 붙는 행은 억지로 합치지 않고
-매칭 불확실로 남긴다.
+DB에 보존된 finlife_savings_bank 관측과 나란히 놓고, 확실히 같은 상품/variant로
+매칭되는 경우에만 금리를 비교한다. 상품명·가입채널·이자방식이 불명확한 행은
+억지로 합치지 않고 매칭 불확실로 남긴다.
 
 개별 저축은행 공식 홈페이지 증거는 수집 DB에 쓰지 않고 별도 JSON 파일로
-주입할 수 있다. URL·캡처시각·기준일을 그대로 리포트에 보존한다.
+주입할 수 있다. URL·캡처시각·기준일·surface·variant를 그대로 리포트에 보존한다.
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ import json
 import sqlite3
 from collections import Counter, defaultdict
 from collections.abc import Iterable
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
@@ -26,6 +26,9 @@ from rate_monitor.services.institution_matching import normalize_institution
 CONFIRMED_RUN_STATUSES = ("success", "partial", "no_change")
 DEFAULT_PRIMARY_SOURCE = "fsb"
 DEFAULT_SECONDARY_SOURCE = "finlife_savings_bank"
+
+BaseProductKey = tuple[str, str, str, int | None]
+ProductKey = tuple[str, str, str, int | None, str, str]
 
 
 def _decimal(value: object) -> Decimal | None:
@@ -41,6 +44,45 @@ def _decimal_json(value: Decimal | None) -> str | None:
     if value is None:
         return None
     return format(value, "f")
+
+
+def _date(value: object) -> date | None:
+    if value in {None, ""}:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        return date.fromisoformat(text[:10])
+    except ValueError:
+        try:
+            return datetime.fromisoformat(text.replace("Z", "+00:00")).date()
+        except ValueError:
+            return None
+
+
+def _age_days(as_of: datetime, value: object) -> int | None:
+    parsed = _date(value)
+    if parsed is None:
+        return None
+    return max((as_of.date() - parsed).days, 0)
+
+
+def _facet(value: object) -> str:
+    text = str(value or "").strip().lower()
+    return text or "unknown"
+
+
+def _is_wildcard_facet(value: str) -> bool:
+    return value in {"any", "unknown"}
+
+
+def _facet_relation(source_value: str, evidence_value: str) -> str:
+    if source_value == evidence_value:
+        return "exact"
+    if _is_wildcard_facet(source_value) or _is_wildcard_facet(evidence_value):
+        return "wildcard"
+    return "conflict"
 
 
 def _rate_comparison(primary: object, secondary: object) -> dict[str, str | None]:
@@ -112,12 +154,20 @@ def _current_source_rows(
     return [dict(zip(columns, row, strict=True)) for row in cursor.fetchall()]
 
 
-def _product_key(row: dict[str, Any]) -> tuple[str, str, str, int | None]:
+def _base_product_key(row: dict[str, Any]) -> BaseProductKey:
     return (
         normalize_institution(row.get("institution")),
         normalize_product_name(str(row.get("product") or "")),
         str(row.get("product_type") or ""),
         row.get("term_months"),
+    )
+
+
+def _product_key(row: dict[str, Any]) -> ProductKey:
+    return (
+        *_base_product_key(row),
+        _facet(row.get("join_channel")),
+        _facet(row.get("interest_method")),
     )
 
 
@@ -132,7 +182,7 @@ def _broad_key(row: dict[str, Any]) -> tuple[str, str, int | None]:
 def _prefer_representative(
     current: dict[str, Any] | None, candidate: dict[str, Any]
 ) -> dict[str, Any]:
-    """같은 source/product/term의 variant 중 대표 최고금리 행을 고른다."""
+    """같은 source/product/term/channel/method의 중복 행 중 대표 최고금리를 고른다."""
     if current is None:
         return candidate
     current_rate = _decimal(current.get("max_rate"))
@@ -153,15 +203,36 @@ def _prefer_representative(
 
 def _representatives(
     rows: list[dict[str, Any]],
-) -> dict[tuple[str, str, str, int | None], dict[str, Any]]:
-    result: dict[tuple[str, str, str, int | None], dict[str, Any]] = {}
+) -> dict[ProductKey, dict[str, Any]]:
+    result: dict[ProductKey, dict[str, Any]] = {}
     for row in rows:
         key = _product_key(row)
         result[key] = _prefer_representative(result.get(key), row)
     return result
 
 
-def _provenance(row: dict[str, Any]) -> dict[str, Any]:
+def _rows_by_base(
+    mapping: dict[ProductKey, dict[str, Any]],
+) -> dict[BaseProductKey, list[dict[str, Any]]]:
+    grouped: dict[BaseProductKey, list[dict[str, Any]]] = defaultdict(list)
+    for row in mapping.values():
+        grouped[_base_product_key(row)].append(row)
+    return grouped
+
+
+def _freshness(row: dict[str, Any], as_of: datetime) -> dict[str, Any]:
+    return {
+        "as_of": as_of.isoformat(),
+        "source_effective_at": row.get("source_effective_at"),
+        "last_seen_at": row.get("last_seen_at"),
+        "effective_age_days": _age_days(as_of, row.get("source_effective_at")),
+        "last_seen_age_days": _age_days(as_of, row.get("last_seen_at")),
+        "effective_at_known": _date(row.get("source_effective_at")) is not None,
+        "last_seen_at_known": _date(row.get("last_seen_at")) is not None,
+    }
+
+
+def _provenance(row: dict[str, Any], as_of: datetime) -> dict[str, Any]:
     return {
         "source_id": row.get("source_id"),
         "institution": row.get("institution"),
@@ -174,6 +245,7 @@ def _provenance(row: dict[str, Any]) -> dict[str, Any]:
         "max_rate": _decimal_json(_decimal(row.get("max_rate"))),
         "source_effective_at": row.get("source_effective_at"),
         "last_seen_at": row.get("last_seen_at"),
+        "freshness": _freshness(row, as_of),
         "run_id": row.get("run_id"),
         "last_run_id": row.get("last_run_id"),
         "observation_id": row.get("observation_id"),
@@ -219,18 +291,39 @@ def _classify_pair(
     return status, date_status, base_comparison, max_comparison
 
 
+def _candidate_variant(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "product": row.get("product"),
+        "join_channel": row.get("join_channel"),
+        "interest_method": row.get("interest_method"),
+        "base_rate": _decimal_json(_decimal(row.get("base_rate"))),
+        "max_rate": _decimal_json(_decimal(row.get("max_rate"))),
+        "source_effective_at": row.get("source_effective_at"),
+    }
+
+
 def _source_only_record(
     row: dict[str, Any],
     *,
     side: str,
+    opposite_by_base: dict[BaseProductKey, list[dict[str, Any]]],
     opposite_by_broad: dict[tuple[str, str, int | None], list[dict[str, Any]]],
+    as_of: datetime,
 ) -> dict[str, Any]:
-    candidates = opposite_by_broad.get(_broad_key(row), [])
+    variant_candidates = opposite_by_base.get(_base_product_key(row), [])
+    broad_candidates = opposite_by_broad.get(_broad_key(row), [])
+    if variant_candidates:
+        status = "unmatched_variant"
+    elif broad_candidates:
+        status = "unmatched_product"
+    else:
+        status = "source_only"
     return {
-        "status": "unmatched_product" if candidates else "source_only",
+        "status": status,
         "side": side,
-        "record": _provenance(row),
-        "candidate_products": sorted({str(item.get("product") or "") for item in candidates}),
+        "record": _provenance(row, as_of),
+        "candidate_products": sorted({str(item.get("product") or "") for item in broad_candidates}),
+        "candidate_variants": [_candidate_variant(item) for item in variant_candidates],
     }
 
 
@@ -265,7 +358,7 @@ def _load_official_evidence(path: Path | None) -> list[dict[str, Any]]:
     return result
 
 
-def _evidence_key(record: dict[str, Any]) -> tuple[str, str, str, int | None]:
+def _evidence_base_key(record: dict[str, Any]) -> BaseProductKey:
     return (
         normalize_institution(record.get("institution")),
         normalize_product_name(str(record.get("product") or "")),
@@ -274,22 +367,92 @@ def _evidence_key(record: dict[str, Any]) -> tuple[str, str, str, int | None]:
     )
 
 
+def _select_official_candidate(
+    record: dict[str, Any],
+    candidates: list[dict[str, Any]],
+) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+    evidence_channel = _facet(record.get("join_channel"))
+    evidence_method = _facet(record.get("interest_method"))
+    compatible: list[tuple[int, dict[str, Any], dict[str, str]]] = []
+
+    for candidate in candidates:
+        source_channel = _facet(candidate.get("join_channel"))
+        source_method = _facet(candidate.get("interest_method"))
+        channel_relation = _facet_relation(source_channel, evidence_channel)
+        method_relation = _facet_relation(source_method, evidence_method)
+        if "conflict" in {channel_relation, method_relation}:
+            continue
+        score = int(channel_relation == "exact") + int(method_relation == "exact")
+        compatible.append(
+            (
+                score,
+                candidate,
+                {
+                    "join_channel": channel_relation,
+                    "interest_method": method_relation,
+                },
+            )
+        )
+
+    compatible.sort(key=lambda item: item[0], reverse=True)
+    if not compatible:
+        return None, {
+            "status": "no_compatible_variant",
+            "evidence_join_channel": evidence_channel,
+            "evidence_interest_method": evidence_method,
+            "candidate_variants": [_candidate_variant(item) for item in candidates],
+        }
+
+    best_score = compatible[0][0]
+    best = [item for item in compatible if item[0] == best_score]
+    if len(best) != 1:
+        return None, {
+            "status": "ambiguous_variant",
+            "evidence_join_channel": evidence_channel,
+            "evidence_interest_method": evidence_method,
+            "candidate_variants": [_candidate_variant(item[1]) for item in best],
+        }
+
+    _, matched, relations = best[0]
+    mode = (
+        "exact_variant"
+        if all(value == "exact" for value in relations.values())
+        else "unambiguous_wildcard"
+    )
+    return matched, {
+        "status": "matched",
+        "mode": mode,
+        "relations": relations,
+        "evidence_join_channel": evidence_channel,
+        "evidence_interest_method": evidence_method,
+        "source_join_channel": _facet(matched.get("join_channel")),
+        "source_interest_method": _facet(matched.get("interest_method")),
+    }
+
+
 def _compare_official_evidence(
     evidence: list[dict[str, Any]],
-    primary: dict[tuple[str, str, str, int | None], dict[str, Any]],
-    secondary: dict[tuple[str, str, str, int | None], dict[str, Any]],
+    primary_by_base: dict[BaseProductKey, list[dict[str, Any]]],
+    secondary_by_base: dict[BaseProductKey, list[dict[str, Any]]],
+    as_of: datetime,
 ) -> list[dict[str, Any]]:
     result = []
     for record in evidence:
-        key = _evidence_key(record)
+        key = _evidence_base_key(record)
         sources: dict[str, Any] = {}
-        for label, mapping in (("primary", primary), ("secondary", secondary)):
-            matched = mapping.get(key)
+        variant_matching: dict[str, Any] = {}
+        for label, mapping in (
+            ("primary", primary_by_base),
+            ("secondary", secondary_by_base),
+        ):
+            matched, match_meta = _select_official_candidate(record, mapping.get(key, []))
+            variant_matching[label] = match_meta
             if matched is None:
                 sources[label] = None
                 continue
             sources[label] = {
-                "record": _provenance(matched),
+                "record": _provenance(matched, as_of),
+                "variant_match": match_meta,
                 "base_rate_comparison": _rate_comparison(
                     matched.get("base_rate"), record.get("base_rate")
                 ),
@@ -297,7 +460,13 @@ def _compare_official_evidence(
                     matched.get("max_rate"), record.get("max_rate")
                 ),
             }
-        result.append({"official": record, "sources": sources})
+        result.append(
+            {
+                "official": record,
+                "variant_matching": variant_matching,
+                "sources": sources,
+            }
+        )
     return result
 
 
@@ -308,7 +477,8 @@ def build_source_discrepancy_report(
     secondary_source: str = DEFAULT_SECONDARY_SOURCE,
     official_evidence_path: Path | None = None,
 ) -> dict[str, Any]:
-    """현재 확인된 두 저축은행 원천을 비교해 JSON 직렬화 가능한 리포트를 만든다."""
+    """현재 확인된 두 저축은행 원천을 variant-aware 방식으로 비교한다."""
+    generated_at = datetime.now(UTC)
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     try:
@@ -321,8 +491,11 @@ def build_source_discrepancy_report(
     by_source: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for row in rows:
         by_source[str(row["source_id"])].append(row)
+
     primary = _representatives(by_source.get(primary_source, []))
     secondary = _representatives(by_source.get(secondary_source, []))
+    primary_by_base = _rows_by_base(primary)
+    secondary_by_base = _rows_by_base(secondary)
 
     matches = []
     status_counter: Counter[str] = Counter()
@@ -346,10 +519,15 @@ def build_source_discrepancy_report(
                     "product_key": key[1],
                     "product_type": key[2],
                     "term_months": key[3],
-                    "method": "normalized_institution+normalized_product+type+term",
+                    "join_channel": key[4],
+                    "interest_method": key[5],
+                    "method": (
+                        "normalized_institution+normalized_product+type+term"
+                        "+join_channel+interest_method"
+                    ),
                 },
-                "primary": _provenance(left),
-                "secondary": _provenance(right),
+                "primary": _provenance(left, generated_at),
+                "secondary": _provenance(right, generated_at),
             }
         )
 
@@ -362,12 +540,24 @@ def build_source_discrepancy_report(
 
     source_only = [
         *(
-            _source_only_record(row, side="primary", opposite_by_broad=secondary_broad)
+            _source_only_record(
+                row,
+                side="primary",
+                opposite_by_base=secondary_by_base,
+                opposite_by_broad=secondary_broad,
+                as_of=generated_at,
+            )
             for key, row in primary.items()
             if key not in secondary
         ),
         *(
-            _source_only_record(row, side="secondary", opposite_by_broad=primary_broad)
+            _source_only_record(
+                row,
+                side="secondary",
+                opposite_by_base=primary_by_base,
+                opposite_by_broad=primary_broad,
+                as_of=generated_at,
+            )
             for key, row in secondary.items()
             if key not in primary
         ),
@@ -375,7 +565,12 @@ def build_source_discrepancy_report(
     source_only_counter = Counter(item["status"] for item in source_only)
 
     evidence = _load_official_evidence(official_evidence_path)
-    evidence_comparisons = _compare_official_evidence(evidence, primary, secondary)
+    evidence_comparisons = _compare_official_evidence(
+        evidence,
+        primary_by_base,
+        secondary_by_base,
+        generated_at,
+    )
 
     mismatch_names = (
         "rate_mismatch",
@@ -385,15 +580,21 @@ def build_source_discrepancy_report(
     )
     mismatch_count = sum(status_counter[name] for name in mismatch_names)
     return {
-        "generated_at": datetime.now(UTC).isoformat(),
+        "generated_at": generated_at.isoformat(),
         "scope": {
             "sector": "savings_bank",
             "primary_source": primary_source,
             "secondary_source": secondary_source,
             "canonical_mutated": False,
             "automatic_match_method": (
-                "normalized institution + exact normalized product + product type + term"
+                "normalized institution + exact normalized product + product type + term "
+                "+ join_channel + interest_method"
             ),
+            "variant_unknown_policy": (
+                "source-to-source requires exact stored facet; official evidence may use "
+                "only a unique non-conflicting wildcard candidate"
+            ),
+            "freshness_metadata_policy": "observational_only; never_selects_source_authority",
             "unmatched_policy": "do_not_guess",
         },
         "source_runs": runs,
@@ -413,6 +614,7 @@ def build_source_discrepancy_report(
             "base_rate_mismatch": base_status_counter["mismatch"],
             "base_rate_incomplete": base_status_counter["incomplete"],
             "base_rate_both_missing": base_status_counter["both_missing"],
+            "unmatched_variant": source_only_counter["unmatched_variant"],
             "unmatched_product": source_only_counter["unmatched_product"],
             "source_only": source_only_counter["source_only"],
             "official_evidence_records": len(evidence),

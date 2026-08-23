@@ -7,7 +7,7 @@ heuristic이며 금리의 정답을 자동 판정하는 authority score가 아�
 
 from __future__ import annotations
 
-from collections import Counter
+from collections import Counter, defaultdict
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any
@@ -15,7 +15,7 @@ from typing import Any
 from rate_monitor.domain.normalization import normalize_product_name
 from rate_monitor.services.institution_matching import normalize_institution
 
-TRIAGE_POLICY_VERSION = "2026-08-20-v1"
+TRIAGE_POLICY_VERSION = "2026-08-23-v3"
 MISMATCH_STATUSES = {
     "rate_mismatch",
     "rate_mismatch_date_diff",
@@ -23,6 +23,7 @@ MISMATCH_STATUSES = {
     "incomplete_rate",
 }
 PRIORITY_ORDER = {"P0": 0, "P1": 1, "P2": 2, "P3": 3}
+BaseKey = tuple[str, str, str, int | None]
 
 
 def _decimal(value: object) -> Decimal | None:
@@ -49,12 +50,16 @@ def _date(value: object) -> date | None:
             return None
 
 
-def _key(
+def _facet(value: object) -> str:
+    return str(value or "").strip().lower() or "unknown"
+
+
+def _base_key(
     institution: object,
     product: object,
     product_type: object,
     term_months: object,
-) -> tuple[str, str, str, int | None]:
+) -> BaseKey:
     term = None if term_months in {None, ""} else int(term_months)
     return (
         normalize_institution(institution),
@@ -64,22 +69,94 @@ def _key(
     )
 
 
-def _official_groups_by_key(
+def _facet_relation(source_value: str, evidence_value: str) -> str:
+    if source_value == evidence_value:
+        return "exact"
+    if source_value in {"any", "unknown"} or evidence_value in {"any", "unknown"}:
+        return "wildcard"
+    return "conflict"
+
+
+def _official_groups_by_base(
     report: dict[str, Any],
-) -> dict[tuple[str, str, str, int | None], dict[str, Any]]:
-    groups: dict[tuple[str, str, str, int | None], dict[str, Any]] = {}
+) -> dict[BaseKey, list[dict[str, Any]]]:
+    groups: dict[BaseKey, list[dict[str, Any]]] = defaultdict(list)
     for group in report.get("official_evidence_groups", []):
         if not isinstance(group, dict):
             continue
         comparison_product = group.get("comparison_product") or group.get("official_product")
-        key = _key(
-            group.get("institution"),
-            comparison_product,
-            group.get("product_type"),
-            group.get("term_months"),
-        )
-        groups[key] = group
+        groups[
+            _base_key(
+                group.get("institution"),
+                comparison_product,
+                group.get("product_type"),
+                group.get("term_months"),
+            )
+        ].append(group)
     return groups
+
+
+def _select_official_group(
+    identity: dict[str, Any],
+    candidates: list[dict[str, Any]],
+) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+    source_channel = _facet(identity.get("join_channel"))
+    source_method = _facet(identity.get("interest_method"))
+    compatible: list[tuple[int, dict[str, Any], dict[str, str]]] = []
+
+    for group in candidates:
+        evidence_channel = _facet(group.get("join_channel"))
+        evidence_method = _facet(group.get("interest_method"))
+        if "mixed" in {evidence_channel, evidence_method}:
+            continue
+        channel_relation = _facet_relation(source_channel, evidence_channel)
+        method_relation = _facet_relation(source_method, evidence_method)
+        if "conflict" in {channel_relation, method_relation}:
+            continue
+        score = int(channel_relation == "exact") + int(method_relation == "exact")
+        compatible.append(
+            (
+                score,
+                group,
+                {
+                    "join_channel": channel_relation,
+                    "interest_method": method_relation,
+                },
+            )
+        )
+
+    compatible.sort(key=lambda item: item[0], reverse=True)
+    if not compatible:
+        return None, {
+            "status": "no_compatible_variant",
+            "source_join_channel": source_channel,
+            "source_interest_method": source_method,
+        }
+
+    best_score = compatible[0][0]
+    best = [item for item in compatible if item[0] == best_score]
+    if len(best) != 1:
+        return None, {
+            "status": "ambiguous_variant",
+            "source_join_channel": source_channel,
+            "source_interest_method": source_method,
+            "candidate_groups": [item[1].get("evidence_group") for item in best],
+        }
+
+    _, group, relations = best[0]
+    return group, {
+        "status": "matched",
+        "mode": (
+            "exact_variant"
+            if all(value == "exact" for value in relations.values())
+            else "unambiguous_wildcard"
+        ),
+        "relations": relations,
+        "source_join_channel": source_channel,
+        "source_interest_method": source_method,
+        "evidence_join_channel": _facet(group.get("join_channel")),
+        "evidence_interest_method": _facet(group.get("interest_method")),
+    }
 
 
 def _add_component(
@@ -201,13 +278,13 @@ def _suggested_action(
     delta_abs: Decimal | None,
 ) -> str:
     if official_signal == "official_conflict":
-        return "공식 상품공시와 시행 공지의 최신성·적용범위를 먼저 확인한다."
+        return "같은 상품 variant의 공식 상품공시와 시행 공지의 최신성·적용범위를 확인한다."
     if official_signal == "neither_supported":
-        return "공식 공시 기준으로 FSB와 FINLIFE 양쪽 raw payload와 수집 locator를 재검증한다."
+        return "같은 상품 variant의 공식 공시 기준으로 FSB와 FINLIFE 양쪽 raw payload를 재검증한다."
     if official_signal == "primary_supported":
-        return "공식 공시와 불일치하는 FINLIFE 값·기준일·수집시각을 재검증한다."
+        return "같은 상품 variant의 공식 공시와 불일치하는 FINLIFE 값·기준일을 재검증한다."
     if official_signal == "secondary_supported":
-        return "공식 공시와 불일치하는 FSB 값·기준일·raw artifact를 재검증한다."
+        return "같은 상품 variant의 공식 공시와 불일치하는 FSB 값·기준일을 재검증한다."
     if status == "rate_mismatch":
         return "동일 기준일인데 값이 다르므로 양 source raw payload를 직접 대조한다."
     if max_source_age_days is not None and max_source_age_days >= 90:
@@ -223,7 +300,7 @@ def _suggested_action(
 
 def annotate_discrepancy_triage(report: dict[str, Any]) -> dict[str, Any]:
     """Mismatch 행에 deterministic 조사 우선순위를 부여한다."""
-    official_by_key = _official_groups_by_key(report)
+    official_by_base = _official_groups_by_base(report)
     generated_date = _date(report.get("generated_at"))
     queue: list[dict[str, Any]] = []
 
@@ -243,7 +320,8 @@ def annotate_discrepancy_triage(report: dict[str, Any]) -> dict[str, Any]:
 
         primary = match.get("primary") if isinstance(match.get("primary"), dict) else {}
         secondary = match.get("secondary") if isinstance(match.get("secondary"), dict) else {}
-        key = _key(
+        identity = match.get("match") if isinstance(match.get("match"), dict) else {}
+        base_key = _base_key(
             primary.get("institution") or secondary.get("institution"),
             primary.get("product") or secondary.get("product"),
             primary.get("product_type") or secondary.get("product_type"),
@@ -253,7 +331,22 @@ def annotate_discrepancy_triage(report: dict[str, Any]) -> dict[str, Any]:
                 else secondary.get("term_months")
             ),
         )
-        official = official_by_key.get(key)
+        match_identity = {
+            "join_channel": (
+                identity.get("join_channel")
+                or primary.get("join_channel")
+                or secondary.get("join_channel")
+            ),
+            "interest_method": (
+                identity.get("interest_method")
+                or primary.get("interest_method")
+                or secondary.get("interest_method")
+            ),
+        }
+        official, official_match = _select_official_group(
+            match_identity,
+            official_by_base.get(base_key, []),
+        )
         official_signal = (
             str(official.get("reconciliation_signal") or "")
             if isinstance(official, dict)
@@ -281,24 +374,16 @@ def annotate_discrepancy_triage(report: dict[str, Any]) -> dict[str, Any]:
         max_source_age_days = max(source_ages) if source_ages else None
 
         components: list[dict[str, int | str]] = []
-        _add_component(
-            components,
-            code=f"status:{status}",
-            points=status_points[status],
-        )
-
+        _add_component(components, code=f"status:{status}", points=status_points[status])
         points, code = _official_points(official_signal)
         if code:
             _add_component(components, code=code, points=points)
-
         points, code = _delta_points(delta_abs)
         if code:
             _add_component(components, code=code, points=points)
-
         points, code = _gap_points(date_gap_days)
         if code and status != "rate_mismatch":
             _add_component(components, code=code, points=points)
-
         points, code = _age_points(max_source_age_days)
         if code:
             _add_component(components, code=code, points=points)
@@ -311,6 +396,8 @@ def annotate_discrepancy_triage(report: dict[str, Any]) -> dict[str, Any]:
             delta_abs=delta_abs,
         )
         priority = _priority(score, official_signal)
+        join_channel = _facet(match_identity["join_channel"])
+        interest_method = _facet(match_identity["interest_method"])
 
         queue.append(
             {
@@ -326,6 +413,8 @@ def annotate_discrepancy_triage(report: dict[str, Any]) -> dict[str, Any]:
                     if primary.get("term_months") is not None
                     else secondary.get("term_months")
                 ),
+                "join_channel": join_channel,
+                "interest_method": interest_method,
                 "status": status,
                 "max_rate": {
                     "primary": max_cmp.get("primary"),
@@ -333,9 +422,7 @@ def annotate_discrepancy_triage(report: dict[str, Any]) -> dict[str, Any]:
                     "delta_primary_minus_secondary": max_cmp.get(
                         "delta_primary_minus_secondary"
                     ),
-                    "absolute_delta": (
-                        format(delta_abs, "f") if delta_abs is not None else None
-                    ),
+                    "absolute_delta": format(delta_abs, "f") if delta_abs is not None else None,
                 },
                 "effective_date": {
                     "primary": primary.get("source_effective_at"),
@@ -343,9 +430,12 @@ def annotate_discrepancy_triage(report: dict[str, Any]) -> dict[str, Any]:
                     "gap_days": date_gap_days,
                     "max_source_age_days": max_source_age_days,
                 },
+                "official_variant_match": official_match,
                 "official_evidence": (
                     {
                         "evidence_group": official.get("evidence_group"),
+                        "join_channel": official.get("join_channel"),
+                        "interest_method": official.get("interest_method"),
                         "status": official.get("status"),
                         "reconciliation_signal": official_signal,
                         "official_max_rates": official.get("official_max_rates"),
@@ -380,6 +470,8 @@ def annotate_discrepancy_triage(report: dict[str, Any]) -> dict[str, Any]:
             str(item["institution"] or ""),
             str(item["product"] or ""),
             int(item["term_months"] or 0),
+            str(item["join_channel"] or ""),
+            str(item["interest_method"] or ""),
         )
     )
 
@@ -395,8 +487,9 @@ def annotate_discrepancy_triage(report: dict[str, Any]) -> dict[str, Any]:
     report["triage"] = {
         "policy_version": TRIAGE_POLICY_VERSION,
         "scope": "max_rate_mismatch_rows_only",
-        "authority_semantics": (
-            "investigation_priority_only; does_not_select_canonical_source"
+        "authority_semantics": "investigation_priority_only; does_not_select_canonical_source",
+        "variant_evidence_semantics": (
+            "official evidence is attached only to an exact or uniquely compatible variant"
         ),
         "thresholds": {
             "P0": ">=80 or direct official evidence gate",

@@ -2,13 +2,15 @@
 
 FSB/FINLIFE canonical 값은 절대 수정하지 않는다. 공식 홈페이지 evidence 자체가
 충돌할 수 있으므로, evidence group 내부 일관성을 먼저 확인한 뒤 어느 source를
-지지하는지 참고 신호만 계산한다.
+지지하는지 참고 신호만 계산한다. surface/variant/freshness metadata는 관찰용이며
+source authority를 자동 선택하지 않는다.
 """
 
 from __future__ import annotations
 
 import json
 from collections import Counter, defaultdict
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -28,7 +30,7 @@ def _records(payload: object) -> tuple[list[dict[str, Any]], bool]:
 
 
 def prepare_official_evidence_payload(payload: object) -> object:
-    """수동 검증된 evidence alias를 기존 v1 비교계약에 안전하게 투영한다.
+    """수동 검증된 evidence alias를 기존 비교계약에 안전하게 투영한다.
 
     ``comparison_product``는 official evidence -> 수집 source 매칭에만 사용한다.
     FSB <-> FINLIFE 자동 상품 매칭이나 canonical identity는 변경하지 않는다.
@@ -65,6 +67,33 @@ def write_prepared_official_evidence(source_path: Path, out_path: Path) -> None:
     )
 
 
+def _date(value: object) -> date | None:
+    if value in {None, ""}:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        return date.fromisoformat(text[:10])
+    except ValueError:
+        try:
+            return datetime.fromisoformat(text.replace("Z", "+00:00")).date()
+        except ValueError:
+            return None
+
+
+def _age_days(as_of: object, value: object) -> int | None:
+    left = _date(as_of)
+    right = _date(value)
+    if left is None or right is None:
+        return None
+    return max((left - right).days, 0)
+
+
+def _facet(value: object) -> str:
+    return str(value or "").strip().lower() or "unknown"
+
+
 def _group_id(official: dict[str, Any]) -> str:
     explicit = str(official.get("evidence_group") or "").strip()
     if explicit:
@@ -75,6 +104,8 @@ def _group_id(official: dict[str, Any]) -> str:
             str(official.get("official_product") or official.get("product") or ""),
             str(official.get("product_type") or ""),
             str(official.get("term_months") or ""),
+            _facet(official.get("join_channel")),
+            _facet(official.get("interest_method")),
         ]
     )
 
@@ -89,14 +120,21 @@ def _official_rates(items: list[dict[str, Any]], field: str) -> list[str]:
     )
 
 
+def _group_facet(items: list[dict[str, Any]], field: str) -> str:
+    values = sorted({_facet(item["official"].get(field)) for item in items})
+    if not values:
+        return "unknown"
+    if len(values) == 1:
+        return values[0]
+    return "mixed"
+
+
 def _source_support(
     items: list[dict[str, Any]],
     label: str,
     *,
     official_status: str,
 ) -> str:
-    # 공식 evidence가 서로 충돌하면 source matching 성공/실패와 무관하게
-    # authority 판정을 차단한다. not_matched가 conflict gate를 우회하면 안 된다.
     if official_status == "conflict":
         return "blocked_by_official_conflict"
 
@@ -158,6 +196,7 @@ def annotate_official_evidence_policy(report: dict[str, Any]) -> dict[str, Any]:
     groups: list[dict[str, Any]] = []
     status_counter: Counter[str] = Counter()
     signal_counter: Counter[str] = Counter()
+    generated_at = report.get("generated_at")
 
     for group_id, items in sorted(grouped.items()):
         base_rates = _official_rates(items, "base_rate")
@@ -192,6 +231,8 @@ def annotate_official_evidence_policy(report: dict[str, Any]) -> dict[str, Any]:
                 "comparison_product": first.get("product"),
                 "product_type": first.get("product_type"),
                 "term_months": first.get("term_months"),
+                "join_channel": _group_facet(items, "join_channel"),
+                "interest_method": _group_facet(items, "interest_method"),
                 "status": official_status,
                 "conflict_fields": conflict_fields,
                 "official_base_rates": base_rates,
@@ -202,11 +243,32 @@ def annotate_official_evidence_policy(report: dict[str, Any]) -> dict[str, Any]:
                     {
                         "evidence_id": item["official"].get("evidence_id"),
                         "evidence_kind": item["official"].get("evidence_kind"),
+                        "evidence_surface": item["official"].get("evidence_surface"),
+                        "join_channel": item["official"].get("join_channel"),
+                        "interest_method": item["official"].get("interest_method"),
                         "effective_at": item["official"].get("effective_at"),
                         "captured_at": item["official"].get("captured_at"),
+                        "freshness": {
+                            "as_of": generated_at,
+                            "effective_age_days": _age_days(
+                                generated_at, item["official"].get("effective_at")
+                            ),
+                            "captured_age_days": _age_days(
+                                generated_at, item["official"].get("captured_at")
+                            ),
+                            "effective_at_known": _date(
+                                item["official"].get("effective_at")
+                            )
+                            is not None,
+                            "captured_at_known": _date(
+                                item["official"].get("captured_at")
+                            )
+                            is not None,
+                        },
                         "url": item["official"].get("url"),
                         "base_rate": item["official"].get("base_rate"),
                         "max_rate": item["official"].get("max_rate"),
+                        "variant_matching": item.get("variant_matching"),
                     }
                     for item in items
                 ],
@@ -217,6 +279,8 @@ def annotate_official_evidence_policy(report: dict[str, Any]) -> dict[str, Any]:
     scope = report.setdefault("scope", {})
     scope["official_evidence_authority"] = "read_only_support_only"
     scope["official_conflict_blocks_authority"] = True
+    scope["official_surface_metadata_policy"] = "preserve_source_surface_and_variant"
+    scope["official_freshness_metadata_policy"] = "observational_only"
 
     summary = report.setdefault("summary", {})
     summary["official_evidence_groups"] = len(groups)
