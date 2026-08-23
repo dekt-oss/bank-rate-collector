@@ -32,6 +32,15 @@ def test_visual_refinement_merges_same_rate_ladder_markers() -> None:
     assert 'content:" · 동일금리"!important' in _CSS
 
 
+def test_visual_refinement_enforces_brand_microcopy_floor() -> None:
+    assert "Brand v3 contract" in _CSS
+    assert ".psv2-head p" in _CSS
+    assert ".psv2-chart .axis" in _CSS
+    assert ".psv2-table td:before" in _CSS
+    assert "font-size:10.5px!important" in _CSS
+    assert "font:700 10.5px/1.25 var(--sans)" in _CSS
+
+
 def test_visual_refinement_uses_mobile_candidate_card_grid_without_overlap() -> None:
     assert ".psv2>div{min-width:0}" in _CSS
     assert "@media(max-width:520px)" in _CSS
