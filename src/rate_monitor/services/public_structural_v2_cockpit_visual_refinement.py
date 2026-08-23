@@ -8,6 +8,7 @@ Stage F 계산/시장위치 계약은 건드리지 않는다. production-derived
 1. 같은 금리의 Ladder marker가 같은 좌표에서 겹치면 하나의 marker로 병합한다.
 2. 520px 이하 후보금리표는 8열 표를 2열 label/value 카드 grid로 바꿔 겹침을 막는다.
 3. stress range 설명은 통계적 신뢰수준처럼 읽힐 수 있는 금지 용어를 제거한다.
+4. 10.5px로 확대한 SVG X축 라벨은 실제 렌더 box가 겹칠 때 뒤 라벨만 숨긴다.
 """
 
 from __future__ import annotations
@@ -97,6 +98,21 @@ _SCRIPT = r"""
     }
   }
 
+  function deconflictChartAxisLabels(){
+    const ticks=[...document.querySelectorAll(`#${HOST_ID} .psv2-chart text.axis[text-anchor="middle"]`)];
+    if(!ticks.length)return;
+    for(const tick of ticks)tick.style.visibility="";
+    let previousRight=null;
+    for(const tick of ticks){
+      const rect=tick.getBoundingClientRect();
+      if(previousRight!==null&&rect.left<previousRight){
+        tick.style.visibility="hidden";
+        continue;
+      }
+      previousRight=rect.right;
+    }
+  }
+
   function normalizeStressDisclosure(){
     const disclosure=document.querySelector(`#${HOST_ID} .psv2-disclosure`);
     if(!disclosure||!disclosure.textContent.includes(FORBIDDEN_RANGE_DISCLOSURE))return;
@@ -117,10 +133,12 @@ _SCRIPT = r"""
       queueMicrotask(()=>{
         queued=false;
         mergeSameRateRungs();
+        deconflictChartAxisLabels();
         normalizeStressDisclosure();
       });
     };
     new MutationObserver(refine).observe(host,{childList:true,subtree:true});
+    window.addEventListener("resize",refine,{passive:true});
     refine();
   }
 
