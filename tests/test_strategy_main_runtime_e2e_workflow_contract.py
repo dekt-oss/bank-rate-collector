@@ -102,6 +102,13 @@ def test_strategy_workspace_smoke_locks_decision_first_order_and_role_split() ->
     assert "horizontal overflow" in text
     assert 'data-strategy-workspace="decision-first-v1"' in text
     assert 'data-strategy-palette="main-brand-v2"' in text
+    assert "assertVisualRuntimeContracts" in text
+    assert "computed brand accent=" in text
+    assert "Strategy regional map resurfaced" in text
+    assert "active Public Structural Response Surface missing" in text
+    assert "Public Structural computed font below 10.5px" in text
+    assert "candidate-card pseudo label font=" in text
+    assert "visible Response Surface x-axis collision=" in text
 
 
 def test_strategy_brand_visual_spec_locks_palette_typography_and_scope() -> None:
