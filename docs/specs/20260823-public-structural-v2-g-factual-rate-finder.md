@@ -1,10 +1,12 @@
 # Public Structural v2 — Stage G factual-only rate finder
 
-- status: `implementation/current-work`
+- status: `implemented/complete`
 - date: 2026-08-23
 - issue: #169
 - parent: `20260822-public-structural-v2-decision-cockpit-final.md`
 - production_strategy_release_gate: `unchanged_off`
+- implementation_pr: #178
+- final_validation: #181 / Issue #169 completed
 
 ## 1. 목적
 
