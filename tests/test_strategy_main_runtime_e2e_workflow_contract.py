@@ -106,6 +106,7 @@ def test_strategy_workspace_smoke_locks_decision_first_order_and_role_split() ->
     assert "computed brand accent=" in text
     assert "Strategy regional map resurfaced" in text
     assert "active Public Structural Response Surface missing" in text
+    assert "Public Structural Response Surface not rendered" in text
     assert "Factual Finder runtime host missing" in text
     assert 'waitForSelector("#public-structural-v2-factual-rate-finder"' in text
     assert "Public Structural computed font below 10.5px" in text
