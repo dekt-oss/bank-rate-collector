@@ -240,7 +240,12 @@ async function chooseActualDenseTie(page) {
   const uiRank = (await marketCard.locator("strong.green").textContent()).trim();
   invariant(uiRank === rankText(manualDense), `UI rank mismatch: ${uiRank} vs ${rankText(manualDense)}`);
   const marketText = await marketCard.textContent();
-  invariant(marketText.includes(`동률 ${manualDense.tie_competitor_count}개`), "UI dense tie count mismatch");
+  const uiTieMatch = marketText.match(/동률(?: 비교상품)?\s+(\d+)개/);
+  invariant(uiTieMatch, `UI dense tie count not found: ${marketText}`);
+  invariant(
+    Number(uiTieMatch[1]) === manualDense.tie_competitor_count,
+    `UI dense tie count mismatch: ${uiTieMatch[1]} vs ${manualDense.tie_competitor_count}`,
+  );
   invariant(marketText.includes(`TOP10 ${manualDense.top10_cutoff.toFixed(2)}%`), "UI TOP10 handcalc mismatch");
 
   return {
