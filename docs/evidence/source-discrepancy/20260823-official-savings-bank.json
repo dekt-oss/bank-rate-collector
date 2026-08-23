@@ -77,7 +77,7 @@
     },
     {
       "evidence_id": "debec-apple-internet-simple-12m-20260823",
-      "evidence_group": "debec:apple-deposit:channel-method-surfaces:12m",
+      "evidence_group": "debec:apple-deposit:internet:simple:12m",
       "evidence_kind": "product_disclosure",
       "evidence_surface": "bank_direct_product_disclosure",
       "institution": "대백저축은행",
@@ -95,7 +95,7 @@
     },
     {
       "evidence_id": "debec-apple-internet-compound-12m-20260823",
-      "evidence_group": "debec:apple-deposit:channel-method-surfaces:12m",
+      "evidence_group": "debec:apple-deposit:internet:compound:12m",
       "evidence_kind": "product_disclosure",
       "evidence_surface": "bank_direct_product_disclosure",
       "institution": "대백저축은행",
@@ -113,7 +113,7 @@
     },
     {
       "evidence_id": "debec-apple-mobile-simple-12m-20260823",
-      "evidence_group": "debec:apple-deposit:channel-method-surfaces:12m",
+      "evidence_group": "debec:apple-deposit:mobile:simple:12m",
       "evidence_kind": "product_disclosure",
       "evidence_surface": "bank_direct_product_disclosure",
       "institution": "대백저축은행",
@@ -131,7 +131,7 @@
     },
     {
       "evidence_id": "debec-apple-mobile-compound-12m-20260823",
-      "evidence_group": "debec:apple-deposit:channel-method-surfaces:12m",
+      "evidence_group": "debec:apple-deposit:mobile:compound:12m",
       "evidence_kind": "product_disclosure",
       "evidence_surface": "bank_direct_product_disclosure",
       "institution": "대백저축은행",
