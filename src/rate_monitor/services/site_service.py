@@ -48,6 +48,8 @@ from rate_monitor.services.dashboard_service import (
 )
 from rate_monitor.services.dashboard_ui_refinement_presentation import (
     SCRIPT_MARKER as DASHBOARD_UI_MARKER,
+)
+from rate_monitor.services.dashboard_ui_refinement_presentation import (
     inject_dashboard_ui_refinement,
 )
 from rate_monitor.services.main_map_presentation import (
