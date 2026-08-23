@@ -1,0 +1,79 @@
+name: Preserve official capture provenance
+
+on:
+  push:
+    branches: ["feat/source-discrepancy-dimension-ambiguity-20260823"]
+    paths:
+      - ".github/workflows/preserve-official-capture-provenance.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/source-discrepancy-dimension-ambiguity-20260823
+          fetch-depth: 0
+      - name: Preserve capture provenance end-to-end and remove helper
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          policy_path = Path('src/rate_monitor/services/official_evidence_policy.py')
+          text = policy_path.read_text(encoding='utf-8')
+          old = '''                        "captured_at": item["official"].get("captured_at"),\n                        "freshness": {\n'''
+          new = '''                        "captured_at": item["official"].get("captured_at"),\n                        "capture_method": item["official"].get("capture_method"),\n                        "capture_run_id": item["official"].get("capture_run_id"),\n                        "capture_artifact_id": item["official"].get("capture_artifact_id"),\n                        "capture_artifact_sha256": item["official"].get(\n                            "capture_artifact_sha256"\n                        ),\n                        "note": item["official"].get("note"),\n                        "freshness": {\n'''
+          assert text.count(old) == 1
+          text = text.replace(old, new, 1)
+          policy_path.write_text(text, encoding='utf-8')
+
+          test_path = Path('tests/test_official_evidence_policy.py')
+          text = test_path.read_text(encoding='utf-8')
+          old = '''                    "captured_at": "2026-08-20T11:30:00+09:00",\n                    "url": "https://example.invalid/cheongju",\n'''
+          new = '''                    "captured_at": "2026-08-20T11:30:00+09:00",\n                    "capture_method": "live_http_artifact",\n                    "capture_run_id": "run-123",\n                    "capture_artifact_id": "artifact-456",\n                    "capture_artifact_sha256": "a" * 64,\n                    "note": "raw HTTP response retained",\n                    "url": "https://example.invalid/cheongju",\n'''
+          assert text.count(old) == 1
+          text = text.replace(old, new, 1)
+          old = '''    assert annotated["scope"]["official_evidence_authority"] == "read_only_support_only"\n'''
+          new = '''    assert annotated["scope"]["official_evidence_authority"] == "read_only_support_only"\n    record = group["records"][0]\n    assert record["capture_method"] == "live_http_artifact"\n    assert record["capture_run_id"] == "run-123"\n    assert record["capture_artifact_id"] == "artifact-456"\n    assert record["capture_artifact_sha256"] == "a" * 64\n    assert record["note"] == "raw HTTP response retained"\n'''
+          assert text.count(old) == 1
+          text = text.replace(old, new, 1)
+          test_path.write_text(text, encoding='utf-8')
+
+          evidence_path = Path('docs/evidence/source-discrepancy/20260823-official-savings-bank.json')
+          payload = json.loads(evidence_path.read_text(encoding='utf-8'))
+          changed = 0
+          for record in payload['records']:
+              if record.get('institution') != '대백저축은행':
+                  continue
+              record['capture_artifact_sha256'] = (
+                  '27fac90b077761ed4a04475b45452acf878574d4c7ef89fd92cb152e21747a6a'
+              )
+              changed += 1
+          assert changed == 4
+          evidence_path.write_text(
+              json.dumps(payload, ensure_ascii=False, indent=2) + '\n', encoding='utf-8'
+          )
+
+          workflow_path = Path('.github/workflows/source-discrepancy-audit.yml')
+          text = workflow_path.read_text(encoding='utf-8')
+          old = '''              assert record.get("capture_artifact_id") == "9492104054"\n'''
+          new = '''              assert record.get("capture_artifact_id") == "9492104054"\n              assert record.get("capture_artifact_sha256") == (\n                  "27fac90b077761ed4a04475b45452acf878574d4c7ef89fd92cb152e21747a6a"\n              )\n'''
+          assert text.count(old) == 1
+          text = text.replace(old, new, 1)
+          workflow_path.write_text(text, encoding='utf-8')
+          PY
+          git rm .github/workflows/preserve-official-capture-provenance.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            src/rate_monitor/services/official_evidence_policy.py \
+            tests/test_official_evidence_policy.py \
+            docs/evidence/source-discrepancy/20260823-official-savings-bank.json \
+            .github/workflows/source-discrepancy-audit.yml
+          git commit -m "fix: preserve official capture provenance"
+          git push origin HEAD:feat/source-discrepancy-dimension-ambiguity-20260823
