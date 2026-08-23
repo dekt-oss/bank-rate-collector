@@ -1,0 +1,49 @@
+name: Apply Strategy chart runtime hardening
+
+on:
+  push:
+    branches: ["feat/strategy-ux-chart-runtime-hardening-20260824"]
+    paths:
+      - ".github/workflows/strategy-chart-postmerge-patch.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/strategy-ux-chart-runtime-hardening-20260824
+          fetch-depth: 0
+      - name: Require rendered Response Surface SVG and remove helper
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("scripts/strategy_workspace_smoke.js")
+          text = path.read_text(encoding="utf-8")
+          old = '''    const candidateBeforeVisibility = candidateBeforeStyle?.visibility || "hidden";\n    const xTicks = [...document.querySelectorAll('#public-structural-v2-cockpit .psv2-chart text.axis[text-anchor="middle"]')]\n'''
+          new = '''    const candidateBeforeVisibility = candidateBeforeStyle?.visibility || "hidden";\n    const chart = document.querySelector("#public-structural-v2-cockpit .psv2-chart");\n    const chartStyle = chart ? getComputedStyle(chart) : null;\n    const chartRect = chart?.getBoundingClientRect();\n    const xTicks = [...document.querySelectorAll('#public-structural-v2-cockpit .psv2-chart text.axis[text-anchor="middle"]')]\n'''
+          assert text.count(old) == 1
+          text = text.replace(old, new, 1)
+
+          old = '''      chartCount: document.querySelectorAll("#public-structural-v2-cockpit .psv2-chart").length,\n      fontCount: fontSizes.length,\n'''
+          new = '''      chartCount: document.querySelectorAll("#public-structural-v2-cockpit .psv2-chart").length,\n      chartDisplay: chartStyle?.display || "none",\n      chartVisibility: chartStyle?.visibility || "hidden",\n      chartBox: chartRect\n        ? { width: chartRect.width, height: chartRect.height }\n        : { width: 0, height: 0 },\n      fontCount: fontSizes.length,\n'''
+          assert text.count(old) == 1
+          text = text.replace(old, new, 1)
+
+          old = '''  invariant(result.cockpitVisible && result.chartCount === 1, `${label}: active Public Structural Response Surface missing`);\n  invariant(result.factualFinderVisible, `${label}: Factual Finder runtime host missing`);\n'''
+          new = '''  invariant(result.cockpitVisible && result.chartCount === 1, `${label}: active Public Structural Response Surface missing`);\n  invariant(\n    result.chartDisplay !== "none"\n      && result.chartVisibility !== "hidden"\n      && result.chartBox.width > 0\n      && result.chartBox.height > 0,\n    `${label}: Public Structural Response Surface not rendered display=${result.chartDisplay} visibility=${result.chartVisibility} box=${JSON.stringify(result.chartBox)}`,\n  );\n  invariant(result.factualFinderVisible, `${label}: Factual Finder runtime host missing`);\n'''
+          assert text.count(old) == 1
+          text = text.replace(old, new, 1)
+          path.write_text(text, encoding="utf-8")
+          PY
+          git rm .github/workflows/strategy-chart-postmerge-patch.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add scripts/strategy_workspace_smoke.js
+          git commit -m "test: require rendered Strategy response chart"
+          git push origin HEAD:feat/strategy-ux-chart-runtime-hardening-20260824
