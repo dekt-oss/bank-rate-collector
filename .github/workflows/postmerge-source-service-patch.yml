@@ -1,0 +1,64 @@
+name: Apply source discrepancy service review patch
+
+on:
+  push:
+    branches: ["feat/source-discrepancy-postmerge-review-hardening-20260824"]
+    paths:
+      - ".github/workflows/postmerge-source-service-patch.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/source-discrepancy-postmerge-review-hardening-20260824
+          fetch-depth: 0
+      - name: Patch service and remove helper
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("src/rate_monitor/services/source_discrepancy_service.py")
+          text = path.read_text(encoding="utf-8")
+
+          marker = """def _freshness(row: dict[str, Any], as_of: datetime) -> dict[str, Any]:\n"""
+          helper = """def _rows_by_base_with_ambiguities(\n    mapping: dict[ProductKey, dict[str, Any]],\n    ambiguities: dict[ProductKey, list[dict[str, Any]]],\n) -> dict[BaseProductKey, list[dict[str, Any]]]:\n    \"\"\"Official wildcard matching에서도 차단된 variant를 candidate에서 보존한다.\"\"\"\n    grouped = _rows_by_base(mapping)\n    for candidates in ambiguities.values():\n        for row in candidates:\n            grouped[_base_product_key(row)].append(row)\n    return grouped\n\n\n"""
+          assert helper not in text
+          assert text.count(marker) == 1
+          text = text.replace(marker, helper + marker, 1)
+
+          old = """    side: str,\n    as_of: datetime,\n) -> dict[str, Any]:\n"""
+          new = """    side: str,\n    as_of: datetime,\n    counterpart: dict[str, Any] | None = None,\n) -> dict[str, Any]:\n"""
+          start = text.index("def _dimension_ambiguity_record(")
+          end = text.index("def _source_only_record(", start)
+          block = text[start:end]
+          assert block.count(old) == 1
+          block = block.replace(old, new, 1)
+          old_payload = """        \"provenance\": [_provenance(item, as_of) for item in candidates],\n        \"reason\": (\n"""
+          new_payload = """        \"provenance\": [_provenance(item, as_of) for item in candidates],\n        \"counterpart_side\": \"secondary\" if side == \"primary\" else \"primary\",\n        \"counterpart\": _provenance(counterpart, as_of) if counterpart is not None else None,\n        \"reason\": (\n"""
+          assert block.count(old_payload) == 1
+          block = block.replace(old_payload, new_payload, 1)
+          text = text[:start] + block + text[end:]
+
+          old_build = """    primary_by_base = _rows_by_base(primary)\n    secondary_by_base = _rows_by_base(secondary)\n    dimension_ambiguities = [\n        *(\n            _dimension_ambiguity_record(key, candidates, side=\"primary\", as_of=generated_at)\n            for key, candidates in primary_ambiguous.items()\n        ),\n        *(\n            _dimension_ambiguity_record(key, candidates, side=\"secondary\", as_of=generated_at)\n            for key, candidates in secondary_ambiguous.items()\n        ),\n    ]\n"""
+          new_build = """    primary_by_base = _rows_by_base(primary)\n    secondary_by_base = _rows_by_base(secondary)\n    primary_official_by_base = _rows_by_base_with_ambiguities(primary, primary_ambiguous)\n    secondary_official_by_base = _rows_by_base_with_ambiguities(secondary, secondary_ambiguous)\n    dimension_ambiguities = [\n        *(\n            _dimension_ambiguity_record(\n                key, candidates, side=\"primary\", as_of=generated_at, counterpart=secondary.get(key)\n            )\n            for key, candidates in primary_ambiguous.items()\n        ),\n        *(\n            _dimension_ambiguity_record(\n                key, candidates, side=\"secondary\", as_of=generated_at, counterpart=primary.get(key)\n            )\n            for key, candidates in secondary_ambiguous.items()\n        ),\n    ]\n"""
+          assert text.count(old_build) == 1
+          text = text.replace(old_build, new_build, 1)
+
+          old_compare = """    evidence_comparisons = _compare_official_evidence(\n        evidence,\n        primary_by_base,\n        secondary_by_base,\n        generated_at,\n    )\n"""
+          new_compare = """    evidence_comparisons = _compare_official_evidence(\n        evidence,\n        primary_official_by_base,\n        secondary_official_by_base,\n        generated_at,\n    )\n"""
+          assert text.count(old_compare) == 1
+          text = text.replace(old_compare, new_compare, 1)
+          path.write_text(text, encoding="utf-8")
+          PY
+          git rm .github/workflows/postmerge-source-service-patch.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/rate_monitor/services/source_discrepancy_service.py
+          git commit -m "fix: preserve ambiguity in official matching and reports"
+          git push origin HEAD:feat/source-discrepancy-postmerge-review-hardening-20260824
