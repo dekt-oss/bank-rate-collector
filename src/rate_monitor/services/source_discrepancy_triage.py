@@ -15,7 +15,7 @@ from typing import Any
 from rate_monitor.domain.normalization import normalize_product_name
 from rate_monitor.services.institution_matching import normalize_institution
 
-TRIAGE_POLICY_VERSION = "2026-08-20-v1"
+TRIAGE_POLICY_VERSION = "2026-08-23-v2"
 MISMATCH_STATUSES = {
     "rate_mismatch",
     "rate_mismatch_date_diff",
@@ -243,6 +243,7 @@ def annotate_discrepancy_triage(report: dict[str, Any]) -> dict[str, Any]:
 
         primary = match.get("primary") if isinstance(match.get("primary"), dict) else {}
         secondary = match.get("secondary") if isinstance(match.get("secondary"), dict) else {}
+        identity = match.get("match") if isinstance(match.get("match"), dict) else {}
         key = _key(
             primary.get("institution") or secondary.get("institution"),
             primary.get("product") or secondary.get("product"),
@@ -311,6 +312,16 @@ def annotate_discrepancy_triage(report: dict[str, Any]) -> dict[str, Any]:
             delta_abs=delta_abs,
         )
         priority = _priority(score, official_signal)
+        join_channel = (
+            identity.get("join_channel")
+            or primary.get("join_channel")
+            or secondary.get("join_channel")
+        )
+        interest_method = (
+            identity.get("interest_method")
+            or primary.get("interest_method")
+            or secondary.get("interest_method")
+        )
 
         queue.append(
             {
@@ -326,6 +337,8 @@ def annotate_discrepancy_triage(report: dict[str, Any]) -> dict[str, Any]:
                     if primary.get("term_months") is not None
                     else secondary.get("term_months")
                 ),
+                "join_channel": join_channel,
+                "interest_method": interest_method,
                 "status": status,
                 "max_rate": {
                     "primary": max_cmp.get("primary"),
@@ -346,6 +359,8 @@ def annotate_discrepancy_triage(report: dict[str, Any]) -> dict[str, Any]:
                 "official_evidence": (
                     {
                         "evidence_group": official.get("evidence_group"),
+                        "join_channel": official.get("join_channel"),
+                        "interest_method": official.get("interest_method"),
                         "status": official.get("status"),
                         "reconciliation_signal": official_signal,
                         "official_max_rates": official.get("official_max_rates"),
@@ -380,6 +395,8 @@ def annotate_discrepancy_triage(report: dict[str, Any]) -> dict[str, Any]:
             str(item["institution"] or ""),
             str(item["product"] or ""),
             int(item["term_months"] or 0),
+            str(item["join_channel"] or ""),
+            str(item["interest_method"] or ""),
         )
     )
 
