@@ -123,11 +123,11 @@
       "term_months": 12,
       "join_channel": "mobile",
       "interest_method": "simple",
-      "base_rate": "4.00",
-      "max_rate": "4.00",
-      "captured_at": "2026-08-23T16:01:00+09:00",
+      "base_rate": "3.80",
+      "max_rate": "3.80",
+      "captured_at": "2026-08-23T17:12:00+09:00",
       "url": "https://www.debecbank.co.kr/ProdList_001.act?rnum=28",
-      "note": "스마트뱅킹 단리식 상품의 12개월 약정이율."
+      "note": "2026-08-23 17:12 KST 재확인. 스마트뱅킹 단리식 상품의 12개월 약정이율 3.80%."
     },
     {
       "evidence_id": "debec-apple-mobile-compound-12m-20260823",
