@@ -57,7 +57,12 @@ _BRIDGE = r"""
 
 
 def _engine_script() -> str:
-    path = Path(__file__).resolve().parents[3] / "web" / "public-structural-v2" / "forecast_provider.js"
+    path = (
+        Path(__file__).resolve().parents[3]
+        / "web"
+        / "public-structural-v2"
+        / "forecast_provider.js"
+    )
     if not path.exists():
         raise DashboardBuildError(f"Public Structural v2 provider engine이 없다: {path}")
     source = path.read_text(encoding="utf-8")
