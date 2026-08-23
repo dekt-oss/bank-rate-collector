@@ -209,13 +209,14 @@ async function assertTrend(page, label) {
 }
 
 async function assertVisualRuntimeContracts(page, label) {
+  await page.waitForSelector("#public-structural-v2-cockpit", { state: "visible", timeout: 10_000 });
+  await page.waitForSelector("#public-structural-v2-factual-rate-finder", { state: "visible", timeout: 10_000 });
   const result = await page.evaluate(() => {
     const rootStyle = getComputedStyle(document.documentElement);
     const mapCard = document.querySelector(".workspace-detail.primary .mapcard");
-    const hosts = [
-      document.getElementById("public-structural-v2-cockpit"),
-      document.getElementById("public-structural-v2-factual-rate-finder"),
-    ].filter(Boolean);
+    const cockpitHost = document.getElementById("public-structural-v2-cockpit");
+    const factualHost = document.getElementById("public-structural-v2-factual-rate-finder");
+    const hosts = [cockpitHost, factualHost].filter(Boolean);
     const textNodes = hosts.flatMap((host) => [...host.querySelectorAll("*")]).filter((node) => {
       const hasDirectText = [...node.childNodes].some(
         (child) => child.nodeType === Node.TEXT_NODE && child.textContent.trim(),
@@ -231,9 +232,14 @@ async function assertVisualRuntimeContracts(page, label) {
     }));
     const tooSmall = fontSizes.filter((item) => item.size < 10.5);
     const candidateCell = document.querySelector("#public-structural-v2-cockpit .psv2-table tbody td");
-    const candidateBeforeFont = candidateCell
-      ? parseFloat(getComputedStyle(candidateCell, "::before").fontSize || "0")
+    const candidateBeforeStyle = candidateCell ? getComputedStyle(candidateCell, "::before") : null;
+    const candidateBeforeFont = candidateBeforeStyle
+      ? parseFloat(candidateBeforeStyle.fontSize || "0")
       : 0;
+    const candidateCellRect = candidateCell?.getBoundingClientRect();
+    const candidateBeforeContent = candidateBeforeStyle?.content || "";
+    const candidateBeforeDisplay = candidateBeforeStyle?.display || "none";
+    const candidateBeforeVisibility = candidateBeforeStyle?.visibility || "hidden";
     const xTicks = [...document.querySelectorAll('#public-structural-v2-cockpit .psv2-chart text.axis[text-anchor="middle"]')]
       .filter((node) => getComputedStyle(node).visibility !== "hidden")
       .map((node) => {
@@ -254,11 +260,18 @@ async function assertVisualRuntimeContracts(page, label) {
       accent: rootStyle.getPropertyValue("--accent").trim(),
       accentInk: rootStyle.getPropertyValue("--accent-ink").trim(),
       mapCardDisplay: mapCard ? getComputedStyle(mapCard).display : "missing",
-      cockpitVisible: Boolean(hosts[0] && getComputedStyle(hosts[0]).display !== "none"),
+      cockpitVisible: Boolean(cockpitHost && getComputedStyle(cockpitHost).display !== "none"),
+      factualFinderVisible: Boolean(factualHost && getComputedStyle(factualHost).display !== "none"),
       chartCount: document.querySelectorAll("#public-structural-v2-cockpit .psv2-chart").length,
       fontCount: fontSizes.length,
       tooSmall,
       candidateBeforeFont,
+      candidateBeforeContent,
+      candidateBeforeDisplay,
+      candidateBeforeVisibility,
+      candidateCellBox: candidateCellRect
+        ? { width: candidateCellRect.width, height: candidateCellRect.height }
+        : { width: 0, height: 0 },
       axisCollisions,
     };
   });
@@ -266,8 +279,21 @@ async function assertVisualRuntimeContracts(page, label) {
   invariant(result.accentInk.toUpperCase() === "#5B2F64", `${label}: computed brand accent ink=${result.accentInk}`);
   invariant(result.mapCardDisplay === "none", `${label}: Strategy regional map resurfaced display=${result.mapCardDisplay}`);
   invariant(result.cockpitVisible && result.chartCount === 1, `${label}: active Public Structural Response Surface missing`);
+  invariant(result.factualFinderVisible, `${label}: Factual Finder runtime host missing`);
   invariant(result.fontCount > 0 && result.tooSmall.length === 0, `${label}: Public Structural computed font below 10.5px=${JSON.stringify(result.tooSmall)}`);
   if (label === "mobile") {
+    const pseudoContent = result.candidateBeforeContent.replace(/^["']|["']$/g, "").trim();
+    invariant(
+      pseudoContent && !["none", "normal"].includes(pseudoContent),
+      `${label}: candidate-card pseudo label content missing=${result.candidateBeforeContent}`,
+    );
+    invariant(
+      result.candidateBeforeDisplay !== "none"
+        && result.candidateBeforeVisibility !== "hidden"
+        && result.candidateCellBox.width > 0
+        && result.candidateCellBox.height > 0,
+      `${label}: candidate-card pseudo label not rendered display=${result.candidateBeforeDisplay} visibility=${result.candidateBeforeVisibility} cell=${JSON.stringify(result.candidateCellBox)}`,
+    );
     invariant(result.candidateBeforeFont >= 10.5, `${label}: candidate-card pseudo label font=${result.candidateBeforeFont}px`);
   }
   invariant(result.axisCollisions.length === 0, `${label}: visible Response Surface x-axis collision=${JSON.stringify(result.axisCollisions)}`);
