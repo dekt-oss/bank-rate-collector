@@ -47,6 +47,7 @@ warning 관측성, source freshness, 업권 용어를 안정화하는 작업 범
 
 | 문서 | 상태 | 비고 |
 |---|---|---|
+| [`20260823-public-structural-v2-g-factual-rate-finder.md`](20260823-public-structural-v2-g-factual-rate-finder.md) | **implementation/current-work** | Stage G competitor-only 시장 benchmark와 factual-only 조건충족 금리 finder 계약 |
 | [`20260822-public-structural-v2-decision-cockpit-final.md`](20260822-public-structural-v2-decision-cockpit-final.md) | **implementation/current-work** | #170 리뷰 반영 최종안. Public Structural v2 시장위치·수신 stress surface·표면비용·Decision Cockpit 단계별 구현 기준 |
 | [`20260820-dashboard-shared-header-map-readability-v1.md`](20260820-dashboard-shared-header-map-readability-v1.md) | **implementation/current-work** | 검색/Strategy 공통 헤더 + 검색 권역 지도 직접 `지역명 + 금리` 표시. 계산·수집 계약 불변 |
 | [`20260817-mutual-finance-stage-g-entry-census.md`](20260817-mutual-finance-stage-g-entry-census.md) | **decision/evidence-gate** | 최신 전국 공식 raw 전수 census. NH local G2는 ENTRY GO, KFCC G1은 deterministic official-site linkage 부재로 BLOCKED 유지 |

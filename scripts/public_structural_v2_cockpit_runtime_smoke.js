@@ -95,6 +95,82 @@ async function assertCandidateTableVisualSpace(cockpit, viewport, label) {
   }
 }
 
+async function waitForFactualFinder(page, label) {
+  await page.waitForFunction(
+    () => {
+      const finder = document.getElementById("public-structural-v2-factual-rate-finder");
+      return Boolean(
+        finder
+        && finder.dataset.finderSignature
+        && finder.querySelectorAll(".psv2-finder-item").length === 6,
+      );
+    },
+    null,
+    { timeout: 10_000 },
+  );
+  const finder = page.locator("#public-structural-v2-factual-rate-finder");
+  invariant(await finder.isVisible(), `${label}: Stage G factual finder가 보이지 않음`);
+  const text = await finder.textContent();
+  invariant(text.includes("시장조건 충족 금리"), `${label}: Stage G 제목이 없음`);
+  invariant(text.includes("조건충족 값 · 자동 결정 아님"), `${label}: 자동결정 금지 문구가 없음`);
+  invariant(text.includes("상위 10% 진입선 도달"), `${label}: TOP10 도달 조건이 없음`);
+  invariant(text.includes("상위 10% 진입선 초과"), `${label}: TOP10 초과 조건이 없음`);
+  invariant(text.includes("상위 25% 진입선 도달"), `${label}: TOP25 도달 조건이 없음`);
+  invariant(text.includes("상위 25% 진입선 초과"), `${label}: TOP25 초과 조건이 없음`);
+  invariant(text.includes("시장 최고 동률"), `${label}: 시장 최고 동률 조건이 없음`);
+  invariant(text.includes("시장 최고 초과"), `${label}: 시장 최고 초과 조건이 없음`);
+  invariant(text.includes("competitor-only"), `${label}: competitor-only 기준 설명이 없음`);
+  invariant(text.includes("1bp"), `${label}: UI 선택단위 설명이 없음`);
+  ["억원", "달성확률", "추천금리", "최적금리", "beta", "gamma"].forEach((forbidden) => {
+    invariant(!text.includes(forbidden), `${label}: factual finder에 금지 표현 ${forbidden} 유입`);
+  });
+  return finder;
+}
+
+async function assertSyntheticOffGridMeaning(page, label) {
+  const result = await page.evaluate(() => {
+    const output = PublicStructuralV2FactualRateFinder.factualRateConstraints({
+      rows: [
+        { product_id: "anchor", rate: 3.5 },
+        { product_id: "p1", rate: 3.8015 },
+        { product_id: "p2", rate: 3.7 },
+      ],
+      anchor_product_id: "anchor",
+      current_own_rate: 3.5,
+      selection_step_pp: 0.01,
+    });
+    return {
+      tie: output.conditions.find((row) => row.target === "market_max" && row.relation === "tie"),
+      exceed: output.conditions.find((row) => row.target === "market_max" && row.relation === "exceed"),
+    };
+  });
+  invariant(result.tie.status === "unavailable", `${label}: off-grid 시장 최고 동률이 ready로 오판됨`);
+  invariant(result.tie.benchmark_rate_pct === 3.8015, `${label}: off-grid benchmark 정밀도 손실`);
+  invariant(result.tie.reason === "exact_tie_not_selectable_on_ui_grid", `${label}: off-grid unavailable reason 손실`);
+  invariant(result.exceed.minimum_selectable_rate_pct === 3.81, `${label}: off-grid 시장 최고 초과 최소금리 오류`);
+}
+
+async function assertFinderProposalIndependence(page, finder, label) {
+  const beforeSignature = await finder.getAttribute("data-finder-signature");
+  const beforeProposal = await page.locator("#sim-max").textContent();
+  const base = page.locator("#base-n");
+  const baseValue = Number(await base.inputValue());
+  invariant(Number.isFinite(baseValue), `${label}: 기본금리 입력값을 읽지 못함`);
+  await base.fill((baseValue + 0.01).toFixed(2));
+  await page.waitForFunction(
+    (previous) => document.getElementById("sim-max")?.textContent !== previous,
+    beforeProposal,
+    { timeout: 5_000 },
+  );
+  await page.waitForFunction(
+    () => Boolean(document.getElementById("public-structural-v2-factual-rate-finder")?.dataset.finderSignature),
+    null,
+    { timeout: 5_000 },
+  );
+  const afterSignature = await page.locator("#public-structural-v2-factual-rate-finder").getAttribute("data-finder-signature");
+  invariant(afterSignature === beforeSignature, `${label}: 제안금리 변경이 competitor-only finder benchmark를 움직임`);
+}
+
 async function populateStructuralInputs(page) {
   await page.locator("#baseline-new").fill("100");
   await page.locator("#maturity-amount").fill("200");
@@ -143,6 +219,11 @@ async function runViewport(browser, viewport, label) {
   invariant(!marketOnlyText.includes("최적금리"), `${label}: 금지된 최적금리 표현이 있음`);
   await assertUniqueLadderRates(cockpit, `${label} market-only`);
 
+  const finder = await waitForFactualFinder(page, label);
+  const marketOnlySignature = await finder.getAttribute("data-finder-signature");
+  await assertSyntheticOffGridMeaning(page, label);
+  await assertFinderProposalIndependence(page, finder, label);
+
   await populateStructuralInputs(page);
   const fullText = await cockpit.textContent();
   invariant(fullText.includes("시장 사실 ≠ 수신금액의 직접 원인"), `${label}: 인과 경계 문구가 없음`);
@@ -154,6 +235,10 @@ async function runViewport(browser, viewport, label) {
   invariant(await page.locator(".rate-response-wrap").isHidden(), `${label}: 구형 scenario table이 primary로 남아 있음`);
   await assertUniqueLadderRates(cockpit, `${label} full`);
   await assertCandidateTableVisualSpace(cockpit, viewport, label);
+
+  const fullFinder = await waitForFactualFinder(page, `${label} full`);
+  const fullSignature = await fullFinder.getAttribute("data-finder-signature");
+  invariant(fullSignature === marketOnlySignature, `${label}: 구조 시나리오 입력이 factual finder 결과를 움직임`);
 
   await assertNoHorizontalOverflow(page, label);
   await cockpit.screenshot({ path: path.join(workDir, `public-structural-v2-cockpit-${label}.png`) });

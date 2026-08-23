@@ -1,8 +1,9 @@
 # ruff: noqa: E501
-"""Public Structural v2 Cockpit의 최종 visual QA 보정.
+"""Public Structural v2 Cockpit의 최종 post-processing.
 
 Stage F 계산/시장위치 계약은 건드리지 않는다. production-derived Chrome screenshot에서
-확인된 presentation 결함 두 가지만 후처리한다.
+확인된 presentation 결함 두 가지를 후처리한 뒤, 별도 Stage G factual-only rate finder
+presentation을 마지막 확장으로 연결한다. Stage G 계산은 이 모듈에 구현하지 않는다.
 
 1. 같은 금리의 Ladder marker가 같은 좌표에서 겹치면 하나의 marker로 병합한다.
 2. 520px 이하 후보금리표는 8열 표를 2열 label/value 카드 grid로 바꿔 겹침을 막는다.
@@ -11,6 +12,9 @@ Stage F 계산/시장위치 계약은 건드리지 않는다. production-derived
 from __future__ import annotations
 
 from rate_monitor.services.dashboard_service import DashboardBuildError
+from rate_monitor.services.public_structural_v2_factual_rate_finder_presentation import (
+    inject_public_structural_v2_factual_rate_finder,
+)
 
 STYLE_MARKER = 'id="public-structural-v2-cockpit-visual-refinement-style"'
 SCRIPT_MARKER = 'id="public-structural-v2-cockpit-visual-refinement-script"'
@@ -113,19 +117,21 @@ _SCRIPT = r"""
 
 
 def inject_public_structural_v2_cockpit_visual_refinement(html: str) -> str:
-    """Stage F Cockpit 뒤에 visual-only refinement를 주입한다."""
+    """Stage F visual refinement 후 Stage G factual finder extension을 연결한다."""
     states = (STYLE_MARKER in html, SCRIPT_MARKER in html)
     if all(states):
-        return html
-    if any(states):
-        raise DashboardBuildError(
-            "Public Structural v2 Cockpit visual refinement 주입 상태가 불완전하다"
-        )
-    if 'id="public-structural-v2-cockpit-script"' not in html:
-        raise DashboardBuildError("Public Structural v2 Cockpit 선행 script가 없다")
-    if "</head>" not in html or "</body>" not in html:
-        raise DashboardBuildError(
-            "Public Structural v2 Cockpit visual refinement 주입 위치를 찾지 못했다"
-        )
-    rendered = html.replace("</head>", _CSS + "\n</head>", 1)
-    return rendered.replace("</body>", _SCRIPT + "\n</body>", 1)
+        rendered = html
+    else:
+        if any(states):
+            raise DashboardBuildError(
+                "Public Structural v2 Cockpit visual refinement 주입 상태가 불완전하다"
+            )
+        if 'id="public-structural-v2-cockpit-script"' not in html:
+            raise DashboardBuildError("Public Structural v2 Cockpit 선행 script가 없다")
+        if "</head>" not in html or "</body>" not in html:
+            raise DashboardBuildError(
+                "Public Structural v2 Cockpit visual refinement 주입 위치를 찾지 못했다"
+            )
+        rendered = html.replace("</head>", _CSS + "\n</head>", 1)
+        rendered = rendered.replace("</body>", _SCRIPT + "\n</body>", 1)
+    return inject_public_structural_v2_factual_rate_finder(rendered)
