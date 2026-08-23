@@ -166,6 +166,7 @@ jobs:
           assert scope["freshness_metadata_policy"].startswith("observational_only")
           assert scope["official_evidence_authority"] == "read_only_support_only"
           assert scope["official_conflict_blocks_authority"] is True
+          assert scope["official_freshness_metadata_policy"] == "observational_only"
           assert scope["triage_mutates_canonical"] is False
           assert scope["triage_selects_authority"] is False
           assert scope["official_contradiction_mutates_canonical"] is False
@@ -176,6 +177,15 @@ jobs:
           assert summary["ambiguous_payment_method"] >= 2
           assert summary["official_evidence_records"] >= 8
           assert summary["official_evidence_groups"] >= 7
+
+          for match in report["matches"]:
+              identity = match["match"]
+              assert "join_channel" in identity and "interest_method" in identity
+              for side in ("primary", "secondary"):
+                  freshness = match[side]["freshness"]
+                  assert freshness["as_of"] == report["generated_at"]
+                  assert "effective_age_days" in freshness
+                  assert "last_seen_age_days" in freshness
 
           ambiguities = report["dimension_ambiguities"]
           cheongju = [
@@ -197,6 +207,10 @@ jobs:
               assert all(entry.get("raw_artifact_path") for entry in item["provenance"])
 
           triage = report["triage"]
+          assert triage["authority_semantics"] == (
+              "investigation_priority_only; does_not_select_canonical_source"
+          )
+          assert "exact or uniquely compatible variant" in triage["variant_evidence_semantics"]
           assert triage["summary"]["queue_size"] == summary["mismatch_or_incomplete"]
           assert queue_payload["triage"] == triage
           assert not any(
@@ -214,14 +228,34 @@ jobs:
 
           contradictions = report["official_contradictions"]
           assert contradiction_payload["official_contradictions"] == contradictions
+          assert contradictions["authority_semantics"] == (
+              "investigation_priority_only; official evidence never overwrites canonical values"
+          )
+          assert "exact or uniquely compatible variant" in contradictions[
+              "variant_pairing_semantics"
+          ]
           assert [item["rank"] for item in contradictions["queue"]] == list(
               range(1, contradictions["summary"]["queue_size"] + 1)
           )
+          assert sum(
+              contradictions["summary"][key] for key in ("P0", "P1", "P2", "P3")
+          ) == contradictions["summary"]["queue_size"]
           assert not any(
               item["institution"] == "대백저축은행" for item in contradictions["queue"]
           )
 
           groups = {item["evidence_group"]: item for item in report["official_evidence_groups"]}
+          kiwoom = groups["kiwoomyes:e-revolving:any:simple:12m"]
+          assert kiwoom["status"] == "consistent"
+          assert kiwoom["official_max_rates"] == ["3.70"]
+          assert all(
+              record["evidence_surface"] in {
+                  "bank_direct_product_disclosure",
+                  "bank_direct_rate_change_notice",
+              }
+              for record in kiwoom["records"]
+          )
+
           daebaek_expected = {
               "debec:apple-deposit:internet:simple:12m": ("internet", "simple"),
               "debec:apple-deposit:internet:compound:12m": ("internet", "compound"),
