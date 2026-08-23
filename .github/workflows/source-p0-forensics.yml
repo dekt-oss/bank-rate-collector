@@ -5,6 +5,10 @@ on:
     branches: ["investigate/source-p0-forensics-20260823"]
     paths:
       - ".github/workflows/source-p0-forensics.yml"
+  pull_request:
+    branches: ["main"]
+    paths:
+      - ".github/workflows/source-p0-forensics.yml"
 
 permissions:
   contents: read
@@ -82,7 +86,6 @@ jobs:
               copied.add(key)
               shutil.copy2(path, out / path.name)
 
-          # FINLIFE: retain the exact baseList row and every matching optionList row.
           fin_targets = {
               ("청주저축은행", "정기적금"): "cheongju_regular_savings",
               ("대백저축은행", "애플정기예금"): "daebaek_apple_deposit",
@@ -111,7 +114,6 @@ jobs:
                   }
                   copy_once(path)
 
-          # FSB: retain the exact REC row used by the same product family.
           fsb_targets = {
               ("청주저축은행", "정기적금", "rateinst"): "cheongju_regular_savings",
               ("대백저축은행", "애플정기예금", "ratedepo"): "daebaek_apple_deposit",
@@ -144,7 +146,6 @@ jobs:
           ]
           assert not missing, f"target raw rows missing: {missing}"
 
-          # Explicit forensic facts. These assertions deliberately fail if live source shape changes.
           cj = result["finlife"]["cheongju_regular_savings"]
           cj_simple = [
               x["raw"] for x in cj["options"]
