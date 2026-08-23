@@ -1,0 +1,62 @@
+name: Apply post-merge Strategy review hardening
+
+on:
+  push:
+    branches: ["feat/strategy-ux-postmerge-review-hardening-20260824"]
+    paths:
+      - ".github/workflows/postmerge-strategy-review-hardening.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/strategy-ux-postmerge-review-hardening-20260824
+          fetch-depth: 0
+      - name: Harden runtime assertions and remove helper
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          smoke = Path("scripts/strategy_workspace_smoke.js")
+          text = smoke.read_text(encoding="utf-8")
+          old = '''async function assertVisualRuntimeContracts(page, label) {\n  const result = await page.evaluate(() => {\n    const rootStyle = getComputedStyle(document.documentElement);\n    const mapCard = document.querySelector(".workspace-detail.primary .mapcard");\n    const hosts = [\n      document.getElementById("public-structural-v2-cockpit"),\n      document.getElementById("public-structural-v2-factual-rate-finder"),\n    ].filter(Boolean);\n'''
+          new = '''async function assertVisualRuntimeContracts(page, label) {\n  await page.waitForSelector("#public-structural-v2-cockpit", { state: "visible", timeout: 10_000 });\n  await page.waitForSelector("#public-structural-v2-factual-rate-finder", { state: "visible", timeout: 10_000 });\n  const result = await page.evaluate(() => {\n    const rootStyle = getComputedStyle(document.documentElement);\n    const mapCard = document.querySelector(".workspace-detail.primary .mapcard");\n    const cockpitHost = document.getElementById("public-structural-v2-cockpit");\n    const factualHost = document.getElementById("public-structural-v2-factual-rate-finder");\n    const hosts = [cockpitHost, factualHost].filter(Boolean);\n'''
+          assert text.count(old) == 1, "visual host setup target not found"
+          text = text.replace(old, new, 1)
+
+          old = '''    const candidateCell = document.querySelector("#public-structural-v2-cockpit .psv2-table tbody td");\n    const candidateBeforeFont = candidateCell\n      ? parseFloat(getComputedStyle(candidateCell, "::before").fontSize || "0")\n      : 0;\n'''
+          new = '''    const candidateCell = document.querySelector("#public-structural-v2-cockpit .psv2-table tbody td");\n    const candidateBeforeStyle = candidateCell ? getComputedStyle(candidateCell, "::before") : null;\n    const candidateBeforeFont = candidateBeforeStyle\n      ? parseFloat(candidateBeforeStyle.fontSize || "0")\n      : 0;\n    const candidateCellRect = candidateCell?.getBoundingClientRect();\n    const candidateBeforeContent = candidateBeforeStyle?.content || "";\n    const candidateBeforeDisplay = candidateBeforeStyle?.display || "none";\n    const candidateBeforeVisibility = candidateBeforeStyle?.visibility || "hidden";\n'''
+          assert text.count(old) == 1, "pseudo style target not found"
+          text = text.replace(old, new, 1)
+
+          old = '''      mapCardDisplay: mapCard ? getComputedStyle(mapCard).display : "missing",\n      cockpitVisible: Boolean(hosts[0] && getComputedStyle(hosts[0]).display !== "none"),\n      chartCount: document.querySelectorAll("#public-structural-v2-cockpit .psv2-chart").length,\n      fontCount: fontSizes.length,\n      tooSmall,\n      candidateBeforeFont,\n      axisCollisions,\n'''
+          new = '''      mapCardDisplay: mapCard ? getComputedStyle(mapCard).display : "missing",\n      cockpitVisible: Boolean(cockpitHost && getComputedStyle(cockpitHost).display !== "none"),\n      factualFinderVisible: Boolean(factualHost && getComputedStyle(factualHost).display !== "none"),\n      chartCount: document.querySelectorAll("#public-structural-v2-cockpit .psv2-chart").length,\n      fontCount: fontSizes.length,\n      tooSmall,\n      candidateBeforeFont,\n      candidateBeforeContent,\n      candidateBeforeDisplay,\n      candidateBeforeVisibility,\n      candidateCellBox: candidateCellRect\n        ? { width: candidateCellRect.width, height: candidateCellRect.height }\n        : { width: 0, height: 0 },\n      axisCollisions,\n'''
+          assert text.count(old) == 1, "visual return target not found"
+          text = text.replace(old, new, 1)
+
+          old = '''  invariant(result.cockpitVisible && result.chartCount === 1, `${label}: active Public Structural Response Surface missing`);\n  invariant(result.fontCount > 0 && result.tooSmall.length === 0, `${label}: Public Structural computed font below 10.5px=${JSON.stringify(result.tooSmall)}`);\n  if (label === "mobile") {\n    invariant(result.candidateBeforeFont >= 10.5, `${label}: candidate-card pseudo label font=${result.candidateBeforeFont}px`);\n  }\n'''
+          new = '''  invariant(result.cockpitVisible && result.chartCount === 1, `${label}: active Public Structural Response Surface missing`);\n  invariant(result.factualFinderVisible, `${label}: Factual Finder runtime host missing`);\n  invariant(result.fontCount > 0 && result.tooSmall.length === 0, `${label}: Public Structural computed font below 10.5px=${JSON.stringify(result.tooSmall)}`);\n  if (label === "mobile") {\n    const pseudoContent = result.candidateBeforeContent.replace(/^["']|["']$/g, "").trim();\n    invariant(\n      pseudoContent && !["none", "normal"].includes(pseudoContent),\n      `${label}: candidate-card pseudo label content missing=${result.candidateBeforeContent}`,\n    );\n    invariant(\n      result.candidateBeforeDisplay !== "none"\n        && result.candidateBeforeVisibility !== "hidden"\n        && result.candidateCellBox.width > 0\n        && result.candidateCellBox.height > 0,\n      `${label}: candidate-card pseudo label not rendered display=${result.candidateBeforeDisplay} visibility=${result.candidateBeforeVisibility} cell=${JSON.stringify(result.candidateCellBox)}`,\n    );\n    invariant(result.candidateBeforeFont >= 10.5, `${label}: candidate-card pseudo label font=${result.candidateBeforeFont}px`);\n  }\n'''
+          assert text.count(old) == 1, "visual invariant target not found"
+          text = text.replace(old, new, 1)
+          smoke.write_text(text, encoding="utf-8")
+
+          contract = Path("tests/test_strategy_main_runtime_e2e_workflow_contract.py")
+          text = contract.read_text(encoding="utf-8")
+          old = '''    assert "active Public Structural Response Surface missing" in text\n    assert "Public Structural computed font below 10.5px" in text\n    assert "candidate-card pseudo label font=" in text\n'''
+          new = '''    assert "active Public Structural Response Surface missing" in text\n    assert "Factual Finder runtime host missing" in text\n    assert "Public Structural computed font below 10.5px" in text\n    assert "candidate-card pseudo label content missing=" in text\n    assert "candidate-card pseudo label not rendered" in text\n    assert "candidate-card pseudo label font=" in text\n'''
+          assert text.count(old) == 1, "contract marker target not found"
+          text = text.replace(old, new, 1)
+          contract.write_text(text, encoding="utf-8")
+          PY
+          git rm .github/workflows/postmerge-strategy-review-hardening.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add scripts/strategy_workspace_smoke.js tests/test_strategy_main_runtime_e2e_workflow_contract.py
+          git commit -m "test: close Strategy post-merge runtime review gaps"
+          git push origin HEAD:feat/strategy-ux-postmerge-review-hardening-20260824
