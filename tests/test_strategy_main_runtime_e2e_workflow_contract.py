@@ -94,25 +94,14 @@ def test_strategy_preview_smoke_uses_search_handoff_instead_of_hidden_map() -> N
 def test_strategy_workspace_smoke_locks_decision_first_order_and_role_split() -> None:
     text = WORKSPACE_SMOKE.read_text(encoding="utf-8")
 
-    assert "decisionBeforeExternal" in text
-    assert "insightBeforePreference" in text
-    assert "preferenceBeforeDetail" in text
-    assert "recent change details should start collapsed" in text
-    assert "KPI cards are not two-column" in text
-    assert "evidence panel should start collapsed" in text
-    assert "detailMapHidden" in text
-    assert "Strategy regional map should be hidden after Search/Strategy role split" in text
-    assert "regionHandoffVisible" in text
-    assert 'result.regionHandoffHref === "./"' in text
-    assert "decision readiness should be visible" in text
-    assert "Strategy report button should be visible" in text
-    assert "expanded analysis map height" not in text
+    assert "readiness -> insight -> TOP5 -> planning order=" in text
+    assert "product section label/order wrong" in text
+    assert "duplicated legacy/detail shell not hidden" in text
+    assert "Search 지역 상세 handoff가 유지되지 않음" in text
+    assert "model evidence should start collapsed" in text
     assert "horizontal overflow" in text
-    assert 'strategyPalette === "main-brand-v2"' in text
-    assert 'accent.toUpperCase() === "#D33A7C"' in text
-    assert "external Korea map is still visually heavy" in text
-    assert "external Korea map filter missing" in text
-    assert "analytical microcopy too small" in text
+    assert 'data-strategy-workspace="decision-first-v1"' in text
+    assert 'data-strategy-palette="main-brand-v2"' in text
 
 
 def test_strategy_brand_visual_spec_locks_palette_typography_and_scope() -> None:
