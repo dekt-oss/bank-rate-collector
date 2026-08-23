@@ -16,7 +16,7 @@ async function loadPage(browser, viewport) {
   const runtimeErrors = [];
   page.on("pageerror", (error) => runtimeErrors.push(`pageerror: ${error.message}`));
   page.on("console", (message) => {
-    if (message.type() === "error") runtimeErrors.push(`console: ${message.text()}`);
+    if (message.type() === "error") runtimeErrors.push(`console: ${message.text()}`));
   });
   await page.route("**/favicon.ico", (route) => route.fulfill({ status: 204, body: "" }));
   const response = await page.goto(`${baseUrl}/strategy.html`, { waitUntil: "networkidle" });
@@ -208,10 +208,76 @@ async function assertTrend(page, label) {
   await page.locator('#decision-trend-toggle button[data-trend-mode="delta"]').click();
 }
 
+async function assertVisualRuntimeContracts(page, label) {
+  const result = await page.evaluate(() => {
+    const rootStyle = getComputedStyle(document.documentElement);
+    const mapCard = document.querySelector(".workspace-detail.primary .mapcard");
+    const hosts = [
+      document.getElementById("public-structural-v2-cockpit"),
+      document.getElementById("public-structural-v2-factual-rate-finder"),
+    ].filter(Boolean);
+    const textNodes = hosts.flatMap((host) => [...host.querySelectorAll("*")]).filter((node) => {
+      const hasDirectText = [...node.childNodes].some(
+        (child) => child.nodeType === Node.TEXT_NODE && child.textContent.trim(),
+      );
+      if (!hasDirectText) return false;
+      const style = getComputedStyle(node);
+      const rect = node.getBoundingClientRect();
+      return style.display !== "none" && style.visibility !== "hidden" && rect.width > 0 && rect.height > 0;
+    });
+    const fontSizes = textNodes.map((node) => ({
+      text: node.textContent.trim().slice(0, 80),
+      size: parseFloat(getComputedStyle(node).fontSize || "0"),
+    }));
+    const tooSmall = fontSizes.filter((item) => item.size < 10.5);
+    const candidateCell = document.querySelector("#public-structural-v2-cockpit .psv2-table tbody td");
+    const candidateBeforeFont = candidateCell
+      ? parseFloat(getComputedStyle(candidateCell, "::before").fontSize || "0")
+      : 0;
+    const xTicks = [...document.querySelectorAll('#public-structural-v2-cockpit .psv2-chart text.axis[text-anchor="middle"]')]
+      .filter((node) => getComputedStyle(node).visibility !== "hidden")
+      .map((node) => {
+        const rect = node.getBoundingClientRect();
+        return { text: node.textContent.trim(), left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom };
+      });
+    const axisCollisions = [];
+    for (let i = 0; i < xTicks.length; i += 1) {
+      for (let j = i + 1; j < xTicks.length; j += 1) {
+        const a = xTicks[i];
+        const b = xTicks[j];
+        const width = Math.min(a.right, b.right) - Math.max(a.left, b.left);
+        const height = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
+        if (width > 1 && height > 1) axisCollisions.push([a.text, b.text]);
+      }
+    }
+    return {
+      accent: rootStyle.getPropertyValue("--accent").trim(),
+      accentInk: rootStyle.getPropertyValue("--accent-ink").trim(),
+      mapCardDisplay: mapCard ? getComputedStyle(mapCard).display : "missing",
+      cockpitVisible: Boolean(hosts[0] && getComputedStyle(hosts[0]).display !== "none"),
+      chartCount: document.querySelectorAll("#public-structural-v2-cockpit .psv2-chart").length,
+      fontCount: fontSizes.length,
+      tooSmall,
+      candidateBeforeFont,
+      axisCollisions,
+    };
+  });
+  invariant(result.accent.toUpperCase() === "#D33A7C", `${label}: computed brand accent=${result.accent}`);
+  invariant(result.accentInk.toUpperCase() === "#5B2F64", `${label}: computed brand accent ink=${result.accentInk}`);
+  invariant(result.mapCardDisplay === "none", `${label}: Strategy regional map resurfaced display=${result.mapCardDisplay}`);
+  invariant(result.cockpitVisible && result.chartCount === 1, `${label}: active Public Structural Response Surface missing`);
+  invariant(result.fontCount > 0 && result.tooSmall.length === 0, `${label}: Public Structural computed font below 10.5px=${JSON.stringify(result.tooSmall)}`);
+  if (label === "mobile") {
+    invariant(result.candidateBeforeFont >= 10.5, `${label}: candidate-card pseudo label font=${result.candidateBeforeFont}px`);
+  }
+  invariant(result.axisCollisions.length === 0, `${label}: visible Response Surface x-axis collision=${JSON.stringify(result.axisCollisions)}`);
+}
+
 async function runViewport(browser, label, viewport) {
   const { context, page, runtimeErrors } = await loadPage(browser, viewport);
   await assertDecisionIA(page, label);
   await assertPrediction(page, label);
+  await assertVisualRuntimeContracts(page, label);
   await assertMarketEvidence(page, label);
   await assertTrend(page, label);
   await assertNavigation(browser, page, viewport, label);
