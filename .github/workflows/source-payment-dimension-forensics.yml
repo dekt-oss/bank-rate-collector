@@ -1,0 +1,103 @@
+name: Source payment dimension forensics
+
+on:
+  push:
+    branches: ["investigate/source-p0-forensics-20260823"]
+    paths:
+      - ".github/workflows/source-payment-dimension-forensics.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv python install 3.12
+      - run: uv sync --locked
+      - name: Prepare isolated database
+        env:
+          RATE_MONITOR_DB_URL: sqlite+pysqlite:///${{ github.workspace }}/work/forensics.sqlite3
+        run: |
+          set -euo pipefail
+          mkdir -p work/raw work/evidence
+          uv run alembic upgrade head
+      - name: Fresh FINLIFE capture
+        env:
+          FINLIFE_API_KEY: ${{ secrets.FINLIFE_API_KEY }}
+        run: |
+          set -euo pipefail
+          uv run rate-monitor collect \
+            --source finlife_savings_bank \
+            --db work/forensics.sqlite3 \
+            --raw-root work/raw \
+            --groups 030300
+      - name: Inspect rsrv_type by FINLIFE service
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          import json
+          from collections import Counter
+          from pathlib import Path
+
+          root = Path('work/raw')
+          output = {
+              'deposit_non_null_rsrv': [],
+              'saving_non_null_rsrv': [],
+              'counts': {},
+          }
+          for service in ('depositProductsSearch', 'savingProductsSearch'):
+              total = 0
+              non_null = 0
+              codes = Counter()
+              examples = []
+              for path in sorted(root.rglob(f'{service}_030300_page*.json')):
+                  payload = json.loads(path.read_text(encoding='utf-8'))
+                  result = payload.get('result') or {}
+                  bases = {
+                      (str(x.get('fin_co_no')), str(x.get('fin_prdt_cd'))): x
+                      for x in result.get('baseList') or []
+                  }
+                  for idx, opt in enumerate(result.get('optionList') or []):
+                      total += 1
+                      value = opt.get('rsrv_type')
+                      if value in (None, ''):
+                          continue
+                      non_null += 1
+                      codes[str(value)] += 1
+                      base = bases.get((str(opt.get('fin_co_no')), str(opt.get('fin_prdt_cd'))), {})
+                      examples.append({
+                          'file': str(path),
+                          'option_index': idx,
+                          'institution': base.get('kor_co_nm'),
+                          'product': base.get('fin_prdt_nm'),
+                          'save_trm': opt.get('save_trm'),
+                          'intr_rate_type': opt.get('intr_rate_type'),
+                          'intr_rate': opt.get('intr_rate'),
+                          'intr_rate2': opt.get('intr_rate2'),
+                          'rsrv_type': value,
+                          'rsrv_type_nm': opt.get('rsrv_type_nm'),
+                      })
+              output['counts'][service] = {
+                  'total_options': total,
+                  'non_null_rsrv_type': non_null,
+                  'codes': dict(codes),
+              }
+              output['deposit_non_null_rsrv' if service.startswith('deposit') else 'saving_non_null_rsrv'] = examples
+
+          Path('work/evidence/finlife-payment-dimension.json').write_text(
+              json.dumps(output, ensure_ascii=False, indent=2) + '\n', encoding='utf-8'
+          )
+          print(json.dumps(output['counts'], ensure_ascii=False, indent=2))
+          print('deposit examples:', json.dumps(output['deposit_non_null_rsrv'][:50], ensure_ascii=False, indent=2))
+          PY
+      - name: Upload evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: source-payment-dimension-${{ github.run_id }}
+          path: work/evidence/finlife-payment-dimension.json
+          retention-days: 30
