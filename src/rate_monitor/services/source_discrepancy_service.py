@@ -135,6 +135,7 @@ def _current_source_rows(
         "SELECT lr.source_id, o.id AS observation_id, o.run_id, o.last_run_id, "
         "       i.canonical_name AS institution, p.name AS product, "
         "       p.product_type, pv.term_months, pv.join_channel, pv.interest_method, "
+        "       pv.payment_method, "
         "       o.base_rate, o.max_rate, o.source_effective_at, o.last_seen_at, "
         "       o.base_source_locator, o.option_source_locator, o.source_record_hash, "
         "       ra.relative_path AS raw_artifact_path, ra.sha256 AS raw_artifact_sha256 "
@@ -203,12 +204,42 @@ def _prefer_representative(
 
 def _representatives(
     rows: list[dict[str, Any]],
-) -> dict[ProductKey, dict[str, Any]]:
-    result: dict[ProductKey, dict[str, Any]] = {}
+) -> tuple[
+    dict[ProductKey, dict[str, Any]],
+    dict[ProductKey, list[dict[str, Any]]],
+]:
+    """6D key별 대표행과 payment-method 금리 모호성을 분리한다.
+
+    FSB처럼 payment_method를 제공하지 않는 source와 FINLIFE처럼 정액/자유를
+    구분하는 source를 비교할 때, 서로 다른 payment_method가 서로 다른 금리를
+    가지면 최고금리 하나를 임의 대표로 고르지 않는다. payment_method가 달라도
+    금리가 완전히 같다면 금리 감사 결론은 같으므로 비교를 허용한다.
+    """
+    grouped: dict[ProductKey, list[dict[str, Any]]] = defaultdict(list)
     for row in rows:
-        key = _product_key(row)
-        result[key] = _prefer_representative(result.get(key), row)
-    return result
+        grouped[_product_key(row)].append(row)
+
+    result: dict[ProductKey, dict[str, Any]] = {}
+    ambiguous: dict[ProductKey, list[dict[str, Any]]] = {}
+    for key, candidates in grouped.items():
+        payment_methods = {_facet(item.get("payment_method")) for item in candidates}
+        rate_pairs = {
+            (
+                _decimal_json(_decimal(item.get("base_rate"))),
+                _decimal_json(_decimal(item.get("max_rate"))),
+            )
+            for item in candidates
+        }
+        if len(payment_methods) > 1 and len(rate_pairs) > 1:
+            ambiguous[key] = candidates
+            continue
+
+        representative: dict[str, Any] | None = None
+        for candidate in candidates:
+            representative = _prefer_representative(representative, candidate)
+        if representative is not None:
+            result[key] = representative
+    return result, ambiguous
 
 
 def _rows_by_base(
@@ -241,6 +272,7 @@ def _provenance(row: dict[str, Any], as_of: datetime) -> dict[str, Any]:
         "term_months": row.get("term_months"),
         "join_channel": row.get("join_channel"),
         "interest_method": row.get("interest_method"),
+        "payment_method": row.get("payment_method"),
         "base_rate": _decimal_json(_decimal(row.get("base_rate"))),
         "max_rate": _decimal_json(_decimal(row.get("max_rate"))),
         "source_effective_at": row.get("source_effective_at"),
@@ -296,9 +328,40 @@ def _candidate_variant(row: dict[str, Any]) -> dict[str, Any]:
         "product": row.get("product"),
         "join_channel": row.get("join_channel"),
         "interest_method": row.get("interest_method"),
+        "payment_method": row.get("payment_method"),
         "base_rate": _decimal_json(_decimal(row.get("base_rate"))),
         "max_rate": _decimal_json(_decimal(row.get("max_rate"))),
         "source_effective_at": row.get("source_effective_at"),
+    }
+
+
+def _dimension_ambiguity_record(
+    key: ProductKey,
+    candidates: list[dict[str, Any]],
+    *,
+    side: str,
+    as_of: datetime,
+) -> dict[str, Any]:
+    first = candidates[0]
+    return {
+        "status": "ambiguous_variant_dimension",
+        "dimension": "payment_method",
+        "side": side,
+        "institution": first.get("institution"),
+        "product": first.get("product"),
+        "product_type": first.get("product_type"),
+        "term_months": key[3],
+        "join_channel": key[4],
+        "interest_method": key[5],
+        "candidate_payment_methods": sorted(
+            {_facet(item.get("payment_method")) for item in candidates}
+        ),
+        "candidate_variants": [_candidate_variant(item) for item in candidates],
+        "provenance": [_provenance(item, as_of) for item in candidates],
+        "reason": (
+            "same 6D source key has multiple payment_method values with different rates; "
+            "rate comparison is blocked instead of selecting the highest representative"
+        ),
     }
 
 
@@ -492,10 +555,20 @@ def build_source_discrepancy_report(
     for row in rows:
         by_source[str(row["source_id"])].append(row)
 
-    primary = _representatives(by_source.get(primary_source, []))
-    secondary = _representatives(by_source.get(secondary_source, []))
+    primary, primary_ambiguous = _representatives(by_source.get(primary_source, []))
+    secondary, secondary_ambiguous = _representatives(by_source.get(secondary_source, []))
     primary_by_base = _rows_by_base(primary)
     secondary_by_base = _rows_by_base(secondary)
+    dimension_ambiguities = [
+        *(
+            _dimension_ambiguity_record(key, candidates, side="primary", as_of=generated_at)
+            for key, candidates in primary_ambiguous.items()
+        ),
+        *(
+            _dimension_ambiguity_record(key, candidates, side="secondary", as_of=generated_at)
+            for key, candidates in secondary_ambiguous.items()
+        ),
+    ]
 
     matches = []
     status_counter: Counter[str] = Counter()
@@ -548,7 +621,7 @@ def build_source_discrepancy_report(
                 as_of=generated_at,
             )
             for key, row in primary.items()
-            if key not in secondary
+            if key not in secondary and key not in secondary_ambiguous
         ),
         *(
             _source_only_record(
@@ -559,7 +632,7 @@ def build_source_discrepancy_report(
                 as_of=generated_at,
             )
             for key, row in secondary.items()
-            if key not in primary
+            if key not in primary and key not in primary_ambiguous
         ),
     ]
     source_only_counter = Counter(item["status"] for item in source_only)
@@ -594,13 +667,23 @@ def build_source_discrepancy_report(
                 "source-to-source requires exact stored facet; official evidence may use "
                 "only a unique non-conflicting wildcard candidate"
             ),
+            "dimension_ambiguity_policy": (
+                "if one source has multiple payment_method values with different rates under "
+                "the same 6D key, block rate comparison; never select the highest rate"
+            ),
             "freshness_metadata_policy": "observational_only; never_selects_source_authority",
             "unmatched_policy": "do_not_guess",
         },
         "source_runs": runs,
         "summary": {
-            "primary_products": len(primary),
-            "secondary_products": len(secondary),
+            "primary_products": len(primary) + len(primary_ambiguous),
+            "secondary_products": len(secondary) + len(secondary_ambiguous),
+            "comparable_primary_products": len(primary),
+            "comparable_secondary_products": len(secondary),
+            "ambiguous_variant_dimension": len(dimension_ambiguities),
+            "ambiguous_payment_method": sum(
+                item["dimension"] == "payment_method" for item in dimension_ambiguities
+            ),
             "exact_matches": len(matches),
             "agree": status_counter["agree"],
             "agree_rate_date_diff": status_counter["agree_rate_date_diff"],
@@ -620,6 +703,7 @@ def build_source_discrepancy_report(
             "official_evidence_records": len(evidence),
         },
         "matches": matches,
+        "dimension_ambiguities": dimension_ambiguities,
         "source_only": source_only,
         "official_evidence": evidence_comparisons,
     }
