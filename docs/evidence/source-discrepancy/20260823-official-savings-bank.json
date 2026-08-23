@@ -93,6 +93,7 @@
       "capture_method": "live_http_artifact",
       "capture_run_id": "32635180304",
       "capture_artifact_id": "9492104054",
+      "capture_artifact_sha256": "27fac90b077761ed4a04475b45452acf878574d4c7ef89fd92cb152e21747a6a",
       "url": "https://www.debecbank.co.kr/ProdList_001.act?rnum=26",
       "note": "2026-08-23 19:57 KST 은행 직접 페이지 live HTTP 캡처. 12개월 nominal 약정이율 4.10%. forensic run 32635180304, artifact 9492104054. #187의 이전 수동 evidence 값은 superseded."
     },
@@ -114,6 +115,7 @@
       "capture_method": "live_http_artifact",
       "capture_run_id": "32635180304",
       "capture_artifact_id": "9492104054",
+      "capture_artifact_sha256": "27fac90b077761ed4a04475b45452acf878574d4c7ef89fd92cb152e21747a6a",
       "url": "https://www.debecbank.co.kr/ProdList_001.act?rnum=27",
       "note": "2026-08-23 19:57 KST 은행 직접 페이지 live HTTP 캡처. 12개월 nominal 약정이율 4.10%, 연평균수익률 4.17%. forensic run 32635180304, artifact 9492104054. #187의 이전 수동 evidence 값은 superseded."
     },
@@ -135,6 +137,7 @@
       "capture_method": "live_http_artifact",
       "capture_run_id": "32635180304",
       "capture_artifact_id": "9492104054",
+      "capture_artifact_sha256": "27fac90b077761ed4a04475b45452acf878574d4c7ef89fd92cb152e21747a6a",
       "url": "https://www.debecbank.co.kr/ProdList_001.act?rnum=28",
       "note": "2026-08-23 19:57 KST 은행 직접 페이지 live HTTP 캡처. 12개월 nominal 약정이율 4.10%. forensic run 32635180304, artifact 9492104054. #187의 이전 수동 evidence 값은 superseded."
     },
@@ -156,6 +159,7 @@
       "capture_method": "live_http_artifact",
       "capture_run_id": "32635180304",
       "capture_artifact_id": "9492104054",
+      "capture_artifact_sha256": "27fac90b077761ed4a04475b45452acf878574d4c7ef89fd92cb152e21747a6a",
       "url": "https://www.debecbank.co.kr/ProdList_001.act?rnum=29",
       "note": "2026-08-23 19:57 KST 은행 직접 페이지 live HTTP 캡처. 12개월 nominal 약정이율 4.10%, 연평균수익률 4.17%. forensic run 32635180304, artifact 9492104054. #187의 이전 수동 evidence 값은 superseded."
     }
