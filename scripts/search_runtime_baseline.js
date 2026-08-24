@@ -19,7 +19,7 @@ async function waitForRendered(page) {
   await page.waitForFunction(
     () => {
       const count = document.getElementById("count");
-      const rows = document.querySelectorAll("#rows tr[data-row]");
+      const rows = document.querySelectorAll("#rows > tr:not(.skeleton)");
       return Boolean(count && count.textContent.trim() !== "—" && rows.length > 0);
     },
     null,
@@ -108,7 +108,12 @@ async function collectDefaultState(page, label) {
   const overflow = await assertNoHorizontalOverflow(page, label);
   const countText = (await page.locator("#count").textContent()).trim();
   const resultCount = cleanNumber(countText);
-  const visibleRows = await page.locator("#rows tr[data-row]").count();
+  const visibleRows = await page.locator("#rows > tr:not(.detail)").count();
+  const pinnedRows = await page.locator("#rows > tr.pinned").count();
+  const shownValue = await page.locator("#shown").inputValue();
+  const shownLimit = shownValue === "all" ? null : Number(shownValue);
+  const bodyRows = Math.max(0, resultCount - pinnedRows);
+  const expectedVisibleRows = Math.min(bodyRows, shownLimit == null ? bodyRows : shownLimit) + pinnedRows;
   const advancedHidden = await page.locator("#advanced-filters").isHidden();
   const filterToggleExpanded = await page.locator("#filter-toggle").getAttribute("aria-expanded");
   const basisText = (await page.locator("#basis").textContent()).trim().replace(/\s+/g, " ");
@@ -116,16 +121,27 @@ async function collectDefaultState(page, label) {
   const defaultRegion = groups.region?.checkedValues || [];
 
   invariant(resultCount > 0, `${label}: default result count must be positive`);
-  invariant(visibleRows > 0 && visibleRows <= 100, `${label}: default visible row count is invalid: ${visibleRows}`);
+  invariant(pinnedRows >= 0 && pinnedRows <= 1, `${label}: pinned row count changed: ${pinnedRows}`);
+  invariant(
+    visibleRows === expectedVisibleRows,
+    `${label}: rendered rows ${visibleRows} != expected ${expectedVisibleRows} `
+      + `(result=${resultCount}, shown=${shownValue}, pinned=${pinnedRows})`,
+  );
   invariant(advancedHidden, `${label}: advanced filters should be collapsed by default`);
   invariant(filterToggleExpanded === "false", `${label}: advanced toggle aria-expanded must be false`);
   invariant(basisText.includes("최고금리(우대 포함)"), `${label}: highest-rate basis label missing`);
   invariant(filterSummary.includes("공시일 최근 30일"), `${label}: recent-30-day default summary missing`);
-  invariant(JSON.stringify(defaultRegion) === JSON.stringify(["경기", "부산", "서울"]), `${label}: default regions changed: ${JSON.stringify(defaultRegion)}`);
+  invariant(
+    JSON.stringify(defaultRegion) === JSON.stringify(["경기", "부산", "서울"]),
+    `${label}: default regions changed: ${JSON.stringify(defaultRegion)}`,
+  );
 
   for (const key of ["sector", "type", "term", "channel", "scope", "method", "prefStatus"]) {
     invariant(groups[key]?.total > 0, `${label}: group ${key} is missing`);
-    invariant(groups[key].checked === groups[key].total, `${label}: group ${key} is not fully selected by default`);
+    invariant(
+      groups[key].checked === groups[key].total,
+      `${label}: group ${key} is not fully selected by default`,
+    );
   }
 
   const expectedPresets = [
@@ -160,7 +176,10 @@ async function collectDefaultState(page, label) {
     busanDetail: document.querySelector('[data-detail="gu"]')?.getAttribute("aria-expanded") || null,
     busanSelectedText: document.querySelector('[data-detail="gu"]')?.parentElement?.textContent.trim().replace(/\s+/g, " ") || null,
   }));
-  invariant(fields.q === "" && fields.rmin === "" && fields.tmin === "" && fields.tmax === "", `${label}: scalar defaults changed`);
+  invariant(
+    fields.q === "" && fields.rmin === "" && fields.tmin === "" && fields.tmax === "",
+    `${label}: scalar defaults changed`,
+  );
   invariant(fields.dto === "", `${label}: default dto should be empty`);
   invariant(fields.dfrom !== "", `${label}: recent-30-day dfrom should be populated`);
   invariant(fields.hideZero === false, `${label}: hide-zero should be off by default`);
@@ -173,6 +192,9 @@ async function collectDefaultState(page, label) {
     resultCount,
     countText,
     visibleRows,
+    pinnedRows,
+    shownLimit,
+    expectedVisibleRows,
     basisText,
     filterSummary,
     advancedHidden,
@@ -182,7 +204,7 @@ async function collectDefaultState(page, label) {
     charts,
     fields,
     overflow,
-    firstRows: await page.locator("#rows tr[data-row]").evaluateAll((rows) => rows.slice(0, 3).map((row) => row.textContent.trim().replace(/\s+/g, " "))),
+    firstRows: await page.locator("#rows > tr:not(.detail)").evaluateAll((rows) => rows.slice(0, 3).map((row) => row.textContent.trim().replace(/\s+/g, " "))),
   };
 }
 
@@ -195,7 +217,10 @@ async function assertCurrentAllSemantics(page, label) {
   const before = await page.locator('input[data-group="type"]:checked').count();
   await allButton.click();
   const afterAllClick = await page.locator('input[data-group="type"]:checked').count();
-  invariant(afterAllClick === before && before > 0, `${label}: current all button no longer idempotently selects all`);
+  invariant(
+    afterAllClick === before && before > 0,
+    `${label}: current all button no longer idempotently selects all`,
+  );
 
   const values = await page.locator('input[data-group="type"]').evaluateAll((nodes) => nodes.map((node) => node.value));
   for (const value of values) {
@@ -204,7 +229,10 @@ async function assertCurrentAllSemantics(page, label) {
   }
   const afterLastOff = await page.locator('input[data-group="type"]:checked').count();
   const total = await page.locator('input[data-group="type"]').count();
-  invariant(afterLastOff === total, `${label}: current last-checkbox auto-recovery changed: ${afterLastOff}/${total}`);
+  invariant(
+    afterLastOff === total,
+    `${label}: current last-checkbox auto-recovery changed: ${afterLastOff}/${total}`,
+  );
 
   return {
     allButtonLabel: (await page.locator('[data-all="type"]').textContent()).trim(),
@@ -244,7 +272,10 @@ async function assertUrlRoundTrip(page, label) {
     histogramAria: await page.locator("#hist").getAttribute("aria-label"),
     termCaption: (await page.locator("#terms-cap").textContent()).trim(),
   };
-  invariant(after.tmin === "12" && after.tmax === "12", `${label}: URL did not restore exact 12-month scalar fields`);
+  invariant(
+    after.tmin === "12" && after.tmax === "12",
+    `${label}: URL did not restore exact 12-month scalar fields`,
+  );
   invariant(after.count === before.count, `${label}: URL round-trip count changed ${before.count} -> ${after.count}`);
   invariant(after.histogramAria === before.histogramAria, `${label}: URL round-trip histogram basis changed`);
   invariant(after.termCaption === before.termCaption, `${label}: URL round-trip term chart caption changed`);
@@ -303,6 +334,7 @@ async function runViewport(browser, label, viewport) {
       desktop: {
         resultCount: desktop.defaultState.resultCount,
         visibleRows: desktop.defaultState.visibleRows,
+        pinnedRows: desktop.defaultState.pinnedRows,
         presets: desktop.defaultState.presets,
         overflow: desktop.defaultState.overflow,
         exact12Count: desktop.exact12UrlRoundTrip.after.count,
@@ -310,6 +342,7 @@ async function runViewport(browser, label, viewport) {
       mobile: {
         resultCount: mobile.defaultState.resultCount,
         visibleRows: mobile.defaultState.visibleRows,
+        pinnedRows: mobile.defaultState.pinnedRows,
         presets: mobile.defaultState.presets,
         overflow: mobile.defaultState.overflow,
         exact12Count: mobile.exact12UrlRoundTrip.after.count,
