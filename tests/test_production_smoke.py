@@ -7,7 +7,7 @@ EXPECTED_MANIFEST = {
     "generated_at": "2026-08-11T08:57:02+09:00",
     "rows": 326_793,
     "data_bytes": 21_251_456,
-    "files": ["index.html", "strategy.html", "data/table.json"],
+    "files": ["index.html", "data/table.json"],
 }
 
 
@@ -21,18 +21,14 @@ def test_validate_root_requires_operational_markers() -> None:
     assert "업권" in exc.value.detail
 
 
-def test_validate_strategy_requires_unified_workspace_markers() -> None:
-    smoke.validate_strategy(
-        "수신상품 전략 대시보드 "
-        '<script id="strategy-workspace-script"></script> '
-        '<script id="strategy-brand-theme-script"></script>'
-    )
-
+def test_validate_root_rejects_strategy_navigation_while_gate_off() -> None:
     with pytest.raises(smoke.SmokeFailure) as exc:
-        smoke.validate_strategy("수신상품 전략 대시보드")
+        smoke.validate_root(
+            '<button>수집 상태</button><span>업권</span><a href="strategy.html">전략</a>'
+        )
 
     assert exc.value.category == "content-mismatch"
-    assert "strategy-workspace-script" in exc.value.detail
+    assert "Strategy navigation" in exc.value.detail
 
 
 def test_validate_manifest_detects_stale_publish() -> None:
@@ -56,16 +52,22 @@ def test_validate_manifest_accepts_newer_successful_publish() -> None:
     smoke.validate_manifest(actual, EXPECTED_MANIFEST)
 
 
-def test_validate_manifest_requires_strategy_in_expected_and_production() -> None:
-    missing_expected = dict(EXPECTED_MANIFEST, files=["index.html", "data/table.json"])
+def test_validate_manifest_rejects_strategy_in_expected_or_production() -> None:
+    leaked_expected = dict(
+        EXPECTED_MANIFEST,
+        files=["index.html", "strategy.html", "data/table.json"],
+    )
     with pytest.raises(smoke.SmokeFailure) as exc:
-        smoke.validate_manifest(EXPECTED_MANIFEST, missing_expected)
-    assert "strategy.html" in exc.value.detail
+        smoke.validate_manifest(EXPECTED_MANIFEST, leaked_expected)
+    assert "leaks Strategy" in exc.value.detail
 
-    missing_actual = dict(EXPECTED_MANIFEST, files=["index.html", "data/table.json"])
+    leaked_actual = dict(
+        EXPECTED_MANIFEST,
+        files=["index.html", "data/table.json", "data/strategy-table.json.gz"],
+    )
     with pytest.raises(smoke.SmokeFailure) as exc:
-        smoke.validate_manifest(missing_actual, EXPECTED_MANIFEST)
-    assert "strategy.html" in exc.value.detail
+        smoke.validate_manifest(leaked_actual, EXPECTED_MANIFEST)
+    assert "leaks Strategy" in exc.value.detail
 
 
 def test_validate_manifest_same_generation_requires_exact_size_contract() -> None:
@@ -95,7 +97,7 @@ def test_validate_health_requires_read_only_contract() -> None:
     assert "pipeline_steps" in exc.value.detail
 
 
-def test_run_once_checks_root_strategy_manifest_and_health(
+def test_run_once_checks_root_strategy_absence_manifest_and_health(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     health = {
@@ -107,14 +109,8 @@ def test_run_once_checks_root_strategy_manifest_and_health(
         "source_steps": {},
         "pipeline_steps": {},
     }
-    strategy = (
-        "수신상품 전략 대시보드 "
-        '<script id="strategy-workspace-script"></script> '
-        '<script id="strategy-brand-theme-script"></script>'
-    )
     responses = {
         "https://example.test/": (200, "업권 수집 상태".encode(), "text/html"),
-        "https://example.test/strategy.html": (200, strategy.encode(), "text/html"),
         "https://example.test/site-manifest.json": (
             200,
             json.dumps(EXPECTED_MANIFEST).encode(),
@@ -126,23 +122,39 @@ def test_run_once_checks_root_strategy_manifest_and_health(
             "application/json",
         ),
     }
+    absent: list[str] = []
 
     monkeypatch.setattr(smoke, "_get", lambda url, timeout: responses[url])
+    monkeypatch.setattr(
+        smoke,
+        "_expect_absent",
+        lambda url, timeout: absent.append(url),
+    )
 
     smoke.run_once("https://example.test", EXPECTED_MANIFEST, timeout=1)
 
+    assert absent == ["https://example.test/strategy.html"]
 
-def test_run_once_rejects_manifest_without_strategy_before_network(
+
+def test_run_once_rejects_manifest_with_strategy_before_network(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    manifest = dict(EXPECTED_MANIFEST, files=["index.html", "data/table.json"])
+    manifest = dict(
+        EXPECTED_MANIFEST,
+        files=["index.html", "strategy.html", "data/table.json"],
+    )
     monkeypatch.setattr(
         smoke,
         "_get",
         lambda url, timeout: pytest.fail(f"unexpected network call: {url}"),
     )
+    monkeypatch.setattr(
+        smoke,
+        "_expect_absent",
+        lambda url, timeout: pytest.fail(f"unexpected absence probe: {url}"),
+    )
 
     with pytest.raises(smoke.SmokeFailure) as exc:
         smoke.run_once("https://example.test", manifest, timeout=1)
 
-    assert "strategy.html" in exc.value.detail
+    assert "leaks Strategy" in exc.value.detail
