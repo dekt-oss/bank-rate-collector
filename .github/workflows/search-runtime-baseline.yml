@@ -162,10 +162,13 @@ jobs:
               assert default["visibleRows"] == default["expectedVisibleRows"]
               assert 0 < default["visibleRows"] <= 101
               assert default["advancedHidden"] is True
-              assert default["charts"]["hidden"] is False
-              assert default["charts"]["histogramChildren"] > 0
-              assert default["charts"]["termChildren"] > 0
-              assert default["charts"]["regionTiles"] > 0
+              charts = default["charts"]
+              assert charts["hidden"] is False
+              assert charts["histogramChildren"] > 0
+              assert charts["termChildren"] > 0
+              assert charts["mainMapShells"] == 1
+              assert charts["mainMapPaths"] > 0
+              assert charts["mainMapRatePaths"] > 0
               assert len(default["presets"]) == 4
               assert payload["currentAllSemantics"]["behavior"] == (
                   "all-button-selects-all-only; last-checkbox-off-auto-restores-all"
