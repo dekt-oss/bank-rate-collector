@@ -869,7 +869,10 @@ def test_all_means_every_checkbox_is_actually_selected() -> None:
     assert "const selectAllGroup = (key) =>" in SOURCE
     assert "groupValues(g).forEach((v) => state.picked[key].add(v));" in SOURCE
     assert 'e.target.closest("[data-all]")' in SOURCE
-    assert "if (!set.size) selectAllGroup(box.dataset.group);" in SOURCE
+    assert "if (!set.size) selectAllGroup(box.dataset.group);" not in SOURCE
+    assert "const emptyMainGroup = () =>" in SOURCE
+    assert 'allSelected ? "전체 해제" : "전체 선택"' in SOURCE
+    assert "if (g && groupAllSelected(g)) {" in SOURCE
     assert 'p.set("date", "all")' in SOURCE
     assert 'GROUPS.filter((g) => !urlSetKeys.has(g.key)).forEach(applyDefaultGroup);' in SOURCE
 
