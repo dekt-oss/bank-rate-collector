@@ -1,0 +1,194 @@
+name: Source discrepancy ambiguity taxonomy forensic
+
+on:
+  push:
+    branches: ["feat/source-discrepancy-ambiguity-taxonomy-forensic-*"]
+    paths:
+      - "scripts/source_discrepancy_ambiguity_taxonomy_forensic.py"
+      - "tests/test_source_discrepancy_ambiguity_taxonomy_forensic.py"
+      - "docs/specs/20260824-source-discrepancy-ambiguity-taxonomy-forensic-v1.md"
+      - ".github/workflows/source-discrepancy-ambiguity-taxonomy-forensic.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: source-discrepancy-ambiguity-taxonomy-forensic
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  statuses: write
+
+jobs:
+  forensic:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Publish forensic locator
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            -f state=pending \
+            -f context=source-discrepancy-ambiguity-taxonomy \
+            -f description="Ambiguity taxonomy forensic running" \
+            -f target_url="$TARGET_URL"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Sync dependencies
+        run: uv sync --locked
+
+      - name: Validate forensic extractor
+        run: |
+          set -euo pipefail
+          uv run ruff check \
+            scripts/source_discrepancy_ambiguity_taxonomy_forensic.py \
+            tests/test_source_discrepancy_ambiguity_taxonomy_forensic.py
+          uv run pytest -q tests/test_source_discrepancy_ambiguity_taxonomy_forensic.py
+
+      - name: Restore production database to runner-local copy
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+          R2_REGION: ${{ vars.R2_REGION }}
+        run: |
+          set -euo pipefail
+          mkdir -p work
+          uv run rate-monitor storage restore --dest work/production.sqlite3
+          cp work/production.sqlite3 work/forensic.sqlite3
+          test -s work/forensic.sqlite3
+
+      - name: Apply migrations to forensic copy
+        env:
+          RATE_MONITOR_DB_URL: sqlite+pysqlite:///${{ github.workspace }}/work/forensic.sqlite3
+        run: uv run alembic upgrade head
+
+      - name: Fresh FINLIFE savings-bank capture on isolated copy
+        env:
+          FINLIFE_API_KEY: ${{ secrets.FINLIFE_API_KEY }}
+        run: |
+          set -euo pipefail
+          uv run rate-monitor collect \
+            --source finlife_savings_bank \
+            --db work/forensic.sqlite3 \
+            --raw-root data/raw \
+            --groups 030300
+
+      - name: Fresh FSB capture on isolated copy
+        run: |
+          set -euo pipefail
+          uv run rate-monitor collect \
+            --source fsb \
+            --db work/forensic.sqlite3 \
+            --raw-root data/raw
+
+      - name: Build taxonomy forensic evidence
+        run: |
+          set -euo pipefail
+          uv run python scripts/source_discrepancy_ambiguity_taxonomy_forensic.py \
+            --raw-root data/raw \
+            --production-snapshot-seeded-for-collection \
+            --out work/ambiguity-taxonomy-forensic.json
+
+      - name: Assert read-only taxonomy contract
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          report = json.loads(
+              Path("work/ambiguity-taxonomy-forensic.json").read_text(encoding="utf-8")
+          )
+          scope = report["scope"]
+          assert scope["mode"] == "fresh_raw_read_only_taxonomy_forensic"
+          assert scope["production_snapshot_seeded_for_collection"] is True
+          assert scope["production_snapshot_used_for_taxonomy_decision"] is False
+          assert scope["production_state_mutated"] is False
+          assert scope["canonical_mutated"] is False
+          assert scope["source_precedence_changed"] is False
+          assert scope["authority_selected"] is False
+          assert scope["identity_changed"] is False
+
+          assert report["summary"]["target_count"] == 2
+          assert report["summary"]["targets_with_finlife_saving_service_record"] == 2
+
+          targets = {item["institution"]: item for item in report["targets"]}
+          assert set(targets) == {"아산저축은행", "진주저축은행"}
+          expected_names = {
+              "아산저축은행": "SB톡톡-정기예금",
+              "진주저축은행": "정기예금(진주)",
+          }
+          for institution, target in targets.items():
+              assert target["finlife_records"], institution
+              assert target["finlife_product_codes"], institution
+              assert set(target["finlife_payment_methods"]) == {"F", "S"}, institution
+              assert all(
+                  record["service"] == "savingProductsSearch"
+                  for record in target["finlife_records"]
+              )
+              assert all(
+                  record["fin_prdt_nm"] == expected_names[institution]
+                  for record in target["finlife_records"]
+              )
+              option_types = {
+                  str(option.get("rsrv_type_nm") or "")
+                  for record in target["finlife_records"]
+                  for option in record["options"]
+              }
+              assert "정액적립식" in option_types
+              assert "자유적립식" in option_types
+
+          print("summary:", report["summary"])
+          print("scope:", scope)
+          for item in report["targets"]:
+              print(
+                  item["institution"], item["product"],
+                  "finlife_codes=", item["finlife_product_codes"],
+                  "payment_methods=", item["finlife_payment_methods"],
+                  "fsb_exact=", len(item["fsb_exact_target_records"]),
+                  "fsb_products=", item["fsb_all_products"],
+              )
+          PY
+
+      - name: Upload taxonomy evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: source-discrepancy-ambiguity-taxonomy-${{ github.run_id }}
+          retention-days: 30
+          path: |
+            work/ambiguity-taxonomy-forensic.json
+            data/raw/
+          if-no-files-found: warn
+
+      - name: Publish forensic conclusion
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          if [ "$JOB_STATUS" = "success" ]; then
+            STATE=success
+            DESCRIPTION="Ambiguity taxonomy forensic succeeded"
+          else
+            STATE=failure
+            DESCRIPTION="Ambiguity taxonomy forensic failed"
+          fi
+          gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            -f state="$STATE" \
+            -f context=source-discrepancy-ambiguity-taxonomy \
+            -f description="$DESCRIPTION" \
+            -f target_url="$TARGET_URL"
