@@ -215,3 +215,29 @@ Production snapshot의 실제 `P0/P1/P2/P3` 개수와 top queue는 PR runtime ev
 - 자동 Issue 생성
 
 다음 단계는 이 queue의 상위 항목부터 공식 evidence를 확장하는 것이다.
+
+## 11. 2026-08-24 A0 재검증 계약
+
+Post-Merge 개선 통합 명세 v3의 Phase 1 A0에서 이 v1 규칙을 current main과 다시 대조했다.
+대표 원인 precedence와 threshold는 현재 구현과 일치하므로 **이번 A0에서 변경하지 않는다.**
+
+재검증 세부 계약과 경계값 테스트는 다음 문서가 고정한다.
+
+- `docs/specs/20260824-source-discrepancy-classification-contract-v1.md`
+- `tests/test_source_discrepancy_classification_contract.py`
+
+A0가 명시적으로 잠그는 경계:
+
+- stale age `>= 90일`
+- material gap `>= 0.20%p`
+- 동일 effective date conflict가 stale/material보다 우선
+- 현행 계약상 material gap이 unknown effective date보다 우선
+- official signal이 source-only 대표원인보다 우선하더라도 authority를 선택하지 않음
+- 동일 입력은 동일 queue를 생성
+
+A0는 `last_seen_at`을 representative classification input으로 새로 승격하지 않는다.
+`last_seen_at`은 observational provenance/freshness metadata로 유지하고, source authority와 분리한다.
+
+A0 완료 전 production R2 read-only audit을 다시 실행하여 current mismatch 6건이 같은 계약으로
+재생성되는지 확인한다. 결과가 달라지면 해당 차이는 source data 변화인지 classification 회귀인지
+분리해서 보고한 뒤 A1/A2 forensic으로 넘어간다.
