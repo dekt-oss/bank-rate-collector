@@ -162,19 +162,26 @@ baseline은 이 버그를 정상 동작으로 승인하지 않는다. **D1 전�
 - `tmin=12`
 - `tmax=12`
 
+현재 `tmin/tmax` 입력은 `#advanced-filters` 안에 있고 기본 상태에서는 접혀 있다. 따라서
+browser baseline도 실제 사용자 경로를 따라 **`상세 조건 펼치기`를 먼저 클릭한 뒤** 값을
+입력한다. hidden input에 강제로 값을 쓰는 방식은 사용하지 않는다.
+
 검증:
 
-1. URL query에 `tmin=12&tmax=12`가 저장됨
-2. 결과 건수 > 0
-3. histogram/term chart basis 문자열을 기록
-4. 같은 URL을 reload
-5. `tmin/tmax` input이 12로 복원됨
-6. 결과 건수 exact match
-7. histogram aria-label exact match
-8. term chart caption exact match
-9. 대한민국 지도 presentation 재생성
-10. reload 뒤에도 horizontal overflow 없음
+1. 상세 조건이 실제로 펼쳐지고 `aria-expanded=true`가 됨
+2. `tmin/tmax`에 각각 12 입력
+3. URL query에 `tmin=12&tmax=12`가 저장됨
+4. 결과 건수 > 0
+5. histogram/term chart basis 문자열을 기록
+6. 같은 URL을 reload
+7. `tmin/tmax` input이 12로 복원됨
+8. 결과 건수 exact match
+9. histogram aria-label exact match
+10. term chart caption exact match
+11. 대한민국 지도 presentation 재생성
+12. reload 뒤에도 horizontal overflow 없음
 
+reload 후 상세 패널이 다시 접혀 있어도 URL에서 복원된 scalar state 자체는 유지되어야 한다.
 이 baseline은 Track D2 exact-12 preset이 기존 scalar/range URL contract를 재사용하거나
 대체할 때 회귀를 판단하는 기준이다.
 
@@ -216,7 +223,7 @@ workflow artifact는 최소 다음을 포함한다.
 - pinned-row / 표시 건수 contract captured
 - current preset contract captured
 - current all-selection hidden-state mismatch captured
-- exact-12 URL reload contract captured
+- exact-12 visible-control URL reload contract captured
 - histogram / term chart rendered in both viewport baselines
 - final 대한민국 지도 presentation shell + rate-bearing SVG paths rendered in both viewport baselines
 - no browser console/page errors
