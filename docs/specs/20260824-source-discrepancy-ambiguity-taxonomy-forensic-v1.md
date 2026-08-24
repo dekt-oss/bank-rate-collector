@@ -32,6 +32,14 @@ Current report상 이 10건은 모두:
 
 같은 isolated workflow에서 fresh FINLIFE savings-bank와 FSB를 수집한다.
 
+Workflow는 현재 production R2 snapshot을 runner-local에 restore한 뒤 `forensic.sqlite3` 복사본을 fresh collector의 seed DB로 사용한다. **production snapshot을 사용하지 않는 것이 아니다.** 다만 taxonomy 판정은 이번 실행에서 새로 생성된 FINLIFE/FSB raw artifact만 읽어 수행하며, 기존 production row를 taxonomy truth로 사용하지 않는다.
+
+따라서 evidence metadata는 다음을 구분한다.
+
+- `production_snapshot_seeded_for_collection=true`
+- `production_snapshot_used_for_taxonomy_decision=false`
+- `production_state_mutated=false`
+
 FINLIFE target record에 보존:
 
 - service = `savingProductsSearch`
@@ -57,6 +65,7 @@ FSB에는 대상 기관의 전체 fresh 상품명/product code 목록과 exact t
 - 이름만 보고 deposit/savings identity를 자동 교정하지 않는다.
 - upstream source anomaly/semantic anomaly는 별도 source-quality finding으로 남긴다.
 - 이 forensic은 payment_method 7D 승격 결정을 하지 않는다.
+- production snapshot은 fresh collector의 runner-local seed 역할만 하며 taxonomy 결론의 근거 row로 사용하지 않는다.
 
 ## 5. Safety
 
@@ -69,6 +78,8 @@ FSB에는 대상 기관의 전체 fresh 상품명/product code 목록과 exact t
 
 Machine scope:
 
+- `production_snapshot_seeded_for_collection=true` (workflow 실행 시)
+- `production_snapshot_used_for_taxonomy_decision=false`
 - `production_state_mutated=false`
 - `canonical_mutated=false`
 - `source_precedence_changed=false`
@@ -81,6 +92,8 @@ Machine scope:
 - extractor unit test SUCCESS
 - isolated fresh FINLIFE SUCCESS
 - isolated fresh FSB SUCCESS
+- workflow evidence가 production snapshot seed 사용 여부를 사실대로 표시
+- taxonomy 판정이 fresh raw에만 근거함을 machine flag로 확인
 - 두 target 모두 fresh FINLIFE saving service base record 확보
 - 두 target 모두 payment methods `F/S`를 raw option에서 직접 확인
 - `rsrv_type_nm`에 정액적립식/자유적립식 존재
