@@ -54,10 +54,6 @@ async function presetInfo(page, id) {
   const button = page.locator(`[data-preset="${id}"]`);
   invariant(await button.count() === 1, `preset missing: ${id}`);
   return {
-    label: (await button.clone().locator(".n").evaluate((node) => {
-      node.remove();
-      return node.parentElement?.textContent || "";
-    }).catch(() => "")).trim(),
     pressed: await button.getAttribute("aria-pressed"),
     count: countValue(await button.locator(".n").textContent()),
   };
