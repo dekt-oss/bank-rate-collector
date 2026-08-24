@@ -468,7 +468,10 @@ def main() -> int:
     args.out.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
 
     print("summary:", json.dumps(report["summary"], ensure_ascii=False, sort_keys=True))
-    print("fresh target records:", json.dumps(report["fresh_raw_target_records"], ensure_ascii=False))
+    print(
+        "fresh target records:",
+        json.dumps(report["fresh_raw_target_records"], ensure_ascii=False),
+    )
     return 0
 
 
