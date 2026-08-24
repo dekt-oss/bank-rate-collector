@@ -12,6 +12,9 @@ from rate_monitor.services.official_evidence_policy import (
     annotate_official_evidence_policy,
     write_prepared_official_evidence,
 )
+from rate_monitor.services.source_discrepancy_ambiguity_census import (
+    annotate_payment_method_ambiguity_census,
+)
 from rate_monitor.services.source_discrepancy_service import write_source_discrepancy_report
 from rate_monitor.services.source_discrepancy_triage import annotate_discrepancy_triage
 from rate_monitor.services.source_official_contradiction_triage import (
@@ -96,6 +99,10 @@ def main() -> int:
     report = annotate_official_evidence_policy(_build_report(args))
     report = annotate_official_contradictions(report)
     report = annotate_discrepancy_triage(report)
+    report = annotate_payment_method_ambiguity_census(
+        report,
+        db_path=Path(args.db),
+    )
     _rewrite_report(out_path, report)
 
     if args.triage_out:
@@ -112,6 +119,9 @@ def main() -> int:
     triage_summary = triage["summary"]
     contradictions = report["official_contradictions"]
     contradiction_summary = contradictions["summary"]
+    census = report["ambiguity_census"]
+    census_summary = census["summary"]
+    masking = census["queue_masking_indicator"]
     print(f"report                    : {args.out}")
     if args.triage_out:
         print(f"triage queue              : {args.triage_out}")
@@ -143,6 +153,18 @@ def main() -> int:
         f"P1={triage_summary['P1']}",
         f"P2={triage_summary['P2']}",
         f"P3={triage_summary['P3']}",
+    )
+    print(
+        "payment ambiguity census   :",
+        f"blocked={census_summary['ambiguity_blocked_count']}",
+        f"counterpart={census_summary['counterpart_coverage']}",
+        f"risk_bands={census_summary['blocked_risk_bands']}",
+    )
+    print(
+        "queue masking              :",
+        f"comparable={masking['comparable_mismatch_count']}",
+        f"blocked={masking['ambiguity_blocked_count']}",
+        f"blocked_ge_0.20pp={masking['blocked_ge_0_20pp_count']}",
     )
     print(
         "official contradictions    :",
