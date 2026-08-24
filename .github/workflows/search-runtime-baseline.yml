@@ -1,0 +1,220 @@
+name: Search runtime baseline
+
+on:
+  push:
+    branches: ["test/search-runtime-baseline-*"]
+    paths:
+      - "web/templates/site.html"
+      - "src/rate_monitor/services/site_service.py"
+      - "src/rate_monitor/services/dashboard_service.py"
+      - "src/rate_monitor/services/main_map_presentation.py"
+      - "src/rate_monitor/services/dashboard_ui_refinement_presentation.py"
+      - "scripts/search_runtime_baseline.js"
+      - ".github/workflows/search-runtime-baseline.yml"
+      - "docs/specs/20260824-search-runtime-baseline-v1.md"
+      - "config/**"
+      - "migrations/**"
+      - "alembic.ini"
+      - "pyproject.toml"
+      - "uv.lock"
+  workflow_dispatch:
+
+concurrency:
+  group: search-runtime-baseline
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  statuses: write
+
+jobs:
+  baseline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Publish baseline locator
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            -f state=pending \
+            -f context=search-runtime-baseline \
+            -f description="Search runtime baseline running" \
+            -f target_url="$TARGET_URL"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Sync dependencies
+        run: uv sync --locked
+
+      - name: Restore production database to runner-local copy
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+          R2_REGION: ${{ vars.R2_REGION }}
+        run: |
+          set -euo pipefail
+          mkdir -p work
+          uv run rate-monitor storage restore --dest work/search-baseline.sqlite3
+          test -s work/search-baseline.sqlite3
+
+      - name: Apply migrations to baseline copy
+        env:
+          RATE_MONITOR_DB_URL: sqlite+pysqlite:///${{ github.workspace }}/work/search-baseline.sqlite3
+        run: uv run alembic upgrade head
+
+      - name: Seal runner-local database
+        run: |
+          set -euo pipefail
+          sha256sum work/search-baseline.sqlite3 | awk '{print $1}' > work/search-db-before.sha256
+          cat work/search-db-before.sha256
+
+      - name: Build Search static site with Strategy gate OFF
+        env:
+          RATE_MONITOR_STRATEGY_DASHBOARD: "0"
+        run: |
+          set -euo pipefail
+          rm -rf published/search-baseline
+          uv run rate-monitor build-site \
+            --db work/search-baseline.sqlite3 \
+            --out published/search-baseline \
+            --export-dir work/no-search-baseline-exports
+          test -s published/search-baseline/index.html
+          test -s published/search-baseline/data/table.json
+          test -s published/search-baseline/site-manifest.json
+          test ! -e published/search-baseline/strategy.html
+
+      - name: Assert site build did not mutate DB
+        run: |
+          set -euo pipefail
+          BEFORE=$(cat work/search-db-before.sha256)
+          AFTER=$(sha256sum work/search-baseline.sqlite3 | awk '{print $1}')
+          echo "db before=$BEFORE"
+          echo "db after =$AFTER"
+          test "$BEFORE" = "$AFTER"
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install Playwright runner
+        run: |
+          set -euo pipefail
+          command -v google-chrome
+          google-chrome --version
+          npm install --no-save --package-lock=false @playwright/test@1.61.1
+
+      - name: Capture desktop 1440 and mobile 390 baseline
+        env:
+          SEARCH_BASELINE_BASE_URL: http://127.0.0.1:4174
+          SEARCH_BASELINE_SOURCE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p work/search-baseline
+          python -m http.server 4174 --directory published/search-baseline \
+            > work/search-baseline/http.log 2>&1 &
+          SERVER_PID=$!
+          trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT
+
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:4174/index.html >/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:4174/index.html >/dev/null
+          node scripts/search_runtime_baseline.js
+
+      - name: Assert baseline evidence contract
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          root = Path("work/search-baseline")
+          summary = json.loads((root / "search-baseline-summary.json").read_text(encoding="utf-8"))
+          assert summary["schema"] == "search-runtime-baseline-summary-v1"
+          assert summary["sourceSha"] == "${{ github.sha }}"
+
+          for label in ("desktop-1440", "mobile-390"):
+              payload = json.loads((root / f"search-baseline-{label}.json").read_text(encoding="utf-8"))
+              assert payload["schema"] == "search-runtime-baseline-v1"
+              assert payload["sourceSha"] == "${{ github.sha }}"
+              assert payload["runtimeErrors"] == []
+              default = payload["defaultState"]
+              assert default["resultCount"] > 0
+              assert 0 < default["visibleRows"] <= 100
+              assert default["advancedHidden"] is True
+              assert default["charts"]["hidden"] is False
+              assert default["charts"]["histogramChildren"] > 0
+              assert default["charts"]["termChildren"] > 0
+              assert default["charts"]["regionTiles"] > 0
+              assert len(default["presets"]) == 4
+              assert payload["currentAllSemantics"]["behavior"] == (
+                  "all-button-selects-all-only; last-checkbox-off-auto-restores-all"
+              )
+              round_trip = payload["exact12UrlRoundTrip"]
+              assert round_trip["before"]["count"] == round_trip["after"]["count"]
+              assert round_trip["after"]["tmin"] == "12"
+              assert round_trip["after"]["tmax"] == "12"
+              assert (root / f"search-baseline-{label}.png").is_file()
+
+          print(json.dumps(summary, ensure_ascii=False, indent=2))
+          PY
+
+      - name: Assert browser baseline did not mutate DB
+        run: |
+          set -euo pipefail
+          BEFORE=$(cat work/search-db-before.sha256)
+          AFTER=$(sha256sum work/search-baseline.sqlite3 | awk '{print $1}')
+          echo "db before=$BEFORE"
+          echo "db after =$AFTER"
+          test "$BEFORE" = "$AFTER"
+
+      - name: Upload Search runtime baseline evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: search-runtime-baseline-${{ github.run_id }}
+          retention-days: 30
+          path: |
+            work/search-baseline/search-baseline-*.json
+            work/search-baseline/search-baseline-*.png
+            work/search-baseline/http.log
+            work/search-db-before.sha256
+            published/search-baseline/site-manifest.json
+          if-no-files-found: warn
+
+      - name: Publish baseline conclusion
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          if [ "$JOB_STATUS" = "success" ]; then
+            STATE=success
+            DESCRIPTION="Search runtime baseline succeeded"
+          else
+            STATE=failure
+            DESCRIPTION="Search runtime baseline failed"
+          fi
+          gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            -f state="$STATE" \
+            -f context=search-runtime-baseline \
+            -f description="$DESCRIPTION" \
+            -f target_url="$TARGET_URL"
