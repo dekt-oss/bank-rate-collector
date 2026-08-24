@@ -7,6 +7,7 @@ on:
       - "scripts/source_discrepancy_daishin_forensic.py"
       - "tests/test_source_discrepancy_daishin_forensic.py"
       - ".github/workflows/source-discrepancy-daishin-forensic.yml"
+      - "docs/specs/20260824-source-discrepancy-daishin-forensic-v1.md"
   workflow_dispatch:
 
 concurrency:
@@ -131,6 +132,7 @@ jobs:
           assert scope["canonical_mutated"] is False
           assert scope["source_precedence_changed"] is False
           assert scope["authority_selected"] is False
+          assert "first_seen_raw" in scope["provenance_semantics"]
 
           rows = report["rows"]
           assert rows, "대신저축은행 24/36개월 정기적금 forensic row가 없다"
@@ -142,8 +144,32 @@ jobs:
           assert any(row["interest_method"] == "simple" for row in finlife)
           assert any(row["interest_method"] == "compound" for row in finlife)
           assert all(row["source_product_keys"] for row in finlife)
-          assert all(row["raw"]["resolved"] for row in rows)
-          assert all(row["raw"]["sha256_matches_db"] is True for row in rows)
+          assert all("first_seen_raw" in row for row in rows)
+
+          artifacts = report["fresh_run_artifacts"]
+          for source_id in ("fsb", "finlife_savings_bank"):
+              assert artifacts[source_id]
+              assert all(item["resolved"] is True for item in artifacts[source_id])
+              assert all(item["sha256_matches_db"] is True for item in artifacts[source_id])
+
+          fresh = report["fresh_raw_target_records"]
+          assert fresh["fsb"], "fresh FSB raw에서 대신 정기적금을 찾지 못했다"
+          assert fresh["finlife_savings_bank"], "fresh FINLIFE raw에서 대신 정기적금을 찾지 못했다"
+          assert {item["finan_prod_code"] for item in fresh["fsb"]} == {"JJ09"}
+          finlife_codes = {item["fin_prdt_cd"] for item in fresh["finlife_savings_bank"]}
+          assert {"JJ", "JJ09"}.issubset(finlife_codes)
+
+          jj09_finlife = [
+              item for item in fresh["finlife_savings_bank"]
+              if item["fin_prdt_cd"] == "JJ09"
+          ]
+          assert jj09_finlife
+          assert {item["term_months"] for item in jj09_finlife} == {24, 36}
+          assert {str(item["base_rate"]) for item in jj09_finlife} == {"4.0"}
+
+          jj09_fsb = [item for item in fresh["fsb"] if item["finan_prod_code"] == "JJ09"]
+          assert {item["term_months"] for item in jj09_fsb} == {24, 36}
+          assert {str(item["base_rate"]) for item in jj09_fsb} == {"3.00"}
 
           official = report["official_bank_direct"]
           assert official and official["resolved"] is True
@@ -151,14 +177,8 @@ jobs:
 
           print("latest runs:", report["latest_runs"])
           print("summary:", report["summary"])
-          print("rows:")
-          for row in rows:
-              print(
-                  row["source_id"], row["term_months"], row["interest_method"],
-                  row["payment_method"], row["base_rate"], row["max_rate"],
-                  row["source_product_keys"], row["base_source_locator"],
-                  row["option_source_locator"],
-              )
+          print("fresh target records:", fresh)
+          print("official:", official)
           PY
 
       - name: Upload Daishin forensic evidence
