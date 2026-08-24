@@ -15,10 +15,7 @@ function cleanNumber(value) {
   return Number(String(value || "").replaceAll(",", "").replace(/[^0-9.-]/g, ""));
 }
 
-async function waitForSearch(page) {
-  await page.route("**/favicon.ico", (route) => route.fulfill({ status: 204, body: "" }));
-  const response = await page.goto(`${baseUrl}/index.html`, { waitUntil: "networkidle" });
-  invariant(response && response.ok(), `index.html HTTP ${response ? response.status() : "no response"}`);
+async function waitForRendered(page) {
   await page.waitForFunction(
     () => {
       const count = document.getElementById("count");
@@ -28,6 +25,13 @@ async function waitForSearch(page) {
     null,
     { timeout: 45_000 },
   );
+}
+
+async function openSearch(page) {
+  await page.route("**/favicon.ico", (route) => route.fulfill({ status: 204, body: "" }));
+  const response = await page.goto(`${baseUrl}/index.html`, { waitUntil: "networkidle" });
+  invariant(response && response.ok(), `index.html HTTP ${response ? response.status() : "no response"}`);
+  await waitForRendered(page);
 }
 
 async function assertNoHorizontalOverflow(page, label) {
@@ -231,7 +235,7 @@ async function assertUrlRoundTrip(page, label) {
   invariant(before.count > 0, `${label}: exact-12 URL exercise unexpectedly has zero rows`);
 
   await page.reload({ waitUntil: "networkidle" });
-  await waitForSearch(page);
+  await waitForRendered(page);
   const after = {
     url: page.url(),
     count: cleanNumber(await page.locator("#count").textContent()),
@@ -258,7 +262,7 @@ async function runViewport(browser, label, viewport) {
     if (message.type() === "error") runtimeErrors.push(`console: ${message.text()}`);
   });
 
-  await waitForSearch(page);
+  await openSearch(page);
   const defaultState = await collectDefaultState(page, label);
   await page.screenshot({
     path: path.join(workDir, `search-baseline-${label}.png`),
