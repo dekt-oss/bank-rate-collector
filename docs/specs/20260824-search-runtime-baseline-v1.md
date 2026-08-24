@@ -1,0 +1,162 @@
+# Search runtime baseline v1
+
+기준일: 2026-08-24
+
+## 1. 목적
+
+Post-Merge 개선 통합 명세 v3 Phase 2.5를 실행한다.
+
+Search UX의 전체선택 토글, empty-state render gate, exact 12개월 preset을 구현하기
+**전에 현재 브라우저 동작을 고정**한다. 이 PR은 Search UX 동작을 바꾸지 않는다.
+
+baseline은 이후 Track D PR에서 before/after 비교의 기준 artifact로 사용한다.
+
+## 2. Runtime source
+
+- GitHub `main`에서 분기한 exact branch source
+- production R2 snapshot을 runner-local SQLite로 restore
+- local copy에 migration 적용
+- `RATE_MONITOR_STRATEGY_DASHBOARD=0`
+- `rate-monitor build-site`로 Search 정적 사이트 생성
+- Chrome / Playwright로 실제 `index.html + data/table.json` 실행
+
+Production DB에는 write/upload하지 않는다.
+
+## 3. Viewports
+
+### Desktop
+
+- Chromium / Chrome
+- viewport width **1440px**
+- height 1000px
+
+### Mobile
+
+- Chromium / Chrome
+- viewport width **390px**
+- height 844px
+
+390px은 master plan에서 요구한 좁은 모바일 기준이다.
+
+## 4. Default-state evidence
+
+두 viewport 모두 다음을 DOM에서 검증하고 JSON에 보존한다.
+
+- result count > 0
+- 실제 표 row가 1~100건 렌더됨
+- 상세 조건은 기본 접힘
+- 금리 기준 = `최고금리(우대 포함)`
+- 공시일 기본 = 최근 30일
+- 기본 지역 = 서울 / 경기 / 부산
+- region 외 main groups는 전부 선택
+- scalar filter `q/rmin/tmin/tmax`는 비어 있음
+- `hideZero=false`
+- 표시 100건
+- chart container visible
+- histogram SVG 실제 렌더
+- 가입기간 chart 실제 렌더
+- region tile 실제 렌더
+- document/body horizontal overflow 없음
+- console error / pageerror 없음
+
+우리 회사 선택값, 부산 구·군 요약, filter summary, 첫 3개 렌더 row도 evidence에
+기록한다.
+
+## 5. Existing preset baseline
+
+현재 Search preset 4개를 label/id/order/pressed/count와 함께 고정한다.
+
+1. `sb-dep` — `부산 저축은행 · 1년 정기예금`
+2. `sb-sav` — `부산 저축은행 · 1년 적금`
+3. `mg-dep` — `부산 상호금융 · 1년 정기예금`
+4. `mg-sav` — `부산 상호금융 · 1년 적금`
+
+현재 이 네 preset의 `term`은 내부적으로 `7-12` bucket이다. baseline에서는 현재
+동작을 바꾸거나 명칭을 수정하지 않는다. Track D2가 exact 12개월 preset과 기존 label
+정정을 별도 구현한다.
+
+기본 상태에서는 네 preset 모두 `aria-pressed=false`여야 한다.
+
+## 6. Current all-selection semantics baseline
+
+Track D1 전 현재 동작을 명시적으로 실행해 보존한다.
+
+상품유형 group을 사용해 다음을 검증한다.
+
+1. 기본 all-selected 상태
+2. 현재 `전체 선택` 버튼을 다시 눌러도 all-selected 유지
+3. checkbox를 하나씩 끔
+4. 마지막 checkbox를 끄면 현재 코드가 자동으로 전체 선택으로 복구
+
+baseline evidence string:
+
+`all-button-selects-all-only; last-checkbox-off-auto-restores-all`
+
+Track D1은 이 before 상태에서 토글 semantics로 변경한다.
+
+## 7. URL / chart sync baseline
+
+현재 기본 상태에서 reset 후 scalar range를 exact 12개월로 설정한다.
+
+- `tmin=12`
+- `tmax=12`
+
+검증:
+
+1. URL query에 `tmin=12&tmax=12`가 저장됨
+2. 결과 건수 > 0
+3. histogram/term chart basis 문자열을 기록
+4. 같은 URL을 reload
+5. `tmin/tmax` input이 12로 복원됨
+6. 결과 건수 exact match
+7. histogram aria-label exact match
+8. term chart caption exact match
+9. reload 뒤에도 horizontal overflow 없음
+
+이 baseline은 Track D2 exact-12 preset이 기존 scalar/range URL contract를 재사용하거나
+대체할 때 회귀를 판단하는 기준이다.
+
+## 8. Evidence artifact
+
+workflow artifact는 최소 다음을 포함한다.
+
+- `search-baseline-desktop-1440.png`
+- `search-baseline-mobile-390.png`
+- viewport별 JSON
+- summary JSON
+- local HTTP server log
+- site manifest
+- runner-local DB pre-build SHA-256
+
+모든 JSON에는 exact `github.sha`를 기록한다.
+
+## 9. DB / Release safety
+
+- production R2는 restore만 수행
+- runner-local DB에 migration 적용 후 SHA-256 seal
+- site build 후 SHA exact equality
+- browser execution 후 SHA exact equality
+- rate-data write 없음
+- production R2 upload 없음
+- Strategy build/release gate OFF
+- Search UX 코드 변경 없음
+- canonical/source precedence/identity 변경 없음
+
+## 10. Acceptance / DoD
+
+- General CI SUCCESS
+- dedicated `search-runtime-baseline` workflow SUCCESS
+- exact final-head production snapshot restore SUCCESS
+- site build SUCCESS with Strategy Gate OFF
+- desktop 1440 runtime assertions SUCCESS
+- mobile 390 runtime assertions SUCCESS
+- current preset contract captured
+- current all-selection behavior captured
+- exact-12 URL reload contract captured
+- charts rendered in both viewport baselines
+- no browser console/page errors
+- no horizontal page overflow
+- screenshots + JSON artifact uploaded
+- runner-local DB before/after exact SHA equality
+
+이 기준이 충족되기 전에는 D1/D2 UX 변경에 착수했다고 보지 않는다.
