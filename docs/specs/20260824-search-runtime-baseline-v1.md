@@ -43,7 +43,10 @@ Production DB에는 write/upload하지 않는다.
 두 viewport 모두 다음을 DOM에서 검증하고 JSON에 보존한다.
 
 - result count > 0
-- 실제 표 row가 1~100건 렌더됨
+- `표시=100건`은 일반 결과 100건 한도
+- 우리 회사 고정행이 존재하면 일반 결과 한도와 별도로 맨 위에 1행을 추가하므로 실제 본문은 최대 101행
+- 실제 렌더 행 수 = `min(resultCount - pinnedRows, shownLimit) + pinnedRows`
+- pinned row는 0~1건
 - 상세 조건은 기본 접힘
 - 금리 기준 = `최고금리(우대 포함)`
 - 공시일 기본 = 최근 30일
@@ -61,6 +64,22 @@ Production DB에는 write/upload하지 않는다.
 
 우리 회사 선택값, 부산 구·군 요약, filter summary, 첫 3개 렌더 row도 evidence에
 기록한다.
+
+### 4.1 pinned-row contract
+
+첫 production-backed browser 실행에서 `표시=100건`인데 101행이 렌더되어 baseline
+assertion이 실패했다. Search runtime을 확인한 결과 이것은 UI 버그가 아니라 기존 명시적
+계약이었다.
+
+`render()`는 다음 순서로 동작한다.
+
+1. 현재 조건 결과에서 우리 회사 대표 고정행을 찾는다.
+2. 고정행을 일반 body에서 제거한다.
+3. body를 `shownLimit`만큼 slice한다.
+4. 고정행을 결과 맨 위에 다시 추가한다.
+
+따라서 결과가 충분히 많고 고정행이 있으면 `100 + 1 = 101`행이 정상이다. baseline은
+이를 숨기지 않고 `pinnedRows`, `shownLimit`, `expectedVisibleRows`로 기록한다.
 
 ## 5. Existing preset baseline
 
@@ -135,6 +154,7 @@ workflow artifact는 최소 다음을 포함한다.
 - production R2는 restore만 수행
 - runner-local DB에 migration 적용 후 SHA-256 seal
 - site build 후 SHA exact equality
+- browser assertion이 실패해도 final DB SHA 검사는 `always()`로 실행
 - browser execution 후 SHA exact equality
 - rate-data write 없음
 - production R2 upload 없음
@@ -150,6 +170,7 @@ workflow artifact는 최소 다음을 포함한다.
 - site build SUCCESS with Strategy Gate OFF
 - desktop 1440 runtime assertions SUCCESS
 - mobile 390 runtime assertions SUCCESS
+- pinned-row / 표시 건수 contract captured
 - current preset contract captured
 - current all-selection behavior captured
 - exact-12 URL reload contract captured
