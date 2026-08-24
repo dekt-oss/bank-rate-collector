@@ -1,0 +1,173 @@
+name: Source discrepancy ambiguity census
+
+on:
+  push:
+    branches: ["feat/source-discrepancy-ambiguity-census-*"]
+    paths:
+      - "src/rate_monitor/services/source_discrepancy_ambiguity_census.py"
+      - "tests/test_source_discrepancy_ambiguity_census.py"
+      - "scripts/source_discrepancy_audit.py"
+      - "docs/specs/20260824-source-discrepancy-ambiguity-census-v1.md"
+      - ".github/workflows/source-discrepancy-ambiguity-census.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: source-discrepancy-ambiguity-census
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  statuses: write
+
+jobs:
+  census:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Publish census locator
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            -f state=pending \
+            -f context=source-discrepancy-ambiguity-census \
+            -f description="Payment-method ambiguity census running" \
+            -f target_url="$TARGET_URL"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Sync dependencies
+        run: uv sync --locked
+
+      - name: Validate census contracts
+        run: |
+          set -euo pipefail
+          uv run ruff check \
+            src/rate_monitor/services/source_discrepancy_ambiguity_census.py \
+            tests/test_source_discrepancy_ambiguity_census.py \
+            scripts/source_discrepancy_audit.py
+          uv run pytest -q tests/test_source_discrepancy_ambiguity_census.py
+
+      - name: Restore current production database read-only
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+          R2_REGION: ${{ vars.R2_REGION }}
+        run: |
+          set -euo pipefail
+          mkdir -p work
+          uv run rate-monitor storage restore --dest work/rate_monitor.sqlite3
+          test -s work/rate_monitor.sqlite3
+
+      - name: Apply migrations to audit copy
+        env:
+          RATE_MONITOR_DB_URL: sqlite+pysqlite:///${{ github.workspace }}/work/rate_monitor.sqlite3
+        run: uv run alembic upgrade head
+
+      - name: Build read-only report with ambiguity census
+        run: |
+          set -euo pipefail
+          uv run python scripts/source_discrepancy_audit.py \
+            --db work/rate_monitor.sqlite3 \
+            --out work/source-discrepancy-report.json \
+            --triage-out work/source-discrepancy-priority-queue.json \
+            --official-contradiction-out work/source-discrepancy-official-contradictions.json \
+            --official-evidence docs/evidence/source-discrepancy/20260823-official-savings-bank.json
+
+      - name: Assert census and queue masking contract
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          report = json.loads(Path("work/source-discrepancy-report.json").read_text(encoding="utf-8"))
+          scope = report["scope"]
+          assert scope["canonical_mutated"] is False
+          assert scope["ambiguity_census_mutates_canonical"] is False
+          assert scope["ambiguity_census_selects_authority"] is False
+          assert scope["ambiguity_census_promotes_7d_identity"] is False
+
+          census = report["ambiguity_census"]
+          summary = census["summary"]
+          blocked = summary["ambiguity_blocked_count"]
+          assert census["policy_version"] == "payment-method-ambiguity-census-v1"
+          assert census["authority_semantics"].startswith("risk_visibility_only")
+          assert census["identity_semantics"].startswith("does_not_promote")
+          assert blocked == report["summary"]["ambiguous_payment_method"]
+          assert blocked == len(census["items"])
+          assert sum(summary["product_types"].values()) == blocked
+          assert sum(summary["candidate_count_distribution"].values()) == blocked
+          assert sum(summary["payment_method_combinations"].values()) == blocked
+          assert sum(summary["counterpart_coverage"].values()) == blocked
+          assert sum(summary["blocked_risk_bands"].values()) == blocked
+
+          masking = census["queue_masking_indicator"]
+          assert masking["comparable_mismatch_count"] == report["triage"]["summary"]["queue_size"]
+          assert masking["ambiguity_blocked_count"] == blocked
+          assert masking["p0_count"] == report["triage"]["summary"]["P0"]
+
+          no_counterpart = [
+              item for item in census["items"]
+              if not item["blocked_delta"]["counterpart_present"]
+          ]
+          assert len(no_counterpart) == summary["counterpart_coverage"].get("missing", 0)
+          for item in no_counterpart:
+              analysis = item["counterpart_absence_analysis"]
+              assert analysis and analysis["category"]
+              assert analysis["counterpart_source_id"]
+
+          print("triage summary:", report["triage"]["summary"])
+          print("census summary:", summary)
+          print("queue masking:", masking)
+          print("no-counterpart items:")
+          for item in no_counterpart:
+              print(
+                  item["institution"], item["product"], item["term_months"],
+                  item["join_channel"], item["interest_method"],
+                  item["counterpart_absence_analysis"]["category"],
+              )
+          PY
+
+      - name: Upload census evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: source-discrepancy-ambiguity-census-${{ github.run_id }}
+          retention-days: 30
+          path: |
+            work/source-discrepancy-report.json
+            work/source-discrepancy-priority-queue.json
+            work/source-discrepancy-official-contradictions.json
+          if-no-files-found: warn
+
+      - name: Publish census conclusion
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          if [ "$JOB_STATUS" = "success" ]; then
+            STATE=success
+            DESCRIPTION="Payment-method ambiguity census succeeded"
+          else
+            STATE=failure
+            DESCRIPTION="Payment-method ambiguity census failed"
+          fi
+          gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            -f state="$STATE" \
+            -f context=source-discrepancy-ambiguity-census \
+            -f description="$DESCRIPTION" \
+            -f target_url="$TARGET_URL"
