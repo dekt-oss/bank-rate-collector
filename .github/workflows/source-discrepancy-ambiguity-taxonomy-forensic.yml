@@ -98,6 +98,7 @@ jobs:
           set -euo pipefail
           uv run python scripts/source_discrepancy_ambiguity_taxonomy_forensic.py \
             --raw-root data/raw \
+            --production-snapshot-seeded-for-collection \
             --out work/ambiguity-taxonomy-forensic.json
 
       - name: Assert read-only taxonomy contract
@@ -112,7 +113,8 @@ jobs:
           )
           scope = report["scope"]
           assert scope["mode"] == "fresh_raw_read_only_taxonomy_forensic"
-          assert scope["production_state_used"] is False
+          assert scope["production_snapshot_seeded_for_collection"] is True
+          assert scope["production_snapshot_used_for_taxonomy_decision"] is False
           assert scope["production_state_mutated"] is False
           assert scope["canonical_mutated"] is False
           assert scope["source_precedence_changed"] is False
@@ -149,6 +151,7 @@ jobs:
               assert "자유적립식" in option_types
 
           print("summary:", report["summary"])
+          print("scope:", scope)
           for item in report["targets"]:
               print(
                   item["institution"], item["product"],
