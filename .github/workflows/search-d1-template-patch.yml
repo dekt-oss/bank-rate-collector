@@ -1,0 +1,37 @@
+name: Search D1 template patch
+
+on:
+  push:
+    branches: ["feat/search-main-group-toggle-empty-state-20260824"]
+    paths:
+      - "scripts/_apply_search_d1_patch.py"
+      - ".github/workflows/search-d1-template-patch.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply exact-anchor patch
+        run: python scripts/_apply_search_d1_patch.py
+
+      - name: Validate and commit template
+        env:
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          git diff --check
+          git diff -- web/templates/site.html
+          test -n "$(git status --porcelain -- web/templates/site.html)"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add web/templates/site.html
+          git commit -m "feat: make Search main-group empty state explicit"
+          git push origin "HEAD:${BRANCH}"
