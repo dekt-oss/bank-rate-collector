@@ -100,6 +100,7 @@ async function clickExactPreset(page, id, expectedType, label) {
   invariant(await page.locator("#tmin").inputValue() === "12", `${label}: reload tmin mismatch`);
   invariant(await page.locator("#tmax").inputValue() === "12", `${label}: reload tmax mismatch`);
 
+  if (await page.locator("#advanced-filters").isHidden()) await page.locator("#filter-toggle").click();
   await page.locator("#tmax").fill("13");
   await page.waitForTimeout(350);
   invariant(await page.locator(`[data-preset="${id}"]`).getAttribute("aria-pressed") === "false",
