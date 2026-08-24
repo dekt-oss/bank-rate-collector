@@ -890,11 +890,13 @@ def test_the_preset_count_matches_what_clicking_it_gives() -> None:
     지역 조건에는 예외가 하나 있다 — 전국 공시 행은 시도에 매이지 않는다.
     세는 쪽에도 **같은 예외**가 있어야 한다.
     """
-    assert "const rowMatchesPick = (r, pick) =>" in SOURCE
-    assert 'if (k === "region" && NATIONWIDE_GEO.has(r.geo)) return true;' in SOURCE
-    # 표를 거를 때의 예외와 짝이다. 한쪽이 사라지면 둘이 어긋난다.
+    assert "const rowMatchesPreset = (r, p) =>" in SOURCE
+    # 프리셋 count도 실제 클릭 후 matcher와 같은 nationwide 예외를 사용한다.
     assert 'if (g.key === "region" && NATIONWIDE_GEO.has(r.geo)) continue;' in SOURCE
-    assert "ALL.filter((r) => rowMatchesPick(r, p.pick)).length" in SOURCE
+    assert "ALL.filter((r) => rowMatchesPreset(r, p)).length" in SOURCE
+    # exact-12 preset은 bucket뿐 아니라 scalar range까지 count에 반영한다.
+    assert 'const tmin = presetOwnValue(p, "tmin");' in SOURCE
+    assert 'const tmax = presetOwnValue(p, "tmax");' in SOURCE
 
 
 def test_turning_a_preset_off_also_drops_what_hung_under_it() -> None:
@@ -1401,7 +1403,11 @@ def test_typing_does_not_refilter_on_every_keystroke() -> None:
     뒤에 한 번만 돌게 하니 연타 중 멈춘 시간이 1ms가 됐다.
     """
     assert "const TYPING_PAUSE_MS = 200;" in SOURCE
-    assert "const redrawSoon = afterTyping(redraw);" in SOURCE
+    assert "const redrawSoon = afterTyping(() => {" in SOURCE
+    redraw = SOURCE[SOURCE.index("const redrawSoon = afterTyping(() => {"):]
+    redraw = redraw[:redraw.index("});") + 3]
+    assert "renderPresets();" in redraw
+    assert "redraw();" in redraw
     # 체크박스는 지연을 걸지 않는다. 한 번 누르는 것이라 바로 반응해야 한다.
     handler = SOURCE[SOURCE.index('$("conditions").addEventListener("change"'):]
     assert "redrawSoon()" not in handler[:2000]
