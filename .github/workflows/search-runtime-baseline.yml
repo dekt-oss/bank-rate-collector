@@ -157,7 +157,10 @@ jobs:
               assert payload["runtimeErrors"] == []
               default = payload["defaultState"]
               assert default["resultCount"] > 0
-              assert 0 < default["visibleRows"] <= 100
+              assert default["pinnedRows"] in (0, 1)
+              assert default["shownLimit"] == 100
+              assert default["visibleRows"] == default["expectedVisibleRows"]
+              assert 0 < default["visibleRows"] <= 101
               assert default["advancedHidden"] is True
               assert default["charts"]["hidden"] is False
               assert default["charts"]["histogramChildren"] > 0
@@ -177,8 +180,11 @@ jobs:
           PY
 
       - name: Assert browser baseline did not mutate DB
+        if: always()
         run: |
           set -euo pipefail
+          test -s work/search-db-before.sha256
+          test -s work/search-baseline.sqlite3
           BEFORE=$(cat work/search-db-before.sha256)
           AFTER=$(sha256sum work/search-baseline.sqlite3 | awk '{print $1}')
           echo "db before=$BEFORE"
