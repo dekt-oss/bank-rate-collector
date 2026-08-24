@@ -82,6 +82,8 @@ D1b는 별도 구현 backlog가 아니라 **현행 select-only contract 유지 �
 count는 프리셋이 덮어쓰지 않는 현재 조건(지역/업권/공시일/상세조건 등)을 보존한 target state 기준으로 계산한다.
 따라서 버튼에 표시된 건수와 실제 클릭 후 결과 건수가 같아야 한다.
 
+검색어·금리하한·기간 최소/최대처럼 타이핑으로 바뀌는 scalar 조건은 기존 200ms debounce를 유지하면서 `renderPresets()`와 결과 `redraw()`를 같은 debounce tick에서 실행한다. 결과만 바뀌고 preset count/active가 stale하게 남는 상태를 허용하지 않는다.
+
 ## 불변 조건
 
 변경하지 않는다.
@@ -117,6 +119,8 @@ count는 프리셋이 덮어쓰지 않는 현재 조건(지역/업권/공시일/
 - runner-local production DB SHA before/after 동일
 
 브라우저 acceptance의 scalar 직접 수정 단계는 상세 조건 패널을 실제 사용자 조작처럼 펼친 뒤 입력한다. 접힌 입력에 강제 값을 쓰는 테스트 전용 우회는 사용하지 않는다.
+
+최종 merge 판정은 임시 patch 파일이 모두 제거된 PR exact head의 General CI와 production-backed Search phase 3 runtime이 모두 성공한 경우에만 한다.
 
 ## 비범위
 
