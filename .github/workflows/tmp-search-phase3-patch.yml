@@ -1,0 +1,29 @@
+name: Temporary Search phase 3 patch
+
+on:
+  push:
+    branches: ["feat/search-ux-phase3-closure-20260824"]
+    paths:
+      - "scripts/tmp_apply_search_phase3_closure.py"
+      - ".github/workflows/tmp-search-phase3-patch.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply exact anchored patch
+        run: python scripts/tmp_apply_search_phase3_closure.py
+      - name: Commit patched template
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add web/templates/site.html
+          git diff --cached --check
+          git diff --cached --quiet && exit 0
+          git commit -m "feat: add exact 12-month Search presets"
+          git push
