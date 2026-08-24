@@ -1,0 +1,182 @@
+name: Search D1 runtime
+
+on:
+  push:
+    branches: ["feat/search-main-group-toggle-empty-state-*"]
+    paths:
+      - "web/templates/site.html"
+      - "scripts/search_d1_runtime.js"
+      - ".github/workflows/search-d1-runtime.yml"
+      - "tests/test_search_main_group_toggle_contract.py"
+      - "docs/specs/20260824-search-main-group-toggle-empty-state-v1.md"
+      - "src/rate_monitor/services/site_service.py"
+      - "src/rate_monitor/services/main_map_presentation.py"
+      - "src/rate_monitor/services/dashboard_ui_refinement_presentation.py"
+      - "config/**"
+      - "migrations/**"
+      - "pyproject.toml"
+      - "uv.lock"
+  workflow_dispatch:
+
+concurrency:
+  group: search-d1-runtime
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  statuses: write
+
+jobs:
+  runtime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Publish D1 runtime locator
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            -f state=pending \
+            -f context=search-d1-runtime \
+            -f description="Search D1 runtime running" \
+            -f target_url="$TARGET_URL"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Sync dependencies
+        run: uv sync --locked
+
+      - name: Run D1 contract tests
+        run: uv run pytest -q tests/test_search_main_group_toggle_contract.py
+
+      - name: Restore production database to runner-local copy
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+          R2_REGION: ${{ vars.R2_REGION }}
+        run: |
+          set -euo pipefail
+          mkdir -p work
+          uv run rate-monitor storage restore --dest work/search-d1.sqlite3
+          test -s work/search-d1.sqlite3
+
+      - name: Apply migrations to runner-local copy
+        env:
+          RATE_MONITOR_DB_URL: sqlite+pysqlite:///${{ github.workspace }}/work/search-d1.sqlite3
+        run: uv run alembic upgrade head
+
+      - name: Seal runner-local database
+        run: |
+          set -euo pipefail
+          sha256sum work/search-d1.sqlite3 | awk '{print $1}' > work/search-d1-db-before.sha256
+
+      - name: Build Search with Strategy Gate OFF
+        env:
+          RATE_MONITOR_STRATEGY_DASHBOARD: "0"
+        run: |
+          set -euo pipefail
+          rm -rf published/search-d1
+          uv run rate-monitor build-site \
+            --db work/search-d1.sqlite3 \
+            --out published/search-d1 \
+            --export-dir work/no-search-d1-exports
+          test -s published/search-d1/index.html
+          test -s published/search-d1/data/table.json
+          test ! -e published/search-d1/strategy.html
+
+      - name: Assert build did not mutate DB
+        run: |
+          set -euo pipefail
+          BEFORE=$(cat work/search-d1-db-before.sha256)
+          AFTER=$(sha256sum work/search-d1.sqlite3 | awk '{print $1}')
+          test "$BEFORE" = "$AFTER"
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install Playwright runner
+        run: |
+          set -euo pipefail
+          command -v google-chrome
+          google-chrome --version
+          npm install --no-save --package-lock=false @playwright/test@1.61.1
+
+      - name: Run desktop and mobile D1 browser assertions
+        env:
+          SEARCH_D1_BASE_URL: http://127.0.0.1:4175
+          SEARCH_D1_SOURCE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p work/search-d1
+          python -m http.server 4175 --directory published/search-d1 \
+            > work/search-d1/http.log 2>&1 &
+          SERVER_PID=$!
+          trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:4175/index.html >/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:4175/index.html >/dev/null
+          node scripts/search_d1_runtime.js
+
+      - name: Assert browser did not mutate DB
+        if: always()
+        run: |
+          set -euo pipefail
+          test -s work/search-d1-db-before.sha256
+          test -s work/search-d1.sqlite3
+          BEFORE=$(cat work/search-d1-db-before.sha256)
+          AFTER=$(sha256sum work/search-d1.sqlite3 | awk '{print $1}')
+          echo "db before=$BEFORE"
+          echo "db after =$AFTER"
+          test "$BEFORE" = "$AFTER"
+
+      - name: Upload D1 evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: search-d1-runtime-${{ github.run_id }}
+          retention-days: 30
+          path: |
+            work/search-d1/search-d1-*.json
+            work/search-d1/search-d1-*.png
+            work/search-d1/http.log
+            work/search-d1-db-before.sha256
+            published/search-d1/site-manifest.json
+          if-no-files-found: warn
+
+      - name: Publish D1 runtime conclusion
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          if [ "$JOB_STATUS" = "success" ]; then
+            STATE=success
+            DESCRIPTION="Search D1 runtime succeeded"
+          else
+            STATE=failure
+            DESCRIPTION="Search D1 runtime failed"
+          fi
+          gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            -f state="$STATE" \
+            -f context=search-d1-runtime \
+            -f description="$DESCRIPTION" \
+            -f target_url="$TARGET_URL"
