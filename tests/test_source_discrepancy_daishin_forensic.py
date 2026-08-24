@@ -5,7 +5,12 @@ import json
 import sqlite3
 from pathlib import Path
 
-from scripts.source_discrepancy_daishin_forensic import _extract_locator, build_report
+from scripts.source_discrepancy_daishin_forensic import (
+    _extract_locator,
+    _scan_finlife,
+    _scan_fsb,
+    build_report,
+)
 
 
 def _write_raw(path: Path, payload: dict[str, object]) -> str:
@@ -54,8 +59,11 @@ def _db(tmp_path: Path) -> tuple[Path, Path]:
         );
         CREATE TABLE raw_artifacts (
           id TEXT PRIMARY KEY,
+          run_id TEXT NOT NULL,
           relative_path TEXT NOT NULL,
-          sha256 TEXT NOT NULL
+          sha256 TEXT NOT NULL,
+          content_length INTEGER NOT NULL,
+          captured_at TEXT NOT NULL
         );
         CREATE TABLE rate_observations (
           id TEXT PRIMARY KEY,
@@ -122,33 +130,37 @@ def _db(tmp_path: Path) -> tuple[Path, Path]:
         "result": {
             "baseList": [
                 {
-                    "fin_co_no": "0010001",
-                    "fin_prdt_cd": "CODE-SIMPLE",
+                    "fin_co_no": "0012840",
+                    "fin_prdt_cd": "JJ09",
                     "kor_co_nm": "대신저축은행",
                     "fin_prdt_nm": "정기적금",
+                    "dcls_strt_day": "20260820",
                 },
                 {
-                    "fin_co_no": "0010001",
-                    "fin_prdt_cd": "CODE-COMPOUND",
+                    "fin_co_no": "0012840",
+                    "fin_prdt_cd": "JJ",
                     "kor_co_nm": "대신저축은행",
                     "fin_prdt_nm": "정기적금",
+                    "dcls_strt_day": "20260820",
                 },
             ],
             "optionList": [
                 {
-                    "fin_co_no": "0010001",
-                    "fin_prdt_cd": "CODE-SIMPLE",
+                    "fin_co_no": "0012840",
+                    "fin_prdt_cd": "JJ09",
                     "save_trm": "24",
                     "intr_rate_type": "S",
+                    "intr_rate_type_nm": "단리",
                     "intr_rate": 4.0,
                     "intr_rate2": 4.0,
                     "rsrv_type": "S",
                 },
                 {
-                    "fin_co_no": "0010001",
-                    "fin_prdt_cd": "CODE-COMPOUND",
+                    "fin_co_no": "0012840",
+                    "fin_prdt_cd": "JJ",
                     "save_trm": "24",
                     "intr_rate_type": "M",
+                    "intr_rate_type_nm": "복리",
                     "intr_rate": 3.0,
                     "intr_rate2": 3.0,
                     "rsrv_type": "S",
@@ -156,16 +168,30 @@ def _db(tmp_path: Path) -> tuple[Path, Path]:
             ],
         }
     }
-    fsb_payload = {"REC": [{"JUNG_24M_DAN": 3.0}]}
+    fsb_payload = {
+        "REC": [
+            {
+                "FINAN_COMP_CODE": "0012840",
+                "FINAN_PROD_CODE": "JJ09",
+                "PRODUCT_NAME": "정기적금",
+                "PRODUCT_URL": "https://bank.daishin.com/sub.do?code=02_prod02",
+                "START_DATE": "20251103",
+                "JUNG_24M_DAN": "3.00",
+                "TOP_24M_DAN": "3.00",
+                "JUNG_24M_BOK": "3.00",
+                "TOP_24M_BOK": "3.00",
+            }
+        ]
+    }
     fin_path = raw_root / "fin.json"
     fsb_path = raw_root / "fsb.json"
     fin_sha = _write_raw(fin_path, fin_payload)
     fsb_sha = _write_raw(fsb_path, fsb_payload)
     conn.executemany(
-        "INSERT INTO raw_artifacts VALUES (?, ?, ?)",
+        "INSERT INTO raw_artifacts VALUES (?, ?, ?, ?, ?, ?)",
         [
-            ("raw-fsb", str(fsb_path), fsb_sha),
-            ("raw-fin", str(fin_path), fin_sha),
+            ("raw-fsb", "fsb-run", str(fsb_path), fsb_sha, fsb_path.stat().st_size, "2026-08-24"),
+            ("raw-fin", "fin-run", str(fin_path), fin_sha, fin_path.stat().st_size, "2026-08-24"),
         ],
     )
     conn.executemany(
@@ -224,18 +250,18 @@ def _db(tmp_path: Path) -> tuple[Path, Path]:
     conn.executemany(
         "INSERT INTO source_entity_links VALUES (?, ?, 'product', ?, ?, ?, NULL)",
         [
-            ("l-fsb", "fsb", "inst:fsb-product", "p-fsb", "정기적금"),
+            ("l-fsb", "fsb", "inst:JJ09", "p-fsb", "정기적금"),
             (
                 "l-fin-simple",
                 "finlife_savings_bank",
-                "inst:savingProductsSearch:CODE-SIMPLE",
+                "inst:savingProductsSearch:JJ09",
                 "p-fin-simple",
                 "정기적금",
             ),
             (
                 "l-fin-compound",
                 "finlife_savings_bank",
-                "inst:savingProductsSearch:CODE-COMPOUND",
+                "inst:savingProductsSearch:JJ",
                 "p-fin-compound",
                 "정기적금",
             ),
@@ -254,18 +280,80 @@ def test_locator_reads_nested_objects_and_scalar() -> None:
     assert _extract_locator(payload, "$.result.baseList[99]") is None
 
 
-def test_report_exposes_finlife_source_product_identity_and_raw_provenance(
-    tmp_path: Path,
-) -> None:
+def test_fresh_raw_scanners_preserve_upstream_product_code() -> None:
+    fin = _scan_finlife(
+        {
+            "result": {
+                "baseList": [
+                    {
+                        "fin_co_no": "0012840",
+                        "fin_prdt_cd": "JJ09",
+                        "fin_prdt_nm": "정기적금",
+                        "dcls_strt_day": "20260820",
+                    }
+                ],
+                "optionList": [
+                    {
+                        "fin_co_no": "0012840",
+                        "fin_prdt_cd": "JJ09",
+                        "save_trm": "24",
+                        "intr_rate_type": "S",
+                        "intr_rate_type_nm": "단리",
+                        "intr_rate": 4.0,
+                        "intr_rate2": 4.0,
+                        "rsrv_type": "S",
+                    }
+                ],
+            }
+        },
+        "fin.json",
+    )
+    fsb = _scan_fsb(
+        {
+            "REC": [
+                {
+                    "FINAN_COMP_CODE": "0012840",
+                    "FINAN_PROD_CODE": "JJ09",
+                    "PRODUCT_NAME": "정기적금",
+                    "START_DATE": "20251103",
+                    "JUNG_24M_DAN": "3.00",
+                    "TOP_24M_DAN": "3.00",
+                }
+            ]
+        },
+        "fsb.json",
+    )
+
+    assert fin[0]["fin_prdt_cd"] == "JJ09"
+    assert fin[0]["base_rate"] == 4.0
+    assert fsb[0]["finan_prod_code"] == "JJ09"
+    assert fsb[0]["base_rate"] == "3.00"
+
+
+def test_report_separates_first_seen_and_fresh_raw_provenance(tmp_path: Path) -> None:
     db, raw_root = _db(tmp_path)
 
     report = build_report(db, raw_root)
 
     assert report["scope"]["production_state_mutated"] is False
     assert report["scope"]["authority_selected"] is False
+    assert "fresh_run_artifacts" in report
+    assert "fresh_raw_target_records" in report
+
+    for source_id in ("fsb", "finlife_savings_bank"):
+        artifacts = report["fresh_run_artifacts"][source_id]
+        assert artifacts
+        assert all(item["resolved"] is True for item in artifacts)
+        assert all(item["sha256_matches_db"] is True for item in artifacts)
+
+    fresh_fin = report["fresh_raw_target_records"]["finlife_savings_bank"]
+    fresh_fsb = report["fresh_raw_target_records"]["fsb"]
+    assert {row["fin_prdt_cd"] for row in fresh_fin} == {"JJ", "JJ09"}
+    assert {row["finan_prod_code"] for row in fresh_fsb} == {"JJ09"}
+
     assert report["summary"]["finlife_source_product_keys"] == [
-        "inst:savingProductsSearch:CODE-COMPOUND",
-        "inst:savingProductsSearch:CODE-SIMPLE",
+        "inst:savingProductsSearch:JJ",
+        "inst:savingProductsSearch:JJ09",
     ]
     assert report["summary"]["simple_and_compound_use_same_source_product_key"] is False
 
@@ -275,15 +363,6 @@ def test_report_exposes_finlife_source_product_identity_and_raw_provenance(
         if row["source_id"] == "finlife_savings_bank"
         and row["interest_method"] == "simple"
     )
-    compound = next(
-        row
-        for row in report["rows"]
-        if row["source_id"] == "finlife_savings_bank"
-        and row["interest_method"] == "compound"
-    )
-
-    assert simple["raw"]["sha256_matches_db"] is True
-    assert simple["raw"]["base_locator_value"]["fin_prdt_cd"] == "CODE-SIMPLE"
-    assert simple["raw"]["option_locator_value"]["intr_rate"] == 4.0
-    assert compound["raw"]["base_locator_value"]["fin_prdt_cd"] == "CODE-COMPOUND"
-    assert compound["raw"]["option_locator_value"]["intr_rate"] == 3.0
+    assert simple["first_seen_raw"]["semantics"].startswith("first_seen_value_raw")
+    assert simple["first_seen_raw"]["sha256_matches_db"] is True
+    assert simple["first_seen_raw"]["base_locator_value"]["fin_prdt_cd"] == "JJ09"
