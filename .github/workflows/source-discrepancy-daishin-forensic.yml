@@ -101,7 +101,7 @@ jobs:
             -A "Mozilla/5.0 (compatible; bank-rate-collector-audit/1.0)" \
             -D work/official/daishin-rates.headers \
             -o work/official/daishin-rates.html \
-            "https://www.daishinbank.com/sub.do?code=02_prod04"
+            "https://bank.daishin.com/sub.do?code=02_prod02"
           test -s work/official/daishin-rates.html
           sha256sum work/official/daishin-rates.html
 
@@ -112,7 +112,7 @@ jobs:
             --db work/forensic.sqlite3 \
             --raw-root data/raw \
             --official-html work/official/daishin-rates.html \
-            --official-url "https://www.daishinbank.com/sub.do?code=02_prod04" \
+            --official-url "https://bank.daishin.com/sub.do?code=02_prod02" \
             --out work/daishin-source-forensic.json
 
       - name: Assert read-only forensic contract
