@@ -1,0 +1,167 @@
+name: Source discrepancy strict 7D impact
+
+on:
+  push:
+    branches: ["feat/source-discrepancy-7d-impact-v2-*"]
+    paths:
+      - "scripts/source_discrepancy_7d_impact.py"
+      - "tests/test_source_discrepancy_7d_impact.py"
+      - "docs/specs/20260824-source-discrepancy-7d-impact-v1.md"
+      - ".github/workflows/source-discrepancy-7d-impact.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: source-discrepancy-7d-impact
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  statuses: write
+
+jobs:
+  impact:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Publish impact locator
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            -f state=pending \
+            -f context=source-discrepancy-7d-impact \
+            -f description="Strict 7D read-only impact running" \
+            -f target_url="$TARGET_URL"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Sync dependencies
+        run: uv sync --locked
+
+      - name: Validate impact analyzer
+        run: |
+          set -euo pipefail
+          uv run ruff check \
+            scripts/source_discrepancy_7d_impact.py \
+            tests/test_source_discrepancy_7d_impact.py
+          uv run pytest -q tests/test_source_discrepancy_7d_impact.py
+
+      - name: Restore production database to runner-local copy
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+          R2_REGION: ${{ vars.R2_REGION }}
+        run: |
+          set -euo pipefail
+          mkdir -p work
+          uv run rate-monitor storage restore --dest work/production.sqlite3
+          cp work/production.sqlite3 work/impact.sqlite3
+          test -s work/impact.sqlite3
+
+      - name: Apply migrations to impact copy
+        env:
+          RATE_MONITOR_DB_URL: sqlite+pysqlite:///${{ github.workspace }}/work/impact.sqlite3
+        run: uv run alembic upgrade head
+
+      - name: Build current 6D source discrepancy report
+        run: |
+          set -euo pipefail
+          uv run python scripts/source_discrepancy_audit.py \
+            --db work/impact.sqlite3 \
+            --out work/source-discrepancy-current.json
+
+      - name: Build strict 7D impact simulation
+        run: |
+          set -euo pipefail
+          uv run python scripts/source_discrepancy_7d_impact.py \
+            --db work/impact.sqlite3 \
+            --report work/source-discrepancy-current.json \
+            --out work/source-discrepancy-7d-impact.json
+
+      - name: Assert read-only impact contract
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          report = json.loads(
+              Path("work/source-discrepancy-7d-impact.json").read_text(encoding="utf-8")
+          )
+          scope = report["scope"]
+          assert scope["mode"] == "read_only_impact_simulation"
+          assert scope["production_state_mutated"] is False
+          assert scope["canonical_mutated"] is False
+          assert scope["source_precedence_changed"] is False
+          assert scope["identity_changed"] is False
+          assert scope["strict_7d_implemented"] is False
+          assert scope["duplicate_7d_fail_closed"] is True
+
+          current = report["current_6d"]
+          strict = report["strict_7d_simulation"]
+          assert current["total_comparable"] > 0
+          assert current["payment_method_ambiguities"] > 0
+          assert "fsb" in report["payment_method_coverage"]
+          assert "finlife_savings_bank" in report["payment_method_coverage"]
+          assert strict["total_comparable"] >= 0
+          assert strict["total_source_only_keys"] >= 0
+          assert report["summary"]["strict_7d_clean_comparable"] == strict["total_comparable"]
+
+          print("summary:", report["summary"])
+          print("coverage:", report["payment_method_coverage"])
+          print("product impact:", report["product_type_impact"])
+          print("transitions:", report["ambiguity_transition"]["counts"])
+          print(
+              "duplicates:",
+              {
+                  "primary": strict["total_structural_duplicate_primary"],
+                  "secondary": strict["total_structural_duplicate_secondary"],
+                  "primary_conflict": strict["total_conflicting_duplicate_primary"],
+                  "secondary_conflict": strict["total_conflicting_duplicate_secondary"],
+                  "primary_same_rate": strict["total_same_rate_duplicate_primary"],
+                  "secondary_same_rate": strict["total_same_rate_duplicate_secondary"],
+              },
+          )
+          PY
+
+      - name: Upload strict 7D impact evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: source-discrepancy-7d-impact-${{ github.run_id }}
+          retention-days: 30
+          path: |
+            work/source-discrepancy-current.json
+            work/source-discrepancy-7d-impact.json
+          if-no-files-found: warn
+
+      - name: Publish impact conclusion
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          if [ "$JOB_STATUS" = "success" ]; then
+            STATE=success
+            DESCRIPTION="Strict 7D read-only impact succeeded"
+          else
+            STATE=failure
+            DESCRIPTION="Strict 7D read-only impact failed"
+          fi
+          gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            -f state="$STATE" \
+            -f context=source-discrepancy-7d-impact \
+            -f description="$DESCRIPTION" \
+            -f target_url="$TARGET_URL"
