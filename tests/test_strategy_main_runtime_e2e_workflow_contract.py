@@ -16,9 +16,11 @@ def test_strategy_main_runtime_e2e_is_isolated_and_observable() -> None:
         '"feat/strategy-main-runtime-e2e-*"',
         '"feat/strategy-ux-*"',
         '"feat/unify-main-strategy-production-*"',
+        '"fix/strategy-release-gate-*"',
     ):
         assert branch in text
     assert "workflow_dispatch:" in text
+    assert "Validate canonical Strategy release gate contract" in text
     assert 'RATE_MONITOR_STRATEGY_DASHBOARD: "1"' in text
     assert "storage restore --dest work/rate_monitor.sqlite3" in text
     assert "build-site" in text
