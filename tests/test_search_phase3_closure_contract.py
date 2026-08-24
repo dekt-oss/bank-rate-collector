@@ -45,6 +45,15 @@ def test_preset_apply_count_and_active_share_pick_plus_value_contract() -> None:
     assert '$("tmax").value = state.tmax == null ? "" : String(state.tmax);' in text
 
 
+def test_typed_scalar_changes_refresh_preset_count_and_active_state() -> None:
+    text = site_text()
+    assert "const redrawSoon = afterTyping(() => {" in text
+    redraw_block = text[text.index("const redrawSoon = afterTyping(() => {") :]
+    redraw_block = redraw_block[: redraw_block.index("});") + 3]
+    assert "renderPresets();" in redraw_block
+    assert "redraw();" in redraw_block
+
+
 def test_exact_business_presets_preserve_region_and_sector() -> None:
     text = site_text()
     start = text.index('id: "exact12-dep"')
