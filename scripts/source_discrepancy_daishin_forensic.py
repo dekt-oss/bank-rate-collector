@@ -185,7 +185,8 @@ def build_report(
     conn.row_factory = sqlite3.Row
     try:
         runs = _latest_runs(conn)
-        selected = [row for row in _rows(conn, [item["id"] for item in runs.values()]) if _target_row(row)]
+        run_ids = [item["id"] for item in runs.values()]
+        selected = [row for row in _rows(conn, run_ids) if _target_row(row)]
     finally:
         conn.close()
 
