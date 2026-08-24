@@ -15,12 +15,24 @@ concurrency:
 
 permissions:
   contents: read
+  statuses: write
 
 jobs:
   forensic:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Publish forensic locator
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            -f state=pending \
+            -f context=daishin-source-forensic \
+            -f description="Daishin read-only forensic running" \
+            -f target_url="$TARGET_URL"
 
       - name: Install uv
         uses: astral-sh/setup-uv@v5
@@ -161,3 +173,23 @@ jobs:
             work/official/daishin-rates.html
             data/raw/
           if-no-files-found: warn
+
+      - name: Publish forensic conclusion
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          if [ "$JOB_STATUS" = "success" ]; then
+            STATE=success
+            DESCRIPTION="Daishin read-only forensic succeeded"
+          else
+            STATE=failure
+            DESCRIPTION="Daishin read-only forensic failed"
+          fi
+          gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            -f state="$STATE" \
+            -f context=daishin-source-forensic \
+            -f description="$DESCRIPTION" \
+            -f target_url="$TARGET_URL"
