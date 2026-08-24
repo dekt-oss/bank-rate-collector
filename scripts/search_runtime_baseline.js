@@ -224,33 +224,57 @@ async function assertCurrentAllSemantics(page, label) {
 
   const allButton = page.locator('[data-all="type"]');
   invariant((await allButton.textContent()).trim() === "전체 선택", `${label}: current all button label changed`);
-  const before = await page.locator('input[data-group="type"]:checked').count();
+  const values = (await page.locator('input[data-group="type"]').evaluateAll((nodes) =>
+    nodes.map((node) => node.value))).sort();
+  const total = values.length;
+  const checkedBefore = await page.locator('input[data-group="type"]:checked').count();
+  const resultBefore = cleanNumber(await page.locator("#count").textContent());
+  invariant(checkedBefore === total && total > 0, `${label}: type group is not all-selected before exercise`);
+
   await allButton.click();
-  const afterAllClick = await page.locator('input[data-group="type"]:checked').count();
+  const checkedAfterAllClick = await page.locator('input[data-group="type"]:checked').count();
   invariant(
-    afterAllClick === before && before > 0,
+    checkedAfterAllClick === checkedBefore,
     `${label}: current all button no longer idempotently selects all`,
   );
 
-  const values = await page.locator('input[data-group="type"]').evaluateAll((nodes) => nodes.map((node) => node.value));
   for (const value of values) {
     const box = page.locator(`input[data-group="type"][value="${value}"]`);
     await box.uncheck();
   }
-  const afterLastOff = await page.locator('input[data-group="type"]:checked').count();
-  const total = await page.locator('input[data-group="type"]').count();
+  await page.waitForTimeout(100);
+
+  const checkedAfterLastUnchecked = await page.locator('input[data-group="type"]:checked').count();
+  const resultAfterLastUnchecked = cleanNumber(await page.locator("#count").textContent());
+  const urlTypeValues = (new URL(page.url()).searchParams.get("type") || "")
+    .split(",").filter(Boolean).sort();
+
+  // Current runtime bug/contract: the last checkbox change restores the internal
+  // picked state to all values, but the generic group handler does not renderGroups().
+  // Therefore DOM remains visually unchecked while results and URL are all-selected.
   invariant(
-    afterLastOff === total,
-    `${label}: current last-checkbox auto-recovery changed: ${afterLastOff}/${total}`,
+    checkedAfterLastUnchecked === 0,
+    `${label}: current stale-checkbox DOM behavior changed: ${checkedAfterLastUnchecked}/${total}`,
+  );
+  invariant(
+    resultAfterLastUnchecked === resultBefore,
+    `${label}: current internal all-state recovery count changed: ${resultBefore} -> ${resultAfterLastUnchecked}`,
+  );
+  invariant(
+    JSON.stringify(urlTypeValues) === JSON.stringify(values),
+    `${label}: URL no longer exposes recovered all-selected type state: ${JSON.stringify(urlTypeValues)}`,
   );
 
   return {
     allButtonLabel: (await page.locator('[data-all="type"]').textContent()).trim(),
-    checkedBefore: before,
-    checkedAfterAllClick: afterAllClick,
-    checkedAfterLastUnchecked: afterLastOff,
+    checkedBefore,
+    checkedAfterAllClick,
+    checkedAfterLastUnchecked,
     total,
-    behavior: "all-button-selects-all-only; last-checkbox-off-auto-restores-all",
+    resultBefore,
+    resultAfterLastUnchecked,
+    urlTypeValues,
+    behavior: "all-button-selects-all-only; last-checkbox-off-restores-state-all-but-leaves-dom-unchecked",
   };
 }
 
@@ -353,6 +377,7 @@ async function runViewport(browser, label, viewport) {
         presets: desktop.defaultState.presets,
         overflow: desktop.defaultState.overflow,
         exact12Count: desktop.exact12UrlRoundTrip.after.count,
+        currentAllSemantics: desktop.currentAllSemantics,
       },
       mobile: {
         resultCount: mobile.defaultState.resultCount,
@@ -362,6 +387,7 @@ async function runViewport(browser, label, viewport) {
         presets: mobile.defaultState.presets,
         overflow: mobile.defaultState.overflow,
         exact12Count: mobile.exact12UrlRoundTrip.after.count,
+        currentAllSemantics: mobile.currentAllSemantics,
       },
     };
     fs.writeFileSync(
