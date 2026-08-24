@@ -116,6 +116,8 @@ count는 프리셋이 덮어쓰지 않는 현재 조건(지역/업권/공시일/
 - Strategy Gate OFF build
 - runner-local production DB SHA before/after 동일
 
+브라우저 acceptance의 scalar 직접 수정 단계는 상세 조건 패널을 실제 사용자 조작처럼 펼친 뒤 입력한다. 접힌 입력에 강제 값을 쓰는 테스트 전용 우회는 사용하지 않는다.
+
 ## 비범위
 
 - nested explicit-empty URL/state 신규 설계
