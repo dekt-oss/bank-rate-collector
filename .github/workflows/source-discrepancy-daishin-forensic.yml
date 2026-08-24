@@ -1,0 +1,220 @@
+name: Daishin source discrepancy forensic
+
+on:
+  push:
+    branches: ["feat/source-discrepancy-daishin-forensic-*"]
+    paths:
+      - "scripts/source_discrepancy_daishin_forensic.py"
+      - "tests/test_source_discrepancy_daishin_forensic.py"
+      - ".github/workflows/source-discrepancy-daishin-forensic.yml"
+      - "docs/specs/20260824-source-discrepancy-daishin-forensic-v1.md"
+  workflow_dispatch:
+
+concurrency:
+  group: source-discrepancy-daishin-forensic
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  statuses: write
+
+jobs:
+  forensic:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Publish forensic locator
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            -f state=pending \
+            -f context=daishin-source-forensic \
+            -f description="Daishin read-only forensic running" \
+            -f target_url="$TARGET_URL"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Sync dependencies
+        run: uv sync --locked
+
+      - name: Validate forensic extractor
+        run: |
+          set -euo pipefail
+          uv run ruff check \
+            scripts/source_discrepancy_daishin_forensic.py \
+            tests/test_source_discrepancy_daishin_forensic.py
+          uv run pytest -q tests/test_source_discrepancy_daishin_forensic.py
+
+      - name: Restore production database to runner-local copy
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+          R2_REGION: ${{ vars.R2_REGION }}
+        run: |
+          set -euo pipefail
+          mkdir -p work
+          uv run rate-monitor storage restore --dest work/production.sqlite3
+          cp work/production.sqlite3 work/forensic.sqlite3
+          test -s work/forensic.sqlite3
+
+      - name: Apply migrations to forensic copy
+        env:
+          RATE_MONITOR_DB_URL: sqlite+pysqlite:///${{ github.workspace }}/work/forensic.sqlite3
+        run: uv run alembic upgrade head
+
+      - name: Fresh FINLIFE savings-bank capture on isolated copy
+        env:
+          FINLIFE_API_KEY: ${{ secrets.FINLIFE_API_KEY }}
+        run: |
+          set -euo pipefail
+          uv run rate-monitor collect \
+            --source finlife_savings_bank \
+            --db work/forensic.sqlite3 \
+            --raw-root data/raw \
+            --groups 030300
+
+      - name: Fresh FSB capture on isolated copy
+        run: |
+          set -euo pipefail
+          uv run rate-monitor collect \
+            --source fsb \
+            --db work/forensic.sqlite3 \
+            --raw-root data/raw
+
+      - name: Capture Daishin bank-direct rate page read-only
+        run: |
+          set -euo pipefail
+          mkdir -p work/official
+          curl --fail --show-error --silent --location --compressed \
+            --retry 2 --retry-delay 2 \
+            -A "Mozilla/5.0 (compatible; bank-rate-collector-audit/1.0)" \
+            -D work/official/daishin-rates.headers \
+            -o work/official/daishin-rates.html \
+            "https://bank.daishin.com/sub.do?code=02_prod02"
+          test -s work/official/daishin-rates.html
+          sha256sum work/official/daishin-rates.html
+
+      - name: Build Daishin forensic evidence
+        run: |
+          set -euo pipefail
+          uv run python scripts/source_discrepancy_daishin_forensic.py \
+            --db work/forensic.sqlite3 \
+            --raw-root data/raw \
+            --official-html work/official/daishin-rates.html \
+            --official-url "https://bank.daishin.com/sub.do?code=02_prod02" \
+            --out work/daishin-source-forensic.json
+
+      - name: Assert read-only forensic contract
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from decimal import Decimal
+          from pathlib import Path
+
+          report = json.loads(
+              Path("work/daishin-source-forensic.json").read_text(encoding="utf-8")
+          )
+          scope = report["scope"]
+          assert scope["mode"] == "runner_local_read_only_forensic"
+          assert scope["production_state_mutated"] is False
+          assert scope["canonical_mutated"] is False
+          assert scope["source_precedence_changed"] is False
+          assert scope["authority_selected"] is False
+          assert "first_seen_raw" in scope["provenance_semantics"]
+
+          rows = report["rows"]
+          assert rows, "대신저축은행 24/36개월 정기적금 forensic row가 없다"
+          assert {row["source_id"] for row in rows} == {"fsb", "finlife_savings_bank"}
+          assert {row["term_months"] for row in rows} == {24, 36}
+
+          finlife = [row for row in rows if row["source_id"] == "finlife_savings_bank"]
+          assert finlife
+          assert any(row["interest_method"] == "simple" for row in finlife)
+          assert any(row["interest_method"] == "compound" for row in finlife)
+          assert all(row["source_product_keys"] for row in finlife)
+          assert all("first_seen_raw" in row for row in rows)
+
+          artifacts = report["fresh_run_artifacts"]
+          for source_id in ("fsb", "finlife_savings_bank"):
+              assert artifacts[source_id]
+              assert all(item["resolved"] is True for item in artifacts[source_id])
+              assert all(item["sha256_matches_db"] is True for item in artifacts[source_id])
+
+          fresh = report["fresh_raw_target_records"]
+          assert fresh["fsb"], "fresh FSB raw에서 대신 정기적금을 찾지 못했다"
+          assert fresh["finlife_savings_bank"], "fresh FINLIFE raw에서 대신 정기적금을 찾지 못했다"
+          assert {item["finan_prod_code"] for item in fresh["fsb"]} == {"JJ09"}
+          finlife_codes = {item["fin_prdt_cd"] for item in fresh["finlife_savings_bank"]}
+          assert {"JJ", "JJ09"}.issubset(finlife_codes)
+
+          jj09_finlife = [
+              item for item in fresh["finlife_savings_bank"]
+              if item["fin_prdt_cd"] == "JJ09"
+          ]
+          assert jj09_finlife
+          assert {item["term_months"] for item in jj09_finlife} == {24, 36}
+          assert {Decimal(str(item["base_rate"])) for item in jj09_finlife} == {
+              Decimal("4.00")
+          }
+
+          jj09_fsb = [item for item in fresh["fsb"] if item["finan_prod_code"] == "JJ09"]
+          assert {item["term_months"] for item in jj09_fsb} == {24, 36}
+          assert {Decimal(str(item["base_rate"])) for item in jj09_fsb} == {
+              Decimal("3.00")
+          }
+
+          official = report["official_bank_direct"]
+          assert official and official["resolved"] is True
+          assert official["sha256"]
+
+          print("latest runs:", report["latest_runs"])
+          print("summary:", report["summary"])
+          print("fresh target records:", fresh)
+          print("official:", official)
+          PY
+
+      - name: Upload Daishin forensic evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: daishin-source-forensic-${{ github.run_id }}
+          retention-days: 30
+          path: |
+            work/daishin-source-forensic.json
+            work/official/daishin-rates.headers
+            work/official/daishin-rates.html
+            data/raw/
+          if-no-files-found: warn
+
+      - name: Publish forensic conclusion
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          if [ "$JOB_STATUS" = "success" ]; then
+            STATE=success
+            DESCRIPTION="Daishin read-only forensic succeeded"
+          else
+            STATE=failure
+            DESCRIPTION="Daishin read-only forensic failed"
+          fi
+          gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            -f state="$STATE" \
+            -f context=daishin-source-forensic \
+            -f description="$DESCRIPTION" \
+            -f target_url="$TARGET_URL"
