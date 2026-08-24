@@ -7,6 +7,7 @@ on:
       - "feat/strategy-main-runtime-e2e-*"
       - "feat/strategy-ux-*"
       - "feat/unify-main-strategy-production-*"
+      - "fix/strategy-release-gate-*"
     paths:
       - "src/rate_monitor/services/strategy_service.py"
       - "src/rate_monitor/services/deposit_pricing_external_feature_service.py"
@@ -47,6 +48,7 @@ on:
       - ".github/workflows/nh-attempt.yml"
       - ".github/workflows/production-smoke.yml"
       - "docs/specs/20260819-strategy-light-theme-ux-v2.md"
+      - "docs/specs/20260825-strategy-release-gate-off-correction-v1.md"
       - ".github/workflows/strategy-main-runtime-e2e.yml"
   workflow_dispatch:
 
@@ -89,6 +91,11 @@ jobs:
 
       - name: Sync dependencies
         run: uv sync --locked
+
+      - name: Validate canonical Strategy release gate contract
+        run: |
+          set -euo pipefail
+          uv run pytest -q tests/test_strategy_production_release.py tests/test_production_smoke.py
 
       - name: Validate main map refinement contracts
         run: |
