@@ -1,0 +1,269 @@
+name: Source discrepancy official evidence
+
+on:
+  push:
+    branches: ["feat/source-discrepancy-official-evidence-automation-*"]
+    paths:
+      - "config/source_discrepancy_official_targets.json"
+      - "scripts/source_discrepancy_official_capture.py"
+      - "tests/test_source_discrepancy_official_capture.py"
+      - "tests/test_official_evidence_write_guard.py"
+      - "docs/specs/20260824-source-discrepancy-official-evidence-automation-v1.md"
+      - ".github/workflows/source-discrepancy-official-evidence.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: source-discrepancy-official-evidence
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  statuses: write
+
+jobs:
+  evidence:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Publish evidence locator
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            -f state=pending \
+            -f context=source-discrepancy-official-evidence \
+            -f description="Queue-targeted official evidence running" \
+            -f target_url="$TARGET_URL"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Sync dependencies
+        run: uv sync --locked
+
+      - name: Validate evidence capture and write guard
+        run: |
+          set -euo pipefail
+          uv run ruff check \
+            scripts/source_discrepancy_official_capture.py \
+            tests/test_source_discrepancy_official_capture.py \
+            tests/test_official_evidence_write_guard.py
+          uv run pytest -q \
+            tests/test_source_discrepancy_official_capture.py \
+            tests/test_official_evidence_write_guard.py
+
+      - name: Restore production database to runner-local copy
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+          R2_REGION: ${{ vars.R2_REGION }}
+        run: |
+          set -euo pipefail
+          mkdir -p work
+          uv run rate-monitor storage restore --dest work/production.sqlite3
+          cp work/production.sqlite3 work/evidence.sqlite3
+          test -s work/evidence.sqlite3
+
+      - name: Apply migrations to evidence copy
+        env:
+          RATE_MONITOR_DB_URL: sqlite+pysqlite:///${{ github.workspace }}/work/evidence.sqlite3
+        run: uv run alembic upgrade head
+
+      - name: Seal runner-local DB before evidence path
+        run: |
+          set -euo pipefail
+          sha256sum work/evidence.sqlite3 | awk '{print $1}' > work/db-before.sha256
+          cat work/db-before.sha256
+
+      - name: Build current read-only discrepancy report
+        run: |
+          set -euo pipefail
+          uv run python scripts/source_discrepancy_audit.py \
+            --db work/evidence.sqlite3 \
+            --out work/source-discrepancy-current.json \
+            --triage-out work/source-discrepancy-current-triage.json
+
+      - name: Capture configured queue-targeted bank-direct evidence
+        run: |
+          set -euo pipefail
+          uv run python scripts/source_discrepancy_official_capture.py capture \
+            --report work/source-discrepancy-current.json \
+            --config config/source_discrepancy_official_targets.json \
+            --raw-dir work/official/raw \
+            --out work/official/provisional-evidence.json
+
+      - name: Assert provisional evidence contract
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          from urllib.parse import urlparse
+
+          payload = json.loads(
+              Path("work/official/provisional-evidence.json").read_text(encoding="utf-8")
+          )
+          scope = payload["scope"]
+          assert scope["mode"] == "queue_targeted_read_only_official_evidence"
+          assert scope["canonical_mutated"] is False
+          assert scope["source_precedence_changed"] is False
+          assert scope["authority_selected"] is False
+          assert scope["production_state_mutated"] is False
+          assert scope["capture_artifact_finalized"] is False
+
+          coverage = payload["coverage"]
+          assert coverage["queue_total"] > 0
+          assert coverage["configured_references"] > 0
+          assert coverage["configured_targets"] > 0
+          assert coverage["successful_captures"] == coverage["configured_targets"]
+          assert coverage["failures"] == 0
+          assert payload["records"]
+          assert all(record["raw_response_sha256"] for record in payload["records"])
+          assert all(record["capture_run_id"] for record in payload["records"])
+
+          for capture in payload["captures"]:
+              configured = urlparse(str(capture["url"]))
+              final = urlparse(str(capture["final_url"]))
+              assert final.scheme == "https", (
+                  f"official evidence redirect downgraded HTTPS: {capture['final_url']}"
+              )
+              assert final.hostname == configured.hostname, (
+                  "official evidence redirect left configured bank host: "
+                  f"{configured.hostname} -> {final.hostname}"
+              )
+
+          for record in payload["records"]:
+              if record["interest_method"] == "compound" and record["annualized_yield"]:
+                  assert record["base_rate"] is None
+                  assert record["max_rate"] is None
+                  assert record["rate_semantics"] == (
+                      "annualized_yield_only; nominal_not_inferred"
+                  )
+
+          print("coverage:", coverage)
+          print("unconfigured sample:", payload["unconfigured"][:10])
+          PY
+
+      - name: Assert evidence capture did not mutate DB
+        run: |
+          set -euo pipefail
+          BEFORE=$(cat work/db-before.sha256)
+          AFTER=$(sha256sum work/evidence.sqlite3 | awk '{print $1}')
+          echo "db before=$BEFORE"
+          echo "db after =$AFTER"
+          test "$BEFORE" = "$AFTER"
+
+      - name: Upload raw official capture artifact
+        id: raw_upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: source-discrepancy-official-raw-${{ github.run_id }}
+          retention-days: 30
+          path: |
+            work/official/raw/
+            work/official/provisional-evidence.json
+          if-no-files-found: error
+
+      - name: Finalize evidence with raw artifact identity
+        run: |
+          set -euo pipefail
+          uv run python scripts/source_discrepancy_official_capture.py finalize \
+            --input work/official/provisional-evidence.json \
+            --out work/official/final-evidence.json \
+            --artifact-id "${{ steps.raw_upload.outputs.artifact-id }}" \
+            --artifact-digest "${{ steps.raw_upload.outputs.artifact-digest }}"
+
+      - name: Rebuild audit with fresh official evidence
+        run: |
+          set -euo pipefail
+          uv run python scripts/source_discrepancy_audit.py \
+            --db work/evidence.sqlite3 \
+            --out work/source-discrepancy-with-official.json \
+            --triage-out work/source-discrepancy-with-official-triage.json \
+            --official-contradiction-out work/source-discrepancy-official-contradictions.json \
+            --official-evidence work/official/final-evidence.json
+
+      - name: Assert final read-only reconciliation contract
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          evidence = json.loads(
+              Path("work/official/final-evidence.json").read_text(encoding="utf-8")
+          )
+          report = json.loads(
+              Path("work/source-discrepancy-with-official.json").read_text(encoding="utf-8")
+          )
+
+          assert evidence["scope"]["capture_artifact_finalized"] is True
+          assert evidence["scope"]["raw_capture_artifact_id"]
+          assert evidence["scope"]["raw_capture_artifact_sha256"]
+          assert all(record["capture_artifact_id"] for record in evidence["records"])
+          assert all(record["capture_artifact_sha256"] for record in evidence["records"])
+
+          scope = report["scope"]
+          assert scope["canonical_mutated"] is False
+          assert scope["official_evidence_authority"] == "read_only_support_only"
+          assert scope["official_conflict_blocks_authority"] is True
+          assert scope["triage_mutates_canonical"] is False
+          assert scope["triage_selects_authority"] is False
+          assert report["summary"]["official_evidence_records"] == len(evidence["records"])
+
+          before = Path("work/db-before.sha256").read_text(encoding="utf-8").strip()
+          import hashlib
+
+          digest = hashlib.sha256(Path("work/evidence.sqlite3").read_bytes()).hexdigest()
+          assert digest == before, f"evidence path mutated runner-local DB: {before} != {digest}"
+
+          print("official records:", len(evidence["records"]))
+          print("official groups:", report["summary"]["official_evidence_groups"])
+          print("triage:", report["triage"]["summary"])
+          PY
+
+      - name: Upload finalized evidence bundle
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: source-discrepancy-official-evidence-${{ github.run_id }}
+          retention-days: 30
+          path: |
+            work/official/final-evidence.json
+            work/source-discrepancy-current.json
+            work/source-discrepancy-current-triage.json
+            work/source-discrepancy-with-official.json
+            work/source-discrepancy-with-official-triage.json
+            work/source-discrepancy-official-contradictions.json
+            work/db-before.sha256
+          if-no-files-found: error
+
+      - name: Publish evidence conclusion
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          if [ "$JOB_STATUS" = "success" ]; then
+            STATE=success
+            DESCRIPTION="Queue-targeted official evidence succeeded"
+          else
+            STATE=failure
+            DESCRIPTION="Queue-targeted official evidence failed"
+          fi
+          gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            -f state="$STATE" \
+            -f context=source-discrepancy-official-evidence \
+            -f description="$DESCRIPTION" \
+            -f target_url="$TARGET_URL"

@@ -1,0 +1,58 @@
+{
+  "version": 1,
+  "policy": "queue_targeted_official_evidence_read_only_v1",
+  "review_ambiguity_selectors": [],
+  "targets": [
+    {
+      "target_id": "daishin-fixed-installment",
+      "selector": {
+        "institution": "대신저축은행",
+        "product": "정기적금",
+        "product_type": "installment_savings",
+        "terms": [24, 36]
+      },
+      "surface": {
+        "url": "https://bank.daishin.com/sub.do?code=02_prod02",
+        "evidence_kind": "product_disclosure",
+        "evidence_surface": "bank_direct_product_disclosure",
+        "join_channel": "any",
+        "parser": "daishin_fixed_installment",
+        "capture_method": "live_http"
+      }
+    },
+    {
+      "target_id": "dh-branch-deposit",
+      "selector": {
+        "institution": "DH저축은행",
+        "product": "정기예금",
+        "product_type": "term_deposit",
+        "terms": [12]
+      },
+      "surface": {
+        "url": "https://www.dhsavingsbank.co.kr/ProdList_001.act?rnum=17",
+        "evidence_kind": "product_disclosure",
+        "evidence_surface": "bank_direct_product_disclosure",
+        "join_channel": "branch",
+        "parser": "dh_deposit",
+        "capture_method": "live_http"
+      }
+    },
+    {
+      "target_id": "dh-mobile-deposit",
+      "selector": {
+        "institution": "DH저축은행",
+        "product": "정기예금(비대면)",
+        "product_type": "term_deposit",
+        "terms": [12]
+      },
+      "surface": {
+        "url": "https://www.dhsavingsbank.co.kr/ProdList_001.act?rnum=18",
+        "evidence_kind": "product_disclosure",
+        "evidence_surface": "bank_direct_product_disclosure",
+        "join_channel": "mobile",
+        "parser": "dh_deposit",
+        "capture_method": "live_http"
+      }
+    }
+  ]
+}
