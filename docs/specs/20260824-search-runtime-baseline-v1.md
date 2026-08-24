@@ -58,7 +58,8 @@ Production DB에는 write/upload하지 않는다.
 - chart container visible
 - histogram SVG 실제 렌더
 - 가입기간 chart 실제 렌더
-- region tile 실제 렌더
+- 최종 배포 DOM에서 대한민국 지도 presentation shell 렌더
+- 대한민국 지도 SVG path 존재 및 현재 금리 데이터가 연결된 `data-has-rate="1"` path 존재
 - document/body horizontal overflow 없음
 - console error / pageerror 없음
 
@@ -80,6 +81,32 @@ assertion이 실패했다. Search runtime을 확인한 결과 이것은 UI 버�
 
 따라서 결과가 충분히 많고 고정행이 있으면 `100 + 1 = 101`행이 정상이다. baseline은
 이를 숨기지 않고 `pinnedRows`, `shownLimit`, `expectedVisibleRows`로 기록한다.
+
+### 4.2 deployed map presentation contract
+
+두 번째 production-backed browser 실행에서는 `regionBars()`가 만든 `.regtile`이 최종 DOM에
+남아 있을 것이라고 가정해 실패했다. 실제 배포 경로를 다시 확인하면 `.regtile`은
+**중간 계산 결과를 presentation으로 넘기는 transient DOM**이다.
+
+최종 Search build는 `inject_main_map_presentation()`을 적용하고, 브라우저에서
+`main_map_presentation`의 MutationObserver가 다음 순서로 동작한다.
+
+1. `regionBars()`가 기존 계산 계약으로 `.regtile`을 만든다.
+2. presentation이 그 타일의 지역명·중앙값·표본·drill-down 정보를 읽는다.
+3. source SVG geometry에 해당 값을 연결한다.
+4. `#reg`의 타일 DOM을 `.main-map-shell` + 대한민국 SVG 지도 DOM으로 교체한다.
+5. 값이 연결된 SVG path에 `data-has-rate="1"`을 기록한다.
+
+따라서 production runtime baseline은 transient `.regtile` 수를 성공 조건으로 사용하지
+않는다. 최종 배포 surface 기준으로 다음을 검증한다.
+
+- `#reg.main-korea-map .main-map-shell` 정확히 1개
+- `.main-map-stage svg path` 1개 이상
+- `path[data-has-rate="1"]` 1개 이상
+- exact-12 URL reload 뒤에도 동일 presentation이 다시 생성됨
+
+이 검증은 지도 계산 방식을 다시 구현하지 않고, 이미 계산된 결과가 실제 사용자에게
+보이는 최종 presentation까지 전달되는지만 확인한다.
 
 ## 5. Existing preset baseline
 
@@ -130,7 +157,8 @@ Track D1은 이 before 상태에서 토글 semantics로 변경한다.
 6. 결과 건수 exact match
 7. histogram aria-label exact match
 8. term chart caption exact match
-9. reload 뒤에도 horizontal overflow 없음
+9. 대한민국 지도 presentation 재생성
+10. reload 뒤에도 horizontal overflow 없음
 
 이 baseline은 Track D2 exact-12 preset이 기존 scalar/range URL contract를 재사용하거나
 대체할 때 회귀를 판단하는 기준이다.
@@ -174,7 +202,8 @@ workflow artifact는 최소 다음을 포함한다.
 - current preset contract captured
 - current all-selection behavior captured
 - exact-12 URL reload contract captured
-- charts rendered in both viewport baselines
+- histogram / term chart rendered in both viewport baselines
+- final 대한민국 지도 presentation shell + rate-bearing SVG paths rendered in both viewport baselines
 - no browser console/page errors
 - no horizontal page overflow
 - screenshots + JSON artifact uploaded
