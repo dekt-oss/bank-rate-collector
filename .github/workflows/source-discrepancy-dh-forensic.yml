@@ -1,0 +1,205 @@
+name: DH source discrepancy forensic
+
+on:
+  push:
+    branches: ["feat/source-discrepancy-dh-forensic-*"]
+    paths:
+      - "scripts/source_discrepancy_dh_forensic.py"
+      - "tests/test_source_discrepancy_dh_forensic.py"
+      - ".github/workflows/source-discrepancy-dh-forensic.yml"
+      - "docs/specs/20260824-source-discrepancy-dh-forensic-v1.md"
+  workflow_dispatch:
+
+concurrency:
+  group: source-discrepancy-dh-forensic
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  statuses: write
+
+jobs:
+  forensic:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Publish forensic locator
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            -f state=pending \
+            -f context=dh-source-forensic \
+            -f description="DH read-only forensic running" \
+            -f target_url="$TARGET_URL"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Sync dependencies
+        run: uv sync --locked
+
+      - name: Validate forensic extractor
+        run: |
+          set -euo pipefail
+          uv run ruff check \
+            scripts/source_discrepancy_dh_forensic.py \
+            tests/test_source_discrepancy_dh_forensic.py
+          uv run pytest -q tests/test_source_discrepancy_dh_forensic.py
+
+      - name: Restore production database to runner-local copy
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+          R2_REGION: ${{ vars.R2_REGION }}
+        run: |
+          set -euo pipefail
+          mkdir -p work
+          uv run rate-monitor storage restore --dest work/production.sqlite3
+          cp work/production.sqlite3 work/forensic.sqlite3
+          test -s work/forensic.sqlite3
+
+      - name: Apply migrations to forensic copy
+        env:
+          RATE_MONITOR_DB_URL: sqlite+pysqlite:///${{ github.workspace }}/work/forensic.sqlite3
+        run: uv run alembic upgrade head
+
+      - name: Fresh FINLIFE savings-bank capture on isolated copy
+        env:
+          FINLIFE_API_KEY: ${{ secrets.FINLIFE_API_KEY }}
+        run: |
+          set -euo pipefail
+          uv run rate-monitor collect \
+            --source finlife_savings_bank \
+            --db work/forensic.sqlite3 \
+            --raw-root data/raw \
+            --groups 030300
+
+      - name: Fresh FSB capture on isolated copy
+        run: |
+          set -euo pipefail
+          uv run rate-monitor collect \
+            --source fsb \
+            --db work/forensic.sqlite3 \
+            --raw-root data/raw
+
+      - name: Capture DH bank-direct pages read-only
+        run: |
+          set -euo pipefail
+          mkdir -p work/official
+          for target in branch mobile; do
+            if [ "$target" = branch ]; then
+              URL="https://www.dhsavingsbank.co.kr/ProdList_001.act?rnum=17"
+            else
+              URL="https://www.dhsavingsbank.co.kr/ProdList_001.act?rnum=18"
+            fi
+            curl --fail --show-error --silent --location --compressed \
+              --retry 2 --retry-delay 2 \
+              -A "Mozilla/5.0 (compatible; bank-rate-collector-audit/1.0)" \
+              -D "work/official/dh-${target}.headers" \
+              -o "work/official/dh-${target}.html" \
+              "$URL"
+            test -s "work/official/dh-${target}.html"
+            sha256sum "work/official/dh-${target}.html"
+          done
+
+      - name: Build DH forensic evidence
+        run: |
+          set -euo pipefail
+          uv run python scripts/source_discrepancy_dh_forensic.py \
+            --db work/forensic.sqlite3 \
+            --raw-root data/raw \
+            --official-branch-html work/official/dh-branch.html \
+            --official-branch-url "https://www.dhsavingsbank.co.kr/ProdList_001.act?rnum=17" \
+            --official-mobile-html work/official/dh-mobile.html \
+            --official-mobile-url "https://www.dhsavingsbank.co.kr/ProdList_001.act?rnum=18" \
+            --out work/dh-source-forensic.json
+
+      - name: Assert read-only forensic contract
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          report = json.loads(Path("work/dh-source-forensic.json").read_text(encoding="utf-8"))
+          scope = report["scope"]
+          assert scope["mode"] == "runner_local_read_only_forensic"
+          assert scope["production_state_mutated"] is False
+          assert scope["canonical_mutated"] is False
+          assert scope["source_precedence_changed"] is False
+          assert scope["authority_selected"] is False
+
+          rows = report["current_rows"]
+          assert rows, "DH저축은행 12개월 forensic current row가 없다"
+          assert {row["source_id"] for row in rows} == {"fsb", "finlife_savings_bank"}
+          assert {row["product"] for row in rows} == {"정기예금", "정기예금(비대면)"}
+          assert {row["term_months"] for row in rows} == {12}
+
+          artifacts = report["fresh_run_artifacts"]
+          for source_id in ("fsb", "finlife_savings_bank"):
+              assert artifacts[source_id]
+              assert all(item["resolved"] for item in artifacts[source_id])
+              assert all(item["sha256_matches_db"] for item in artifacts[source_id])
+
+          fresh = report["fresh_raw_target_records"]
+          assert fresh["fsb"], "fresh FSB raw에서 DH target을 찾지 못했다"
+          assert fresh["finlife_savings_bank"], "fresh FINLIFE raw에서 DH target을 찾지 못했다"
+
+          official = report["official_bank_direct"]
+          for key in ("branch", "mobile"):
+              assert official[key]["resolved"] is True
+              assert official[key]["sha256"]
+              assert official[key]["twelve_month_contexts"]
+
+          print("latest runs:", report["latest_runs"])
+          print("summary:", report["summary"])
+          print("fresh FSB:", fresh["fsb"])
+          print("fresh FINLIFE:", fresh["finlife_savings_bank"])
+          print("official:", official)
+          PY
+
+      - name: Upload DH forensic evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dh-source-forensic-${{ github.run_id }}
+          retention-days: 30
+          path: |
+            work/dh-source-forensic.json
+            work/official/dh-branch.headers
+            work/official/dh-branch.html
+            work/official/dh-mobile.headers
+            work/official/dh-mobile.html
+            data/raw/
+          if-no-files-found: warn
+
+      - name: Publish forensic conclusion
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          if [ "$JOB_STATUS" = "success" ]; then
+            STATE=success
+            DESCRIPTION="DH read-only forensic succeeded"
+          else
+            STATE=failure
+            DESCRIPTION="DH read-only forensic failed"
+          fi
+          gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            -f state="$STATE" \
+            -f context=dh-source-forensic \
+            -f description="$DESCRIPTION" \
+            -f target_url="$TARGET_URL"
