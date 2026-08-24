@@ -56,7 +56,8 @@ def _finlife_records(raw_root: Path) -> list[dict[str, Any]]:
                 continue
             institution = str(base.get("kor_co_nm") or "").strip()
             target_product = TARGETS.get(institution)
-            if target_product is None or str(base.get("fin_prdt_nm") or "").strip() != target_product:
+            source_product = str(base.get("fin_prdt_nm") or "").strip()
+            if target_product is None or source_product != target_product:
                 continue
             key = (str(base.get("fin_co_no")), str(base.get("fin_prdt_cd")))
             matched_options = option_map.get(key, [])
