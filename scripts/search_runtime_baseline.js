@@ -280,6 +280,16 @@ async function assertCurrentAllSemantics(page, label) {
 
 async function assertUrlRoundTrip(page, label) {
   await page.locator("#reset").click();
+  const advanced = page.locator("#advanced-filters");
+  if (await advanced.isHidden()) {
+    await page.locator("#filter-toggle").click();
+  }
+  invariant(!(await advanced.isHidden()), `${label}: advanced filters did not open for exact-12 exercise`);
+  invariant(
+    await page.locator("#filter-toggle").getAttribute("aria-expanded") === "true",
+    `${label}: advanced filter toggle aria state did not open`,
+  );
+
   await page.locator("#tmin").fill("12");
   await page.locator("#tmax").fill("12");
   await page.waitForTimeout(350);
@@ -307,6 +317,7 @@ async function assertUrlRoundTrip(page, label) {
     count: cleanNumber(await page.locator("#count").textContent()),
     tmin: await page.locator("#tmin").inputValue(),
     tmax: await page.locator("#tmax").inputValue(),
+    advancedHidden: await page.locator("#advanced-filters").isHidden(),
     histogramAria: await page.locator("#hist").getAttribute("aria-label"),
     termCaption: (await page.locator("#terms-cap").textContent()).trim(),
   };
