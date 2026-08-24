@@ -1,6 +1,5 @@
 from pathlib import Path
 
-
 SITE = Path("web/templates/site.html")
 
 
