@@ -1,4 +1,5 @@
 name: Search runtime baseline
+# Phase 2.5 pre-change contract evidence for Track D Search UX.
 
 on:
   push:
