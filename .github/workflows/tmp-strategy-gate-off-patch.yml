@@ -1,0 +1,49 @@
+name: Temporary Strategy gate OFF corrective patch
+
+on:
+  push:
+    branches:
+      - fix/strategy-release-gate-off-20260825
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/strategy-release-gate-off-20260825
+          fetch-depth: 0
+
+      - name: Apply corrective patch
+        run: |
+          set -euo pipefail
+          python scripts/tmp_strategy_gate_off_patch.py
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('.github/workflows/strategy-main-runtime-e2e.yml')
+          text = path.read_text(encoding='utf-8')
+          old = '      - "docs/specs/20260819-strategy-light-theme-ux-v2.md"\n'
+          new = old + '      - "docs/specs/20260825-strategy-release-gate-off-correction-v1.md"\n'
+          if text.count(old) != 1:
+              raise SystemExit('strategy runtime spec path insertion point changed')
+          path.write_text(text.replace(old, new, 1), encoding='utf-8')
+          PY
+          rm scripts/tmp_strategy_gate_off_patch.py
+          rm .github/workflows/tmp-strategy-gate-off-patch.yml
+          python -m py_compile scripts/production_smoke.py
+          git diff --check
+
+      - name: Commit corrective patch
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --stat
+          git commit -m "fix: restore Strategy production release gate OFF"
+          git push origin HEAD:fix/strategy-release-gate-off-20260825
