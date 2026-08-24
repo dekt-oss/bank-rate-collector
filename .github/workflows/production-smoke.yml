@@ -47,7 +47,7 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Verify production root, strategy, freshness and health endpoint
+      - name: Verify production root, Strategy gate OFF, freshness and health endpoint
         env:
           PRODUCTION_URL: https://bank-rate-collector.vercel.app
         run: |
