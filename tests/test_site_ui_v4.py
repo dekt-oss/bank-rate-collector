@@ -1403,7 +1403,11 @@ def test_typing_does_not_refilter_on_every_keystroke() -> None:
     뒤에 한 번만 돌게 하니 연타 중 멈춘 시간이 1ms가 됐다.
     """
     assert "const TYPING_PAUSE_MS = 200;" in SOURCE
-    assert "const redrawSoon = afterTyping(redraw);" in SOURCE
+    assert "const redrawSoon = afterTyping(() => {" in SOURCE
+    redraw = SOURCE[SOURCE.index("const redrawSoon = afterTyping(() => {"):]
+    redraw = redraw[:redraw.index("});") + 3]
+    assert "renderPresets();" in redraw
+    assert "redraw();" in redraw
     # 체크박스는 지연을 걸지 않는다. 한 번 누르는 것이라 바로 반응해야 한다.
     handler = SOURCE[SOURCE.index('$("conditions").addEventListener("change"'):]
     assert "redrawSoon()" not in handler[:2000]
