@@ -127,18 +127,33 @@ assertion이 실패했다. Search runtime을 확인한 결과 이것은 UI 버�
 
 Track D1 전 현재 동작을 명시적으로 실행해 보존한다.
 
-상품유형 group을 사용해 다음을 검증한다.
+상품유형 group을 사용한 세 번째 production-backed browser 실행에서 master plan의
+“마지막 checkbox 해제 시 화면도 전체 선택으로 복구”라는 표현보다 더 정확한 현재
+동작이 확인됐다.
 
-1. 기본 all-selected 상태
-2. 현재 `전체 선택` 버튼을 다시 눌러도 all-selected 유지
-3. checkbox를 하나씩 끔
-4. 마지막 checkbox를 끄면 현재 코드가 자동으로 전체 선택으로 복구
+1. 기본 DOM은 all-selected다.
+2. 현재 `전체 선택` 버튼을 다시 눌러도 all-selected가 유지된다.
+3. checkbox를 하나씩 끈다.
+4. 마지막 checkbox를 끄면 change handler가 내부 `state.picked.type`을
+   `selectAllGroup()`으로 전체 복구한다.
+5. 그러나 generic 상품유형 handler는 그 직후 `renderGroups()`를 호출하지 않는다.
+6. 결과적으로 **화면 checkbox는 0개 선택으로 남지만**, 결과 건수와 URL의 `type` 값은
+   전체 선택 상태로 복구된다.
+
+즉 현재 before 상태에는 실제 hidden-state 불일치가 있다.
+
+- DOM: `0 / N` checked
+- internal filter/result: all-selected
+- URL: 전체 type 값 기록
+- 사용자에게 보이는 체크 상태와 실제 필터 결과가 다름
 
 baseline evidence string:
 
-`all-button-selects-all-only; last-checkbox-off-auto-restores-all`
+`all-button-selects-all-only; last-checkbox-off-restores-state-all-but-leaves-dom-unchecked`
 
-Track D1은 이 before 상태에서 토글 semantics로 변경한다.
+baseline은 이 버그를 정상 동작으로 승인하지 않는다. **D1 전의 실제 회귀 기준으로
+보존**한다. D1에서는 자동복구 자체를 제거하고 main group의 explicit empty를 결과 0으로
+정의하므로 이 hidden-state 불일치도 함께 사라져야 한다.
 
 ## 7. URL / chart sync baseline
 
@@ -200,7 +215,7 @@ workflow artifact는 최소 다음을 포함한다.
 - mobile 390 runtime assertions SUCCESS
 - pinned-row / 표시 건수 contract captured
 - current preset contract captured
-- current all-selection behavior captured
+- current all-selection hidden-state mismatch captured
 - exact-12 URL reload contract captured
 - histogram / term chart rendered in both viewport baselines
 - final 대한민국 지도 presentation shell + rate-bearing SVG paths rendered in both viewport baselines
