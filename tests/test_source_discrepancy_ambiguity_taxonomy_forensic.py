@@ -107,7 +107,8 @@ def test_fresh_raw_preserves_finlife_saving_service_and_f_s_options(tmp_path: Pa
 
     report = build_report(raw_root)
 
-    assert report["scope"]["production_state_used"] is False
+    assert report["scope"]["production_snapshot_seeded_for_collection"] is False
+    assert report["scope"]["production_snapshot_used_for_taxonomy_decision"] is False
     assert report["scope"]["identity_changed"] is False
     assert report["summary"]["target_count"] == 2
     assert report["summary"]["targets_with_finlife_saving_service_record"] == 2
@@ -127,3 +128,17 @@ def test_fresh_raw_preserves_finlife_saving_service_and_f_s_options(tmp_path: Pa
     assert jinju["finlife_product_codes"] == ["JINJU-X"]
     assert jinju["finlife_payment_methods"] == ["F", "S"]
     assert jinju["fsb_exact_target_records"] == []
+
+
+def test_report_can_disclose_production_snapshot_seed_without_using_it_for_decision(
+    tmp_path: Path,
+) -> None:
+    raw_root = tmp_path / "raw"
+    raw_root.mkdir()
+
+    report = build_report(raw_root, production_snapshot_seeded_for_collection=True)
+
+    scope = report["scope"]
+    assert scope["production_snapshot_seeded_for_collection"] is True
+    assert scope["production_snapshot_used_for_taxonomy_decision"] is False
+    assert scope["production_state_mutated"] is False
