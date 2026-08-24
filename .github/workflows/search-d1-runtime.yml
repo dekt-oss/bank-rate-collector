@@ -8,6 +8,7 @@ on:
       - "scripts/search_d1_runtime.js"
       - ".github/workflows/search-d1-runtime.yml"
       - "tests/test_search_main_group_toggle_contract.py"
+      - "tests/test_site_ui_v4.py"
       - "docs/specs/20260824-search-main-group-toggle-empty-state-v1.md"
       - "src/rate_monitor/services/site_service.py"
       - "src/rate_monitor/services/main_map_presentation.py"
