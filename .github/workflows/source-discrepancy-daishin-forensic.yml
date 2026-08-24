@@ -121,6 +121,7 @@ jobs:
           set -euo pipefail
           python - <<'PY'
           import json
+          from decimal import Decimal
           from pathlib import Path
 
           report = json.loads(
@@ -165,11 +166,15 @@ jobs:
           ]
           assert jj09_finlife
           assert {item["term_months"] for item in jj09_finlife} == {24, 36}
-          assert {str(item["base_rate"]) for item in jj09_finlife} == {"4.0"}
+          assert {Decimal(str(item["base_rate"])) for item in jj09_finlife} == {
+              Decimal("4.00")
+          }
 
           jj09_fsb = [item for item in fresh["fsb"] if item["finan_prod_code"] == "JJ09"]
           assert {item["term_months"] for item in jj09_fsb} == {24, 36}
-          assert {str(item["base_rate"]) for item in jj09_fsb} == {"3.00"}
+          assert {Decimal(str(item["base_rate"])) for item in jj09_fsb} == {
+              Decimal("3.00")
+          }
 
           official = report["official_bank_direct"]
           assert official and official["resolved"] is True
