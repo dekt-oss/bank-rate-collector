@@ -61,7 +61,7 @@ jobs:
   collect:
     runs-on: ubuntu-latest
     env:
-      RATE_MONITOR_STRATEGY_DASHBOARD: "1"
+      RATE_MONITOR_STRATEGY_DASHBOARD: "0"
       PUBLISH_ONLY: ${{ github.event_name == 'push' || inputs.manual_target == '화면만 재발행' }}
       KFCC_ONLY: ${{ github.event.schedule == '17 19 * * 0-4' || inputs.manual_target == '새마을금고만' }}
       SKIP_KFCC_THIS_RUN: ${{ github.event.schedule == '17 15 * * 0-4' || (github.event_name == 'workflow_dispatch' && inputs.manual_target != '새마을금고만') }}
