@@ -170,9 +170,18 @@ jobs:
               assert charts["mainMapPaths"] > 0
               assert charts["mainMapRatePaths"] > 0
               assert len(default["presets"]) == 4
-              assert payload["currentAllSemantics"]["behavior"] == (
-                  "all-button-selects-all-only; last-checkbox-off-auto-restores-all"
+
+              current_all = payload["currentAllSemantics"]
+              assert current_all["behavior"] == (
+                  "all-button-selects-all-only; "
+                  "last-checkbox-off-restores-state-all-but-leaves-dom-unchecked"
               )
+              assert current_all["checkedBefore"] == current_all["total"]
+              assert current_all["checkedAfterAllClick"] == current_all["total"]
+              assert current_all["checkedAfterLastUnchecked"] == 0
+              assert current_all["resultAfterLastUnchecked"] == current_all["resultBefore"]
+              assert len(current_all["urlTypeValues"]) == current_all["total"]
+
               round_trip = payload["exact12UrlRoundTrip"]
               assert round_trip["before"]["count"] == round_trip["after"]["count"]
               assert round_trip["after"]["tmin"] == "12"
