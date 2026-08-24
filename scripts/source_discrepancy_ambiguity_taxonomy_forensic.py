@@ -148,7 +148,11 @@ def _fsb_records(raw_root: Path) -> dict[str, Any]:
     return output
 
 
-def build_report(raw_root: Path) -> dict[str, Any]:
+def build_report(
+    raw_root: Path,
+    *,
+    production_snapshot_seeded_for_collection: bool = False,
+) -> dict[str, Any]:
     finlife = _finlife_records(raw_root)
     fsb = _fsb_records(raw_root)
 
@@ -185,7 +189,10 @@ def build_report(raw_root: Path) -> dict[str, Any]:
     return {
         "scope": {
             "mode": "fresh_raw_read_only_taxonomy_forensic",
-            "production_state_used": False,
+            "production_snapshot_seeded_for_collection": (
+                production_snapshot_seeded_for_collection
+            ),
+            "production_snapshot_used_for_taxonomy_decision": False,
             "production_state_mutated": False,
             "canonical_mutated": False,
             "source_precedence_changed": False,
@@ -210,9 +217,22 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--raw-root", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument(
+        "--production-snapshot-seeded-for-collection",
+        action="store_true",
+        help=(
+            "fresh collector가 runner-local production snapshot copy를 seed로 사용했음을 "
+            "evidence metadata에 기록한다"
+        ),
+    )
     args = parser.parse_args()
 
-    report = build_report(args.raw_root)
+    report = build_report(
+        args.raw_root,
+        production_snapshot_seeded_for_collection=(
+            args.production_snapshot_seeded_for_collection
+        ),
+    )
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
     print(json.dumps(report["summary"], ensure_ascii=False, sort_keys=True))
