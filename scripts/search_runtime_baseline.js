@@ -32,6 +32,10 @@ async function openSearch(page) {
   const response = await page.goto(`${baseUrl}/index.html`, { waitUntil: "networkidle" });
   invariant(response && response.ok(), `index.html HTTP ${response ? response.status() : "no response"}`);
   await waitForRendered(page);
+  await page.waitForSelector("#reg.main-korea-map .main-map-shell", {
+    state: "attached",
+    timeout: 10_000,
+  });
 }
 
 async function assertNoHorizontalOverflow(page, label) {
@@ -94,7 +98,11 @@ async function chartState(page) {
     histogramBadge: document.getElementById("hist-badge")?.textContent.trim() || "",
     termChildren: document.getElementById("terms")?.children.length ?? 0,
     termBadge: document.getElementById("terms-badge")?.textContent.trim() || "",
-    regionTiles: document.querySelectorAll("#reg .regtile").length,
+    regionTilesAfterPresentation: document.querySelectorAll("#reg .regtile").length,
+    mainMapShells: document.querySelectorAll("#reg.main-korea-map .main-map-shell").length,
+    mainMapPaths: document.querySelectorAll("#reg .main-map-stage svg path").length,
+    mainMapRatePaths: document.querySelectorAll('#reg .main-map-stage svg path[data-has-rate="1"]').length,
+    mainMapAria: document.getElementById("reg")?.getAttribute("aria-label") || "",
     histogramCaption: document.getElementById("hist-cap")?.textContent.trim() || "",
     termCaption: document.getElementById("terms-cap")?.textContent.trim() || "",
     regionCaption: document.getElementById("reg-cap")?.textContent.trim() || "",
@@ -161,7 +169,9 @@ async function collectDefaultState(page, label) {
   invariant(!charts.hidden, `${label}: charts are hidden after data load`);
   invariant(charts.histogramChildren > 0, `${label}: histogram did not render`);
   invariant(charts.termChildren > 0, `${label}: term-range chart did not render`);
-  invariant(charts.regionTiles > 0, `${label}: region chart did not render`);
+  invariant(charts.mainMapShells === 1, `${label}: main Korea map presentation shell missing`);
+  invariant(charts.mainMapPaths > 0, `${label}: main Korea map has no SVG paths`);
+  invariant(charts.mainMapRatePaths > 0, `${label}: main Korea map has no paths with current rate data`);
 
   const fields = await page.evaluate(() => ({
     q: document.getElementById("q")?.value || "",
@@ -264,6 +274,10 @@ async function assertUrlRoundTrip(page, label) {
 
   await page.reload({ waitUntil: "networkidle" });
   await waitForRendered(page);
+  await page.waitForSelector("#reg.main-korea-map .main-map-shell", {
+    state: "attached",
+    timeout: 10_000,
+  });
   const after = {
     url: page.url(),
     count: cleanNumber(await page.locator("#count").textContent()),
@@ -335,6 +349,7 @@ async function runViewport(browser, label, viewport) {
         resultCount: desktop.defaultState.resultCount,
         visibleRows: desktop.defaultState.visibleRows,
         pinnedRows: desktop.defaultState.pinnedRows,
+        mainMapRatePaths: desktop.defaultState.charts.mainMapRatePaths,
         presets: desktop.defaultState.presets,
         overflow: desktop.defaultState.overflow,
         exact12Count: desktop.exact12UrlRoundTrip.after.count,
@@ -343,6 +358,7 @@ async function runViewport(browser, label, viewport) {
         resultCount: mobile.defaultState.resultCount,
         visibleRows: mobile.defaultState.visibleRows,
         pinnedRows: mobile.defaultState.pinnedRows,
+        mainMapRatePaths: mobile.defaultState.charts.mainMapRatePaths,
         presets: mobile.defaultState.presets,
         overflow: mobile.defaultState.overflow,
         exact12Count: mobile.exact12UrlRoundTrip.after.count,
