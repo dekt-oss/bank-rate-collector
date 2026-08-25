@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime
+
 from rate_monitor.services.inflow_asof_feature_contract import validate_as_of_feature_row
 
 
@@ -29,6 +31,21 @@ def test_all_features_available_at_origin_pass() -> None:
     assert report["status"] == "valid"
     assert report["leakage_detected"] is False
     assert report["database_written"] is False
+
+
+def test_datetime_inputs_are_normalized_to_dates() -> None:
+    as_of = {key: datetime(2026, 7, 31, 23, 59) for key in _values()}
+
+    report = validate_as_of_feature_row(
+        forecast_origin=datetime(2026, 7, 31, 9, 0),
+        target_date=datetime(2026, 8, 31, 9, 0),
+        feature_values=_values(),
+        feature_as_of_dates=as_of,
+    )
+
+    assert report["status"] == "valid"
+    assert report["forecast_origin"] == "2026-07-31"
+    assert report["target_date"] == "2026-08-31"
 
 
 def test_future_value_hidden_behind_lag_name_is_rejected() -> None:
@@ -106,3 +123,16 @@ def test_month_strings_are_normalized_to_first_day() -> None:
     assert report["status"] == "valid"
     assert report["forecast_origin"] == "2026-07-01"
     assert report["target_date"] == "2026-08-01"
+
+
+def test_invalid_feature_container_types_fail_closed() -> None:
+    report = validate_as_of_feature_row(
+        forecast_origin="2026-07-31",
+        target_date="2026-08-31",
+        feature_values=[],  # type: ignore[arg-type]
+        feature_as_of_dates=[],  # type: ignore[arg-type]
+    )
+
+    assert report["status"] == "invalid"
+    assert "feature_values:must_be_object" in report["errors"]
+    assert "feature_as_of_dates:must_be_object" in report["errors"]
