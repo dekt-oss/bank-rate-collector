@@ -116,6 +116,40 @@ _PRIVATE_EMBEDDED_FIELDS = frozenset(
     }
 )
 
+_TEXT_FIELDS = frozenset(
+    {
+        "registry_version",
+        "registry_id",
+        "model_id",
+        "candidate_key",
+        "scope_key",
+        "lifecycle_status",
+        "protocol_version",
+        "experiment_id",
+        "model_artifact_sha256",
+        "training_data_fingerprint_sha256",
+        "feature_schema_sha256",
+        "promotion_status",
+        "training_cutoff_date",
+        "evaluation_cutoff_date",
+    }
+)
+
+_OPTIONAL_TEXT_FIELDS = frozenset(
+    {
+        "promotion_report_sha256",
+        "effective_from_date",
+        "human_approver",
+        "human_approval_at",
+        "human_approval_ref",
+        "supersedes_model_id",
+        "retired_at",
+        "retired_by",
+        "retirement_ref",
+        "retirement_reason",
+    }
+)
+
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$")
 
@@ -141,7 +175,9 @@ def _parse_date(value: Any, *, field: str) -> date:
         return value.date()
     if isinstance(value, date):
         return value
-    text = str(value).strip()
+    if not isinstance(value, str):
+        raise ValueError(f"{field}:invalid_date")
+    text = value.strip()
     for candidate in (text, f"{text}-01" if len(text) == 7 else text):
         try:
             return date.fromisoformat(candidate)
@@ -153,7 +189,9 @@ def _parse_date(value: Any, *, field: str) -> date:
 def _parse_datetime(value: Any, *, field: str) -> datetime:
     if isinstance(value, datetime):
         return value
-    text = str(value).strip().replace("Z", "+00:00")
+    if not isinstance(value, str):
+        raise ValueError(f"{field}:invalid_datetime")
+    text = value.strip().replace("Z", "+00:00")
     try:
         return datetime.fromisoformat(text)
     except ValueError as exc:
@@ -161,15 +199,24 @@ def _parse_datetime(value: Any, *, field: str) -> datetime:
 
 
 def _nonempty_identifier(value: Any) -> bool:
-    return bool(_ID_RE.fullmatch(str(value).strip()))
+    return isinstance(value, str) and bool(_ID_RE.fullmatch(value.strip()))
 
 
 def _nonempty_text(value: Any) -> bool:
-    return bool(str(value).strip())
+    return isinstance(value, str) and bool(value.strip())
 
 
 def _valid_sha256(value: Any) -> bool:
-    return bool(_SHA256_RE.fullmatch(str(value).strip()))
+    return isinstance(value, str) and bool(_SHA256_RE.fullmatch(value.strip()))
+
+
+def _validate_field_types(entry: dict[str, Any], errors: list[str]) -> None:
+    for field in sorted(_TEXT_FIELDS & set(entry)):
+        if not isinstance(entry[field], str):
+            errors.append(f"{field}:must_be_string")
+    for field in sorted(_OPTIONAL_TEXT_FIELDS & set(entry)):
+        if entry[field] is not None and not isinstance(entry[field], str):
+            errors.append(f"{field}:must_be_string_or_null")
 
 
 def _validate_approval_fields(entry: dict[str, Any], errors: list[str]) -> None:
@@ -184,16 +231,16 @@ def _validate_approval_fields(entry: dict[str, Any], errors: list[str]) -> None:
         "human_approval_ref",
     )
     if not approved:
-        populated = [field for field in approval_fields if _nonempty_text(entry.get(field, ""))]
+        populated = [field for field in approval_fields if _nonempty_text(entry.get(field))]
         if populated:
             errors.append("human_approval_fields_present_without_approval:" + ",".join(populated))
         return
 
     for field in approval_fields:
-        if not _nonempty_text(entry.get(field, "")):
+        if not _nonempty_text(entry.get(field)):
             errors.append(f"{field}:required_when_human_approved")
 
-    if _nonempty_text(entry.get("human_approval_at", "")):
+    if _nonempty_text(entry.get("human_approval_at")):
         try:
             _parse_datetime(entry["human_approval_at"], field="human_approval_at")
         except ValueError as exc:
@@ -210,16 +257,16 @@ def _validate_retirement_fields(entry: dict[str, Any], errors: list[str]) -> Non
     )
 
     if status != LIFECYCLE_RETIRED:
-        populated = [field for field in retirement_fields if _nonempty_text(entry.get(field, ""))]
+        populated = [field for field in retirement_fields if _nonempty_text(entry.get(field))]
         if populated:
             errors.append("retirement_fields_present_while_active:" + ",".join(populated))
         return
 
     for field in retirement_fields:
-        if not _nonempty_text(entry.get(field, "")):
+        if not _nonempty_text(entry.get(field)):
             errors.append(f"{field}:required_when_retired")
 
-    if _nonempty_text(entry.get("retired_at", "")):
+    if _nonempty_text(entry.get("retired_at")):
         try:
             _parse_datetime(entry["retired_at"], field="retired_at")
         except ValueError as exc:
@@ -249,18 +296,21 @@ def validate_private_registry_entry(entry: Any) -> dict[str, Any]:
     if embedded_private:
         errors.append("embedded_private_fields_forbidden:" + ",".join(embedded_private))
 
+    _validate_field_types(entry, errors)
+
     if entry.get("registry_version") != REGISTRY_CONTRACT_VERSION:
         errors.append("registry_version:mismatch")
     if entry.get("protocol_version") != PROTOCOL_VERSION:
         errors.append("protocol_version:mismatch")
 
     for field in ("registry_id", "model_id", "scope_key", "experiment_id"):
-        if not _nonempty_identifier(entry.get(field, "")):
+        if not _nonempty_identifier(entry.get(field)):
             errors.append(f"{field}:invalid_identifier")
 
-    candidate_key = str(entry.get("candidate_key", "")).strip()
-    if candidate_key not in _KNOWN_CHALLENGERS:
+    candidate_key = entry.get("candidate_key")
+    if not isinstance(candidate_key, str) or candidate_key.strip() not in _KNOWN_CHALLENGERS:
         errors.append("candidate_key:unknown_or_non_challenger")
+    normalized_candidate = candidate_key.strip() if isinstance(candidate_key, str) else ""
 
     lifecycle_status = entry.get("lifecycle_status")
     if lifecycle_status not in _ALLOWED_LIFECYCLE:
@@ -274,10 +324,16 @@ def validate_private_registry_entry(entry: Any) -> dict[str, Any]:
         "model_artifact_sha256",
         "training_data_fingerprint_sha256",
         "feature_schema_sha256",
-        "promotion_report_sha256",
     ):
-        if not _valid_sha256(entry.get(field, "")):
+        if not _valid_sha256(entry.get(field)):
             errors.append(f"{field}:invalid_sha256")
+
+    promotion_digest = entry.get("promotion_report_sha256")
+    if promotion_status == "not_assessed":
+        if promotion_digest not in {None, ""}:
+            errors.append("promotion_report_sha256:must_be_empty_when_not_assessed")
+    elif not _valid_sha256(promotion_digest):
+        errors.append("promotion_report_sha256:invalid_sha256")
 
     training_date: date | None = None
     evaluation_date: date | None = None
@@ -297,7 +353,7 @@ def validate_private_registry_entry(entry: Any) -> dict[str, Any]:
             errors.append("evaluation_cutoff_date:must_be_after_training_cutoff_date")
 
     effective_from: date | None = None
-    if _nonempty_text(entry.get("effective_from_date", "")):
+    if _nonempty_text(entry.get("effective_from_date")):
         try:
             effective_from = _parse_date(entry["effective_from_date"], field="effective_from_date")
         except ValueError as exc:
@@ -343,17 +399,17 @@ def validate_private_registry_entry(entry: Any) -> dict[str, Any]:
                 errors.append("effective_from_date:cannot_precede_human_approval")
 
     supersedes = entry.get("supersedes_model_id")
-    if supersedes is not None and str(supersedes).strip():
+    if supersedes not in {None, ""}:
         if not _nonempty_identifier(supersedes):
             errors.append("supersedes_model_id:invalid_identifier")
-        if str(supersedes).strip() == str(entry.get("model_id", "")).strip():
+        if supersedes == entry.get("model_id"):
             errors.append("supersedes_model_id:cannot_reference_self")
 
     return {
         "version": REGISTRY_CONTRACT_VERSION,
         "status": "valid" if not errors else "invalid",
         "errors": errors,
-        "candidate_key": candidate_key or None,
+        "candidate_key": normalized_candidate or None,
         "lifecycle_status": lifecycle_status,
         "activation_candidate": lifecycle_status == LIFECYCLE_CHAMPION and not errors,
         "database_written": False,
@@ -394,8 +450,8 @@ def assess_champion_activation(
         if promotion_report.get("auto_promote") is not False:
             reasons.append("promotion_report:auto_promote_must_be_false")
         if isinstance(entry, dict):
-            report_candidate = str(promotion_report.get("candidate_key", "")).strip()
-            if report_candidate != str(entry.get("candidate_key", "")).strip():
+            report_candidate = promotion_report.get("candidate_key")
+            if report_candidate != entry.get("candidate_key"):
                 reasons.append("promotion_report:candidate_key_mismatch")
 
     return {
@@ -430,8 +486,8 @@ def validate_private_registry_snapshot(entries: Any) -> dict[str, Any]:
             errors.extend(f"entry[{index}]:{reason}" for reason in report["errors"])
             continue
         assert isinstance(entry, dict)
-        registry_id = str(entry["registry_id"])
-        model_id = str(entry["model_id"])
+        registry_id = entry["registry_id"]
+        model_id = entry["model_id"]
         if registry_id in seen_registry_ids:
             errors.append(f"duplicate_registry_id:{registry_id}")
         seen_registry_ids.add(registry_id)
@@ -441,10 +497,10 @@ def validate_private_registry_snapshot(entries: Any) -> dict[str, Any]:
         valid_entries.append(entry)
 
     champions_by_scope: dict[str, list[dict[str, Any]]] = {}
-    by_model_id = {str(entry["model_id"]): entry for entry in valid_entries}
+    by_model_id = {entry["model_id"]: entry for entry in valid_entries}
     for entry in valid_entries:
         if entry["lifecycle_status"] == LIFECYCLE_CHAMPION:
-            champions_by_scope.setdefault(str(entry["scope_key"]), []).append(entry)
+            champions_by_scope.setdefault(entry["scope_key"], []).append(entry)
 
     for scope_key, champions in champions_by_scope.items():
         if len(champions) > 1:
@@ -453,7 +509,7 @@ def validate_private_registry_snapshot(entries: Any) -> dict[str, Any]:
     for entry in valid_entries:
         if entry["lifecycle_status"] != LIFECYCLE_CHAMPION:
             continue
-        supersedes = str(entry.get("supersedes_model_id") or "").strip()
+        supersedes = entry.get("supersedes_model_id")
         if not supersedes:
             continue
         previous = by_model_id.get(supersedes)
