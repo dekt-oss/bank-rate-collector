@@ -113,6 +113,7 @@ retired
 7. 명시적 human approval
 8. approval 시점이 evaluation cutoff 이후
 9. effective date가 approval 이후
+10. approval timestamp에 timezone/UTC offset 명시
 
 ### retired
 
@@ -123,6 +124,8 @@ retired
 - `retired_by`
 - `retirement_ref`
 - `retirement_reason`
+
+`retired_at`에도 timezone/UTC offset을 요구하며, human approval이나 `effective_from_date`보다 앞설 수 없다.
 
 ---
 
@@ -169,6 +172,8 @@ Champion에는 최소 다음 approval metadata가 필요하다.
 - `human_approval_at`
 - `human_approval_ref`
 
+`human_approval_at`은 timezone/UTC offset이 포함된 timestamp여야 한다. 승인·적용·퇴역의 순서를 모호한 로컬 시각으로 남기지 않는다.
+
 `human_approval_ref`는 향후 내부 결재번호, 승인 기록 ID, 의사결정 문서 ID 등으로 연결할 수 있는 opaque reference다.
 
 Public repository에는 실제 private registry row를 commit하지 않는다.
@@ -198,6 +203,7 @@ Registry snapshot에서 같은 `scope_key`에 `champion`이 둘 이상 있으면
 1. 이전 model을 `retired`로 기록
 2. 새 champion의 `supersedes_model_id`에 이전 model ID 기록
 3. 두 model의 `scope_key`가 동일해야 함
+4. retirement timestamp는 이전 model의 승인·적용 이후여야 함
 
 새 champion이 아직 active인 기존 champion을 직접 가리키는 상태는 invalid다.
 
@@ -301,6 +307,8 @@ Strategy
 - blocked/tampered promotion report는 activation 불가
 - human approval 없는 champion은 invalid
 - approval이 evaluation cutoff보다 빠르면 invalid
+- approval/retirement timestamp는 timezone 명시가 필수
+- retirement가 approval/effective date보다 빠르면 invalid
 - same scope에 active champion 2개 이상이면 invalid
 - replacement target은 same scope의 retired model이어야 함
 - 실제 coefficient/raw data/diagnostics/model artifact는 포함하지 않음
