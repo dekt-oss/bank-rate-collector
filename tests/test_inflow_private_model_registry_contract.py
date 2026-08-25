@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from copy import deepcopy
 
+import pytest
+
 from rate_monitor.services.inflow_calibration_protocol import (
     PROTOCOL_VERSION,
     assess_challenger_promotion,
@@ -38,8 +40,18 @@ def _features() -> list[str]:
     ]
 
 
-def _promotion_report() -> dict[str, object]:
+def _promotion_report(
+    *,
+    experiment_id: str = "experiment-model-001",
+    model_artifact_sha256: str = _SHA_A,
+    training_data_fingerprint_sha256: str = _SHA_B,
+    feature_schema_sha256: str = _SHA_C,
+) -> dict[str, object]:
     return assess_challenger_promotion(
+        experiment_id=experiment_id,
+        model_artifact_sha256=model_artifact_sha256,
+        training_data_fingerprint_sha256=training_data_fingerprint_sha256,
+        feature_schema_sha256=feature_schema_sha256,
         candidate_key="regularized_elasticity_v1",
         observation_date_count=36,
         pricing_event_oos_count=8,
@@ -110,8 +122,11 @@ def _champion_entry(
     registry_id: str = "registry-001",
     scope_key: str = "portfolio:all",
     supersedes_model_id: str | None = None,
+    human_approval_at: str = "2026-01-03T09:00:00+09:00",
+    effective_from_date: str = "2026-01-04",
 ) -> dict[str, object]:
-    report = _promotion_report()
+    experiment_id = f"experiment-{model_id}"
+    report = _promotion_report(experiment_id=experiment_id)
     return {
         "registry_version": REGISTRY_CONTRACT_VERSION,
         "registry_id": registry_id,
@@ -120,7 +135,7 @@ def _champion_entry(
         "scope_key": scope_key,
         "lifecycle_status": LIFECYCLE_CHAMPION,
         "protocol_version": PROTOCOL_VERSION,
-        "experiment_id": f"experiment-{model_id}",
+        "experiment_id": experiment_id,
         "model_artifact_sha256": _SHA_A,
         "training_data_fingerprint_sha256": _SHA_B,
         "feature_schema_sha256": _SHA_C,
@@ -128,19 +143,28 @@ def _champion_entry(
         "promotion_status": "eligible_for_human_review",
         "training_cutoff_date": "2025-09-30",
         "evaluation_cutoff_date": "2025-12-31",
-        "effective_from_date": "2026-01-04",
+        "effective_from_date": effective_from_date,
         "human_approved": True,
         "human_approver": "deposit-strategy-owner",
-        "human_approval_at": "2026-01-03T09:00:00+09:00",
+        "human_approval_at": human_approval_at,
         "human_approval_ref": "approval:2026-001",
         "supersedes_model_id": supersedes_model_id,
     }
 
 
-def _retired_entry(*, model_id: str = "model-old") -> dict[str, object]:
-    entry = _champion_entry(model_id=model_id, registry_id=f"registry-{model_id}")
+def _retired_entry(
+    *,
+    model_id: str = "model-old",
+    retired_at: str = "2026-02-01T09:00:00+09:00",
+    supersedes_model_id: str | None = None,
+) -> dict[str, object]:
+    entry = _champion_entry(
+        model_id=model_id,
+        registry_id=f"registry-{model_id}",
+        supersedes_model_id=supersedes_model_id,
+    )
     entry["lifecycle_status"] = LIFECYCLE_RETIRED
-    entry["retired_at"] = "2026-02-01T09:00:00+09:00"
+    entry["retired_at"] = retired_at
     entry["retired_by"] = "deposit-strategy-owner"
     entry["retirement_ref"] = "retirement:2026-001"
     entry["retirement_reason"] = "superseded_after_review"
@@ -197,6 +221,48 @@ def test_champion_activation_blocks_noneligible_report_even_with_matching_digest
     assert "promotion_report:not_eligible_for_human_review" in activation["reasons"]
 
 
+def test_champion_activation_rejects_eligible_status_with_blocking_reasons() -> None:
+    report = _promotion_report()
+    report["reasons"] = ["component_regression:rollover_rate_mae_pp"]
+    entry = _champion_entry()
+    entry["promotion_report_sha256"] = promotion_report_digest(report)
+
+    activation = assess_champion_activation(entry=entry, promotion_report=report)
+
+    assert activation["status"] == "blocked"
+    assert "promotion_report:eligible_report_has_reasons" in activation["reasons"]
+
+
+@pytest.mark.parametrize(
+    ("report_field", "report_value", "expected_reason"),
+    [
+        ("version", "other-protocol", "promotion_report:protocol_version_mismatch"),
+        ("experiment_id", "experiment-other", "promotion_report:experiment_id_mismatch"),
+        ("model_artifact_sha256", "d" * 64, "promotion_report:model_artifact_sha256_mismatch"),
+        (
+            "training_data_fingerprint_sha256",
+            "d" * 64,
+            "promotion_report:training_data_fingerprint_sha256_mismatch",
+        ),
+        ("feature_schema_sha256", "d" * 64, "promotion_report:feature_schema_sha256_mismatch"),
+    ],
+)
+def test_champion_activation_binds_report_to_exact_registered_evidence(
+    report_field: str,
+    report_value: str,
+    expected_reason: str,
+) -> None:
+    report = _promotion_report()
+    report[report_field] = report_value
+    entry = _champion_entry()
+    entry["promotion_report_sha256"] = promotion_report_digest(report)
+
+    activation = assess_champion_activation(entry=entry, promotion_report=report)
+
+    assert activation["status"] == "blocked"
+    assert expected_reason in activation["reasons"]
+
+
 def test_champion_entry_without_human_approval_is_invalid() -> None:
     entry = _champion_entry()
     entry["human_approved"] = False
@@ -234,6 +300,26 @@ def test_registry_refuses_nested_value_in_text_metadata_field() -> None:
     assert "human_approver:must_be_string_or_null" in report["errors"]
 
 
+def test_registry_rejects_identifier_surrounding_whitespace() -> None:
+    entry = _candidate_entry()
+    entry["model_id"] = " model-001 "
+
+    report = validate_private_registry_entry(entry)
+
+    assert report["status"] == "invalid"
+    assert "model_id:invalid_identifier" in report["errors"]
+
+
+def test_registry_rejects_non_string_field_name_without_raising() -> None:
+    entry = _candidate_entry()
+    entry[7] = "unexpected"  # type: ignore[index]
+
+    report = validate_private_registry_entry(entry)
+
+    assert report["status"] == "invalid"
+    assert "registry_entry:field_names_must_be_strings" in report["errors"]
+
+
 def test_public_structural_reference_cannot_be_private_calibrated_candidate() -> None:
     entry = _candidate_entry()
     entry["candidate_key"] = "structural_v2_reference"
@@ -254,6 +340,17 @@ def test_human_approval_cannot_precede_evaluation_cutoff() -> None:
     assert "human_approval_at:cannot_precede_evaluation_cutoff_date" in report["errors"]
 
 
+def test_human_approval_must_be_after_evaluation_cutoff_date() -> None:
+    entry = _champion_entry()
+    entry["human_approval_at"] = "2025-12-31T23:59:00+09:00"
+    entry["effective_from_date"] = "2026-01-01"
+
+    report = validate_private_registry_entry(entry)
+
+    assert report["status"] == "invalid"
+    assert "human_approval_at:must_be_after_evaluation_cutoff_date" in report["errors"]
+
+
 def test_human_approval_timestamp_requires_timezone() -> None:
     entry = _champion_entry()
     entry["human_approval_at"] = "2026-01-03T09:00:00"
@@ -262,6 +359,18 @@ def test_human_approval_timestamp_requires_timezone() -> None:
 
     assert report["status"] == "invalid"
     assert "human_approval_at:timezone_required" in report["errors"]
+
+
+def test_effective_date_must_be_strictly_after_approval_date() -> None:
+    entry = _champion_entry(
+        human_approval_at="2026-01-03T23:00:00+09:00",
+        effective_from_date="2026-01-03",
+    )
+
+    report = validate_private_registry_entry(entry)
+
+    assert report["status"] == "invalid"
+    assert "effective_from_date:must_be_after_human_approval_date" in report["errors"]
 
 
 def test_retirement_cannot_precede_approval_or_effective_date() -> None:
@@ -305,12 +414,48 @@ def test_valid_replacement_snapshot_has_one_champion_and_retired_predecessor() -
         model_id="model-new",
         registry_id="registry-new",
         supersedes_model_id="model-old",
+        human_approval_at="2026-02-02T09:00:00+09:00",
+        effective_from_date="2026-02-03",
     )
 
     report = validate_private_registry_snapshot([previous, current])
 
     assert report["status"] == "valid"
     assert report["active_champion_scopes"] == ["portfolio:all"]
+
+
+def test_replacement_requires_predecessor_retirement_before_new_approval() -> None:
+    previous = _retired_entry(
+        model_id="model-old",
+        retired_at="2026-02-05T09:00:00+09:00",
+    )
+    current = _champion_entry(
+        model_id="model-new",
+        registry_id="registry-new",
+        supersedes_model_id="model-old",
+        human_approval_at="2026-02-02T09:00:00+09:00",
+        effective_from_date="2026-02-03",
+    )
+
+    report = validate_private_registry_snapshot([previous, current])
+
+    assert report["status"] == "invalid"
+    assert (
+        "supersedes_model_id:predecessor_not_retired_before_replacement_approval:model-old"
+        in report["errors"]
+    )
+
+
+def test_retired_replacement_keeps_supersession_link_auditable() -> None:
+    retired_replacement = _retired_entry(
+        model_id="model-new",
+        supersedes_model_id="model-missing",
+    )
+
+    report = validate_private_registry_snapshot([retired_replacement])
+
+    assert report["status"] == "invalid"
+    assert "supersedes_model_id:not_found:model-missing" in report["errors"]
 
 
 def test_snapshot_rejects_duplicate_model_identity() -> None:

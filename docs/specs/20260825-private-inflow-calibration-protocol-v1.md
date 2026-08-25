@@ -305,6 +305,19 @@ Gate 통과 결과는:
 
 실제 champion 교체는 별도 human review와 승인 후 private registry에서 수행한다.
 
+### Promotion evidence identity
+
+Promotion report는 점수만 담지 않는다. 아래 identity를 함께 담고 fail-closed 검증한다.
+
+- `experiment_id`
+- `model_artifact_sha256`
+- `training_data_fingerprint_sha256`
+- `feature_schema_sha256`
+
+Champion activation에서는 report의 `version`, `candidate_key`, 위 네 identity와 registry row가
+모두 정확히 일치해야 한다. 같은 candidate의 다른 실험 report를 digest만 다시 계산해 재사용할
+수 없다.
+
 ---
 
 ## 8. 왜 aggregate metric 하나로 결정하지 않는가
@@ -405,6 +418,7 @@ Public repository가 갖는 것은 오직:
 - aggregate 개선만으로 승격되지 않음
 - component regression / fold regression / final holdout 실패가 fail-closed됨
 - 통과해도 auto promotion 없음
+- promotion report가 exact experiment/model/data/schema evidence에 결합됨
 - production data / internal data / coefficient / DB write 없음
 - 기존 Public Structural / Strategy runtime 결과 불변
 - Inflow Engine Contract CI + General CI 통과

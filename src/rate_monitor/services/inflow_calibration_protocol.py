@@ -12,6 +12,7 @@ runtime에서만 다룬다. 이 프로토콜이 ``eligible_for_human_review``를
 from __future__ import annotations
 
 import math
+import re
 from dataclasses import asdict, dataclass
 from datetime import date
 from typing import Any
@@ -33,6 +34,9 @@ MAX_ABS_BIAS_RATIO = 0.05
 MIN_EVENT_DIRECTION_ACCURACY = 0.55
 
 PRIMARY_METRIC = "total_wape"
+
+_EVIDENCE_IDENTIFIER_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$")
+_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
 @dataclass(frozen=True)
@@ -310,8 +314,34 @@ def _validate_metric_bundle(metrics: dict[str, float], label: str) -> list[str]:
     return errors
 
 
+def _validate_promotion_evidence(
+    *,
+    experiment_id: Any,
+    model_artifact_sha256: Any,
+    training_data_fingerprint_sha256: Any,
+    feature_schema_sha256: Any,
+) -> list[str]:
+    errors: list[str] = []
+    if not isinstance(experiment_id, str) or not _EVIDENCE_IDENTIFIER_RE.fullmatch(
+        experiment_id
+    ):
+        errors.append("experiment_id:invalid_identifier")
+    for field, value in (
+        ("model_artifact_sha256", model_artifact_sha256),
+        ("training_data_fingerprint_sha256", training_data_fingerprint_sha256),
+        ("feature_schema_sha256", feature_schema_sha256),
+    ):
+        if not isinstance(value, str) or not _SHA256_RE.fullmatch(value):
+            errors.append(f"{field}:invalid_sha256")
+    return errors
+
+
 def assess_challenger_promotion(
     *,
+    experiment_id: str,
+    model_artifact_sha256: str,
+    training_data_fingerprint_sha256: str,
+    feature_schema_sha256: str,
     candidate_key: str,
     observation_date_count: int,
     pricing_event_oos_count: int,
@@ -325,7 +355,12 @@ def assess_challenger_promotion(
     이 함수는 실제 모델 학습이나 승격을 수행하지 않는다. 통과 결과는
     ``eligible_for_human_review``일 뿐이며 운영 champion 교체에는 별도 검토가 필요하다.
     """
-    reasons: list[str] = []
+    reasons = _validate_promotion_evidence(
+        experiment_id=experiment_id,
+        model_artifact_sha256=model_artifact_sha256,
+        training_data_fingerprint_sha256=training_data_fingerprint_sha256,
+        feature_schema_sha256=feature_schema_sha256,
+    )
     candidate = _candidate(candidate_key)
     if candidate is None or candidate.role != "challenger":
         reasons.append("unknown_or_non_challenger_candidate")
@@ -422,6 +457,10 @@ def assess_challenger_promotion(
         "version": PROTOCOL_VERSION,
         "status": status,
         "candidate_key": candidate_key,
+        "experiment_id": experiment_id,
+        "model_artifact_sha256": model_artifact_sha256,
+        "training_data_fingerprint_sha256": training_data_fingerprint_sha256,
+        "feature_schema_sha256": feature_schema_sha256,
         "primary_metric": PRIMARY_METRIC,
         "primary_relative_improvement": primary_improvement,
         "improved_fold_share": improved_fold_share,

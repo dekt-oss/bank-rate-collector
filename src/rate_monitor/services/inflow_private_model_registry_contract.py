@@ -203,7 +203,11 @@ def _parse_datetime(value: Any, *, field: str) -> datetime:
 
 
 def _nonempty_identifier(value: Any) -> bool:
-    return isinstance(value, str) and bool(_ID_RE.fullmatch(value.strip()))
+    return (
+        isinstance(value, str)
+        and value == value.strip()
+        and bool(_ID_RE.fullmatch(value))
+    )
 
 
 def _nonempty_text(value: Any) -> bool:
@@ -211,7 +215,11 @@ def _nonempty_text(value: Any) -> bool:
 
 
 def _valid_sha256(value: Any) -> bool:
-    return isinstance(value, str) and bool(_SHA256_RE.fullmatch(value.strip()))
+    return (
+        isinstance(value, str)
+        and value == value.strip()
+        and bool(_SHA256_RE.fullmatch(value))
+    )
 
 
 def _validate_field_types(entry: dict[str, Any], errors: list[str]) -> None:
@@ -283,6 +291,17 @@ def validate_private_registry_entry(entry: Any) -> dict[str, Any]:
         return {
             "status": "invalid",
             "errors": ["registry_entry:must_be_mapping"],
+            "activation_candidate": False,
+            "database_written": False,
+        }
+
+    if any(not isinstance(field, str) for field in entry):
+        return {
+            "version": REGISTRY_CONTRACT_VERSION,
+            "status": "invalid",
+            "errors": ["registry_entry:field_names_must_be_strings"],
+            "candidate_key": None,
+            "lifecycle_status": entry.get("lifecycle_status"),
             "activation_candidate": False,
             "database_written": False,
         }
@@ -402,12 +421,14 @@ def validate_private_registry_entry(entry: Any) -> dict[str, Any]:
             approval_at = None
         if approval_at is not None and approval_at.date() < evaluation_date:
             errors.append("human_approval_at:cannot_precede_evaluation_cutoff_date")
+        elif approval_at is not None and approval_at.date() == evaluation_date:
+            errors.append("human_approval_at:must_be_after_evaluation_cutoff_date")
         if (
             effective_from is not None
             and approval_at is not None
-            and effective_from < approval_at.date()
+            and effective_from <= approval_at.date()
         ):
-            errors.append("effective_from_date:cannot_precede_human_approval")
+            errors.append("effective_from_date:must_be_after_human_approval_date")
 
     retired_at: datetime | None = None
     if lifecycle_status == LIFECYCLE_RETIRED and _nonempty_text(entry.get("retired_at")):
@@ -474,14 +495,31 @@ def assess_champion_activation(
     if isinstance(promotion_report, dict):
         if promotion_report.get("status") != "eligible_for_human_review":
             reasons.append("promotion_report:not_eligible_for_human_review")
+        elif promotion_report.get("reasons") != []:
+            reasons.append("promotion_report:eligible_report_has_reasons")
         if promotion_report.get("human_review_required") is not True:
             reasons.append("promotion_report:human_review_required_must_be_true")
         if promotion_report.get("auto_promote") is not False:
             reasons.append("promotion_report:auto_promote_must_be_false")
         if isinstance(entry, dict):
-            report_candidate = promotion_report.get("candidate_key")
-            if report_candidate != entry.get("candidate_key"):
-                reasons.append("promotion_report:candidate_key_mismatch")
+            for report_field, entry_field, label in (
+                ("version", "protocol_version", "protocol_version"),
+                ("candidate_key", "candidate_key", "candidate_key"),
+                ("experiment_id", "experiment_id", "experiment_id"),
+                (
+                    "model_artifact_sha256",
+                    "model_artifact_sha256",
+                    "model_artifact_sha256",
+                ),
+                (
+                    "training_data_fingerprint_sha256",
+                    "training_data_fingerprint_sha256",
+                    "training_data_fingerprint_sha256",
+                ),
+                ("feature_schema_sha256", "feature_schema_sha256", "feature_schema_sha256"),
+            ):
+                if promotion_report.get(report_field) != entry.get(entry_field):
+                    reasons.append(f"promotion_report:{label}_mismatch")
 
     return {
         "version": REGISTRY_CONTRACT_VERSION,
@@ -536,7 +574,7 @@ def validate_private_registry_snapshot(entries: Any) -> dict[str, Any]:
             errors.append(f"multiple_active_champions:{scope_key}:{len(champions)}")
 
     for entry in valid_entries:
-        if entry["lifecycle_status"] != LIFECYCLE_CHAMPION:
+        if entry["lifecycle_status"] not in {LIFECYCLE_CHAMPION, LIFECYCLE_RETIRED}:
             continue
         supersedes = entry.get("supersedes_model_id")
         if not supersedes:
@@ -549,6 +587,24 @@ def validate_private_registry_snapshot(entries: Any) -> dict[str, Any]:
             errors.append(f"supersedes_model_id:scope_mismatch:{supersedes}")
         if previous["lifecycle_status"] != LIFECYCLE_RETIRED:
             errors.append(f"supersedes_model_id:previous_model_not_retired:{supersedes}")
+            continue
+        predecessor_retired_at = _parse_datetime(previous["retired_at"], field="retired_at")
+        replacement_approval_at = _parse_datetime(
+            entry["human_approval_at"], field="human_approval_at"
+        )
+        replacement_effective_from = _parse_date(
+            entry["effective_from_date"], field="effective_from_date"
+        )
+        if predecessor_retired_at >= replacement_approval_at:
+            errors.append(
+                "supersedes_model_id:predecessor_not_retired_before_replacement_approval:"
+                f"{supersedes}"
+            )
+        if predecessor_retired_at.date() >= replacement_effective_from:
+            errors.append(
+                "supersedes_model_id:predecessor_not_retired_before_replacement_effective_date:"
+                f"{supersedes}"
+            )
 
     return {
         "version": REGISTRY_CONTRACT_VERSION,
