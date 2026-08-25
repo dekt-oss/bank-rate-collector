@@ -246,7 +246,9 @@ def _parse_period(value: str) -> date:
     raise ValueError(f"invalid_observation_date:{value}")
 
 
-def build_expanding_window_splits(observation_dates: list[str] | tuple[str, ...]) -> list[dict[str, Any]]:
+def build_expanding_window_splits(
+    observation_dates: list[str] | tuple[str, ...],
+) -> list[dict[str, Any]]:
     """월/일 관측일을 이용해 expanding-window OOS split을 만든다.
 
     최소 24개 관측일을 학습에 사용하고 이후 3개 관측일씩 OOS 평가한다. 마지막 fold는
@@ -333,7 +335,9 @@ def assess_challenger_promotion(
         reasons.extend(feature_report["errors"])
 
     minimum_candidate_dates = (
-        candidate.minimum_observation_dates if candidate is not None else MIN_PROMOTION_OBSERVATION_DATES
+        candidate.minimum_observation_dates
+        if candidate is not None
+        else MIN_PROMOTION_OBSERVATION_DATES
     )
     required_dates = max(MIN_PROMOTION_OBSERVATION_DATES, minimum_candidate_dates)
     if observation_date_count < required_dates:
@@ -369,7 +373,9 @@ def assess_challenger_promotion(
             incumbent_component = float(incumbent_metrics[component])
             if incumbent_component <= 0:
                 reasons.append(f"incumbent_component_metric_must_be_positive:{component}")
-            elif challenger_component > incumbent_component * (1 + MAX_COMPONENT_RELATIVE_REGRESSION):
+            elif challenger_component > incumbent_component * (
+                1 + MAX_COMPONENT_RELATIVE_REGRESSION
+            ):
                 reasons.append(f"component_regression:{component}")
 
         if abs(float(challenger_metrics["bias_ratio"])) > MAX_ABS_BIAS_RATIO:
