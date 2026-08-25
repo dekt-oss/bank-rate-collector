@@ -9,6 +9,7 @@ on:
       - "src/rate_monitor/services/internal_calibration_intake_service.py"
       - "src/rate_monitor/services/inflow_calibration_protocol.py"
       - "src/rate_monitor/services/inflow_backtest_evaluation.py"
+      - "src/rate_monitor/services/inflow_asof_feature_contract.py"
       - "tests/test_inflow_prediction_service.py"
       - "tests/test_inflow_prediction_parity.py"
       - "tests/test_inflow_public_forecast_contract.py"
@@ -16,6 +17,7 @@ on:
       - "tests/test_internal_calibration_intake_service.py"
       - "tests/test_inflow_calibration_protocol.py"
       - "tests/test_inflow_backtest_evaluation.py"
+      - "tests/test_inflow_asof_feature_contract.py"
       - "tests/data/inflow_parity_vectors.json"
       - "docs/specs/20260822-inflow-structural-v1-calculation-guide.md"
       - "docs/specs/20260822-inflow-structural-v1-evidence-registry.md"
@@ -29,6 +31,7 @@ on:
       - "src/rate_monitor/services/internal_calibration_intake_service.py"
       - "src/rate_monitor/services/inflow_calibration_protocol.py"
       - "src/rate_monitor/services/inflow_backtest_evaluation.py"
+      - "src/rate_monitor/services/inflow_asof_feature_contract.py"
       - "tests/test_inflow_prediction_service.py"
       - "tests/test_inflow_prediction_parity.py"
       - "tests/test_inflow_public_forecast_contract.py"
@@ -36,6 +39,7 @@ on:
       - "tests/test_internal_calibration_intake_service.py"
       - "tests/test_inflow_calibration_protocol.py"
       - "tests/test_inflow_backtest_evaluation.py"
+      - "tests/test_inflow_asof_feature_contract.py"
       - "tests/data/inflow_parity_vectors.json"
       - "docs/specs/20260822-inflow-structural-v1-calculation-guide.md"
       - "docs/specs/20260822-inflow-structural-v1-evidence-registry.md"
@@ -71,13 +75,15 @@ jobs:
             src/rate_monitor/services/internal_calibration_intake_service.py \
             src/rate_monitor/services/inflow_calibration_protocol.py \
             src/rate_monitor/services/inflow_backtest_evaluation.py \
+            src/rate_monitor/services/inflow_asof_feature_contract.py \
             tests/test_inflow_prediction_service.py \
             tests/test_inflow_prediction_parity.py \
             tests/test_inflow_public_forecast_contract.py \
             tests/test_inflow_model_documentation_contract.py \
             tests/test_internal_calibration_intake_service.py \
             tests/test_inflow_calibration_protocol.py \
-            tests/test_inflow_backtest_evaluation.py
+            tests/test_inflow_backtest_evaluation.py \
+            tests/test_inflow_asof_feature_contract.py
 
       - name: Test inflow engine contracts
         run: |
@@ -88,4 +94,5 @@ jobs:
             tests/test_inflow_model_documentation_contract.py \
             tests/test_internal_calibration_intake_service.py \
             tests/test_inflow_calibration_protocol.py \
-            tests/test_inflow_backtest_evaluation.py
+            tests/test_inflow_backtest_evaluation.py \
+            tests/test_inflow_asof_feature_contract.py
