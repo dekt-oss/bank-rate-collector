@@ -348,9 +348,12 @@ def validate_private_registry_entry(entry: Any) -> dict[str, Any]:
         else:
             evaluation_date = parsed
 
-    if training_date is not None and evaluation_date is not None:
-        if evaluation_date <= training_date:
-            errors.append("evaluation_cutoff_date:must_be_after_training_cutoff_date")
+    if (
+        training_date is not None
+        and evaluation_date is not None
+        and evaluation_date <= training_date
+    ):
+        errors.append("evaluation_cutoff_date:must_be_after_training_cutoff_date")
 
     effective_from: date | None = None
     if _nonempty_text(entry.get("effective_from_date")):
@@ -394,9 +397,12 @@ def validate_private_registry_entry(entry: Any) -> dict[str, Any]:
             approval_at = None
         if approval_at is not None and approval_at.date() < evaluation_date:
             errors.append("human_approval_at:cannot_precede_evaluation_cutoff_date")
-        if effective_from is not None and approval_at is not None:
-            if effective_from < approval_at.date():
-                errors.append("effective_from_date:cannot_precede_human_approval")
+        if (
+            effective_from is not None
+            and approval_at is not None
+            and effective_from < approval_at.date()
+        ):
+            errors.append("effective_from_date:cannot_precede_human_approval")
 
     supersedes = entry.get("supersedes_model_id")
     if supersedes not in {None, ""}:
@@ -438,9 +444,12 @@ def assess_champion_activation(
             promotion_digest = None
             reasons.append("promotion_report:not_canonical_json")
 
-    if isinstance(entry, dict) and promotion_digest is not None:
-        if promotion_digest != entry.get("promotion_report_sha256"):
-            reasons.append("promotion_report:digest_mismatch")
+    if (
+        isinstance(entry, dict)
+        and promotion_digest is not None
+        and promotion_digest != entry.get("promotion_report_sha256")
+    ):
+        reasons.append("promotion_report:digest_mismatch")
 
     if isinstance(promotion_report, dict):
         if promotion_report.get("status") != "eligible_for_human_review":
