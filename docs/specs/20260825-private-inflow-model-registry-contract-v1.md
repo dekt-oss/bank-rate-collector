@@ -151,6 +151,18 @@ Champion 활성화 시 실제 private promotion report를 다시 digest하고 re
 
 한 글자라도 report가 바뀌면 activation을 차단한다.
 
+Digest 일치만으로는 충분하지 않다. Activation은 promotion report의 다음 값도 registry row와
+직접 비교한다.
+
+- protocol `version`
+- `candidate_key`
+- `experiment_id`
+- `model_artifact_sha256`
+- `training_data_fingerprint_sha256`
+- `feature_schema_sha256`
+
+따라서 같은 candidate의 과거 실험 report를 새 artifact/data/schema에 재사용할 수 없다.
+
 ---
 
 ## 5. Human approval은 promotion과 별개다
@@ -173,6 +185,9 @@ Champion에는 최소 다음 approval metadata가 필요하다.
 - `human_approval_ref`
 
 `human_approval_at`은 timezone/UTC offset이 포함된 timestamp여야 한다. 승인·적용·퇴역의 순서를 모호한 로컬 시각으로 남기지 않는다.
+
+`effective_from_date`는 date-only 필드이므로 approval과 같은 날짜도 허용하지 않는다. 승인일의
+자정부터 소급 활성화되는 해석을 피하기 위해 approval의 calendar date보다 반드시 뒤여야 한다.
 
 `human_approval_ref`는 향후 내부 결재번호, 승인 기록 ID, 의사결정 문서 ID 등으로 연결할 수 있는 opaque reference다.
 
@@ -204,8 +219,13 @@ Registry snapshot에서 같은 `scope_key`에 `champion`이 둘 이상 있으면
 2. 새 champion의 `supersedes_model_id`에 이전 model ID 기록
 3. 두 model의 `scope_key`가 동일해야 함
 4. retirement timestamp는 이전 model의 승인·적용 이후여야 함
+5. 이전 model의 retirement timestamp는 새 model의 approval/effective date보다 앞서야 함
 
 새 champion이 아직 active인 기존 champion을 직접 가리키는 상태는 invalid다.
+
+새 champion이 이후 retired되어도 `supersedes_model_id`의 target 존재 여부, same-scope 여부,
+retired predecessor 여부와 시간순서는 계속 검증한다. Supersession은 현재 활성 상태가 아니라
+보존해야 하는 audit history다.
 
 즉 replacement는 다음 순서로 처리한다.
 
@@ -304,13 +324,17 @@ Strategy
 - `structural_v2_reference`는 private calibrated challenger로 등록되지 않음
 - promotion report digest가 deterministic함
 - champion activation 시 exact promotion report digest가 일치해야 함
-- blocked/tampered promotion report는 activation 불가
+- promotion report의 protocol/candidate/experiment/model/data/schema identity가 registry와 일치해야 함
+- blocked/tampered report 또는 blocking `reasons`가 남은 eligible report는 activation 불가
 - human approval 없는 champion은 invalid
-- approval이 evaluation cutoff보다 빠르면 invalid
+- approval calendar date가 evaluation cutoff date와 같거나 빠르면 invalid
 - approval/retirement timestamp는 timezone 명시가 필수
+- effective date는 approval calendar date보다 반드시 뒤여야 함
 - retirement가 approval/effective date보다 빠르면 invalid
 - same scope에 active champion 2개 이상이면 invalid
 - replacement target은 same scope의 retired model이어야 함
+- predecessor retirement는 replacement approval/effective date보다 앞서야 함
+- retired replacement도 supersession audit link 검증을 유지함
 - 실제 coefficient/raw data/diagnostics/model artifact는 포함하지 않음
 - public Strategy/public forecast/DB/schema/collector 계산은 변경하지 않음
 - targeted Inflow Engine Contract + General CI 통과
@@ -319,18 +343,18 @@ Strategy
 
 ## 12. 다음 남은 실제 작업
 
-### 내부자료 없이 추가 가능
+### 내부자료 없이 완료한 마지막 선행작업
 
-이 contract 이후 남는 pre-data 작업은 많지 않다.
+- `tests/test_inflow_private_research_rehearsal.py`
+  - deterministic synthetic fixture로
+    `intake → as-of gate → evaluator → promotion → registry → public boundary` 연결성 검증
+  - positive champion activation과 leakage/tamper/approval/duplicate/replacement/private leak/
+    holdout/component adversarial path 검증
+- `docs/runbooks/private-inflow-calibration-runtime.md`
+  - private workspace, execution evidence, No-Go, backup/rollback, public boundary 절차
 
-- synthetic end-to-end private research rehearsal
-  - fake schema fixture로 `intake → as-of gate → backtest evaluator → promotion → registry` 연결성 검증
-- private runtime 운영 runbook 정리
-  - actual data 위치
-  - artifact/report/registry 보관 구조
-  - backup/rollback 절차
-
-다만 실제 모델 성능 개선과 calibration correctness는 synthetic rehearsal로 증명할 수 없다.
+이 두 작업은 component 연결과 운영 순서를 검증할 뿐 실제 모델 성능이나 calibration correctness를
+증명하지 않는다. 여기까지를 `PRE-DATA COMPLETE / INTERNAL DATA BLOCKED`로 본다.
 
 ### 실제 내부자료 필요
 

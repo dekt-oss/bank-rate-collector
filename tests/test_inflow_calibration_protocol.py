@@ -13,6 +13,19 @@ from rate_monitor.services.inflow_calibration_protocol import (
     validate_feature_columns,
 )
 
+_SHA_A = "a" * 64
+_SHA_B = "b" * 64
+_SHA_C = "c" * 64
+
+
+def _promotion_evidence() -> dict[str, str]:
+    return {
+        "experiment_id": "experiment-001",
+        "model_artifact_sha256": _SHA_A,
+        "training_data_fingerprint_sha256": _SHA_B,
+        "feature_schema_sha256": _SHA_C,
+    }
+
 
 def _month_dates(count: int) -> list[str]:
     year = 2023
@@ -143,6 +156,7 @@ def test_24_dates_are_intake_research_history_but_not_enough_for_oos_promotion()
 
 def test_strong_regularized_challenger_is_only_eligible_for_human_review() -> None:
     report = assess_challenger_promotion(
+        **_promotion_evidence(),
         candidate_key="regularized_elasticity_v1",
         observation_date_count=36,
         pricing_event_oos_count=8,
@@ -159,6 +173,10 @@ def test_strong_regularized_challenger_is_only_eligible_for_human_review() -> No
     assert report["auto_promote"] is False
     assert report["human_review_required"] is True
     assert report["model_coefficients_changed"] is False
+    assert report["experiment_id"] == "experiment-001"
+    assert report["model_artifact_sha256"] == _SHA_A
+    assert report["training_data_fingerprint_sha256"] == _SHA_B
+    assert report["feature_schema_sha256"] == _SHA_C
 
 
 def test_good_aggregate_metrics_cannot_hide_a_bad_final_holdout() -> None:
@@ -167,6 +185,7 @@ def test_good_aggregate_metrics_cannot_hide_a_bad_final_holdout() -> None:
     folds[-1]["incumbent_total_wape"] = 0.09
 
     report = assess_challenger_promotion(
+        **_promotion_evidence(),
         candidate_key="regularized_elasticity_v1",
         observation_date_count=36,
         pricing_event_oos_count=8,
@@ -185,6 +204,7 @@ def test_component_regression_blocks_promotion_even_when_total_improves() -> Non
     challenger["rollover_rate_mae_pp"] = 1.30
 
     report = assess_challenger_promotion(
+        **_promotion_evidence(),
         candidate_key="regularized_elasticity_v1",
         observation_date_count=36,
         pricing_event_oos_count=8,
@@ -200,6 +220,7 @@ def test_component_regression_blocks_promotion_even_when_total_improves() -> Non
 
 def test_sparse_pricing_events_block_promotion() -> None:
     report = assess_challenger_promotion(
+        **_promotion_evidence(),
         candidate_key="regularized_elasticity_v1",
         observation_date_count=36,
         pricing_event_oos_count=2,
@@ -217,6 +238,7 @@ def test_sparse_pricing_events_block_promotion() -> None:
 
 def test_nonlinear_candidate_requires_longer_history_before_promotion_review() -> None:
     report = assess_challenger_promotion(
+        **_promotion_evidence(),
         candidate_key="nonlinear_residual_v1",
         observation_date_count=48,
         pricing_event_oos_count=8,
@@ -232,6 +254,7 @@ def test_nonlinear_candidate_requires_longer_history_before_promotion_review() -
 
 def test_unknown_candidate_fails_closed() -> None:
     report = assess_challenger_promotion(
+        **_promotion_evidence(),
         candidate_key="mystery_model",
         observation_date_count=60,
         pricing_event_oos_count=8,
@@ -243,3 +266,39 @@ def test_unknown_candidate_fails_closed() -> None:
 
     assert report["status"] == "blocked"
     assert "unknown_or_non_challenger_candidate" in report["reasons"]
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "expected_reason"),
+    [
+        ("experiment_id", " experiment-001", "experiment_id:invalid_identifier"),
+        ("model_artifact_sha256", "x" * 64, "model_artifact_sha256:invalid_sha256"),
+        (
+            "training_data_fingerprint_sha256",
+            "B" * 64,
+            "training_data_fingerprint_sha256:invalid_sha256",
+        ),
+        ("feature_schema_sha256", "c" * 63, "feature_schema_sha256:invalid_sha256"),
+    ],
+)
+def test_promotion_evidence_identity_fails_closed(
+    field: str,
+    value: str,
+    expected_reason: str,
+) -> None:
+    evidence = _promotion_evidence()
+    evidence[field] = value
+
+    report = assess_challenger_promotion(
+        **evidence,
+        candidate_key="regularized_elasticity_v1",
+        observation_date_count=36,
+        pricing_event_oos_count=8,
+        feature_columns=_features(),
+        challenger_metrics=_challenger_metrics(),
+        incumbent_metrics=_incumbent_metrics(),
+        fold_metrics=_folds(),
+    )
+
+    assert report["status"] == "blocked"
+    assert expected_reason in report["reasons"]

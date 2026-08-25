@@ -20,11 +20,13 @@ on:
       - "tests/test_inflow_backtest_evaluation.py"
       - "tests/test_inflow_asof_feature_contract.py"
       - "tests/test_inflow_private_model_registry_contract.py"
+      - "tests/test_inflow_private_research_rehearsal.py"
       - "tests/data/inflow_parity_vectors.json"
       - "docs/specs/20260822-inflow-structural-v1-calculation-guide.md"
       - "docs/specs/20260822-inflow-structural-v1-evidence-registry.md"
       - "docs/specs/20260825-private-inflow-calibration-protocol-v1.md"
       - "docs/specs/20260825-private-inflow-model-registry-contract-v1.md"
+      - "docs/runbooks/private-inflow-calibration-runtime.md"
       - "web/templates/strategy.html"
       - ".github/workflows/inflow-engine-contract.yml"
   pull_request:
@@ -45,11 +47,13 @@ on:
       - "tests/test_inflow_backtest_evaluation.py"
       - "tests/test_inflow_asof_feature_contract.py"
       - "tests/test_inflow_private_model_registry_contract.py"
+      - "tests/test_inflow_private_research_rehearsal.py"
       - "tests/data/inflow_parity_vectors.json"
       - "docs/specs/20260822-inflow-structural-v1-calculation-guide.md"
       - "docs/specs/20260822-inflow-structural-v1-evidence-registry.md"
       - "docs/specs/20260825-private-inflow-calibration-protocol-v1.md"
       - "docs/specs/20260825-private-inflow-model-registry-contract-v1.md"
+      - "docs/runbooks/private-inflow-calibration-runtime.md"
       - "web/templates/strategy.html"
       - ".github/workflows/inflow-engine-contract.yml"
 
@@ -91,7 +95,8 @@ jobs:
             tests/test_inflow_calibration_protocol.py \
             tests/test_inflow_backtest_evaluation.py \
             tests/test_inflow_asof_feature_contract.py \
-            tests/test_inflow_private_model_registry_contract.py
+            tests/test_inflow_private_model_registry_contract.py \
+            tests/test_inflow_private_research_rehearsal.py
 
       - name: Test inflow engine contracts
         run: |
@@ -104,4 +109,5 @@ jobs:
             tests/test_inflow_calibration_protocol.py \
             tests/test_inflow_backtest_evaluation.py \
             tests/test_inflow_asof_feature_contract.py \
-            tests/test_inflow_private_model_registry_contract.py
+            tests/test_inflow_private_model_registry_contract.py \
+            tests/test_inflow_private_research_rehearsal.py
