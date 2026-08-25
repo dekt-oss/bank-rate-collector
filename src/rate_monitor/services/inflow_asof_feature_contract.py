@@ -7,7 +7,7 @@ feature가 언제 확정된 값인지 ``feature_as_of_dates``로 함께 기록�
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from typing import Any
 
 from rate_monitor.services.inflow_calibration_protocol import validate_feature_columns
@@ -16,6 +16,8 @@ AS_OF_CONTRACT_VERSION = "inflow-asof-feature-contract-v1"
 
 
 def _parse_date(value: Any, *, field: str) -> date:
+    if isinstance(value, datetime):
+        return value.date()
     if isinstance(value, date):
         return value
     text = str(value).strip()
@@ -52,12 +54,23 @@ def validate_as_of_feature_row(
     if origin is not None and target is not None and target <= origin:
         errors.append("target_date_must_be_after_forecast_origin")
 
-    feature_report = validate_feature_columns(set(feature_values))
+    if not isinstance(feature_values, dict):
+        errors.append("feature_values:must_be_object")
+        normalized_values: dict[str, Any] = {}
+    else:
+        normalized_values = feature_values
+    if not isinstance(feature_as_of_dates, dict):
+        errors.append("feature_as_of_dates:must_be_object")
+        normalized_as_of: dict[str, Any] = {}
+    else:
+        normalized_as_of = feature_as_of_dates
+
+    feature_report = validate_feature_columns(set(normalized_values))
     if feature_report["status"] != "valid":
         errors.extend(feature_report["errors"])
 
-    value_keys = set(feature_values)
-    as_of_keys = set(feature_as_of_dates)
+    value_keys = set(normalized_values)
+    as_of_keys = set(normalized_as_of)
     missing_as_of = sorted(value_keys - as_of_keys)
     extra_as_of = sorted(as_of_keys - value_keys)
     if missing_as_of:
@@ -69,7 +82,7 @@ def validate_as_of_feature_row(
     for feature in sorted(value_keys & as_of_keys):
         try:
             feature_date = _parse_date(
-                feature_as_of_dates[feature], field=f"feature_as_of_dates.{feature}"
+                normalized_as_of[feature], field=f"feature_as_of_dates.{feature}"
             )
         except ValueError as exc:
             errors.append(str(exc))
