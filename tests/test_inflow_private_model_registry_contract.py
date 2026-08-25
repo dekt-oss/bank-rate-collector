@@ -254,6 +254,27 @@ def test_human_approval_cannot_precede_evaluation_cutoff() -> None:
     assert "human_approval_at:cannot_precede_evaluation_cutoff_date" in report["errors"]
 
 
+def test_human_approval_timestamp_requires_timezone() -> None:
+    entry = _champion_entry()
+    entry["human_approval_at"] = "2026-01-03T09:00:00"
+
+    report = validate_private_registry_entry(entry)
+
+    assert report["status"] == "invalid"
+    assert "human_approval_at:timezone_required" in report["errors"]
+
+
+def test_retirement_cannot_precede_approval_or_effective_date() -> None:
+    entry = _retired_entry()
+    entry["retired_at"] = "2026-01-02T09:00:00+09:00"
+
+    report = validate_private_registry_entry(entry)
+
+    assert report["status"] == "invalid"
+    assert "retired_at:cannot_precede_human_approval" in report["errors"]
+    assert "retired_at:cannot_precede_effective_from_date" in report["errors"]
+
+
 def test_snapshot_rejects_multiple_active_champions_for_same_scope() -> None:
     first = _champion_entry(model_id="model-a", registry_id="registry-a")
     second = _champion_entry(model_id="model-b", registry_id="registry-b")
