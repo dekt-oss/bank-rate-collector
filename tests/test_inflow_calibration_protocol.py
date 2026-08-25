@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from datetime import date
 
+import pytest
+
 from rate_monitor.services.inflow_calibration_protocol import (
     MIN_PROMOTION_FOLDS,
     assess_challenger_promotion,
@@ -151,7 +153,7 @@ def test_strong_regularized_challenger_is_only_eligible_for_human_review() -> No
     )
 
     assert report["status"] == "eligible_for_human_review"
-    assert report["primary_relative_improvement"] == 0.1
+    assert report["primary_relative_improvement"] == pytest.approx(0.1)
     assert report["improved_fold_share"] == 1.0
     assert report["reasons"] == []
     assert report["auto_promote"] is False
