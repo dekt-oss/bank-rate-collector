@@ -218,7 +218,10 @@ def test_registry_refuses_embedded_coefficients_or_diagnostics() -> None:
     report = validate_private_registry_entry(entry)
 
     assert report["status"] == "invalid"
-    assert any(reason.startswith("embedded_private_fields_forbidden:") for reason in report["errors"])
+    assert any(
+        reason.startswith("embedded_private_fields_forbidden:")
+        for reason in report["errors"]
+    )
 
 
 def test_registry_refuses_nested_value_in_text_metadata_field() -> None:
