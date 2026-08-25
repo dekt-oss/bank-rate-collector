@@ -188,14 +188,18 @@ def _parse_date(value: Any, *, field: str) -> date:
 
 def _parse_datetime(value: Any, *, field: str) -> datetime:
     if isinstance(value, datetime):
-        return value
-    if not isinstance(value, str):
+        parsed = value
+    elif isinstance(value, str):
+        text = value.strip().replace("Z", "+00:00")
+        try:
+            parsed = datetime.fromisoformat(text)
+        except ValueError as exc:
+            raise ValueError(f"{field}:invalid_datetime") from exc
+    else:
         raise ValueError(f"{field}:invalid_datetime")
-    text = value.strip().replace("Z", "+00:00")
-    try:
-        return datetime.fromisoformat(text)
-    except ValueError as exc:
-        raise ValueError(f"{field}:invalid_datetime") from exc
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise ValueError(f"{field}:timezone_required")
+    return parsed
 
 
 def _nonempty_identifier(value: Any) -> bool:
@@ -390,6 +394,7 @@ def validate_private_registry_entry(entry: Any) -> dict[str, Any]:
         if effective_from is None:
             errors.append("champion_history:effective_from_date_required")
 
+    approval_at: datetime | None = None
     if human_approved and evaluation_date is not None:
         try:
             approval_at = _parse_datetime(entry.get("human_approval_at"), field="human_approval_at")
@@ -403,6 +408,21 @@ def validate_private_registry_entry(entry: Any) -> dict[str, Any]:
             and effective_from < approval_at.date()
         ):
             errors.append("effective_from_date:cannot_precede_human_approval")
+
+    retired_at: datetime | None = None
+    if lifecycle_status == LIFECYCLE_RETIRED and _nonempty_text(entry.get("retired_at")):
+        try:
+            retired_at = _parse_datetime(entry["retired_at"], field="retired_at")
+        except ValueError:
+            retired_at = None
+    if retired_at is not None and approval_at is not None and retired_at < approval_at:
+        errors.append("retired_at:cannot_precede_human_approval")
+    if (
+        retired_at is not None
+        and effective_from is not None
+        and retired_at.date() < effective_from
+    ):
+        errors.append("retired_at:cannot_precede_effective_from_date")
 
     supersedes = entry.get("supersedes_model_id")
     if supersedes not in {None, ""}:
