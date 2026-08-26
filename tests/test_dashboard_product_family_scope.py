@@ -41,7 +41,11 @@ def test_search_url_preserves_family_savings_subtypes_and_term() -> None:
     assert 'p.set("family", family);' in html
     assert 'p.set("term", String(activeGlobalTerm()));' in html
     assert 'p.set("savings", selected.length ? selected.join(",") : "none");' in html
-    assert 'normalizeProductScopeAliases();\n  readUrl();\n  restoreProductScopeAliasState();' in html
+    restore_contract = (
+        'normalizeProductScopeAliases();\n  readUrl();\n  '
+        'restoreProductScopeAliasState();'
+    )
+    assert restore_contract in html
     assert 'rawSavings === "none"' in html
 
 
