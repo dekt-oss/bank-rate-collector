@@ -18,7 +18,9 @@ def _extract_standalone_iife(html: str, script_id: str) -> tuple[str, str]:
     source_start = start + len(marker)
     end = html.find("</script>", source_start)
     if end < 0:
-        raise DashboardBuildError(f"Strategy 상품군 standalone runtime 종료를 찾지 못했다: {script_id}")
+        raise DashboardBuildError(
+            f"Strategy 상품군 standalone runtime 종료를 찾지 못했다: {script_id}"
+        )
     source = html[source_start:end].strip()
     prefix = "(()=>{"
     suffix = "})();"
