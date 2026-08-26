@@ -1,0 +1,167 @@
+name: TEMP apply calibration month boundary fix
+
+on:
+  push:
+    branches:
+      - fix/calibration-month-boundary-20260826
+    paths:
+      - ".github/workflows/temp-apply-calibration-month-fix.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/calibration-month-boundary-20260826
+          fetch-depth: 0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Sync dependencies
+        run: uv sync --locked
+
+      - name: Preflight call-site census
+        run: |
+          set -euo pipefail
+          git grep -n "assess_internal_calibration_bundle" -- src tests docs || true
+
+      - name: Apply calendar-month gate and boundary tests
+        run: |
+          uv run python - <<'PY'
+          from pathlib import Path
+
+          def replace_exact(path: str, old: str, new: str, expected: int = 1) -> None:
+              target = Path(path)
+              text = target.read_text(encoding="utf-8")
+              count = text.count(old)
+              if count != expected:
+                  raise SystemExit(f"{path}: expected {expected} matches, found {count}: {old!r}")
+              target.write_text(text.replace(old, new), encoding="utf-8")
+
+          service = "src/rate_monitor/services/internal_calibration_intake_service.py"
+          replace_exact(
+              service,
+              "MIN_HISTORY_DAYS = 365 * 2\nRECOMMENDED_HISTORY_DAYS = 365 * 3\nMIN_PRICING_OBSERVATION_DATES = 24\nRECOMMENDED_PRICING_OBSERVATION_DATES = 36\n",
+              "# history_days는 기존 audit/reporting contract를 위해 유지한다.\n# readiness/grade 경계는 스펙의 '월별 24/36개' 의미에 맞춰 달력 월 수로 판정한다.\nMIN_HISTORY_DAYS = 365 * 2\nRECOMMENDED_HISTORY_DAYS = 365 * 3\nMIN_HISTORY_MONTHS = 24\nRECOMMENDED_HISTORY_MONTHS = 36\nMIN_PRICING_OBSERVATION_DATES = 24\nRECOMMENDED_PRICING_OBSERVATION_DATES = 36\n",
+          )
+          replace_exact(
+              service,
+              '            "unique_date_count": 0,\n',
+              '            "unique_date_count": 0,\n            "unique_month_count": 0,\n',
+          )
+          replace_exact(
+              service,
+              "    unique_errors = sorted(set(errors))\n    unique_dates = set(observed_dates)\n\n    return {\n",
+              "    unique_errors = sorted(set(errors))\n    unique_dates = set(observed_dates)\n    unique_months = {(value.year, value.month) for value in observed_dates}\n\n    return {\n",
+          )
+          replace_exact(
+              service,
+              '        "unique_date_count": len(unique_dates),\n',
+              '        "unique_date_count": len(unique_dates),\n        "unique_month_count": len(unique_months),\n',
+          )
+          replace_exact(
+              service,
+              '    observation_dates = int(pricing_report["unique_date_count"])\n\n    dataset_errors = [\n',
+              '    observation_dates = int(pricing_report["unique_date_count"])\n    history_months = int(pricing_report["unique_month_count"])\n\n    dataset_errors = [\n',
+          )
+          replace_exact(
+              service,
+              "    elif (\n        history_days is None\n        or history_days < MIN_HISTORY_DAYS\n        or observation_dates < MIN_PRICING_OBSERVATION_DATES\n    ):\n",
+              "    elif (\n        history_months < MIN_HISTORY_MONTHS\n        or observation_dates < MIN_PRICING_OBSERVATION_DATES\n    ):\n",
+          )
+          replace_exact(
+              service,
+              "    if (\n        history_days is not None\n        and history_days >= RECOMMENDED_HISTORY_DAYS\n        and observation_dates >= RECOMMENDED_PRICING_OBSERVATION_DATES\n    ):\n",
+              "    if (\n        history_months >= RECOMMENDED_HISTORY_MONTHS\n        and observation_dates >= RECOMMENDED_PRICING_OBSERVATION_DATES\n    ):\n",
+          )
+          replace_exact(
+              service,
+              "    elif (\n        history_days is not None\n        and history_days >= MIN_HISTORY_DAYS\n        and observation_dates >= MIN_PRICING_OBSERVATION_DATES\n    ):\n",
+              "    elif (\n        history_months >= MIN_HISTORY_MONTHS\n        and observation_dates >= MIN_PRICING_OBSERVATION_DATES\n    ):\n",
+          )
+          replace_exact(
+              service,
+              '        "history_days": history_days,\n        "pricing_observation_dates": observation_dates,\n        "history_grade": history_grade,\n        "minimum_history_days": MIN_HISTORY_DAYS,\n        "recommended_history_days": RECOMMENDED_HISTORY_DAYS,\n',
+              '        "history_days": history_days,\n        "history_months": history_months,\n        "pricing_observation_dates": observation_dates,\n        "history_grade": history_grade,\n        "history_gate_basis": "unique_pricing_observation_months",\n        "minimum_history_days": MIN_HISTORY_DAYS,\n        "recommended_history_days": RECOMMENDED_HISTORY_DAYS,\n        "minimum_history_months": MIN_HISTORY_MONTHS,\n        "recommended_history_months": RECOMMENDED_HISTORY_MONTHS,\n',
+          )
+
+          tests = "tests/test_internal_calibration_intake_service.py"
+          replace_exact(
+              tests,
+              '    assert report["pricing_observation_dates"] == 37\n    assert report["calibration_allowed"] is True\n',
+              '    assert report["pricing_observation_dates"] == 37\n    assert report["history_months"] == 37\n    assert report["history_gate_basis"] == "unique_pricing_observation_months"\n    assert report["calibration_allowed"] is True\n',
+          )
+          replace_exact(
+              tests,
+              'def test_short_history_is_not_ready_even_when_fields_are_valid() -> None:\n    report = assess_internal_calibration_bundle(_bundle(months=23))\n\n    assert report["status"] == "insufficient_history"\n    assert report["history_grade"] == "insufficient"\n    assert report["pricing_observation_dates"] == 23\n\n\n',
+              'def test_short_history_is_not_ready_even_when_fields_are_valid() -> None:\n    report = assess_internal_calibration_bundle(_bundle(months=23))\n\n    assert report["status"] == "insufficient_history"\n    assert report["history_grade"] == "insufficient"\n    assert report["pricing_observation_dates"] == 23\n    assert report["history_months"] == 23\n\n\ndef test_exact_24_months_is_minimum_ready() -> None:\n    report = assess_internal_calibration_bundle(_bundle(months=24))\n\n    assert report["history_days"] < report["minimum_history_days"]\n    assert report["history_months"] == 24\n    assert report["status"] == "ready_for_calibration"\n    assert report["history_grade"] == "minimum_24m_plus"\n\n\ndef test_exact_36_months_is_recommended() -> None:\n    report = assess_internal_calibration_bundle(_bundle(months=36))\n\n    assert report["history_days"] < report["recommended_history_days"]\n    assert report["history_months"] == 36\n    assert report["status"] == "ready_for_calibration"\n    assert report["history_grade"] == "recommended_36m_plus"\n\n\n',
+          )
+          replace_exact(
+              tests,
+              '    assert report["pricing_observation_dates"] == 2\n    assert report["status"] == "insufficient_history"\n',
+              '    assert report["pricing_observation_dates"] == 2\n    assert report["history_months"] == 2\n    assert report["status"] == "insufficient_history"\n',
+          )
+
+          spec = "docs/specs/20260818-stage-e0-internal-calibration-intake.md"
+          replace_exact(
+              spec,
+              "## 5. 기간 Gate\n\n- 최소: 약 24개월 + 최소 월별 24개 관측시점\n- 권장: 약 36개월 + 최소 월별 36개 관측시점\n\n단순히 시작일과 종료일만 3년 떨어져 있는 자료는 3년 history로 인정하지 않는다.\n\n일별이 가장 좋지만 월별도 허용한다. 실제 파일 수령 후 빈 달/빈 기간/상품별 coverage를 더 세밀하게 감사한다.\n",
+              "## 5. 기간 Gate\n\n- 최소: `pricing_flow`에서 서로 다른 달력 월 24개 이상 + 최소 24개 관측시점\n- 권장: `pricing_flow`에서 서로 다른 달력 월 36개 이상 + 최소 36개 관측시점\n\n첫 관측일과 마지막 관측일의 단순 일수 차(`history_days`)는 audit/reporting 값으로 유지하지만 readiness/grade Gate에는 사용하지 않는다. 월별 자료 24개를 정확히 받았을 때 23개월가량의 날짜 span 때문에 반려되는 off-by-one을 피하기 위해서다.\n\n단순히 시작일과 종료일만 3년 떨어져 있는 자료는 3년 history로 인정하지 않는다. 서로 다른 관측 월 수와 관측시점 수를 함께 요구한다.\n\n일별이 가장 좋지만 월별도 허용한다. v1 Gate는 연속 월 coverage까지 강제하지 않으며, 실제 파일 수령 후 빈 달/빈 기간/상품별 coverage를 더 세밀하게 감사한다.\n",
+          )
+          replace_exact(
+              spec,
+              "- 24개월 또는 24개 관측시점 미달\n",
+              "- 서로 다른 관측 월 24개 또는 관측시점 24개 미달\n",
+          )
+          PY
+
+      - name: Verify exact 23/24/36/37 month boundary behavior
+        run: |
+          uv run python - <<'PY'
+          import sys
+          sys.path.insert(0, "tests")
+          from test_internal_calibration_intake_service import _bundle
+          from rate_monitor.services.internal_calibration_intake_service import assess_internal_calibration_bundle
+
+          expected = {
+              23: ("insufficient_history", "insufficient"),
+              24: ("ready_for_calibration", "minimum_24m_plus"),
+              36: ("ready_for_calibration", "recommended_36m_plus"),
+              37: ("ready_for_calibration", "recommended_36m_plus"),
+          }
+          for months, pair in expected.items():
+              report = assess_internal_calibration_bundle(_bundle(months=months))
+              actual = (report["status"], report["history_grade"])
+              print(months, report["history_days"], report["history_months"], actual)
+              assert actual == pair
+          PY
+
+      - name: Targeted tests and lint
+        run: |
+          uv run pytest -q tests/test_internal_calibration_intake_service.py
+          uv run ruff check src/rate_monitor/services/internal_calibration_intake_service.py tests/test_internal_calibration_intake_service.py
+
+      - name: Remove one-off workflow before commit
+        run: rm -f .github/workflows/temp-apply-calibration-month-fix.yml
+
+      - name: Commit and push
+        run: |
+          set -euo pipefail
+          git config user.name "dekt-oss"
+          git config user.email "degackt@gmail.com"
+          git add src/rate_monitor/services/internal_calibration_intake_service.py \
+                  tests/test_internal_calibration_intake_service.py \
+                  docs/specs/20260818-stage-e0-internal-calibration-intake.md \
+                  .github/workflows/temp-apply-calibration-month-fix.yml
+          git commit -m "fix: gate calibration history by observed calendar months"
+          git push origin HEAD:fix/calibration-month-boundary-20260826
