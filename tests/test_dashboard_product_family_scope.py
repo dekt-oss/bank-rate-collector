@@ -92,6 +92,21 @@ def test_strategy_url_restores_and_preserves_product_scope() -> None:
     assert 'strategyUniverse=q.family==="savings"?savingsUniverse:depositUniverse' in html
 
 
+def test_strategy_followup_runtime_stays_inside_main_iife_scope() -> None:
+    html = inject_dashboard_ui_refinement(STRATEGY_TEMPLATE.read_text(encoding="utf-8"))
+
+    assert "dashboard-strategy-product-followup-runtime" in html
+    assert "dashboard-strategy-savings-insight-runtime" in html
+    assert '<script id="dashboard-strategy-product-followup-script">' not in html
+    assert '<script id="dashboard-strategy-savings-insight-script">' not in html
+    data_end = html.index("</script>", html.index('id="rate-monitor-data"'))
+    main_start = html.index("<script>", data_end)
+    main_end = html.index("</script>", main_start)
+    followup = html.index("dashboard-strategy-product-followup-runtime")
+    insight = html.index("dashboard-strategy-savings-insight-runtime")
+    assert main_start < followup < insight < main_end
+
+
 def test_strategy_savings_all_uses_adaptive_subtype_trend_panel() -> None:
     html = inject_dashboard_ui_refinement(STRATEGY_TEMPLATE.read_text(encoding="utf-8"))
 
@@ -107,7 +122,7 @@ def test_strategy_savings_all_uses_adaptive_subtype_trend_panel() -> None:
 def test_strategy_split_trend_shows_gap_badge_and_latest_spread_kpi() -> None:
     html = inject_dashboard_ui_refinement(STRATEGY_TEMPLATE.read_text(encoding="utf-8"))
 
-    assert 'id="dashboard-strategy-savings-insight-script"' in html
+    assert "dashboard-strategy-savings-insight-runtime" in html
     assert 'id="savings-subtype-gap-badge"' in html
     assert "유형별 차이 확대" in html
     assert 'id="savings-subtype-spread-kpi"' in html
