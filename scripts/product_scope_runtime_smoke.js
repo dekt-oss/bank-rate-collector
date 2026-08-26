@@ -216,6 +216,11 @@ async function assertStrategyShareableState(browser) {
     "combined product scope should not expose the savings-only empty state",
   );
 
+  await page.waitForFunction(
+    () => document.querySelectorAll(".decision-integrated-insight .insight").length === 3,
+    null,
+    { timeout: 20_000 },
+  );
   const readability = await page.evaluate(() => {
     const activeTerm = document.querySelector('[data-scope-term="12"]');
     const inactiveTerm = document.querySelector('[data-scope-term="24"]');
@@ -223,12 +228,23 @@ async function assertStrategyShareableState(browser) {
     const insights = document.querySelector(".insightcard .insights");
     const insightTitle = document.querySelector(".insightcard .insight b");
     const style = (node) => node ? getComputedStyle(node) : null;
+    const visibleInsightCards = [...document.querySelectorAll(".decision-integrated-insight .insight")]
+      .filter((node) => {
+        const computed = style(node);
+        return computed?.display !== "none" && node.getBoundingClientRect().width > 0;
+      });
+    const insightRows = new Set(
+      visibleInsightCards.map((node) => Math.round(node.getBoundingClientRect().top)),
+    );
     return {
       activeTermBackground: style(activeTerm)?.backgroundColor || "",
       inactiveTermBackground: style(inactiveTerm)?.backgroundColor || "",
       bankFontSize: Number.parseFloat(style(bank)?.fontSize || "0"),
+      bankFontWeight: Number.parseInt(style(bank)?.fontWeight || "0", 10),
       insightColumns: style(insights)?.gridTemplateColumns || "",
       insightTitleFontSize: Number.parseFloat(style(insightTitle)?.fontSize || "0"),
+      insightCardCount: visibleInsightCards.length,
+      insightRowCount: insightRows.size,
     };
   });
   invariant(
@@ -236,9 +252,14 @@ async function assertStrategyShareableState(browser) {
     "active and inactive global term controls are not visually distinct",
   );
   invariant(readability.bankFontSize >= 12, "TOP5 bank label remains too small");
+  invariant(readability.bankFontWeight >= 800, "TOP5 bank label remains too faint");
   invariant(
     readability.insightColumns.trim().split(/\s+/).length === 3,
-    `desktop insight cards are not on one row: ${readability.insightColumns}`,
+    `desktop insight grid does not expose three columns: ${readability.insightColumns}`,
+  );
+  invariant(
+    readability.insightCardCount === 3 && readability.insightRowCount === 1,
+    `desktop decision insights must stay on one row: cards=${readability.insightCardCount}, rows=${readability.insightRowCount}`,
   );
   invariant(readability.insightTitleFontSize >= 12, "insight title remains too small");
 
