@@ -1,8 +1,9 @@
 # ruff: noqa: E501
-"""검색 조회/Strategy 공통 헤더와 검색 지도 가독성 보정.
+"""검색 조회/Strategy 공통 UI refinement와 상품군 runtime 계약.
 
-이 모듈은 presentation-only layer다. 수집 데이터, 금리 산식, source precedence,
-stable product identity, Strategy release gate를 변경하지 않는다.
+수집 데이터·DB schema·canonical max_rate·source precedence·Strategy release gate는
+변경하지 않는다. 기존 product_type을 예금/적금 업무축으로 승격하고 두 화면의
+하위 KPI/차트가 같은 선택 상태를 보도록 build-time runtime source를 보정한다.
 """
 
 from __future__ import annotations
@@ -18,9 +19,16 @@ STYLE_MARKER = 'id="dashboard-ui-refinement-style"'
 SCRIPT_MARKER = 'id="dashboard-ui-refinement-script"'
 _STRATEGY_TEMPLATE = Path("web/templates/strategy.html")
 
+
+def _replace_required(html: str, old: str, new: str, label: str, *, count: int = 1) -> str:
+    """정확한 기존 runtime 계약이 없으면 조용히 부분 적용하지 않고 실패한다."""
+    if old not in html:
+        raise DashboardBuildError(f"상품군 UI 보정 anchor를 찾지 못했다: {label}")
+    return html.replace(old, new, count)
+
+
 DASHBOARD_UI_STYLE = r"""
 <style id="dashboard-ui-refinement-style">
-/* Shared product header: Search and Strategy keep one visual/navigation contract. */
 header.top.shared-dashboard-header,
 header.topbar.shared-dashboard-header{
   position:sticky!important;top:10px!important;z-index:40!important;
@@ -46,31 +54,14 @@ header.top.shared-dashboard-header #health-open{min-height:0!important;border:0!
 header.top.shared-dashboard-header #health-open:hover{background:transparent!important;color:#fff!important}header.top.shared-dashboard-header #health-open:focus-visible{outline:1px solid rgba(255,255,255,.65)!important;outline-offset:3px!important}
 header.top.shared-dashboard-header #health-open .health-dot{width:8px!important;height:8px!important;box-shadow:0 0 0 4px rgba(255,255,255,.08)!important}
 header.topbar.shared-dashboard-header .statusdot{width:8px!important;height:8px!important;background:#5fc7a0!important;box-shadow:0 0 0 4px rgba(95,199,160,.12)!important}
-
-/* Search-only title/company/freshness controls live below the common header. */
 .shared-page-context-main{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:18px;margin:14px 0 0;padding:15px 17px;border:1px solid rgba(91,47,100,.10);border-radius:14px;background:linear-gradient(145deg,#fff,#fbf8fb);box-shadow:0 7px 20px rgba(61,39,65,.05)}
-.shared-page-context-main>.brand{min-width:0!important;display:flex!important;align-items:center!important;gap:13px!important}
-.shared-page-context-main .brand-mark{width:44px!important;height:44px!important;border:1px solid rgba(91,47,100,.16)!important;border-radius:13px!important;background:linear-gradient(145deg,#f4edf5,#eaddea)!important;color:#5B2F64!important;box-shadow:inset 0 1px #fff!important;font-size:20px!important}
-.shared-page-context-main .brand-title{margin:0!important;color:#302433!important;font-size:clamp(23px,2.1vw,31px)!important;line-height:1.08!important;letter-spacing:-.04em!important}
-.shared-page-context-main .sub{margin-top:5px!important;color:#756b77!important;font-size:11.5px!important;line-height:1.45!important}
-.shared-page-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap;min-width:0}
-.shared-page-context-main .mine-pick{min-width:210px;border-color:rgba(91,47,100,.12)!important;background:#fff!important;box-shadow:none!important}
-.shared-page-context-main .mine-pick label{color:#776b79!important}
-.shared-page-context-main .mine-pick select{color:#4e3a52!important;background:#fff!important}
-.shared-page-context-main .stamp{color:#756b77!important;font-size:10px!important;text-align:right!important}
-.shared-page-context-main .collect-box{margin-left:0!important}
-
-/* Search map: keep choropleth, but make direct region comparison the primary reading path. */
-.main-map-shell{grid-template-columns:minmax(0,1fr) minmax(190px,225px)!important;gap:12px!important}
-.main-map-stage{min-height:390px!important;background:radial-gradient(circle at 50% 48%,rgba(91,47,100,.045),transparent 48%),rgba(255,255,255,.46)!important}
-.main-map-stage svg{max-height:455px!important;padding:8px 10px!important}
-.main-map-side{padding:12px!important;gap:8px!important}
-.main-map-side h3{font-size:15px!important}.main-map-rate{font-size:25px!important}.main-map-meta{font-size:10px!important;line-height:1.5!important}.main-map-top{margin-top:5px!important;padding-top:8px!important;gap:5px!important}.main-map-top b{font-size:10.5px!important}.main-map-hint{margin-top:auto!important;padding-top:7px!important;font-size:9.5px!important;line-height:1.45!important}
-.main-map-label-layer{pointer-events:none}.main-map-direct-label{text-anchor:middle}.main-map-label-name,.main-map-label-rate{paint-order:stroke;stroke:rgba(255,255,255,.96);stroke-linejoin:round;stroke-linecap:round}.main-map-label-name{fill:#413343;stroke-width:4px;font:820 14px var(--sans);letter-spacing:-.02em}.main-map-label-rate{fill:#5B2F64;stroke-width:4.5px;font:900 16px var(--mono);font-variant-numeric:tabular-nums}.main-map-label-rate.is-thin{fill:#8a7e8c;font-size:12px;font-family:var(--sans);font-weight:760}
-
+.shared-page-context-main>.brand{min-width:0!important;display:flex!important;align-items:center!important;gap:13px!important}.shared-page-context-main .brand-mark{width:44px!important;height:44px!important;border:1px solid rgba(91,47,100,.16)!important;border-radius:13px!important;background:linear-gradient(145deg,#f4edf5,#eaddea)!important;color:#5B2F64!important;box-shadow:inset 0 1px #fff!important;font-size:20px!important}.shared-page-context-main .brand-title{margin:0!important;color:#302433!important;font-size:clamp(23px,2.1vw,31px)!important;line-height:1.08!important;letter-spacing:-.04em!important}.shared-page-context-main .sub{margin-top:5px!important;color:#756b77!important;font-size:11.5px!important;line-height:1.45!important}.shared-page-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap;min-width:0}.shared-page-context-main .mine-pick{min-width:210px;border-color:rgba(91,47,100,.12)!important;background:#fff!important;box-shadow:none!important}.shared-page-context-main .mine-pick label{color:#776b79!important}.shared-page-context-main .mine-pick select{color:#4e3a52!important;background:#fff!important}.shared-page-context-main .stamp{color:#756b77!important;font-size:10px!important;text-align:right!important}.shared-page-context-main .collect-box{margin-left:0!important}
+.product-family-tabs{display:flex;gap:5px;flex-wrap:wrap}.product-family-tabs button{appearance:none;border:1px solid var(--line);border-radius:9px;background:var(--surface,#0a1915);color:var(--ink-2,#8fa099);padding:7px 13px;font:760 12px var(--sans);cursor:pointer}.product-family-tabs button[aria-pressed="true"],.product-family-tabs button.active{border-color:var(--accent,#80c8a6);background:var(--accent-bg,rgba(73,125,97,.22));color:var(--accent-ink,#d8eee2)}.product-family-group .product-family-tabs{margin-bottom:8px}.product-savings-detail{margin-top:8px;padding:8px 10px;border:1px solid var(--line);border-radius:9px;background:var(--surface-2,rgba(4,14,11,.24))}.product-savings-detail .nested-head{margin-bottom:6px}.product-savings-detail .checks{display:flex;gap:10px;flex-wrap:wrap}.product-savings-detail label{display:inline-flex;align-items:center;gap:6px}.product-savings-detail input{accent-color:var(--accent,#80c8a6)}
+.strategy-product-scope{grid-column:1/-1;display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding-bottom:3px}.strategy-product-scope>span{color:#8fa79b;font-size:9px;font-weight:760}.strategy-product-scope .product-family-tabs button{background:#0a1915;color:#7d8d85;font-size:9.5px;padding:8px 12px}.strategy-product-scope .product-family-tabs button.active{color:#d8eee2;border-color:rgba(128,200,166,.42);background:rgba(73,125,97,.22)}.strategy-savings-types{display:flex;gap:7px;flex-wrap:wrap}.strategy-savings-types[hidden]{display:none!important}.strategy-savings-types label{display:flex;align-items:center;gap:5px;padding:7px 9px;border:1px solid var(--line);border-radius:9px;background:rgba(4,14,11,.24);color:#9cada4;font-size:9px}.strategy-savings-types input{accent-color:var(--green)}
+.main-map-shell{grid-template-columns:minmax(0,1fr) minmax(190px,225px)!important;gap:12px!important}.main-map-stage{min-height:390px!important;background:radial-gradient(circle at 50% 48%,rgba(91,47,100,.045),transparent 48%),rgba(255,255,255,.46)!important}.main-map-stage svg{max-height:455px!important;padding:8px 10px!important}.main-map-side{padding:12px!important;gap:8px!important}.main-map-side h3{font-size:15px!important}.main-map-rate{font-size:25px!important}.main-map-meta{font-size:10px!important;line-height:1.5!important}.main-map-top{margin-top:5px!important;padding-top:8px!important;gap:5px!important}.main-map-top b{font-size:10.5px!important}.main-map-hint{margin-top:auto!important;padding-top:7px!important;font-size:9.5px!important;line-height:1.45!important}.main-map-label-layer{pointer-events:none}.main-map-direct-label{text-anchor:middle}.main-map-label-name,.main-map-label-rate{paint-order:stroke;stroke:rgba(255,255,255,.96);stroke-linejoin:round;stroke-linecap:round}.main-map-label-name{fill:#413343;stroke-width:4px;font:820 14px var(--sans);letter-spacing:-.02em}.main-map-label-rate{fill:#5B2F64;stroke-width:4.5px;font:900 16px var(--mono);font-variant-numeric:tabular-nums}.main-map-label-rate.is-thin{fill:#8a7e8c;font-size:12px;font-family:var(--sans);font-weight:760}
 @media(max-width:1000px){.shared-page-context-main{grid-template-columns:1fr}.shared-page-actions{justify-content:flex-start}.main-map-shell{grid-template-columns:1fr!important}.main-map-side{display:grid!important;grid-template-columns:minmax(160px,.7fr) minmax(0,1.3fr)!important;align-items:start!important}.main-map-side .main-map-top{margin:0!important;padding:0!important;border:0!important}.main-map-hint{grid-column:1/-1;margin:0!important}}
-@media(max-width:760px){header.top.shared-dashboard-header,header.topbar.shared-dashboard-header{grid-template-columns:auto minmax(0,1fr)!important;row-gap:8px!important}.shared-header-identity strong,header.topbar.shared-dashboard-header>.identity b{display:none!important}header.top.shared-dashboard-header>.page-nav,header.topbar.shared-dashboard-header>.nav{justify-self:end!important}header.top.shared-dashboard-header>.head-right,header.topbar.shared-dashboard-header>.meta{grid-column:1/-1!important;justify-self:stretch!important;justify-content:flex-end!important}.shared-page-context-main{padding:13px!important}.shared-page-actions{align-items:stretch!important}.shared-page-context-main .mine-pick{min-width:min(100%,240px)}.main-map-stage{min-height:360px!important}.main-map-label-name{font-size:21px!important;stroke-width:6px!important}.main-map-label-rate{font-size:23px!important;stroke-width:6px!important}.main-map-label-rate.is-thin{font-size:17px!important}.main-map-side{grid-template-columns:1fr!important}}
-@media(max-width:480px){header.top.shared-dashboard-header>.page-nav a,header.topbar.shared-dashboard-header>.nav a{padding:6px 9px!important;font-size:10px!important}header.topbar.shared-dashboard-header>.meta{display:flex!important;font-size:9.5px!important}.shared-header-time,header.topbar.shared-dashboard-header>.meta #time{display:none!important}.shared-page-context-main .brand-mark{display:none!important}.shared-page-context-main .brand-title{font-size:22px!important}.main-map-stage{min-height:330px!important}.main-map-stage svg{padding:5px!important}}
+@media(max-width:760px){header.top.shared-dashboard-header,header.topbar.shared-dashboard-header{grid-template-columns:auto minmax(0,1fr)!important;row-gap:8px!important}.shared-header-identity strong,header.topbar.shared-dashboard-header>.identity b{display:none!important}header.top.shared-dashboard-header>.page-nav,header.topbar.shared-dashboard-header>.nav{justify-self:end!important}header.top.shared-dashboard-header>.head-right,header.topbar.shared-dashboard-header>.meta{grid-column:1/-1!important;justify-self:stretch!important;justify-content:flex-end!important}.shared-page-context-main{padding:13px!important}.shared-page-actions{align-items:stretch!important}.shared-page-context-main .mine-pick{min-width:min(100%,240px)}.main-map-stage{min-height:360px!important}.main-map-label-name{font-size:21px!important;stroke-width:6px!important}.main-map-label-rate{font-size:23px!important;stroke-width:6px!important}.main-map-label-rate.is-thin{font-size:17px!important}.main-map-side{grid-template-columns:1fr!important}.strategy-product-scope{align-items:flex-start;flex-direction:column}}
+@media(max-width:480px){header.top.shared-dashboard-header>.page-nav a,header.topbar.shared-dashboard-header>.nav a{padding:6px 9px!important;font-size:10px!important}header.topbar.shared-dashboard-header>.meta{display:flex!important;font-size:9.5px!important}.shared-header-time,header.topbar.shared-dashboard-header>.meta #time{display:none!important}.shared-page-context-main .brand-mark{display:none!important}.shared-page-context-main .brand-title{font-size:22px!important}.main-map-stage{min-height:330px!important}.main-map-stage svg{padding:5px!important}.product-family-tabs{width:100%}.product-family-tabs button{flex:1}}
 @media print{.shared-page-context-main{display:none!important}.main-map-label-name,.main-map-label-rate{stroke:#fff!important}}
 </style>
 """
@@ -80,143 +71,104 @@ DASHBOARD_UI_SCRIPT = r"""
 (()=>{
   "use strict";
   const NS="http://www.w3.org/2000/svg";
-  const REGION_LABEL_POSITIONS={
-    "서울":[261,132],"인천·경기":[286,194],"강원":[405,124],"충청":[313,298],
-    "전라":[266,454],"경북":[455,330],"경남":[407,452],"부산":[505,482],"제주":[216,635]
-  };
-
-  function generatedTimeLabel(){
-    try{
-      const data=JSON.parse(document.getElementById("rate-monitor-data")?.textContent||"{}");
-      const d=data.generated_at?new Date(data.generated_at):null;
-      if(d&&!Number.isNaN(d.getTime()))return `기준 ${d.toLocaleString("ko-KR",{month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit"})}`;
-    }catch{}
-    return "기준시각 미확인";
-  }
-
-  function installMainHeader(header){
-    if(header.dataset.sharedDashboardHeader)return;
-    header.dataset.sharedDashboardHeader="main";
-    header.classList.add("shared-dashboard-header");
-    const brand=header.querySelector(":scope > .brand");
-    const actions=header.querySelector(":scope > .head-right");
-    if(!brand||!actions)return;
-
-    const identity=document.createElement("div");
-    identity.className="shared-header-identity";
-    identity.innerHTML='<span class="shared-header-logo" aria-hidden="true">SB</span><strong>SB 인사이트</strong>';
-    header.prepend(identity);
-
-    if(!actions.querySelector(".shared-header-time")){
-      const time=document.createElement("span");
-      time.className="shared-header-time";
-      time.textContent=generatedTimeLabel();
-      const health=actions.querySelector("#health-open");
-      if(health)actions.insertBefore(time,health);else actions.appendChild(time);
-    }
-
-    if(!document.querySelector(".shared-page-context-main")){
-      const context=document.createElement("section");
-      context.className="shared-page-context-main";
-      context.setAttribute("aria-label","검색 조회 화면 정보와 전용 제어");
-      const pageActions=document.createElement("div");
-      pageActions.className="shared-page-actions";
-      context.appendChild(brand);
-      for(const selector of [".mine-pick",".stamp",".collect-box"]){
-        const node=actions.querySelector(selector);
-        if(node)pageActions.appendChild(node);
-      }
-      if(pageActions.childElementCount)context.appendChild(pageActions);
-      header.insertAdjacentElement("afterend",context);
-    }
-  }
-
-  function installStrategyHeader(header){
-    if(header.dataset.sharedDashboardHeader)return;
-    header.dataset.sharedDashboardHeader="strategy";
-    header.classList.add("shared-dashboard-header");
-    const identity=header.querySelector(":scope > .identity");
-    const logo=identity?.querySelector(".logo");
-    const title=identity?.querySelector("b");
-    if(logo)logo.textContent="SB";
-    if(title)title.textContent="SB 인사이트";
-  }
-
-  function installSharedHeader(){
-    const main=document.querySelector("header.top");
-    const strategy=document.querySelector("header.topbar");
-    if(main)installMainHeader(main);
-    else if(strategy)installStrategyHeader(strategy);
-  }
-
-  function parseRegionRate(path){
-    const text=path.getAttribute("aria-label")||"";
-    const match=text.match(/중앙값\s+([0-9]+(?:\.[0-9]+)?)%/);
-    return match?Number(match[1]):null;
-  }
-
-  function addText(group,klass,x,y,text){
-    const node=document.createElementNS(NS,"text");
-    node.setAttribute("class",klass);
-    node.setAttribute("x",String(x));
-    node.setAttribute("y",String(y));
-    node.textContent=text;
-    group.appendChild(node);
-  }
-
-  function syncMainMapLabels(){
-    const svg=document.querySelector("#reg .main-map-stage svg");
-    if(!svg)return;
-    svg.querySelector(".main-map-label-layer")?.remove();
-    const values=new Map();
-    svg.querySelectorAll("path[data-region-key]").forEach(path=>{
-      const key=path.dataset.regionKey;
-      if(!key||values.has(key))return;
-      values.set(key,{rate:parseRegionRate(path),thin:path.dataset.hasRate!=="1"});
-    });
-    if(!values.size)return;
-
-    const layer=document.createElementNS(NS,"g");
-    layer.setAttribute("class","main-map-label-layer");
-    layer.setAttribute("aria-hidden","true");
-    for(const [region,pos] of Object.entries(REGION_LABEL_POSITIONS)){
-      const value=values.get(region);
-      if(!value)continue;
-      const group=document.createElementNS(NS,"g");
-      group.setAttribute("class","main-map-direct-label");
-      group.dataset.regionKey=region;
-      addText(group,"main-map-label-name",pos[0],pos[1]-5,region);
-      addText(
-        group,
-        `main-map-label-rate${value.thin?" is-thin":""}`,
-        pos[0],pos[1]+14,
-        Number.isFinite(value.rate)?`${value.rate.toFixed(2)}%`:"표본 부족"
-      );
-      layer.appendChild(group);
-    }
-    svg.appendChild(layer);
-    svg.dataset.mainMapDirectLabels="1";
-  }
-
-  function installMainMapObserver(){
-    const host=document.getElementById("reg");
-    if(!host||host.dataset.directLabelsObserver)return;
-    host.dataset.directLabelsObserver="1";
-    const observer=new MutationObserver(()=>queueMicrotask(syncMainMapLabels));
-    observer.observe(host,{childList:true});
-    queueMicrotask(syncMainMapLabels);
-  }
-
-  installSharedHeader();
-  installMainMapObserver();
+  const REGION_LABEL_POSITIONS={"서울":[261,132],"인천·경기":[286,194],"강원":[405,124],"충청":[313,298],"전라":[266,454],"경북":[455,330],"경남":[407,452],"부산":[505,482],"제주":[216,635]};
+  function generatedTimeLabel(){try{const data=JSON.parse(document.getElementById("rate-monitor-data")?.textContent||"{}");const d=data.generated_at?new Date(data.generated_at):null;if(d&&!Number.isNaN(d.getTime()))return `기준 ${d.toLocaleString("ko-KR",{month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit"})}`;}catch{}return "기준시각 미확인"}
+  function installMainHeader(header){if(header.dataset.sharedDashboardHeader)return;header.dataset.sharedDashboardHeader="main";header.classList.add("shared-dashboard-header");const brand=header.querySelector(":scope > .brand"),actions=header.querySelector(":scope > .head-right");if(!brand||!actions)return;const identity=document.createElement("div");identity.className="shared-header-identity";identity.innerHTML='<span class="shared-header-logo" aria-hidden="true">SB</span><strong>SB 인사이트</strong>';header.prepend(identity);if(!actions.querySelector(".shared-header-time")){const time=document.createElement("span");time.className="shared-header-time";time.textContent=generatedTimeLabel();const health=actions.querySelector("#health-open");if(health)actions.insertBefore(time,health);else actions.appendChild(time)}if(!document.querySelector(".shared-page-context-main")){const context=document.createElement("section");context.className="shared-page-context-main";context.setAttribute("aria-label","검색 조회 화면 정보와 전용 제어");const pageActions=document.createElement("div");pageActions.className="shared-page-actions";context.appendChild(brand);for(const selector of [".mine-pick",".stamp",".collect-box"]){const node=actions.querySelector(selector);if(node)pageActions.appendChild(node)}if(pageActions.childElementCount)context.appendChild(pageActions);header.insertAdjacentElement("afterend",context)}}
+  function installStrategyHeader(header){if(header.dataset.sharedDashboardHeader)return;header.dataset.sharedDashboardHeader="strategy";header.classList.add("shared-dashboard-header");const identity=header.querySelector(":scope > .identity"),logo=identity?.querySelector(".logo"),title=identity?.querySelector("b");if(logo)logo.textContent="SB";if(title)title.textContent="SB 인사이트"}
+  function installSharedHeader(){const main=document.querySelector("header.top"),strategy=document.querySelector("header.topbar");if(main)installMainHeader(main);else if(strategy)installStrategyHeader(strategy)}
+  function parseRegionRate(path){const text=path.getAttribute("aria-label")||"",match=text.match(/중앙값\s+([0-9]+(?:\.[0-9]+)?)%/);return match?Number(match[1]):null}
+  function addText(group,klass,x,y,text){const node=document.createElementNS(NS,"text");node.setAttribute("class",klass);node.setAttribute("x",String(x));node.setAttribute("y",String(y));node.textContent=text;group.appendChild(node)}
+  function syncMainMapLabels(){const svg=document.querySelector("#reg .main-map-stage svg");if(!svg)return;svg.querySelector(".main-map-label-layer")?.remove();const values=new Map();svg.querySelectorAll("path[data-region-key]").forEach(path=>{const key=path.dataset.regionKey;if(!key||values.has(key))return;values.set(key,{rate:parseRegionRate(path),thin:path.dataset.hasRate!=="1"})});if(!values.size)return;const layer=document.createElementNS(NS,"g");layer.setAttribute("class","main-map-label-layer");layer.setAttribute("aria-hidden","true");for(const [region,pos] of Object.entries(REGION_LABEL_POSITIONS)){const value=values.get(region);if(!value)continue;const group=document.createElementNS(NS,"g");group.setAttribute("class","main-map-direct-label");group.dataset.regionKey=region;addText(group,"main-map-label-name",pos[0],pos[1]-5,region);addText(group,`main-map-label-rate${value.thin?" is-thin":""}`,pos[0],pos[1]+14,Number.isFinite(value.rate)?`${value.rate.toFixed(2)}%`:"표본 부족");layer.appendChild(group)}svg.appendChild(layer);svg.dataset.mainMapDirectLabels="1"}
+  function installMainMapObserver(){const host=document.getElementById("reg");if(!host||host.dataset.directLabelsObserver)return;host.dataset.directLabelsObserver="1";const observer=new MutationObserver(()=>queueMicrotask(syncMainMapLabels));observer.observe(host,{childList:true});queueMicrotask(syncMainMapLabels)}
+  installSharedHeader();installMainMapObserver();
 })();
 </script>
 """
 
+SEARCH_PRODUCT_RUNTIME = r'''
+  const PRODUCT_DEPOSIT_TYPE = "term_deposit";
+  const PRODUCT_SAVINGS_TYPES = ["installment_savings", "flexible_savings"];
+  const activeProductFamily = () => state.picked.type.has(PRODUCT_DEPOSIT_TYPE) ? "deposit" : "savings";
+  const normalizeProductTypeSelection = () => { const picked = state.picked.type; if (picked.has(PRODUCT_DEPOSIT_TYPE)) { picked.clear(); picked.add(PRODUCT_DEPOSIT_TYPE); return; } const savings = PRODUCT_SAVINGS_TYPES.filter((type) => picked.has(type)); picked.clear(); (savings.length ? savings : [PRODUCT_DEPOSIT_TYPE]).forEach((type) => picked.add(type)); };
+  const setProductFamily = (family) => { state.picked.type.clear(); if (family === "savings") PRODUCT_SAVINGS_TYPES.forEach((type) => state.picked.type.add(type)); else state.picked.type.add(PRODUCT_DEPOSIT_TYPE); };
+  const productScopeLabel = () => { if (activeProductFamily() === "deposit") return "예금"; const picked = PRODUCT_SAVINGS_TYPES.filter((type) => state.picked.type.has(type)); if (picked.length === 2) return "적금 전체"; if (picked[0] === "installment_savings") return "적금 · 정기적금"; if (picked[0] === "flexible_savings") return "적금 · 자유적금"; return "적금 전체"; };
+'''.strip("\n")
+
+SEARCH_PRODUCT_GROUP = r'''
+  const productTypeGroupHtml = () => {
+    const family = activeProductFamily(); const savings = PRODUCT_SAVINGS_TYPES.filter((type) => state.picked.type.has(type));
+    const detail = family === "savings" ? `<div class="product-savings-detail"><div class="nested-head"><span>적금 세부선택 <span class="selected">${num(savings.length)}/2 선택</span></span></div><div class="checks"><label><input type="checkbox" data-group="type" value="installment_savings" ${state.picked.type.has("installment_savings") ? "checked" : ""}>정기적금</label><label><input type="checkbox" data-group="type" value="flexible_savings" ${state.picked.type.has("flexible_savings") ? "checked" : ""}>자유적금</label></div></div>` : "";
+    return `<div class="group product-family-group"><div class="lbl">상품군</div><div class="product-family-tabs" role="group" aria-label="상품군"><button type="button" data-product-family="deposit" aria-pressed="${family === "deposit"}">예금</button><button type="button" data-product-family="savings" aria-pressed="${family === "savings"}">적금</button></div>${detail}</div>`;
+  };
+'''.strip("\n")
+
+STRATEGY_PRODUCT_RUNTIME = r'''
+const PRODUCT_SAVINGS_TYPES=new Set(["installment_savings","flexible_savings"]);
+const PRODUCT_SCOPE_TYPES={deposit:new Set(["term_deposit"]),savings:PRODUCT_SAVINGS_TYPES};
+function activeProductTypes(){return PRODUCT_SCOPE_TYPES[productMode]||PRODUCT_SCOPE_TYPES.deposit}
+function productScopeKey(){return productMode==="savings"?`savings:${[...savingsTypes].sort().join(",")}`:"deposit"}
+function productScopeLabel(){if(productMode!=="savings")return"예금";if(savingsTypes.size===2)return"적금 전체";return savingsTypes.has("installment_savings")?"적금 · 정기적금":"적금 · 자유적금"}
+function normalizeSavingsTypes(){if(!savingsTypes.size){savingsTypes.add("installment_savings");savingsTypes.add("flexible_savings")}}
+function syntheticSavingsProductId(r){return["current",r.sector,r.institution,r.product,r.type].map(x=>String(x||"")).join("\0")}
+function prepareSavingsRows(packed){return expand(packed).filter(r=>PRODUCT_SAVINGS_TYPES.has(r.type)&&[6,12,24,36].includes(r.term)).map(r=>{const sourceMax=Number.isFinite(r.max),base=Number.isFinite(r.base);return{...r,productId:syntheticSavingsProductId(r),max:sourceMax?r.max:(base?r.base:null),rateBasis:sourceMax?"source_max_rate":(base?"collected_base_rate":null)}}).filter(r=>Number.isFinite(r.max))}
+function buildSavingsUniverse(rows){const sectors={};for(const key of ["savings_bank","cu","kfcc","nh_local"]){const sectorRows=rows.filter(r=>r.sector===key),terms={};for(const term of [6,12,24,36]){const termRows=sectorRows.filter(r=>r.term===term);terms[String(term)]={rows:termRows.length,max_rate_rows:termRows.length,strategy_rate_rows:termRows.length,coverage_ratio:termRows.length?1:null,selectable:termRows.length>0}}const vals=field=>[...new Set(sectorRows.map(r=>r[field]).filter(Boolean))].sort();sectors[key]={label:({savings_bank:"저축은행",cu:"신협",kfcc:"새마을금고",nh_local:"농·축협"})[key],state:sectorRows.length?"supported":"no_rows",max_rate_capability:true,strategy_rate_capability:true,selectable:sectorRows.length>0,rows:sectorRows.length,max_rate_rows:sectorRows.length,strategy_rate_rows:sectorRows.length,coverage_ratio:sectorRows.length?1:null,latest_source_effective_at:sectorRows.map(r=>r.sourceEffectiveAt).filter(Boolean).sort().at(-1)||null,geo_basis:vals("geoBasis"),rate_scope:vals("rateScope"),availability_scope:vals("availabilityScope"),evidence:"canonical_current_max_then_collected_base",rate_basis_counts:{},blocked_reason:null,terms}}return{metric_basis:"collected_best_rate",metric_label:"수집 데이터 기준 최고금리",default_mode:"savings_bank",candidate_sectors:Object.keys(sectors),published_sectors:Object.keys(sectors),base_rate_fallback:true,canonical_max_rate_unchanged:true,strategy_rate_policy:"source_max_then_collected_base_for_current_savings_snapshot",sectors}}
+function renderProductScopeControls(){document.querySelectorAll("[data-product-mode]").forEach(btn=>{const on=btn.dataset.productMode===productMode;btn.classList.toggle("active",on);btn.setAttribute("aria-pressed",String(on))});const detail=$("strategy-savings-types");if(detail)detail.hidden=productMode!=="savings";document.querySelectorAll("[data-savings-type]").forEach(input=>{input.checked=savingsTypes.has(input.dataset.savingsType)});const pill=$("product-scope-pill");if(pill)pill.textContent=productScopeLabel()}
+function setProductMode(mode){if(!["deposit","savings"].includes(mode)||mode===productMode)return;productMode=mode;normalizeSavingsTypes();allRows=mode==="savings"?savingsRows:depositRows;strategyUniverse=mode==="savings"?savingsUniverse:depositUniverse;mapSector="savings_bank";renderProductScopeControls();rerenderForScope()}
+function renderProductHistoryScope(){if(productMode!=="savings"){renderChangesEnhanced();renderTrendEnhanced();return}$("trend-window").textContent="적금 이력 미지원";["trend-mean-change","trend-max-change","trend-own-change","trend-premium"].forEach(id=>$(id).textContent="—");$("trend-mean-note").textContent="현재 스냅샷만 지원";$("trend-max-note").textContent="현재 스냅샷만 지원";$("trend-own-note").textContent="현재 스냅샷만 지원";$("trend-grid").innerHTML="";$("trend-series").innerHTML="";$("trend-note").textContent="적금은 현재 금리·TOP10·지역·우대조건 비교만 제공합니다. 30일/63일 이력 계약은 예금과 분리해 아직 계산하지 않습니다.";["changes","ups","downs","affected"].forEach(id=>$(id).textContent="—");$("change-direction-copy").textContent="적금 이력 미지원";$("change-direction-note").textContent="현재 적금 스냅샷 비교에는 포함되지 않는 예금 전용 이력 지표입니다.";$("change-up-bar").style.width="0%";$("change-down-bar").style.width="0%";$("change-up-share").textContent="상승 —";$("change-down-share").textContent="하락 —";$("feed").innerHTML='<div class="empty">적금 30일 변경이력은 아직 별도 historical contract가 없어 표시하지 않습니다.</div>'}
+'''.strip("\n")
+
+
+def _inject_search_product_scope(html: str) -> str:
+    rendered = html
+    rendered = _replace_required(rendered, 'const TYPE_KO = { term_deposit: "예금", installment_savings: "적금",\n                    flexible_savings: "자유적립", demand_deposit: "입출금", other: "기타" };', 'const TYPE_KO = { term_deposit: "예금", installment_savings: "정기적금",\n                    flexible_savings: "자유적금", demand_deposit: "입출금", other: "기타" };', "search type labels")
+    rendered = _replace_required(rendered, '{ key: "type", label: "상품유형", ko: TYPE_KO },', '{ key: "type", label: "상품군", ko: TYPE_KO },', "search type group label")
+    rendered = _replace_required(rendered, '  const busanOn = () => state.picked.region.has(BUSAN_SIDO);', '  const busanOn = () => state.picked.region.has(BUSAN_SIDO);\n\n' + SEARCH_PRODUCT_RUNTIME, "search product runtime")
+    old_default = '''  const applyDefaultGroup = (g) => {\n    state.picked[g.key].clear();\n    if (g.key === "region") {\n      DEFAULT_REGIONS.filter((v) => groupValues(g).includes(v))\n        .forEach((v) => state.picked.region.add(v));\n      if (busanOn()) selectAllBusanDistricts();\n    } else selectAllGroup(g.key);\n  };'''
+    new_default = '''  const applyDefaultGroup = (g) => {\n    state.picked[g.key].clear();\n    if (g.key === "region") {\n      DEFAULT_REGIONS.filter((v) => groupValues(g).includes(v))\n        .forEach((v) => state.picked.region.add(v));\n      if (busanOn()) selectAllBusanDistricts();\n    } else if (g.key === "type") {\n      state.picked.type.add(PRODUCT_DEPOSIT_TYPE);\n    } else selectAllGroup(g.key);\n  };'''
+    rendered = _replace_required(rendered, old_default, new_default, "search default product family")
+    rendered = _replace_required(rendered, '  const shortGroupSummary = (key) => {\n    const g = GROUPS.find((x) => x.key === key);', '  const shortGroupSummary = (key) => {\n    if (key === "type") return `상품군 ${productScopeLabel()}`;\n    const g = GROUPS.find((x) => x.key === key);', "search product summary")
+    rendered = _replace_required(rendered, '  const groupHtml = (groups) => groups.map((g) => {\n      let boxes;', SEARCH_PRODUCT_GROUP + '\n\n  const groupHtml = (groups) => groups.map((g) => {\n      if (g.key === "type") return productTypeGroupHtml();\n      let boxes;', "search product group ui")
+    rendered = _replace_required(rendered, '  const basisLabel = () => (noTermOrTypePicked() ? "12개월 정기예금" : "");', '  const basisLabel = () => productScopeLabel();', "search downstream basis label")
+    rendered = rendered.replace('type: ["installment_savings"]', 'type: ["installment_savings", "flexible_savings"]')
+    rendered = _replace_required(rendered, '    if (box.checked) set.add(box.value); else set.delete(box.value);\n    // main group은 마지막 하나까지 실제로 끌 수 있다.', '    if (box.checked) set.add(box.value); else set.delete(box.value);\n    if (key === "type") { normalizeProductTypeSelection(); renderGroups(); }\n    // main group은 마지막 하나까지 실제로 끌 수 있다.', "search savings subtype change")
+    rendered = _replace_required(rendered, '  $("conditions").addEventListener("click", (e) => {\n    const detail = e.target.closest("[data-detail]");', '  $("conditions").addEventListener("click", (e) => {\n    const family = e.target.closest("[data-product-family]");\n    if (family) { setProductFamily(family.dataset.productFamily); renderGroups(); renderPresets(); redraw(); return; }\n    const detail = e.target.closest("[data-detail]");', "search product family click")
+    rendered = _replace_required(rendered, '      const bySector = {};', '      normalizeProductTypeSelection();\n      const bySector = {};', "search url/default normalization")
+    return rendered
+
+
+def _inject_strategy_product_scope(html: str) -> str:
+    rendered = html
+    rendered = _replace_required(rendered, '<span class="pill">정기예금</span>', '<span class="pill" id="product-scope-pill">예금</span>', "strategy product pill")
+    product_controls = '<section class="card market-scope" id="market-scope" aria-label="전략 비교 업권">\n  <div class="strategy-product-scope" aria-label="상품군 선택"><span>상품군</span><div class="product-family-tabs" role="group"><button class="active" type="button" data-product-mode="deposit" aria-pressed="true">예금</button><button type="button" data-product-mode="savings" aria-pressed="false">적금</button></div><div class="strategy-savings-types" id="strategy-savings-types" hidden><label><input type="checkbox" data-savings-type="installment_savings" checked>정기적금</label><label><input type="checkbox" data-savings-type="flexible_savings" checked>자유적금</label></div></div>'
+    rendered = _replace_required(rendered, '<section class="card market-scope" id="market-scope" aria-label="전략 비교 업권">', product_controls, "strategy product controls")
+    rendered = _replace_required(rendered, 'let allRows=[],products12=[],simTerm=12,mapMode="korea",mapSector="savings_bank",marketMode="savings_bank",strategyUniverse=null;', 'let allRows=[],depositRows=[],savingsRows=[],products12=[],simTerm=12,mapMode="korea",mapSector="savings_bank",marketMode="savings_bank",productMode="deposit",strategyUniverse=null,depositUniverse=null,savingsUniverse=null;\nlet savingsTypes=new Set(["installment_savings","flexible_savings"]);\n' + STRATEGY_PRODUCT_RUNTIME, "strategy product runtime")
+    rendered = _replace_required(rendered, 'function rankingBasisText(){const sectors=activeSectors();if(!sectors.length)return"12개월 · 현재 선택된 최고금리 비교 업권 없음";return`12개월 · sector + stable product 대표 · ${sectors.map(key=>`${sectorLabel(key)} ${sectorRateScope(key)}`).join(" · ")}`}', 'function rankingBasisText(){const sectors=activeSectors();if(!sectors.length)return`12개월 · ${productScopeLabel()} · 현재 선택된 최고금리 비교 업권 없음`;return`12개월 · ${productScopeLabel()} · ${productMode==="deposit"?"stable product":"현재 canonical 상품"} 대표 · ${sectors.map(key=>`${sectorLabel(key)} ${sectorRateScope(key)}`).join(" · ")}`}', "strategy ranking basis")
+    rendered = _replace_required(rendered, 'function renderScopeControls(){\n  document.querySelectorAll("[data-market-mode]").forEach(btn=>btn.classList.toggle("active",btn.dataset.marketMode===marketMode));', 'function renderScopeControls(){\n  renderProductScopeControls();\n  document.querySelectorAll("[data-market-mode]").forEach(btn=>btn.classList.toggle("active",btn.dataset.marketMode===marketMode));', "strategy scope render")
+    rendered = _replace_required(rendered, 'function rerenderForScope(){aggregateCache.clear();products12=[];[6,12,24,36].forEach(aggregateProducts);renderMarket();renderPrefs();renderTermStrip();ensureMapSector();renderInsightsEnhanced();applyModeVisibility();if(marketMode!=="mutual_finance")updateSim()}', 'function rerenderForScope(){aggregateCache.clear();products12=[];[6,12,24,36].forEach(aggregateProducts);renderMarket();renderPrefs();renderTermStrip();ensureMapSector();renderProductHistoryScope();renderInsightsEnhanced();applyModeVisibility();if(marketMode!=="mutual_finance")updateSim()}', "strategy rerender product scope")
+    rendered = _replace_required(rendered, 'function setupMarketScope(){document.querySelectorAll("[data-market-mode]").forEach(btn=>btn.addEventListener("click",()=>setMarketMode(btn.dataset.marketMode)));document.querySelectorAll("[data-sector]").forEach(input=>input.addEventListener("change",()=>{renderScopeControls();rerenderForScope()}));renderScopeControls()}', 'function setupMarketScope(){document.querySelectorAll("[data-product-mode]").forEach(btn=>btn.addEventListener("click",()=>setProductMode(btn.dataset.productMode)));document.querySelectorAll("[data-savings-type]").forEach(input=>input.addEventListener("change",()=>{if(input.checked)savingsTypes.add(input.dataset.savingsType);else savingsTypes.delete(input.dataset.savingsType);normalizeSavingsTypes();renderProductScopeControls();rerenderForScope()}));document.querySelectorAll("[data-market-mode]").forEach(btn=>btn.addEventListener("click",()=>setMarketMode(btn.dataset.marketMode)));document.querySelectorAll("[data-sector]").forEach(input=>input.addEventListener("change",()=>{renderScopeControls();rerenderForScope()}));renderScopeControls()}', "strategy product events")
+    rendered = _replace_required(rendered, '  const sectors=activeSectors(),cacheKey=`${marketMode}:${sectors.join(",")}:${term}`;', '  const sectors=activeSectors(),cacheKey=`${productScopeKey()}:${marketMode}:${sectors.join(",")}:${term}`;', "strategy product cache")
+    rendered = _replace_required(rendered, '    if(!allowed.has(r.sector)||r.type!=="term_deposit"||r.term!==term||!Number.isFinite(r.max)||!r.productId)continue;', '    if(!allowed.has(r.sector)||!activeProductTypes().has(r.type)||(productMode==="savings"&&!savingsTypes.has(r.type))||r.term!==term||!Number.isFinite(r.max)||!r.productId)continue;', "strategy aggregate product filter")
+    rendered = _replace_required(rendered, 'if(r.sector!==sector||r.type!=="term_deposit"||r.term!==term||!Number.isFinite(r.max)||!r.productId||r.geoBasis!==expectedBasis)continue;', 'if(r.sector!==sector||!activeProductTypes().has(r.type)||(productMode==="savings"&&!savingsTypes.has(r.type))||r.term!==term||!Number.isFinite(r.max)||!r.productId||r.geoBasis!==expectedBasis)continue;', "strategy geo product filter")
+    rendered = _replace_required(rendered, 'products12=aggregateProducts(12);$("ranking-basis").textContent=rankingBasisText();$("top5-copy").textContent=`12개월 정기예금 · ${modeLabel()} · sector + stable product 대표 수집기준 최고금리`;$("footer-calc").innerHTML=`<b>계산 기준</b> · ${esc(modeLabel())} 수집 데이터 기준 최고금리 · 원천 max 우선 · 미기재 시 수집 기본금리 · 명시 가산만 합산 · 동일 금리 공동순위`;', 'products12=aggregateProducts(12);$("ranking-basis").textContent=rankingBasisText();$("top5-copy").textContent=`12개월 ${productScopeLabel()} · ${modeLabel()} · ${productMode==="deposit"?"stable product":"현재 canonical 상품"} 대표 수집기준 최고금리`;$("footer-calc").innerHTML=`<b>계산 기준</b> · ${esc(productScopeLabel())} · ${esc(modeLabel())} 수집 데이터 기준 최고금리 · 원천 max 우선 · 미기재 시 수집 기본금리 · 동일 금리 공동순위`;', "strategy KPI/top5 scope copy")
+    rendered = _replace_required(rendered, 'function applyModeVisibility(){const mutualOnly=marketMode==="mutual_finance",savingsOnly=marketMode==="savings_bank";$("market-flow").hidden=mutualOnly;$("map-card").hidden=false;$("trend-delta").hidden=!savingsOnly;$("sim-scope-warning").hidden=!mutualOnly;$("sim-form").hidden=mutualOnly;ensureMapSector();renderMapLayerTabs();if(mapMode==="busan"&&mapSector!=="savings_bank")mapMode="korea";renderKoreaMap()}', 'function applyModeVisibility(){const mutualOnly=marketMode==="mutual_finance",savingsOnly=marketMode==="savings_bank",installmentMode=productMode==="savings";$("market-flow").hidden=mutualOnly;$("map-card").hidden=false;$("trend-delta").hidden=!savingsOnly||installmentMode;$("sim-form").hidden=mutualOnly;$("prediction-toggle").hidden=installmentMode;$("prediction-panel").hidden=true;$("prediction-summary").textContent=installmentMode?"적금 시장 순위·TOP10은 선택 상품군에 연동 · 수신금액 예측은 예금 전용이라 비활성화":"내부 실적 미보정 · 신규수신·만기·재예치율 3개 입력으로 총수신 범위 계산";$("sim-scope-warning").hidden=!(mutualOnly||installmentMode);$("sim-scope-warning").textContent=mutualOnly?"상호금융 단독 모드에서는 고려저축은행 기준 신상품·수신 시뮬레이터를 잠급니다. 통합 또는 저축은행 모드에서 사용하세요.":"적금은 금리 시나리오·시장 순위까지 계산합니다. 신규수신·만기·재예치율 기반 수신금액 예측은 정기예금 전용이라 실행하지 않습니다.";ensureMapSector();renderMapLayerTabs();if(mapMode==="busan"&&mapSector!=="savings_bank")mapMode="korea";renderKoreaMap()}', "strategy savings prediction guard")
+    rendered = _replace_required(rendered, '  const baseline=predictionNumber("baseline-new"),maturity=predictionNumber("maturity-amount"),rollover=predictionNumber("rollover-rate",{min:0,max:100});', '  if(productMode==="savings"){clearInflowPrediction("적금은 현재 시장 금리·순위 시나리오만 계산합니다. 수신금액 예측은 정기예금 전용 모델이라 실행하지 않습니다.");return}\n  const baseline=predictionNumber("baseline-new"),maturity=predictionNumber("maturity-amount"),rollover=predictionNumber("rollover-rate",{min:0,max:100});', "strategy inflow execution guard")
+    old_boot = '  try{const res=await fetch(data.table_url,{cache:"no-store"});if(!res.ok)throw new Error(`금리표 HTTP ${res.status}`);const packed=await res.json();strategyUniverse=packed.strategy_universe||null;allRows=expand(packed);setupMarketScope();aggregateCache.clear();[6,12,24,36].forEach(aggregateProducts);renderMarket();renderPrefs();renderTermStrip();ensureMapSector();renderInsightsEnhanced();applyModeVisibility();updateSim()}catch(err){$("error").hidden=false;$("error").textContent=`금리표를 불러오지 못했습니다. ${err instanceof Error?err.message:String(err)}`}'
+    new_boot = '  try{const [strategyRes,canonicalRes]=await Promise.all([fetch(data.table_url,{cache:"no-store"}),fetch("data/table.json",{cache:"no-store"})]);if(!strategyRes.ok)throw new Error(`전략 금리표 HTTP ${strategyRes.status}`);if(!canonicalRes.ok)throw new Error(`예·적금 금리표 HTTP ${canonicalRes.status}`);const [packed,canonical]=await Promise.all([strategyRes.json(),canonicalRes.json()]);depositUniverse=packed.strategy_universe||null;depositRows=expand(packed);savingsRows=prepareSavingsRows(canonical);savingsUniverse=buildSavingsUniverse(savingsRows);strategyUniverse=depositUniverse;allRows=depositRows;setupMarketScope();aggregateCache.clear();[6,12,24,36].forEach(aggregateProducts);renderMarket();renderPrefs();renderTermStrip();ensureMapSector();renderProductHistoryScope();renderInsightsEnhanced();applyModeVisibility();updateSim()}catch(err){$("error").hidden=false;$("error").textContent=`금리표를 불러오지 못했습니다. ${err instanceof Error?err.message:String(err)}`}'
+    rendered = _replace_required(rendered, old_boot, new_boot, "strategy dual table boot")
+    return rendered
+
+
+def _inject_product_scope_contract(html: str) -> str:
+    if 'id="conditions"' in html:
+        return _inject_search_product_scope(html)
+    if 'id="market-scope"' in html and 'id="top5"' in html:
+        return _inject_strategy_product_scope(html)
+    return html
+
 
 def inject_dashboard_ui_refinement(html: str) -> str:
-    """공통 헤더와 검색 지도 가독성 presentation을 마지막 계층에 추가한다."""
-    rendered = html
+    """공통 헤더/지도와 예금·적금 공통 선택 계약을 마지막 계층에 추가한다."""
+    rendered = _inject_product_scope_contract(html)
     if STYLE_MARKER not in rendered:
         if "</head>" not in rendered:
             raise DashboardBuildError("dashboard UI refinement를 넣을 head가 없다")
@@ -225,13 +177,6 @@ def inject_dashboard_ui_refinement(html: str) -> str:
         if "</body>" not in rendered:
             raise DashboardBuildError("dashboard UI refinement를 넣을 body가 없다")
         rendered = rendered.replace("</body>", DASHBOARD_UI_SCRIPT + "\n</body>", 1)
-
-    # 검색 조회에는 #reg가 있고 Strategy에는 없다. 같은 public injection entry를
-    # 유지하되 검색 화면일 때만 compact map + 부산 SVG drill-down을 마지막에
-    # 덧씌운다. Strategy Release Gate와는 독립적으로 source template geometry만 읽는다.
     if 'id="reg"' in rendered:
-        rendered = inject_main_map_drilldown_refinement(
-            rendered,
-            _STRATEGY_TEMPLATE.read_text(encoding="utf-8"),
-        )
+        rendered = inject_main_map_drilldown_refinement(rendered, _STRATEGY_TEMPLATE.read_text(encoding="utf-8"))
     return rendered
