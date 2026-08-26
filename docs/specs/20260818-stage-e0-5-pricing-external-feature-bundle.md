@@ -7,8 +7,14 @@
 
 ## 목표
 
-Stage E v1이 사용할 외부 macro control을 하나의 read-only 계약으로 묶는다.
+Stage E의 외부 macro 근거와 향후 calibration 입력 후보를 하나의 read-only 계약으로 묶는다.
 새 수집원을 추가하지 않고 이미 검증된 두 source를 재사용한다.
+
+> **v1 모델 사용 범위:** 이 bundle은 현재 Strategy의 근거/표시용 context이며 향후
+> calibration dataset의 입력 후보다. 현재 `inflow_prediction_service`의 미보정
+> inflow/rollover 예측식과 coefficient에는 policy rate나 아래 macro feature를
+> 투입하지 않는다. `feature_roles`의 `control`/`anchor` 명칭은 분석상 의도된 역할을
+> 설명하며, 현재 모델에 이미 통제변수로 적용됐다는 뜻이 아니다.
 
 ```text
 bok_ecos
@@ -21,10 +27,15 @@ bok_ecos_macro
 
 ## v1 feature roles
 
+아래 role은 **현재 coefficient 적용 상태가 아니라 향후 calibration에서 검토할 분석 역할**이다.
+
 - 기준금리: monetary-policy regime control
 - 순수저축성예금 신규취급액 금리: bank deposit-market realized price control
 - 1년 정기예금 신규취급액 금리: 12M competition anchor
 - 업권 수신잔액 MoM: sector liquidity-flow control
+
+현재 public inflow prediction은 이 bundle을 입력으로 받지 않는다. 따라서 외부 feature 값이
+바뀌더라도 현행 `inflow_prediction_service`의 계산값이나 coefficient는 이 단계에서 변하지 않는다.
 
 ## 명시적 제외
 
@@ -48,9 +59,9 @@ bok_ecos_macro
 
 ## 다음 단계
 
-이 bundle은 Stage E calibration code의 외부 입력 계약이다.
+이 bundle은 Stage E calibration code가 사용할 수 있도록 미리 고정한 외부 입력 계약이다.
 내부 실적자료가 오기 전에는 현재 uncalibrated inflow coefficient를 이 값으로
-재학습하지 않는다.
+재학습하거나 현재 예측식에 직접 투입하지 않는다.
 
 내부자료가 확보되면:
 
@@ -63,4 +74,4 @@ internal performance features
 → calibrated inflow / rollover model
 ```
 
-로 연결한다.
+로 연결한다. 실제 모델 투입은 calibration 설계·검증을 거친 별도 단계에서만 수행한다.
