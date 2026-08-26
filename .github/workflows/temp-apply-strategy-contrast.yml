@@ -79,7 +79,14 @@ jobs:
           assert_new = '''  invariant(result.accent.toUpperCase() === "#D33A7C", `${label}: computed brand accent=${result.accent}`);\n  invariant(result.accentInk.toUpperCase() === "#5B2F64", `${label}: computed brand accent ink=${result.accentInk}`);\n  const sectionSoftContrast = contrastRatio(result.sectionSoftColor, result.sectionSoftBackground);\n  const scenarioNoteContrast = contrastRatio(result.scenarioNoteColor, result.scenarioNoteBackground);\n  invariant(\n    sectionSoftContrast >= 4.5,\n    `${label}: workspace section supporting text contrast=${sectionSoftContrast.toFixed(2)}`,\n  );\n  invariant(\n    scenarioNoteContrast >= 4.5,\n    `${label}: scenario note contrast=${scenarioNoteContrast.toFixed(2)}`,\n  );\n'''
           if text.count(assert_anchor) != 1:
               raise SystemExit("strategy_workspace_smoke.js contrast assert anchor mismatch")
-          smoke.write_text(text.replace(assert_anchor, assert_new, 1), encoding="utf-8")
+          text = text.replace(assert_anchor, assert_new, 1)
+
+          scope_anchor = '''  await assertDecisionIA(page, label);\n  await assertPrediction(page, label);\n'''
+          scope_new = '''  await assertDecisionIA(page, label);\n  const depositFamily = page.locator('[data-product-family-toggle="deposit"]');\n  const savingsFamily = page.locator('[data-product-family-toggle="savings"]');\n  await depositFamily.waitFor({ state: "attached", timeout: 10_000 });\n  if (!(await depositFamily.isChecked())) await depositFamily.check();\n  if (await savingsFamily.isChecked()) await savingsFamily.uncheck();\n  await page.locator("#baseline-new").waitFor({ state: "visible", timeout: 10_000 });\n  await assertPrediction(page, label);\n'''
+          if text.count(scope_anchor) != 1:
+              raise SystemExit("strategy_workspace_smoke.js prediction scope anchor mismatch")
+          text = text.replace(scope_anchor, scope_new, 1)
+          smoke.write_text(text, encoding="utf-8")
           PY
 
       - name: Static syntax and targeted Python checks
