@@ -84,7 +84,10 @@ async function assertSearchShareableState(browser) {
 }
 
 async function waitForStrategyControls(page, expectedTerm) {
-  await page.waitForSelector('[data-product-mode="deposit"]', { timeout: 30_000 });
+  await page.waitForSelector('[data-product-mode="deposit"]', {
+    state: "attached",
+    timeout: 30_000,
+  });
   await page.waitForSelector('[data-product-family-toggle="deposit"]', { timeout: 30_000 });
   await page.waitForFunction(
     (term) => document.getElementById("product-scope-pill")?.textContent.includes(`${term}개월`),
