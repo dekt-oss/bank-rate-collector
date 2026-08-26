@@ -9,7 +9,7 @@ SCRIPT_MARKER = 'id="dashboard-strategy-savings-insight-script"'
 
 INSIGHT_STYLE = r"""
 <style id="dashboard-product-scope-insight-style">
-.savings-subtype-insight{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin:7px 0 2px}.savings-subtype-insight[hidden]{display:none!important}.savings-subtype-badge{display:inline-flex;align-items:center;min-height:22px;padding:3px 7px;border:1px solid rgba(212,179,111,.28);border-radius:999px;background:rgba(92,72,35,.14);color:#c6aa72;font-size:8px;font-weight:800;letter-spacing:.02em}.savings-subtype-spread{display:inline-flex;align-items:baseline;gap:5px;min-height:22px;padding:3px 7px;border:1px solid rgba(128,200,166,.16);border-radius:8px;background:rgba(8,27,21,.34);color:#81958a;font-size:8px}.savings-subtype-spread strong{color:#c7ddd2;font:800 10px var(--mono)}.savings-subtype-spread small{color:#71847a;font-size:8px}.savings-subtype-spread[hidden]{display:none!important}
+.savings-subtype-insight{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin:7px 0 2px}.savings-subtype-insight[hidden]{display:none!important}.savings-subtype-badge{display:inline-flex;align-items:center;min-height:22px;padding:3px 7px;border:1px solid rgba(212,179,111,.28);border-radius:999px;background:rgba(92,72,35,.14);color:#c6aa72;font-size:9px;font-weight:800;letter-spacing:.02em}.savings-subtype-spread{display:inline-flex;align-items:baseline;gap:5px;min-height:22px;padding:3px 7px;border:1px solid rgba(128,200,166,.16);border-radius:8px;background:rgba(8,27,21,.34);color:#81958a;font-size:9px}.savings-subtype-spread strong{color:#c7ddd2;font:800 10px var(--mono)}.savings-subtype-spread small{color:#71847a;font-size:9px}.savings-subtype-spread[hidden]{display:none!important}
 </style>
 """
 
