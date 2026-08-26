@@ -6,7 +6,8 @@ PR #211의 예금/적금·가입기간 계약은 유지하면서 다음만 보�
 - 예금+적금 동시 선택 시 현재 비교 모집단을 합치되 금리값/원천 우선순위는 바꾸지 않는다.
 - 서로 다른 상품군의 historical intelligence는 합성하지 않고 fail-closed 한다.
 - 수신금액 예측은 기존 정기예금 단독 전용 경계를 유지한다.
-- TOP5와 금리결정 인사이트의 대비·밀도를 높인다.
+- TOP5에 예금/적금 상품군 배지를 붙이고 핵심 텍스트 대비를 높인다.
+- 금리결정 인사이트의 핵심 수치를 별도 metric으로 강조한다.
 """
 
 from __future__ import annotations
@@ -41,19 +42,26 @@ READABILITY_STYLE = r"""
 .top5-card .strongrate{color:var(--green2,var(--green))!important;font-size:12px!important;font-weight:900!important}
 .top5-card .head h2{color:var(--ink)!important;font-size:17px!important;font-weight:860!important}
 .top5-card .head p{color:var(--ink)!important;opacity:.67!important;font-size:10.5px!important}
+.top5-card .product-family-badge{display:inline-flex!important;align-items:center!important;justify-content:center!important;min-width:38px!important;margin-top:4px!important;padding:3px 7px!important;border:1px solid rgba(91,47,100,.18)!important;border-radius:999px!important;background:#f6eff7!important;color:#694373!important;font-size:9.5px!important;font-weight:860!important;line-height:1!important;vertical-align:middle!important}
+.top5-card .product-family-badge.savings{border-color:rgba(47,125,101,.19)!important;background:#eef7f3!important;color:#2f6f59!important}
+.top5-card .product-family-badge+.product{display:inline-block!important;max-width:calc(100% - 52px)!important;margin:4px 0 0 6px!important;vertical-align:middle!important}
 
-/* 금리결정 인사이트: PC에서는 3개 카드를 한 행에, 텍스트 대비와 크기를 함께 올린다. */
+/* 금리결정 인사이트: PC에서는 3개 카드를 한 행에, 핵심 숫자를 먼저 읽히게 한다. */
 .insightcard .head h2{color:var(--ink)!important;font-size:18px!important;font-weight:880!important;letter-spacing:-.025em!important}
 .insightcard .head p{color:var(--ink)!important;opacity:.70!important;font-size:11px!important;line-height:1.5!important}
 .insightcard .insights{gap:10px!important}
 .insightcard .insight{min-width:0!important;grid-template-columns:30px minmax(0,1fr)!important;gap:10px!important;padding:12px!important}
-.insightcard .insight b{color:var(--ink)!important;font-size:12px!important;font-weight:880!important;line-height:1.35!important}
+.insightcard .insight b{display:flex!important;align-items:baseline!important;gap:7px!important;flex-wrap:wrap!important;color:var(--ink)!important;font-size:12px!important;font-weight:880!important;line-height:1.35!important}
+.insightcard .insight b .insight-metric{color:#5b2f64!important;font:900 28px/1 var(--mono)!important;letter-spacing:-.055em!important;white-space:nowrap!important}
+.insightcard .insight:nth-child(2) b .insight-metric{color:#96661d!important}
+.insightcard .insight:nth-child(3) b .insight-metric{color:#2f7d65!important}
+.insightcard .insight b .insight-title-copy{color:var(--ink)!important;opacity:.82!important;font-size:11.5px!important;font-weight:850!important;line-height:1.35!important}
 .insightcard .insight span{color:var(--ink)!important;opacity:.75!important;font-size:10.5px!important;line-height:1.5!important}
-.insightcard .insight em{color:var(--ink)!important;opacity:.68!important;font-size:9.5px!important;font-weight:820!important}
+.insightcard .insight em{color:var(--ink)!important;opacity:.72!important;font-size:9.5px!important;font-weight:840!important}
 .insightcard .insight small{color:var(--ink)!important;opacity:.72!important;font-size:10px!important;line-height:1.5!important}
 @media(min-width:980px){.insightcard .insights{grid-template-columns:repeat(3,minmax(0,1fr))!important}.insightcard .insight:last-child{grid-column:auto!important}}
 @media(min-width:761px) and (max-width:979px){.insightcard .insights{grid-template-columns:repeat(2,minmax(0,1fr))!important}.insightcard .insight:last-child{grid-column:auto!important}}
-@media(max-width:760px){.strategy-family-checks{width:100%}.strategy-family-checks label{flex:1;justify-content:center}.strategy-product-scope .global-term-tabs{width:100%}.strategy-product-scope .global-term-tabs button{flex:1}.insightcard .insights{grid-template-columns:1fr!important}.insightcard .insight:last-child{grid-column:auto!important}}
+@media(max-width:760px){.strategy-family-checks{width:100%}.strategy-family-checks label{flex:1;justify-content:center}.strategy-product-scope .global-term-tabs{width:100%}.strategy-product-scope .global-term-tabs button{flex:1}.top5-card .product-family-badge+.product{max-width:calc(100% - 56px)!important}.insightcard .insights{grid-template-columns:1fr!important}.insightcard .insight:last-child{grid-column:auto!important}.insightcard .insight b .insight-metric{font-size:26px!important}}
 </style>
 """
 
@@ -122,8 +130,34 @@ READABILITY_SCRIPT = r'''
     mapSector="savings_bank";renderProductScopeControls();rerenderForScope();
   };
   rankingBasisText=function(){const sectors=activeSectors(),representative=productMode==="deposit"?"stable product":productMode==="savings"?"현재 canonical 상품":"예금 stable + 적금 canonical";if(!sectors.length)return`${scopeTerm}개월 · ${productScopeLabel()} · 현재 선택된 최고금리 비교 업권 없음`;return`${scopeTerm}개월 · ${productScopeLabel()} · ${representative} 대표 · ${sectors.map(key=>`${sectorLabel(key)} ${sectorRateScope(key)}`).join(" · ")}`};
+  const decorateTop5ProductFamilies=()=>{
+    const rows=[...document.querySelectorAll("#top5 tr")];
+    products12.slice(0,5).forEach((product,index)=>{
+      const host=rows[index]?.querySelector("td:nth-child(2)"),name=host?.querySelector(".product");
+      if(!host||!name)return;
+      let badge=host.querySelector(".product-family-badge");
+      if(!badge){badge=document.createElement("span");name.insertAdjacentElement("beforebegin",badge)}
+      const family=product.productFamily==="savings"?"savings":"deposit";
+      badge.className=`product-family-badge ${family}`;
+      badge.textContent=family==="savings"?"적금":"예금";
+      badge.setAttribute("aria-label",`상품군 ${badge.textContent}`);
+    });
+  };
+  const emphasizeInsightMetrics=()=>{
+    document.querySelectorAll("#insights .insight b").forEach(title=>{
+      if(title.querySelector(".insight-metric"))return;
+      const text=String(title.textContent||"").trim(),match=text.match(/([+-]?\d+(?:\.\d+)?(?:bp|%p|%))/);
+      if(!match)return;
+      const metric=document.createElement("strong"),copy=document.createElement("span"),label=`${text.slice(0,match.index)} ${text.slice((match.index||0)+match[0].length)}`.trim().replace(/\s+/g," ");
+      metric.className="insight-metric";metric.textContent=match[1];
+      copy.className="insight-title-copy";copy.textContent=label;
+      title.textContent="";title.appendChild(metric);if(label)title.appendChild(copy);
+    });
+  };
   const priorRenderMarket=renderMarket;
-  renderMarket=function(){priorRenderMarket();const representative=productMode==="deposit"?"stable product":productMode==="savings"?"현재 canonical 상품":"예금 stable + 적금 canonical";const copy=$("top5-copy");if(copy)copy.textContent=`${scopeTerm}개월 ${productScopeLabel()} · ${modeLabel()} · ${representative} 대표 수집기준 최고금리`};
+  renderMarket=function(){priorRenderMarket();const representative=productMode==="deposit"?"stable product":productMode==="savings"?"현재 canonical 상품":"예금 stable + 적금 canonical";const copy=$("top5-copy");if(copy)copy.textContent=`${scopeTerm}개월 ${productScopeLabel()} · ${modeLabel()} · ${representative} 대표 수집기준 최고금리`;decorateTop5ProductFamilies()};
+  const priorRenderInsightsEnhanced=renderInsightsEnhanced;
+  renderInsightsEnhanced=function(){priorRenderInsightsEnhanced();emphasizeInsightMetrics()};
   const priorApplyModeVisibility=applyModeVisibility;
   applyModeVisibility=function(){
     priorApplyModeVisibility();
@@ -196,6 +230,12 @@ def inject_dashboard_product_scope_readability(html: str) -> str:
         'if(productMode==="savings"){clearInflowPrediction(',
         'if(productMode!=="deposit"){clearInflowPrediction(',
         "deposit-only prediction execution",
+    )
+    rendered = _replace_required(
+        rendered,
+        'if(!p){p={sector:r.sector,institution:r.institution',
+        'if(!p){p={sector:r.sector,productFamily:r.type==="term_deposit"?"deposit":"savings",institution:r.institution',
+        "TOP5 product family provenance",
     )
     rendered = rendered.replace("</head>", READABILITY_STYLE + "\n</head>", 1)
     return rendered.replace("</body>", READABILITY_SCRIPT + "\n</body>", 1)
