@@ -123,6 +123,24 @@ def test_short_history_is_not_ready_even_when_fields_are_valid() -> None:
     assert report["pricing_observation_dates"] == 23
 
 
+def test_exact_24_months_is_minimum_ready() -> None:
+    report = assess_internal_calibration_bundle(_bundle(months=24))
+
+    assert report["history_days"] < report["minimum_history_days"]
+    assert report["pricing_observation_dates"] == 24
+    assert report["status"] == "ready_for_calibration"
+    assert report["history_grade"] == "minimum_24m_plus"
+
+
+def test_exact_36_months_is_recommended() -> None:
+    report = assess_internal_calibration_bundle(_bundle(months=36))
+
+    assert report["history_days"] < report["recommended_history_days"]
+    assert report["pricing_observation_dates"] == 36
+    assert report["status"] == "ready_for_calibration"
+    assert report["history_grade"] == "recommended_36m_plus"
+
+
 def test_sparse_three_year_endpoints_are_not_mistaken_for_three_year_history() -> None:
     bundle = _bundle(months=37)
     bundle["pricing_flow"] = [bundle["pricing_flow"][0], bundle["pricing_flow"][-1]]
