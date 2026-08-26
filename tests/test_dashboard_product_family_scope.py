@@ -8,47 +8,54 @@ SEARCH_TEMPLATE = Path("web/templates/site.html")
 STRATEGY_TEMPLATE = Path("web/templates/strategy.html")
 
 
-def test_search_product_family_scope_uses_existing_type_filter_as_single_state() -> None:
+def test_search_product_family_allows_empty_savings_and_global_terms() -> None:
     html = inject_dashboard_ui_refinement(SEARCH_TEMPLATE.read_text(encoding="utf-8"))
 
     assert 'data-product-family="deposit"' in html
     assert 'data-product-family="savings"' in html
     assert 'value="installment_savings"' in html
     assert 'value="flexible_savings"' in html
-    assert 'state.picked.type.add(PRODUCT_DEPOSIT_TYPE)' in html
-    assert 'PRODUCT_SAVINGS_TYPES.forEach((type) => state.picked.type.add(type))' in html
-    assert 'if (key === "type") { normalizeProductTypeSelection(); renderGroups(); }' in html
-    assert 'if (key === "type") return `상품군 ${productScopeLabel()}`;' in html
-    assert 'const basisLabel = () => productScopeLabel();' in html
+    assert 'return "적금 · 선택 없음";' in html
+    assert 'emptySavingsSelected = !PRODUCT_SAVINGS_TYPES.some' in html
+    for term in (6, 12, 24, 36):
+        assert f'data-global-term="${{value}}"' in html or f'>{term}개월<' in html
+    assert 'state.tmin = value; state.tmax = value;' in html
+    assert 'if (g.key === "term") return "";' in html
 
 
-def test_search_savings_presets_default_to_both_savings_subtypes() -> None:
+def test_search_default_scope_is_deposit_12_months() -> None:
     html = inject_dashboard_ui_refinement(SEARCH_TEMPLATE.read_text(encoding="utf-8"))
 
+    assert 'state.picked.type.add(PRODUCT_DEPOSIT_TYPE)' in html
+    assert 'tmin: 12, tmax: 12' in html
+    assert 'const basisLabel = () => `${activeGlobalTerm()}개월 ${productScopeLabel()}`;' in html
     assert html.count('type: ["installment_savings", "flexible_savings"]') >= 3
-    assert 'installment_savings: "정기적금"' in html
-    assert 'flexible_savings: "자유적금"' in html
 
 
-def test_strategy_product_scope_links_kpis_and_blocks_deposit_only_prediction() -> None:
+def test_strategy_scope_links_product_term_kpi_map_history_and_simulator() -> None:
     html = inject_dashboard_ui_refinement(STRATEGY_TEMPLATE.read_text(encoding="utf-8"))
 
     assert 'data-product-mode="deposit"' in html
     assert 'data-product-mode="savings"' in html
     assert 'data-savings-type="installment_savings"' in html
     assert 'data-savings-type="flexible_savings"' in html
-    assert 'fetch("data/table.json"' in html
-    assert 'cacheKey=`${productScopeKey()}:${marketMode}' in html
-    assert '!activeProductTypes().has(r.type)' in html
-    assert '12개월 ${productScopeLabel()}' in html
-    assert 'renderProductHistoryScope();renderInsightsEnhanced()' in html
-    assert 'if(productMode==="savings"){clearInflowPrediction' in html
-    assert '수신금액 예측은 예금 전용이라 비활성화' in html
+    for term in (6, 12, 24, 36):
+        assert f'data-scope-term="{term}"' in html
+    assert 'scopeTerm=12' in html
+    assert 'products12=aggregateProducts(scopeTerm)' in html
+    assert 'geoProducts(sector,scopeTerm)' in html
+    assert 'prefData(scopeTerm)' in html
+    assert 'activeRateTrend()' in html
+    assert 'activeMarketChanges()' in html
+    assert 'setScopeTerm(btn.dataset.term)' in html
+    assert 'KPI·TOP·지도·추이·시뮬레이터 연동' in html
 
 
-def test_strategy_savings_history_is_fail_closed_not_relabelled_deposit_history() -> None:
+def test_strategy_savings_zero_selection_is_empty_not_forced() -> None:
     html = inject_dashboard_ui_refinement(STRATEGY_TEMPLATE.read_text(encoding="utf-8"))
 
-    assert '적금 이력 미지원' in html
-    assert '30일/63일 이력 계약은 예금과 분리해 아직 계산하지 않습니다.' in html
-    assert '현재 적금 스냅샷 비교에는 포함되지 않는 예금 전용 이력 지표입니다.' in html
+    assert 'if(!savingsTypes.size)return"적금 · 선택 없음"' in html
+    assert 'if(!savingsTypes.size)return null' in html
+    assert 'else savingsTypes.delete(input.dataset.savingsType)' in html
+    assert 'normalizeSavingsTypes' not in html
+    assert '수신금액 예측은 정기예금 전용' in html
