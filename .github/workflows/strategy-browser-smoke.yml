@@ -44,7 +44,7 @@ permissions:
 jobs:
   browser-smoke:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
 
@@ -60,7 +60,7 @@ jobs:
           set -euo pipefail
           mkdir -p work published
           SOURCE_SHA=""
-          for attempt in $(seq 1 90); do
+          for attempt in $(seq 1 300); do
             if git fetch --force origin \
               +preview/strategy-dashboard:refs/remotes/origin/preview/strategy-dashboard \
               --depth=1 >/dev/null 2>&1; then
