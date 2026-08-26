@@ -102,3 +102,18 @@ def test_strategy_savings_all_uses_adaptive_subtype_trend_panel() -> None:
     assert 'pointMap("savings_flexible")' in html
     assert "두 추이를 분리 표시" in html
     assert "통합 추이 유지" in html
+
+
+def test_strategy_split_trend_shows_gap_badge_and_latest_spread_kpi() -> None:
+    html = inject_dashboard_ui_refinement(STRATEGY_TEMPLATE.read_text(encoding="utf-8"))
+
+    assert 'id="dashboard-strategy-savings-insight-script"' in html
+    assert 'id="savings-subtype-gap-badge"' in html
+    assert "유형별 차이 확대" in html
+    assert 'id="savings-subtype-spread-kpi"' in html
+    assert "유형간 스프레드" in html
+    assert 'const latestCommonSpread=()=>{' in html
+    assert 'const spread=installmentRate-flexibleRate;' in html
+    assert 'policy?.display_mode==="split"' in html
+    assert "정기적금 우위" in html
+    assert "자유적금 우위" in html
