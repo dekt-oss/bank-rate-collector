@@ -84,7 +84,11 @@ async function assertSearchShareableState(browser) {
 }
 
 async function waitForStrategyControls(page, expectedTerm) {
-  await page.waitForSelector('[data-product-mode="deposit"]', { timeout: 30_000 });
+  await page.waitForSelector('[data-product-mode="deposit"]', {
+    state: "attached",
+    timeout: 30_000,
+  });
+  await page.waitForSelector('[data-product-family-toggle="deposit"]', { timeout: 30_000 });
   await page.waitForFunction(
     (term) => document.getElementById("product-scope-pill")?.textContent.includes(`${term}개월`),
     expectedTerm,
@@ -185,6 +189,134 @@ async function assertStrategyShareableState(browser) {
   invariant(
     await page.locator('[data-savings-type]:checked').count() === 2,
     "strategy shared URL reload lost savings subtype selections",
+  );
+
+  const savingsCount = Number((await page.locator("#count").textContent()).replaceAll(",", ""));
+  await page.locator('[data-product-family-toggle="deposit"]').check();
+  await page.waitForFunction(() => {
+    const params = new URLSearchParams(location.search);
+    const pill = document.getElementById("product-scope-pill")?.textContent || "";
+    return params.get("family") === "combined"
+      && params.get("term") === "12"
+      && pill.includes("예금 + 적금");
+  });
+  await page.waitForFunction(
+    (minimum) => Number(document.getElementById("count")?.textContent.replaceAll(",", "") || 0) >= minimum,
+    savingsCount,
+    { timeout: 20_000 },
+  );
+  invariant(
+    await page.locator('[data-product-family-toggle="deposit"]').isChecked()
+      && await page.locator('[data-product-family-toggle="savings"]').isChecked(),
+    "strategy combined mode did not keep both product families checked",
+  );
+  invariant(
+    await page.locator("#prediction-toggle").isHidden(),
+    "combined product scope must keep the deposit-only prediction engine hidden",
+  );
+  invariant(
+    !(await page.locator("#strategy-product-empty").isVisible()),
+    "combined product scope should not expose the savings-only empty state",
+  );
+  await page.waitForFunction(
+    () => {
+      const rows = [...document.querySelectorAll("#top5 tr")].filter((row) => row.querySelector(".bank"));
+      return rows.length > 0 && rows.every((row) => row.querySelector(".product-family-badge"));
+    },
+    null,
+    { timeout: 20_000 },
+  );
+
+  await page.waitForFunction(
+    () => document.querySelectorAll(".decision-integrated-insight .insight").length === 3,
+    null,
+    { timeout: 20_000 },
+  );
+  const readability = await page.evaluate(() => {
+    const activeTerm = document.querySelector('[data-scope-term="12"]');
+    const inactiveTerm = document.querySelector('[data-scope-term="24"]');
+    const bank = document.querySelector(".top5-card .bank");
+    const insights = document.querySelector(".insightcard .insights");
+    const insightTitle = document.querySelector(".insightcard .insight b");
+    const style = (node) => node ? getComputedStyle(node) : null;
+    const top5Rows = [...document.querySelectorAll("#top5 tr")]
+      .filter((row) => row.querySelector(".bank"));
+    const familyBadges = [...document.querySelectorAll("#top5 .product-family-badge")];
+    const visibleInsightCards = [...document.querySelectorAll(".decision-integrated-insight .insight")]
+      .filter((node) => {
+        const computed = style(node);
+        return computed?.display !== "none" && node.getBoundingClientRect().width > 0;
+      });
+    const insightRows = new Set(
+      visibleInsightCards.map((node) => Math.round(node.getBoundingClientRect().top)),
+    );
+    const insightMetrics = visibleInsightCards
+      .map((node) => node.querySelector(".insight-metric"))
+      .filter(Boolean);
+    return {
+      activeTermBackground: style(activeTerm)?.backgroundColor || "",
+      inactiveTermBackground: style(inactiveTerm)?.backgroundColor || "",
+      bankFontSize: Number.parseFloat(style(bank)?.fontSize || "0"),
+      bankFontWeight: Number.parseInt(style(bank)?.fontWeight || "0", 10),
+      top5RowCount: top5Rows.length,
+      familyBadgeCount: familyBadges.length,
+      familyBadgeLabels: familyBadges.map((node) => String(node.textContent || "").trim()),
+      insightColumns: style(insights)?.gridTemplateColumns || "",
+      insightTitleFontSize: Number.parseFloat(style(insightTitle)?.fontSize || "0"),
+      insightCardCount: visibleInsightCards.length,
+      insightRowCount: insightRows.size,
+      insightMetricCount: insightMetrics.length,
+      insightMetricMinFontSize: insightMetrics.length
+        ? Math.min(...insightMetrics.map((node) => Number.parseFloat(style(node)?.fontSize || "0")))
+        : 0,
+      insightMetricMinWeight: insightMetrics.length
+        ? Math.min(...insightMetrics.map((node) => Number.parseInt(style(node)?.fontWeight || "0", 10)))
+        : 0,
+    };
+  });
+  invariant(
+    readability.activeTermBackground !== readability.inactiveTermBackground,
+    "active and inactive global term controls are not visually distinct",
+  );
+  invariant(readability.bankFontSize >= 12, "TOP5 bank label remains too small");
+  invariant(readability.bankFontWeight >= 800, "TOP5 bank label remains too faint");
+  invariant(
+    readability.top5RowCount > 0 && readability.familyBadgeCount === readability.top5RowCount,
+    `TOP5 product family badges are incomplete: rows=${readability.top5RowCount}, badges=${readability.familyBadgeCount}`,
+  );
+  invariant(
+    readability.familyBadgeLabels.every((label) => label === "예금" || label === "적금"),
+    `TOP5 product family badge label is invalid: ${readability.familyBadgeLabels.join(", ")}`,
+  );
+  invariant(
+    readability.insightColumns.trim().split(/\s+/).length === 3,
+    `desktop insight grid does not expose three columns: ${readability.insightColumns}`,
+  );
+  invariant(
+    readability.insightCardCount === 3 && readability.insightRowCount === 1,
+    `desktop decision insights must stay on one row: cards=${readability.insightCardCount}, rows=${readability.insightRowCount}`,
+  );
+  invariant(readability.insightTitleFontSize >= 12, "insight title remains too small");
+  invariant(
+    readability.insightMetricCount === 3
+      && readability.insightMetricMinFontSize >= 26
+      && readability.insightMetricMinWeight >= 800,
+    `decision insight metrics are not visually emphasized: count=${readability.insightMetricCount}, size=${readability.insightMetricMinFontSize}, weight=${readability.insightMetricMinWeight}`,
+  );
+
+  const combinedUrl = page.url();
+  response = await page.goto(combinedUrl, { waitUntil: "networkidle" });
+  invariant(response && response.ok(), "strategy combined shared URL reload failed");
+  await waitForStrategyControls(page, 12);
+  await page.waitForFunction(
+    () => document.getElementById("product-scope-pill")?.textContent.includes("예금 + 적금"),
+    null,
+    { timeout: 20_000 },
+  );
+  invariant(
+    await page.locator('[data-product-family-toggle="deposit"]').isChecked()
+      && await page.locator('[data-product-family-toggle="savings"]').isChecked(),
+    "strategy combined shared URL reload lost product family selections",
   );
   invariant(runtimeErrors.length === 0, `strategy product scope runtime errors:\n${runtimeErrors.join("\n")}`);
   await context.close();

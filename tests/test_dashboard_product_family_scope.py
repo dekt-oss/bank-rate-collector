@@ -54,6 +54,8 @@ def test_strategy_scope_links_product_term_kpi_map_history_and_simulator() -> No
 
     assert 'data-product-mode="deposit"' in html
     assert 'data-product-mode="savings"' in html
+    assert 'data-product-family-toggle="deposit"' in html
+    assert 'data-product-family-toggle="savings"' in html
     assert 'data-savings-type="installment_savings"' in html
     assert 'data-savings-type="flexible_savings"' in html
     for term in (6, 12, 24, 36):
@@ -66,6 +68,51 @@ def test_strategy_scope_links_product_term_kpi_map_history_and_simulator() -> No
     assert 'activeMarketChanges()' in html
     assert 'setScopeTerm(btn.dataset.term)' in html
     assert 'KPI·TOP·지도·추이·시뮬레이터 연동' in html
+
+
+def test_strategy_product_family_checkboxes_support_combined_current_scope() -> None:
+    html = inject_dashboard_ui_refinement(STRATEGY_TEMPLATE.read_text(encoding="utf-8"))
+
+    assert 'PRODUCT_FAMILY_MODES=new Set(["deposit","savings","combined"])' in html
+    assert 'return new Set(["term_deposit",...savingsTypes])' in html
+    assert 'return`combined:${savingsKey()}`' in html
+    assert 'if(savingsTypes.size===2)return"예금 + 적금"' in html
+    assert 'allRows=[...depositRows,...savingsRows]' in html
+    assert 'strategyUniverse=buildCombinedUniverse()' in html
+    assert 'metric_basis:"mixed_product_family_collected_best_rate"' in html
+    assert 'evidence:"deposit_stable_plus_savings_canonical_current"' in html
+    assert 'if(!checked.length){input.checked=true;renderProductScopeControls();return}' in html
+
+
+def test_strategy_combined_scope_fails_closed_for_history_and_prediction() -> None:
+    html = inject_dashboard_ui_refinement(STRATEGY_TEMPLATE.read_text(encoding="utf-8"))
+
+    assert 'if(productMode==="combined")return null;' in html
+    assert 'installmentMode=productMode!=="deposit"' in html
+    assert 'if(productMode!=="deposit"){clearInflowPrediction(' in html
+    assert '예금+적금 시장 비교 · 수신금액 예측은 예금 단독 전용' in html
+    assert '상품군별 이력 계약이 달라 통합 이력은 재가공하지 않으며' in html
+
+
+def test_strategy_scope_controls_and_key_sections_are_readable() -> None:
+    html = inject_dashboard_ui_refinement(STRATEGY_TEMPLATE.read_text(encoding="utf-8"))
+
+    assert 'id="dashboard-product-scope-readability-style"' in html
+    assert '.strategy-family-checks label.active,.strategy-savings-types label.active' in html
+    assert 'background:#123f32!important;color:#fff!important' in html
+    assert '.strategy-product-scope .global-term-tabs button.active' in html
+    assert '.top5-card .bank{color:var(--ink)!important;font-size:12px!important' in html
+    assert '.top5-card .product{color:var(--ink)!important;opacity:.82!important' in html
+    assert '.top5-card .product-family-badge{' in html
+    assert '.top5-card .product-family-badge.savings{' in html
+    assert 'productFamily:r.type==="term_deposit"?"deposit":"savings"' in html
+    assert 'const decorateTop5ProductFamilies=()=>{' in html
+    assert '.insightcard .insight b{display:flex!important' in html
+    assert 'font:900 28px/1 var(--mono)!important' in html
+    assert 'const emphasizeInsightMetrics=()=>{' in html
+    assert 'className="insight-metric"' in html
+    assert 'grid-template-columns:repeat(3,minmax(0,1fr))!important' in html
+    assert '.insightcard .insight:last-child{grid-column:auto!important}' in html
 
 
 def test_strategy_savings_zero_selection_is_empty_not_forced() -> None:
@@ -84,12 +131,13 @@ def test_strategy_savings_zero_selection_is_empty_not_forced() -> None:
 def test_strategy_url_restores_and_preserves_product_scope() -> None:
     html = inject_dashboard_ui_refinement(STRATEGY_TEMPLATE.read_text(encoding="utf-8"))
 
+    assert 'family==="deposit"||family==="savings"||family==="combined"' in html
     assert 'p.set("family",productMode);' in html
     assert 'p.set("term",String(scopeTerm));' in html
-    assert 'p.set("savings",savingsTypes.size?' in html
+    assert 'if(productMode!=="deposit")p.set("savings",savingsTypes.size?' in html
     assert 'raw==="none"?[]' in html
-    assert 'allRows=q.family==="savings"?savingsRows:depositRows' in html
-    assert 'strategyUniverse=q.family==="savings"?savingsUniverse:depositUniverse' in html
+    assert 'setProductMode(q.family)' in html
+    assert 'p.set("family",productMode);p.set("term",String(scopeTerm));' in html
 
 
 def test_strategy_followup_runtime_stays_inside_main_iife_scope() -> None:
@@ -97,14 +145,17 @@ def test_strategy_followup_runtime_stays_inside_main_iife_scope() -> None:
 
     assert "dashboard-strategy-product-followup-runtime" in html
     assert "dashboard-strategy-savings-insight-runtime" in html
+    assert "dashboard-strategy-scope-readability-runtime" in html
     assert '<script id="dashboard-strategy-product-followup-script">' not in html
     assert '<script id="dashboard-strategy-savings-insight-script">' not in html
+    assert '<script id="dashboard-strategy-scope-readability-script">' not in html
     data_end = html.index("</script>", html.index('id="rate-monitor-data"'))
     main_start = html.index("<script>", data_end)
     main_end = html.index("</script>", main_start)
     followup = html.index("dashboard-strategy-product-followup-runtime")
     insight = html.index("dashboard-strategy-savings-insight-runtime")
-    assert main_start < followup < insight < main_end
+    readability = html.index("dashboard-strategy-scope-readability-runtime")
+    assert main_start < followup < insight < readability < main_end
 
 
 def test_strategy_savings_all_uses_adaptive_subtype_trend_panel() -> None:

@@ -6,8 +6,10 @@ from rate_monitor.services.dashboard_service import DashboardBuildError
 
 FOLLOWUP_SCRIPT_ID = "dashboard-strategy-product-followup-script"
 INSIGHT_SCRIPT_ID = "dashboard-strategy-savings-insight-script"
+READABILITY_SCRIPT_ID = "dashboard-strategy-scope-readability-script"
 FOLLOWUP_RUNTIME_MARKER = "dashboard-strategy-product-followup-runtime"
 INSIGHT_RUNTIME_MARKER = "dashboard-strategy-savings-insight-runtime"
+READABILITY_RUNTIME_MARKER = "dashboard-strategy-scope-readability-runtime"
 
 
 def _extract_standalone_iife(html: str, script_id: str) -> tuple[str, str]:
@@ -57,16 +59,23 @@ def _inject_blocks_into_strategy_iife(html: str, blocks: list[tuple[str, str]]) 
 
 def repair_strategy_product_scope_runtime(html: str) -> str:
     """별도 script로 만들어진 Strategy 후속 코드를 본체 IIFE 내부 block으로 옮긴다."""
-    if FOLLOWUP_RUNTIME_MARKER in html and INSIGHT_RUNTIME_MARKER in html:
+    readability_expected = f'<script id="{READABILITY_SCRIPT_ID}">' in html
+    if (
+        FOLLOWUP_RUNTIME_MARKER in html
+        and INSIGHT_RUNTIME_MARKER in html
+        and (READABILITY_RUNTIME_MARKER in html or not readability_expected)
+    ):
         return html
     if 'data-product-mode="deposit"' not in html:
         return html
+
     rendered, followup = _extract_standalone_iife(html, FOLLOWUP_SCRIPT_ID)
     rendered, insight = _extract_standalone_iife(rendered, INSIGHT_SCRIPT_ID)
-    return _inject_blocks_into_strategy_iife(
-        rendered,
-        [
-            (FOLLOWUP_RUNTIME_MARKER, followup),
-            (INSIGHT_RUNTIME_MARKER, insight),
-        ],
-    )
+    blocks = [
+        (FOLLOWUP_RUNTIME_MARKER, followup),
+        (INSIGHT_RUNTIME_MARKER, insight),
+    ]
+    if f'<script id="{READABILITY_SCRIPT_ID}">' in rendered:
+        rendered, readability = _extract_standalone_iife(rendered, READABILITY_SCRIPT_ID)
+        blocks.append((READABILITY_RUNTIME_MARKER, readability))
+    return _inject_blocks_into_strategy_iife(rendered, blocks)
