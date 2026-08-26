@@ -160,15 +160,15 @@ def _changes_payload(
     return payload
 
 
-def _snapshot_rows(
-    conn: sqlite3.Connection, at: str, term: int
-) -> list[dict[str, Any]]:
+def _snapshot_rows(conn: sqlite3.Connection, at: str) -> list[dict[str, Any]]:
+    """한 snapshot의 지원 상품유형·기간을 한 번에 읽어 기간별 재조회 비용을 피한다."""
     normalized = (
         "i.normalized_name"
         if base._column_exists(conn, "institutions", "normalized_name")
         else "i.canonical_name"
     )
-    placeholders = ",".join("?" for _ in ATOMIC_TYPES)
+    type_placeholders = ",".join("?" for _ in ATOMIC_TYPES)
+    term_placeholders = ",".join("?" for _ in TERMS)
     rows = base._rows(
         conn,
         f"""
@@ -183,22 +183,26 @@ def _snapshot_rows(
         JOIN products p ON p.id = v.product_id
         JOIN institutions i ON i.id = p.institution_id
         WHERE i.sector = 'savings_bank'
-          AND p.product_type IN ({placeholders})
-          AND v.term_months = ?
+          AND p.product_type IN ({type_placeholders})
+          AND v.term_months IN ({term_placeholders})
           AND o.validation_status != 'error'
           AND o.max_rate IS NOT NULL
           AND o.valid_from <= ?
           AND (o.valid_to IS NULL OR o.valid_to > ?)
         """,
-        (*ATOMIC_TYPES, term, at, at),
+        (*ATOMIC_TYPES, *TERMS, at, at),
     )
     return base._apply_source_precedence(rows)
 
 
 def _representatives(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    chosen: dict[tuple[str, str], dict[str, Any]] = {}
+    chosen: dict[tuple[int, str, str], dict[str, Any]] = {}
     for row in rows:
-        key = (str(row["product_type"]), str(row["product_id"]))
+        key = (
+            int(row["term_months"]),
+            str(row["product_type"]),
+            str(row["product_id"]),
+        )
         current = chosen.get(key)
         if current is None or float(row["max_rate"]) > float(current["max_rate"]):
             chosen[key] = row
@@ -256,12 +260,13 @@ def _trend_payloads(conn: sqlite3.Connection) -> dict[str, dict[str, dict[str, A
     )
     snapshots.reverse()
     for snapshot in snapshots:
+        representatives = _representatives(_snapshot_rows(conn, snapshot["snapshot_at"]))
         for term in TERMS:
-            representatives = _representatives(
-                _snapshot_rows(conn, snapshot["snapshot_at"], term)
-            )
+            term_representatives = [
+                row for row in representatives if int(row["term_months"]) == term
+            ]
             for scope_key in SCOPE_TYPES:
-                point = _point(representatives, scope_key, snapshot)
+                point = _point(term_representatives, scope_key, snapshot)
                 if point is not None:
                     payloads[scope_key][str(term)]["points"].append(point)
     return payloads
