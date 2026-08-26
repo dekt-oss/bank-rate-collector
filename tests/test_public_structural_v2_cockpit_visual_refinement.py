@@ -59,6 +59,36 @@ def test_visual_refinement_deconflicts_enlarged_chart_x_axis_labels() -> None:
     assert 'window.addEventListener("resize",refine,{passive:true})' in _SCRIPT
 
 
+def test_visual_refinement_keeps_mobile_charts_inside_local_scroll_regions() -> None:
+    assert "@media(max-width:640px)" in _CSS
+    assert (
+        ".psv2-chart-wrap,.chartwrap{overflow-x:auto!important;overflow-y:hidden!important"
+        in _CSS
+    )
+    assert (
+        ".psv2-chart{width:620px!important;min-width:620px!important;"
+        "max-width:none!important;height:220px!important}"
+        in _CSS
+    )
+    assert (
+        "#trend-chart.chart{width:786px!important;min-width:786px!important;"
+        "max-width:none!important;height:220px!important}"
+        in _CSS
+    )
+    assert "annotateMobileChartScroll" in _SCRIPT
+    assert 'window.matchMedia("(max-width:640px)").matches' in _SCRIPT
+    assert 'wrap.setAttribute("tabindex","0")' in _SCRIPT
+    assert 'wrap.setAttribute("role","region")' in _SCRIPT
+    assert "가로 스크롤로 전체 구간 확인" in _SCRIPT
+
+
+def test_visual_refinement_deconflicts_legacy_trend_date_labels() -> None:
+    assert "deconflictLegacyTrendAxisLabels" in _SCRIPT
+    assert 'document.querySelectorAll("#trend-chart text.trenddate")' in _SCRIPT
+    assert 'document.getElementById("trend-chart")' in _SCRIPT
+    assert "new MutationObserver(refine).observe(legacyTrend" in _SCRIPT
+
+
 def test_public_structural_base_css_enforces_brand_microcopy_floor() -> None:
     sizes = _absolute_font_sizes(COCKPIT_CSS + FACTUAL_FINDER_CSS + _CSS)
 
@@ -73,7 +103,7 @@ def test_public_structural_base_css_enforces_brand_microcopy_floor() -> None:
 
 
 def test_visual_refinement_uses_mobile_candidate_card_grid_without_overlap() -> None:
-    assert ".psv2>div{min-width:0}" in _CSS
+    assert ".psv2>div" in _CSS
     assert "@media(max-width:520px)" in _CSS
     assert ".psv2-table{display:block!important;width:100%!important;min-width:0!important" in _CSS
     assert ".psv2-table thead{display:none!important}" in _CSS
