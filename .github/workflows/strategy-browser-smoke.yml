@@ -8,9 +8,13 @@ on:
       - "web/templates/site.html"
       - "web/assets/**"
       - "src/rate_monitor/services/site_service.py"
+      - "src/rate_monitor/services/dashboard_ui_refinement_presentation.py"
+      - "src/rate_monitor/services/dashboard_product_scope*.py"
       - "src/rate_monitor/services/strategy_contract_service.py"
       - "src/rate_monitor/services/strategy_refinement_service.py"
       - "src/rate_monitor/services/strategy_service.py"
+      - "src/rate_monitor/services/strategy_product_history_service.py"
+      - "src/rate_monitor/services/strategy_savings_trend_policy.py"
       - "src/rate_monitor/services/inflow_prediction_service.py"
       - "src/rate_monitor/domain/preference_taxonomy.py"
       - "config/**"
@@ -20,6 +24,7 @@ on:
       - "uv.lock"
       - "scripts/strategy_preview_smoke.js"
       - "scripts/product_scope_runtime_smoke.js"
+      - "scripts/product_scope_insight_smoke.js"
       - ".github/workflows/strategy-preview.yml"
       - ".github/workflows/strategy-browser-smoke.yml"
   workflow_dispatch:
@@ -108,6 +113,7 @@ jobs:
           curl -fsS http://127.0.0.1:4173/strategy.html >/dev/null
           node scripts/strategy_preview_smoke.js
           node scripts/product_scope_runtime_smoke.js
+          node scripts/product_scope_insight_smoke.js
 
       - name: Upload browser smoke evidence
         if: always()
