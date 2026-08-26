@@ -85,6 +85,8 @@ def test_recommended_history_bundle_is_ready_without_writing_or_calibrating() ->
     assert report["status"] == "ready_for_calibration"
     assert report["history_grade"] == "recommended_36m_plus"
     assert report["pricing_observation_dates"] == 37
+    assert report["history_months"] == 37
+    assert report["history_gate_basis"] == "unique_pricing_observation_months"
     assert report["calibration_allowed"] is True
     assert report["model_coefficients_changed"] is False
     assert report["database_written"] is False
@@ -121,6 +123,25 @@ def test_short_history_is_not_ready_even_when_fields_are_valid() -> None:
     assert report["status"] == "insufficient_history"
     assert report["history_grade"] == "insufficient"
     assert report["pricing_observation_dates"] == 23
+    assert report["history_months"] == 23
+
+
+def test_exact_24_months_is_minimum_ready() -> None:
+    report = assess_internal_calibration_bundle(_bundle(months=24))
+
+    assert report["history_days"] < report["minimum_history_days"]
+    assert report["history_months"] == 24
+    assert report["status"] == "ready_for_calibration"
+    assert report["history_grade"] == "minimum_24m_plus"
+
+
+def test_exact_36_months_is_recommended() -> None:
+    report = assess_internal_calibration_bundle(_bundle(months=36))
+
+    assert report["history_days"] < report["recommended_history_days"]
+    assert report["history_months"] == 36
+    assert report["status"] == "ready_for_calibration"
+    assert report["history_grade"] == "recommended_36m_plus"
 
 
 def test_sparse_three_year_endpoints_are_not_mistaken_for_three_year_history() -> None:
@@ -131,6 +152,7 @@ def test_sparse_three_year_endpoints_are_not_mistaken_for_three_year_history() -
 
     assert report["history_days"] >= 365 * 3
     assert report["pricing_observation_dates"] == 2
+    assert report["history_months"] == 2
     assert report["status"] == "insufficient_history"
 
 

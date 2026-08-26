@@ -11,8 +11,12 @@ import math
 from datetime import date, datetime
 from typing import Any
 
+# history_days는 기존 audit/reporting contract를 위해 유지한다.
+# readiness/grade 경계는 스펙의 '월별 24/36개' 의미에 맞춰 달력 월 수로 판정한다.
 MIN_HISTORY_DAYS = 365 * 2
 RECOMMENDED_HISTORY_DAYS = 365 * 3
+MIN_HISTORY_MONTHS = 24
+RECOMMENDED_HISTORY_MONTHS = 36
 MIN_PRICING_OBSERVATION_DATES = 24
 RECOMMENDED_PRICING_OBSERVATION_DATES = 36
 
@@ -162,6 +166,7 @@ def _dataset_report(name: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
             "min_date": None,
             "max_date": None,
             "unique_date_count": 0,
+            "unique_month_count": 0,
         }
 
     seen_pii: set[str] = set()
@@ -208,6 +213,7 @@ def _dataset_report(name: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
 
     unique_errors = sorted(set(errors))
     unique_dates = set(observed_dates)
+    unique_months = {(value.year, value.month) for value in observed_dates}
 
     return {
         "dataset": name,
@@ -218,6 +224,7 @@ def _dataset_report(name: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
         "min_date": min(observed_dates).isoformat() if observed_dates else None,
         "max_date": max(observed_dates).isoformat() if observed_dates else None,
         "unique_date_count": len(unique_dates),
+        "unique_month_count": len(unique_months),
     }
 
 
@@ -244,6 +251,7 @@ def assess_internal_calibration_bundle(
             - date.fromisoformat(pricing_report["min_date"])
         ).days
     observation_dates = int(pricing_report["unique_date_count"])
+    history_months = int(pricing_report["unique_month_count"])
 
     dataset_errors = [
         report["dataset"] for report in reports if report["status"] != "valid"
@@ -253,8 +261,7 @@ def assess_internal_calibration_bundle(
     elif dataset_errors:
         status = "data_quality_failed"
     elif (
-        history_days is None
-        or history_days < MIN_HISTORY_DAYS
+        history_months < MIN_HISTORY_MONTHS
         or observation_dates < MIN_PRICING_OBSERVATION_DATES
     ):
         status = "insufficient_history"
@@ -263,14 +270,12 @@ def assess_internal_calibration_bundle(
 
     history_grade = "insufficient"
     if (
-        history_days is not None
-        and history_days >= RECOMMENDED_HISTORY_DAYS
+        history_months >= RECOMMENDED_HISTORY_MONTHS
         and observation_dates >= RECOMMENDED_PRICING_OBSERVATION_DATES
     ):
         history_grade = "recommended_36m_plus"
     elif (
-        history_days is not None
-        and history_days >= MIN_HISTORY_DAYS
+        history_months >= MIN_HISTORY_MONTHS
         and observation_dates >= MIN_PRICING_OBSERVATION_DATES
     ):
         history_grade = "minimum_24m_plus"
@@ -284,10 +289,14 @@ def assess_internal_calibration_bundle(
         "optional_datasets": list(OPTIONAL_DATASETS),
         "missing_required_datasets": missing_datasets,
         "history_days": history_days,
+        "history_months": history_months,
         "pricing_observation_dates": observation_dates,
         "history_grade": history_grade,
+        "history_gate_basis": "unique_pricing_observation_months",
         "minimum_history_days": MIN_HISTORY_DAYS,
         "recommended_history_days": RECOMMENDED_HISTORY_DAYS,
+        "minimum_history_months": MIN_HISTORY_MONTHS,
+        "recommended_history_months": RECOMMENDED_HISTORY_MONTHS,
         "minimum_pricing_observation_dates": MIN_PRICING_OBSERVATION_DATES,
         "recommended_pricing_observation_dates": RECOMMENDED_PRICING_OBSERVATION_DATES,
         "datasets": reports,
