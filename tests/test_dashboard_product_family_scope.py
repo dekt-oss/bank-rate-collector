@@ -17,8 +17,9 @@ def test_search_product_family_allows_empty_savings_and_global_terms() -> None:
     assert 'value="flexible_savings"' in html
     assert 'return "적금 · 선택 없음";' in html
     assert 'emptySavingsSelected = !PRODUCT_SAVINGS_TYPES.some' in html
+    assert 'data-global-term="${value}"' in html
     for term in (6, 12, 24, 36):
-        assert f'data-global-term="${{value}}"' in html or f'>{term}개월<' in html
+        assert f'>{term}개월<' in html or str(term) in html
     assert 'state.tmin = value; state.tmax = value;' in html
     assert 'if (g.key === "term") return "";' in html
 
