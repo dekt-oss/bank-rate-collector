@@ -2,17 +2,22 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from rate_monitor.services import dashboard_ui_refinement_base as _base
 from rate_monitor.services.dashboard_product_scope_presentation import (
     inject_dashboard_product_scope,
 )
+from rate_monitor.services.main_map_drilldown_refinement import (
+    inject_main_map_drilldown_refinement,
+)
 
 STYLE_MARKER = _base.STYLE_MARKER
 SCRIPT_MARKER = _base.SCRIPT_MARKER
 DASHBOARD_UI_STYLE = _base.DASHBOARD_UI_STYLE
 DASHBOARD_UI_SCRIPT = _base.DASHBOARD_UI_SCRIPT
+_STRATEGY_TEMPLATE = Path("web/templates/strategy.html")
 
 
 def __getattr__(name: str) -> Any:
@@ -20,4 +25,10 @@ def __getattr__(name: str) -> Any:
 
 
 def inject_dashboard_ui_refinement(html: str) -> str:
-    return inject_dashboard_product_scope(_base.inject_dashboard_ui_refinement(html))
+    rendered = inject_dashboard_product_scope(_base.inject_dashboard_ui_refinement(html))
+    if 'id="reg"' in rendered:
+        rendered = inject_main_map_drilldown_refinement(
+            rendered,
+            _STRATEGY_TEMPLATE.read_text(encoding="utf-8"),
+        )
+    return rendered
