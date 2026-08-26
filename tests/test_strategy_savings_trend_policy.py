@@ -10,7 +10,8 @@ def _history(
     installment_count: int = 20,
     flexible_count: int = 20,
 ) -> dict:
-    dates = [f"2026-08-{20 + i:02d}" for i in range(max(len(installment_rates), len(flexible_rates)))]
+    count = max(len(installment_rates), len(flexible_rates))
+    dates = [f"2026-08-{20 + i:02d}" for i in range(count)]
 
     def points(rates: list[float], count: int) -> list[dict]:
         return [
