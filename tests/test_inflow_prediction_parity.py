@@ -2,17 +2,15 @@
 
 from __future__ import annotations
 
-import builtins
 import json
 import math
 import shutil
 import subprocess
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 
-from rate_monitor.services.inflow_prediction_service import predict_range
+from rate_monitor.services.inflow_prediction_service import _predict_range_raw
 from tests.strategy_output_helper import built_strategy_html
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -32,19 +30,6 @@ def _load_vectors() -> list[dict]:
     vectors = payload.get("vectors")
     assert isinstance(vectors, list) and vectors, "parity golden vector가 비어 있습니다"
     return vectors
-
-
-def _identity_round(number, ndigits=None):
-    del ndigits
-    return number
-
-
-def _predict_range_raw(inputs: dict) -> dict:
-    # production 엔진은 공개 결과를 반올림한다. §5.2 parity 계약은 반올림 전 값을
-    # 요구하므로 읽기 전용 엔진 코드는 건드리지 않고 테스트 호출에서만 round를
-    # identity로 바꿔 같은 계산 경로의 원값을 관측한다.
-    with patch.object(builtins, "round", side_effect=_identity_round):
-        return predict_range(**inputs)
 
 
 def _assert_close(actual: float, expected: float, *, context: str) -> None:
@@ -246,7 +231,7 @@ process.stdout.write(JSON.stringify({vectors:results}));
 
 def test_python_predict_range_matches_frozen_golden_vectors() -> None:
     for vector in _load_vectors():
-        actual = _predict_range_raw(vector["inputs"])
+        actual = _predict_range_raw(**vector["inputs"])
         _assert_contract(
             actual,
             vector["expected"],
@@ -258,7 +243,7 @@ def test_built_ui_javascript_matches_python_and_golden_vectors() -> None:
     vectors = _load_vectors()
     golden_by_name = {vector["name"]: vector for vector in vectors}
     python_by_name = {
-        vector["name"]: _predict_range_raw(vector["inputs"])
+        vector["name"]: _predict_range_raw(**vector["inputs"])
         for vector in vectors
     }
 
