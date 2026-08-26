@@ -149,6 +149,18 @@ def _finite_number(value: Any) -> float | None:
     return parsed if math.isfinite(parsed) else None
 
 
+def _unique_observation_month_count(
+    rows: list[dict[str, Any]], date_field: str
+) -> int:
+    """유효한 날짜가 속한 서로 다른 달력 월 수를 세되 공개 report shape은 바꾸지 않는다."""
+    months: set[tuple[int, int]] = set()
+    for row in rows:
+        parsed = _as_date(row.get(date_field))
+        if parsed is not None:
+            months.add((parsed.year, parsed.month))
+    return len(months)
+
+
 def _dataset_report(name: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
     contract = CONTRACTS[name]
     required = tuple(contract["required"])
@@ -166,7 +178,6 @@ def _dataset_report(name: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
             "min_date": None,
             "max_date": None,
             "unique_date_count": 0,
-            "unique_month_count": 0,
         }
 
     seen_pii: set[str] = set()
@@ -213,7 +224,6 @@ def _dataset_report(name: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
 
     unique_errors = sorted(set(errors))
     unique_dates = set(observed_dates)
-    unique_months = {(value.year, value.month) for value in observed_dates}
 
     return {
         "dataset": name,
@@ -224,7 +234,6 @@ def _dataset_report(name: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
         "min_date": min(observed_dates).isoformat() if observed_dates else None,
         "max_date": max(observed_dates).isoformat() if observed_dates else None,
         "unique_date_count": len(unique_dates),
-        "unique_month_count": len(unique_months),
     }
 
 
@@ -243,6 +252,7 @@ def assess_internal_calibration_bundle(
         if name in bundle or name in REQUIRED_DATASETS
     ]
 
+    pricing_rows = bundle.get("pricing_flow", [])
     pricing_report = next(report for report in reports if report["dataset"] == "pricing_flow")
     history_days: int | None = None
     if pricing_report["min_date"] and pricing_report["max_date"]:
@@ -251,7 +261,7 @@ def assess_internal_calibration_bundle(
             - date.fromisoformat(pricing_report["min_date"])
         ).days
     observation_dates = int(pricing_report["unique_date_count"])
-    history_months = int(pricing_report["unique_month_count"])
+    history_months = _unique_observation_month_count(pricing_rows, "date")
 
     dataset_errors = [
         report["dataset"] for report in reports if report["status"] != "valid"
@@ -289,14 +299,10 @@ def assess_internal_calibration_bundle(
         "optional_datasets": list(OPTIONAL_DATASETS),
         "missing_required_datasets": missing_datasets,
         "history_days": history_days,
-        "history_months": history_months,
         "pricing_observation_dates": observation_dates,
         "history_grade": history_grade,
-        "history_gate_basis": "unique_pricing_observation_months",
         "minimum_history_days": MIN_HISTORY_DAYS,
         "recommended_history_days": RECOMMENDED_HISTORY_DAYS,
-        "minimum_history_months": MIN_HISTORY_MONTHS,
-        "recommended_history_months": RECOMMENDED_HISTORY_MONTHS,
         "minimum_pricing_observation_dates": MIN_PRICING_OBSERVATION_DATES,
         "recommended_pricing_observation_dates": RECOMMENDED_PRICING_OBSERVATION_DATES,
         "datasets": reports,
