@@ -9,6 +9,8 @@ Stage F 계산/시장위치 계약은 건드리지 않는다. production-derived
 2. 520px 이하 후보금리표는 8열 표를 2열 label/value 카드 grid로 바꿔 겹침을 막는다.
 3. stress range 설명은 통계적 신뢰수준처럼 읽힐 수 있는 금지 용어를 제거한다.
 4. 10.5px로 확대한 SVG X축 라벨은 실제 렌더 box가 겹칠 때 뒤 라벨만 숨긴다.
+5. 640px 이하에서는 두 Strategy SVG 그래프를 비율 왜곡 없이 내부 가로 스크롤로 보존한다.
+6. 기존 시장금리 추이 그래프의 날짜 라벨도 실제 렌더 box 기준으로 충돌을 제거한다.
 """
 
 from __future__ import annotations
@@ -27,7 +29,14 @@ SCRIPT_MARKER = 'id="public-structural-v2-cockpit-visual-refinement-script"'
 _CSS = r"""
 <style id="public-structural-v2-cockpit-visual-refinement-style">
 .psv2-rung[data-merged-rate-markers] label:after{content:" · 동일금리"!important;color:#8a6f36}
-.psv2>div{min-width:0}
+.psv2>div,.psv2-chart-wrap,.chartwrap{min-width:0;max-width:100%}
+@media(max-width:640px){
+  .psv2-chart-wrap,.chartwrap{overflow-x:auto!important;overflow-y:hidden!important;overscroll-behavior-inline:contain;scrollbar-width:thin;-webkit-overflow-scrolling:touch}
+  .psv2-chart{width:620px!important;min-width:620px!important;max-width:none!important;height:220px!important}
+  .psv2-chart-wrap{min-height:220px!important}
+  #trend-chart.chart{width:786px!important;min-width:786px!important;max-width:none!important;height:220px!important}
+  .chartwrap{height:232px!important}
+}
 @media(max-width:520px){
   .psv2-table-wrap{overflow:visible;border:0;background:transparent}
   .psv2-table{display:block!important;width:100%!important;min-width:0!important;border-collapse:separate}
@@ -98,18 +107,48 @@ _SCRIPT = r"""
     }
   }
 
-  function deconflictChartAxisLabels(){
-    const ticks=[...document.querySelectorAll(`#${HOST_ID} .psv2-chart text.axis[text-anchor="middle"]`)];
+  function deconflictLabels(ticks){
     if(!ticks.length)return;
     for(const tick of ticks)tick.style.visibility="";
     let previousRight=null;
     for(const tick of ticks){
       const rect=tick.getBoundingClientRect();
+      if(rect.width===0&&!tick.textContent?.trim())continue;
       if(previousRight!==null&&rect.left<previousRight){
         tick.style.visibility="hidden";
         continue;
       }
       previousRight=rect.right;
+    }
+  }
+
+  function deconflictChartAxisLabels(){
+    deconflictLabels([...document.querySelectorAll(`#${HOST_ID} .psv2-chart text.axis[text-anchor="middle"]`)]);
+  }
+
+  function deconflictLegacyTrendAxisLabels(){
+    deconflictLabels([...document.querySelectorAll("#trend-chart text.trenddate")]);
+  }
+
+  function annotateMobileChartScroll(){
+    const mobile=window.matchMedia("(max-width:640px)").matches;
+    const targets=[
+      [document.querySelector(`#${HOST_ID} .psv2-chart-wrap`),"금리별 수신반응 그래프"],
+      [document.querySelector("#trend-chart")?.closest(".chartwrap"),"시장금리 추이 그래프"],
+    ];
+    for(const [wrap,label] of targets){
+      if(!wrap)continue;
+      if(mobile){
+        wrap.dataset.mobileChartScroll="1";
+        wrap.setAttribute("tabindex","0");
+        wrap.setAttribute("role","region");
+        wrap.setAttribute("aria-label",`${label} · 가로 스크롤로 전체 구간 확인`);
+      }else if(wrap.dataset.mobileChartScroll==="1"){
+        delete wrap.dataset.mobileChartScroll;
+        wrap.removeAttribute("tabindex");
+        wrap.removeAttribute("role");
+        wrap.removeAttribute("aria-label");
+      }
     }
   }
 
@@ -134,10 +173,14 @@ _SCRIPT = r"""
         queued=false;
         mergeSameRateRungs();
         deconflictChartAxisLabels();
+        deconflictLegacyTrendAxisLabels();
+        annotateMobileChartScroll();
         normalizeStressDisclosure();
       });
     };
     new MutationObserver(refine).observe(host,{childList:true,subtree:true});
+    const legacyTrend=document.getElementById("trend-chart");
+    if(legacyTrend)new MutationObserver(refine).observe(legacyTrend,{childList:true,subtree:true});
     window.addEventListener("resize",refine,{passive:true});
     refine();
   }
