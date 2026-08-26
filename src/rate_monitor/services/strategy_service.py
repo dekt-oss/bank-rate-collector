@@ -6,8 +6,8 @@ from pathlib import Path
 from typing import Any
 
 from rate_monitor.services import strategy_service_base as _base
-from rate_monitor.services.strategy_service_base import *  # noqa: F403
 from rate_monitor.services.strategy_product_history_service import build_product_history
+from rate_monitor.services.strategy_service_base import *  # noqa: F403
 
 
 def __getattr__(name: str) -> Any:
