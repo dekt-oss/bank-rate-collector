@@ -10,6 +10,31 @@ function invariant(condition, message) {
   if (!condition) throw new Error(message);
 }
 
+function parseCssColor(value) {
+  const parts = String(value || "").match(/[\d.]+/g)?.map(Number) || [];
+  if (parts.length < 3) throw new Error(`unsupported CSS color: ${value}`);
+  return { r: parts[0], g: parts[1], b: parts[2], a: parts.length >= 4 ? parts[3] : 1 };
+}
+
+function relativeLuminance(value) {
+  const { r, g, b } = parseCssColor(value);
+  const linear = [r, g, b].map((channel) => {
+    const normalized = channel / 255;
+    return normalized <= 0.04045
+      ? normalized / 12.92
+      : ((normalized + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2];
+}
+
+function contrastRatio(foreground, background) {
+  const a = relativeLuminance(foreground);
+  const b = relativeLuminance(background);
+  const lighter = Math.max(a, b);
+  const darker = Math.min(a, b);
+  return (lighter + 0.05) / (darker + 0.05);
+}
+
 async function loadPage(browser, viewport) {
   const context = await browser.newContext({ viewport });
   const page = await context.newPage();
@@ -213,6 +238,16 @@ async function assertVisualRuntimeContracts(page, label) {
   await page.waitForSelector("#public-structural-v2-factual-rate-finder", { state: "visible", timeout: 10_000 });
   const result = await page.evaluate(() => {
     const rootStyle = getComputedStyle(document.documentElement);
+    const effectiveBackground = (node) => {
+      for (let current = node; current; current = current.parentElement) {
+        const value = getComputedStyle(current).backgroundColor;
+        const parts = String(value || "").match(/[\d.]+/g)?.map(Number) || [];
+        if (parts.length >= 3 && (parts.length < 4 || parts[3] > 0.01)) return value;
+      }
+      return "rgb(255, 255, 255)";
+    };
+    const sectionSoft = document.querySelector(".workspace-section-label span");
+    const scenarioNote = document.querySelector(".rate-response-table .scenario-note");
     const mapCard = document.querySelector(".workspace-detail.primary .mapcard");
     const cockpitHost = document.getElementById("public-structural-v2-cockpit");
     const factualHost = document.getElementById("public-structural-v2-factual-rate-finder");
@@ -262,6 +297,10 @@ async function assertVisualRuntimeContracts(page, label) {
     return {
       accent: rootStyle.getPropertyValue("--accent").trim(),
       accentInk: rootStyle.getPropertyValue("--accent-ink").trim(),
+      sectionSoftColor: sectionSoft ? getComputedStyle(sectionSoft).color : "",
+      sectionSoftBackground: sectionSoft ? effectiveBackground(sectionSoft) : "",
+      scenarioNoteColor: scenarioNote ? getComputedStyle(scenarioNote).color : "",
+      scenarioNoteBackground: scenarioNote ? effectiveBackground(scenarioNote) : "",
       mapCardDisplay: mapCard ? getComputedStyle(mapCard).display : "missing",
       cockpitVisible: Boolean(cockpitHost && getComputedStyle(cockpitHost).display !== "none"),
       factualFinderVisible: Boolean(factualHost && getComputedStyle(factualHost).display !== "none"),
@@ -285,6 +324,16 @@ async function assertVisualRuntimeContracts(page, label) {
   });
   invariant(result.accent.toUpperCase() === "#D33A7C", `${label}: computed brand accent=${result.accent}`);
   invariant(result.accentInk.toUpperCase() === "#5B2F64", `${label}: computed brand accent ink=${result.accentInk}`);
+  const sectionSoftContrast = contrastRatio(result.sectionSoftColor, result.sectionSoftBackground);
+  const scenarioNoteContrast = contrastRatio(result.scenarioNoteColor, result.scenarioNoteBackground);
+  invariant(
+    sectionSoftContrast >= 4.5,
+    `${label}: workspace section supporting text contrast=${sectionSoftContrast.toFixed(2)}`,
+  );
+  invariant(
+    scenarioNoteContrast >= 4.5,
+    `${label}: scenario note contrast=${scenarioNoteContrast.toFixed(2)}`,
+  );
   invariant(result.mapCardDisplay === "none", `${label}: Strategy regional map resurfaced display=${result.mapCardDisplay}`);
   invariant(result.cockpitVisible && result.chartCount === 1, `${label}: active Public Structural Response Surface missing`);
   invariant(
@@ -317,6 +366,16 @@ async function assertVisualRuntimeContracts(page, label) {
 async function runViewport(browser, label, viewport) {
   const { context, page, runtimeErrors } = await loadPage(browser, viewport);
   await assertDecisionIA(page, label);
+  const depositFamily = page.locator('[data-product-family-toggle="deposit"]');
+  const savingsFamily = page.locator('[data-product-family-toggle="savings"]');
+  await depositFamily.waitFor({ state: "attached", timeout: 10_000 });
+  if (!(await depositFamily.isChecked())) await depositFamily.check();
+  if (await savingsFamily.isChecked()) await savingsFamily.uncheck();
+  const predictionToggle = page.locator("#prediction-toggle");
+  const predictionPanel = page.locator("#prediction-panel");
+  await predictionToggle.waitFor({ state: "visible", timeout: 10_000 });
+  if (await predictionPanel.isHidden()) await predictionToggle.click();
+  await page.locator("#baseline-new").waitFor({ state: "visible", timeout: 10_000 });
   await assertPrediction(page, label);
   await assertVisualRuntimeContracts(page, label);
   await assertMarketEvidence(page, label);
