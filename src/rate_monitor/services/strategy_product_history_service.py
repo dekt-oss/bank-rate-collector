@@ -74,31 +74,33 @@ def _change_rows(conn: sqlite3.Connection) -> list[dict[str, Any]]:
         WITH history AS (
             SELECT
                 o.id, o.variant_id, o.run_id, {source_select}, o.valid_from, o.max_rate,
+                i.canonical_name AS institution,
+                {normalized_select} AS normalized_institution,
+                p.id AS product_id, p.name AS product,
+                p.product_type, v.term_months,
                 LAG(o.max_rate) OVER (
                     PARTITION BY o.variant_id ORDER BY o.valid_from, o.id
                 ) AS previous_max_rate
             FROM rate_observations o
             {source_join}
-            WHERE o.validation_status != 'error'
-        ), changes AS (
-            SELECT
-                h.run_id, h.source_id, h.valid_from AS changed_at,
-                h.previous_max_rate, h.max_rate,
-                i.canonical_name AS institution,
-                {normalized_select} AS normalized_institution,
-                p.id AS product_id, p.name AS product,
-                p.product_type, v.term_months
-            FROM history h
-            JOIN product_variants v ON v.id = h.variant_id
+            JOIN product_variants v ON v.id = o.variant_id
             JOIN products p ON p.id = v.product_id
             JOIN institutions i ON i.id = p.institution_id
-            WHERE i.sector = 'savings_bank'
+            WHERE o.validation_status != 'error'
+              AND i.sector = 'savings_bank'
               AND p.product_type IN ({type_placeholders})
               AND v.term_months IN ({term_placeholders})
-              AND h.valid_from >= datetime('now', ?)
-              AND h.previous_max_rate IS NOT NULL
-              AND h.max_rate IS NOT NULL
-              AND h.previous_max_rate != h.max_rate
+        ), changes AS (
+            SELECT
+                run_id, source_id, valid_from AS changed_at,
+                previous_max_rate, max_rate,
+                institution, normalized_institution,
+                product_id, product, product_type, term_months
+            FROM history
+            WHERE valid_from >= datetime('now', ?)
+              AND previous_max_rate IS NOT NULL
+              AND max_rate IS NOT NULL
+              AND previous_max_rate != max_rate
         )
         SELECT
             run_id, source_id, product_id, institution, normalized_institution,
@@ -114,7 +116,22 @@ def _change_rows(conn: sqlite3.Connection) -> list[dict[str, Any]]:
         sql,
         (*ATOMIC_TYPES, *TERMS, f"-{base.MARKET_CHANGE_WINDOW_DAYS} days"),
     )
-    visible = [item for item in rows if base._source_visible_at(conn, item)]
+    visibility_cache: dict[tuple[Any, ...], bool] = {}
+    visible: list[dict[str, Any]] = []
+    for item in rows:
+        visibility_key = (
+            item.get("source_id"),
+            item.get("normalized_institution"),
+            item.get("product_type"),
+            item.get("term_months"),
+            item.get("changed_at"),
+        )
+        is_visible = visibility_cache.get(visibility_key)
+        if is_visible is None:
+            is_visible = base._source_visible_at(conn, item)
+            visibility_cache[visibility_key] = is_visible
+        if is_visible:
+            visible.append(item)
     for item in visible:
         before = float(item["previous_max_rate"])
         after = float(item["max_rate"])
