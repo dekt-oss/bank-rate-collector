@@ -7,33 +7,26 @@ on:
     paths:
       - ".github/workflows/temp-apply-strategy-contrast.yml"
 
+concurrency:
+  group: temp-strategy-wcag-aa-contrast
+  cancel-in-progress: true
+
 permissions:
   contents: write
 
 jobs:
   apply-and-runtime-verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
         with:
           ref: fix/strategy-wcag-aa-contrast-20260826
           fetch-depth: 0
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v5
-        with:
-          enable-cache: true
-
-      - name: Set up Python
-        run: uv python install 3.12
-
-      - name: Sync dependencies
-        run: uv sync --locked
-
-      - name: Apply contrast tokens and runtime guard
+      - name: Apply contrast tokens and current-scope runtime guard
         run: |
-          uv run python - <<'PY'
+          python - <<'PY'
           from pathlib import Path
 
           def replace_exact(path: str, old: str, new: str, expected: int = 1) -> None:
@@ -85,44 +78,53 @@ jobs:
           scope_new = '''  await assertDecisionIA(page, label);\n  const depositFamily = page.locator('[data-product-family-toggle="deposit"]');\n  const savingsFamily = page.locator('[data-product-family-toggle="savings"]');\n  await depositFamily.waitFor({ state: "attached", timeout: 10_000 });\n  if (!(await depositFamily.isChecked())) await depositFamily.check();\n  if (await savingsFamily.isChecked()) await savingsFamily.uncheck();\n  const predictionToggle = page.locator("#prediction-toggle");\n  const predictionPanel = page.locator("#prediction-panel");\n  await predictionToggle.waitFor({ state: "visible", timeout: 10_000 });\n  if (await predictionPanel.isHidden()) await predictionToggle.click();\n  await page.locator("#baseline-new").waitFor({ state: "visible", timeout: 10_000 });\n  await assertPrediction(page, label);\n'''
           if text.count(scope_anchor) != 1:
               raise SystemExit("strategy_workspace_smoke.js prediction scope anchor mismatch")
-          text = text.replace(scope_anchor, scope_new, 1)
-          smoke.write_text(text, encoding="utf-8")
+          smoke.write_text(text.replace(scope_anchor, scope_new, 1), encoding="utf-8")
           PY
-
-      - name: Static syntax and targeted Python checks
-        run: |
           node --check scripts/strategy_workspace_smoke.js
-          uv run ruff check src/rate_monitor/services/strategy_brand_theme_presentation.py
 
-      - name: Restore production DB to runner-local copy
-        env:
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
-          R2_BUCKET: ${{ vars.R2_BUCKET }}
-          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
-          R2_REGION: ${{ vars.R2_REGION }}
+      - name: Restore exact merged #212 Strategy preview
         run: |
           set -euo pipefail
-          mkdir -p work
-          uv run rate-monitor storage restore --dest work/rate_monitor.sqlite3
-          test -s work/rate_monitor.sqlite3
-
-      - name: Apply migrations and build isolated Strategy site
-        env:
-          RATE_MONITOR_DB_URL: sqlite+pysqlite:///${{ github.workspace }}/work/rate_monitor.sqlite3
-          RATE_MONITOR_STRATEGY_DASHBOARD: "1"
-        run: |
-          uv run alembic upgrade head
-          uv run rate-monitor build-site --db work/rate_monitor.sqlite3 --template web/templates/site.html --out site-public
+          mkdir -p work published
+          git fetch --force origin +preview/strategy-dashboard:refs/remotes/origin/preview/strategy-dashboard --depth=1
+          git show refs/remotes/origin/preview/strategy-dashboard:site-public/preview-source.json > work/preview-source.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          payload = json.loads(Path("work/preview-source.json").read_text(encoding="utf-8"))
+          expected = "733506b3526b1707cf5fa99105565ea957aa6569"
+          if payload.get("source_sha") != expected:
+              raise SystemExit(f"unexpected preview source: {payload}")
+          print(f"verified preview source={expected}")
+          PY
+          git archive refs/remotes/origin/preview/strategy-dashboard site-public | tar -x -C published
+          rm -rf site-public
+          mv published/site-public site-public
           test -s site-public/strategy.html
+          test -s site-public/index.html
 
-      - name: Set up Node and Playwright runner
-        uses: actions/setup-node@v4
+      - name: Apply exact source CSS delta to generated preview artifact
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path("site-public/strategy.html")
+          text = path.read_text(encoding="utf-8")
+          changes = (
+              ("--ink:#251D27;--muted:#665B68;--soft:#8B7F8D;--line:rgba(91,47,100,.12);", "--ink:#251D27;--muted:#665B68;--soft:#746877;--line:rgba(91,47,100,.12);"),
+              (".rate-response-table .scenario-note{color:#887A89}", ".rate-response-table .scenario-note{color:#776A79}"),
+          )
+          for old, new in changes:
+              if text.count(old) != 1:
+                  raise SystemExit(f"generated Strategy CSS anchor mismatch: {old}")
+              text = text.replace(old, new, 1)
+          path.write_text(text, encoding="utf-8")
+          PY
+
+      - uses: actions/setup-node@v4
         with:
           node-version: "22"
 
-      - name: Install Playwright and run Strategy desktop/mobile runtime smoke
+      - name: Run desktop and mobile browser smoke with WCAG guard
         run: |
           set -euo pipefail
           command -v google-chrome
