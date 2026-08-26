@@ -76,7 +76,7 @@ def test_strategy_savings_zero_selection_is_empty_not_forced() -> None:
     assert 'else savingsTypes.delete(input.dataset.savingsType)' in html
     assert 'normalizeSavingsTypes' not in html
     assert '수신금액 예측은 정기예금 전용' in html
-    assert 'id="strategy-product-empty"' not in html  # runtime-created to survive rerenders
+    assert '<div id="strategy-product-empty"' not in html
     assert 'note.id="strategy-product-empty"' in html
     assert "선택된 적금 유형이 없습니다" in html
 
