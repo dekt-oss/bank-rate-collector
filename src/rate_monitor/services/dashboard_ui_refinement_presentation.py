@@ -9,6 +9,9 @@ from rate_monitor.services import dashboard_ui_refinement_base as _base
 from rate_monitor.services.dashboard_product_scope_followup_presentation import (
     inject_dashboard_product_scope_followup,
 )
+from rate_monitor.services.dashboard_product_scope_insight_presentation import (
+    inject_dashboard_product_scope_insight,
+)
 from rate_monitor.services.dashboard_product_scope_presentation import (
     inject_dashboard_product_scope,
 )
@@ -34,4 +37,5 @@ def inject_dashboard_ui_refinement(html: str) -> str:
             rendered,
             _STRATEGY_TEMPLATE.read_text(encoding="utf-8"),
         )
-    return inject_dashboard_product_scope_followup(rendered)
+    rendered = inject_dashboard_product_scope_followup(rendered)
+    return inject_dashboard_product_scope_insight(rendered)
