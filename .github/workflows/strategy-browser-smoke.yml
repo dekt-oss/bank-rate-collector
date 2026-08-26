@@ -19,6 +19,7 @@ on:
       - "pyproject.toml"
       - "uv.lock"
       - "scripts/strategy_preview_smoke.js"
+      - "scripts/product_scope_runtime_smoke.js"
       - ".github/workflows/strategy-preview.yml"
       - ".github/workflows/strategy-browser-smoke.yml"
   workflow_dispatch:
@@ -106,6 +107,7 @@ jobs:
           done
           curl -fsS http://127.0.0.1:4173/strategy.html >/dev/null
           node scripts/strategy_preview_smoke.js
+          node scripts/product_scope_runtime_smoke.js
 
       - name: Upload browser smoke evidence
         if: always()
