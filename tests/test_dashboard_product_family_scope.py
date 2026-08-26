@@ -103,7 +103,14 @@ def test_strategy_scope_controls_and_key_sections_are_readable() -> None:
     assert '.strategy-product-scope .global-term-tabs button.active' in html
     assert '.top5-card .bank{color:var(--ink)!important;font-size:12px!important' in html
     assert '.top5-card .product{color:var(--ink)!important;opacity:.82!important' in html
-    assert '.insightcard .insight b{color:var(--ink)!important;font-size:12px!important' in html
+    assert '.top5-card .product-family-badge{' in html
+    assert '.top5-card .product-family-badge.savings{' in html
+    assert 'productFamily:r.type==="term_deposit"?"deposit":"savings"' in html
+    assert 'const decorateTop5ProductFamilies=()=>{' in html
+    assert '.insightcard .insight b{display:flex!important' in html
+    assert 'font:900 28px/1 var(--mono)!important' in html
+    assert 'const emphasizeInsightMetrics=()=>{' in html
+    assert 'className="insight-metric"' in html
     assert 'grid-template-columns:repeat(3,minmax(0,1fr))!important' in html
     assert '.insightcard .insight:last-child{grid-column:auto!important}' in html
 
