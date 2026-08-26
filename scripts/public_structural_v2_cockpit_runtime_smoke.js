@@ -24,6 +24,16 @@ async function waitForCockpit(page) {
   );
 }
 
+async function ensurePredictionPanelVisible(page, label) {
+  const cockpit = page.locator("#public-structural-v2-cockpit");
+  if (await cockpit.isVisible()) return cockpit;
+  const toggle = page.locator("#prediction-toggle");
+  invariant(await toggle.isVisible(), `${label}: 예측엔진 열기 버튼이 보이지 않음`);
+  if (await toggle.getAttribute("aria-expanded") !== "true") await toggle.click();
+  await cockpit.waitFor({ state: "visible", timeout: 10_000 });
+  return cockpit;
+}
+
 async function assertNoHorizontalOverflow(page, label) {
   const metrics = await page.evaluate(() => ({
     clientWidth: document.documentElement.clientWidth,
@@ -209,7 +219,7 @@ async function runViewport(browser, viewport, label) {
   });
 
   await waitForCockpit(page);
-  const cockpit = page.locator("#public-structural-v2-cockpit");
+  const cockpit = await ensurePredictionPanelVisible(page, label);
   invariant(await cockpit.isVisible(), `${label}: v2 Cockpit이 보이지 않음`);
   const marketOnlyText = await cockpit.textContent();
   invariant(marketOnlyText.includes("실제 시장 위치"), `${label}: 실제 시장 위치 카드가 없음`);
