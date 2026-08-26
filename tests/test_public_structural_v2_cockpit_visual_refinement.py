@@ -61,9 +61,20 @@ def test_visual_refinement_deconflicts_enlarged_chart_x_axis_labels() -> None:
 
 def test_visual_refinement_keeps_mobile_charts_inside_local_scroll_regions() -> None:
     assert "@media(max-width:640px)" in _CSS
-    assert ".psv2-chart-wrap,.chartwrap{overflow-x:auto!important;overflow-y:hidden!important" in _CSS
-    assert ".psv2-chart{width:620px!important;min-width:620px!important;max-width:none!important;height:220px!important}" in _CSS
-    assert "#trend-chart.chart{width:786px!important;min-width:786px!important;max-width:none!important;height:220px!important}" in _CSS
+    assert (
+        ".psv2-chart-wrap,.chartwrap{overflow-x:auto!important;overflow-y:hidden!important"
+        in _CSS
+    )
+    assert (
+        ".psv2-chart{width:620px!important;min-width:620px!important;"
+        "max-width:none!important;height:220px!important}"
+        in _CSS
+    )
+    assert (
+        "#trend-chart.chart{width:786px!important;min-width:786px!important;"
+        "max-width:none!important;height:220px!important}"
+        in _CSS
+    )
     assert "annotateMobileChartScroll" in _SCRIPT
     assert 'window.matchMedia("(max-width:640px)").matches' in _SCRIPT
     assert 'wrap.setAttribute("tabindex","0")' in _SCRIPT
