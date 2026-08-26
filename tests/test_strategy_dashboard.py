@@ -108,6 +108,7 @@ def test_release_gate_builds_strategy_page_without_replacing_index(
     assert "strategy.html" in manifest.files
     assert STRATEGY_MAP_FILE in manifest.files
     assert STRATEGY_TABLE_FILE in manifest.files
+    assert all("\\" not in relative_path for relative_path in manifest.files)
 
     index_html = (out / "index.html").read_text(encoding="utf-8")
     strategy_html = (out / "strategy.html").read_text(encoding="utf-8")
