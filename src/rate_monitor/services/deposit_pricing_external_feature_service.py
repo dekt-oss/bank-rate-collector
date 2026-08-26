@@ -3,6 +3,11 @@
 이미 수집 중인 한국은행 기준금리(`bok_ecos`)와 E0-3에서 추가한 수신시장
 거시지표(`bok_ecos_macro`)를 하나의 read-only feature contract로 묶는다.
 
+중요: v1에서 이 bundle은 Strategy의 근거/표시 및 향후 calibration 입력 후보를
+구조화하기 위한 것이다. 현재 ``inflow_prediction_service``의 예측식이나 미보정
+coefficient에는 policy rate·macro feature를 입력하지 않는다. ``feature_roles``의
+``*_control`` 이름은 분석상 의도된 역할을 설명할 뿐, 현재 모델에 적용됐다는 뜻이 아니다.
+
 새 원천을 수집하지 않는다. 특히 은행채·CD·COFIX는 v1 feature에서 제외한다.
 """
 
@@ -94,7 +99,10 @@ def _policy_rate(conn: sqlite3.Connection) -> dict[str, Any]:
 def build_deposit_pricing_external_features(
     conn: sqlite3.Connection,
 ) -> dict[str, Any]:
-    """Stage E v1이 사용할 외부 macro feature bundle을 만든다."""
+    """Stage E v1의 근거/표시와 향후 calibration용 외부 macro bundle을 만든다.
+
+    반환값은 현재 public inflow prediction의 coefficient/계산식에 주입되지 않는다.
+    """
     if not _table_exists(conn, "market_indicators"):
         return {
             "version": "deposit-pricing-external-features-v1",
