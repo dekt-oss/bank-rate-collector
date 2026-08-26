@@ -71,11 +71,11 @@ async function assertSearchShareableState(browser) {
   await context.close();
 }
 
-async function waitForStrategyControls(page) {
+async function waitForStrategyControls(page, expectedTerm) {
   await page.waitForSelector('[data-product-mode="deposit"]', { timeout: 30_000 });
   await page.waitForFunction(
-    () => document.getElementById("product-scope-pill")?.textContent.includes("12개월"),
-    null,
+    (term) => document.getElementById("product-scope-pill")?.textContent.includes(`${term}개월`),
+    expectedTerm,
     { timeout: 30_000 },
   );
 }
@@ -94,7 +94,7 @@ async function assertStrategyShareableState(browser) {
     { waitUntil: "networkidle" },
   );
   invariant(response && response.ok(), "strategy zero-selection shared URL failed to load");
-  await waitForStrategyControls(page);
+  await waitForStrategyControls(page, 24);
   await page.waitForFunction(
     () => document.querySelector('[data-product-mode="savings"]')?.classList.contains("active")
       && document.getElementById("product-scope-pill")?.textContent.includes("24개월"),
@@ -166,7 +166,7 @@ async function assertStrategyShareableState(browser) {
   const sharedUrl = page.url();
   response = await page.goto(sharedUrl, { waitUntil: "networkidle" });
   invariant(response && response.ok(), "strategy shared URL reload failed");
-  await waitForStrategyControls(page);
+  await waitForStrategyControls(page, 12);
   await page.waitForFunction(
     () => document.querySelector('[data-product-mode="savings"]')?.classList.contains("active")
       && document.getElementById("product-scope-pill")?.textContent.includes("12개월"),
