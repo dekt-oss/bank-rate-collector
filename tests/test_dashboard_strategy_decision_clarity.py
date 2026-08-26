@@ -15,7 +15,7 @@ def test_strategy_decision_clarity_exposes_scope_contract_and_readable_controls(
     html = _html()
 
     assert 'id="dashboard-strategy-decision-clarity-style"' in html
-    assert 'id="strategy-scope-contract"' in html
+    assert 'contract.id="strategy-scope-contract"' in html
     assert "통합 이력 미생성 · 상품군별 이력 유지" in html
     assert "예금 단독에서만 사용" in html
     assert "font-size:12.5px!important" in html
@@ -29,11 +29,14 @@ def test_strategy_decision_clarity_adds_own_position_without_changing_ranking_po
     assert "const decorateOwnPosition=()=>{" in html
     assert "products12.find(product=>product.institution===OUR_INSTITUTION)" in html
     assert "products12.filter(product=>product.max>own.max+1e-9).length+1" in html
-    assert 'data-own-position="row"' in html
+    assert 'row.dataset.ownPosition="row"' in html
     assert 'row.dataset.ownPosition="empty"' in html
     assert "TOP5 평균 대비" in html
     assert "5위선까지" in html
-    assert "aggregateProducts=" not in html.split("dashboard-strategy-decision-clarity-runtime", 1)[-1]
+    clarity_runtime = html.split(
+        "dashboard-strategy-decision-clarity-runtime", 1
+    )[-1]
+    assert "aggregateProducts=" not in clarity_runtime
 
 
 def test_strategy_decision_clarity_relabels_existing_insight_evidence_and_action() -> None:
