@@ -164,7 +164,8 @@ def test_strategy_page_uses_canonical_derived_slice_without_inlining_rows(
 
     assert "const aggregateCache=new Map" in strategy_html
     assert "if(aggregateCache.has(cacheKey))return aggregateCache.get(cacheKey)" in strategy_html
-    assert "[6,12,24,36].forEach(aggregateProducts)" in strategy_html
+    assert "GLOBAL_TERMS.forEach(aggregateProducts)" in strategy_html
+    assert "scopeTerm=12" in strategy_html
 
 
 def test_market_changes_come_from_observation_history(collected_db, tmp_path) -> None:
