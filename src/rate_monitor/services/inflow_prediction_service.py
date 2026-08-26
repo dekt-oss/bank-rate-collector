@@ -120,7 +120,7 @@ def public_model_config() -> dict[str, Any]:
     }
 
 
-def predict_scenario(
+def _predict_scenario_raw(
     *,
     baseline_new_money: float,
     maturity_amount: float,
@@ -131,11 +131,10 @@ def predict_scenario(
     term_months: int,
     scenario: SensitivityScenario,
 ) -> dict[str, float | str]:
-    """한 민감도 시나리오의 신규자금·재예치·총수신을 계산한다.
+    """한 민감도 시나리오를 공개 반올림 전 정밀도로 계산한다.
 
-    ``baseline_new_money``는 현재 당사 대표금리에서 관측한 월 신규취급액 anchor다.
-    시장 top10선 자체를 고정한 counterfactual이므로 금액 변화는 현재 대비 상대금리
-    이동량으로 계산한다. top10 gap은 현재/제안 포지션을 감사할 수 있도록 별도 반환한다.
+    Python/JS parity 검증처럼 계산 원값이 필요한 내부 호출 전용이다. 공개 계약의
+    반올림 위치와 반환 형태는 ``predict_scenario``가 계속 책임진다.
     """
     baseline = _nonnegative("baseline_new_money", baseline_new_money)
     maturity = _nonnegative("maturity_amount", maturity_amount)
@@ -182,25 +181,124 @@ def predict_scenario(
 
     return {
         "scenario": scenario.key,
-        "current_top10_gap_pp": round(current_gap, 4),
-        "proposed_top10_gap_pp": round(proposed_gap, 4),
-        "relative_change_pp": round(relative_change, 4),
-        "rate_steps_10bp": round(rate_steps, 6),
-        "raw_new_money_log_effect": round(raw_log_effect, 6),
-        "applied_new_money_log_effect": round(log_effect, 6),
-        "new_money_multiplier": round(new_money_multiplier, 6),
-        "predicted_new_money": _round_amount(predicted_new),
-        "baseline_rollover_rate_pct": round(p0 * 100.0, 4),
-        "predicted_rollover_rate_pct": round(
-            predicted_rollover_probability * 100.0, 4
+        "current_top10_gap_pp": current_gap,
+        "proposed_top10_gap_pp": proposed_gap,
+        "relative_change_pp": relative_change,
+        "rate_steps_10bp": rate_steps,
+        "raw_new_money_log_effect": raw_log_effect,
+        "applied_new_money_log_effect": log_effect,
+        "new_money_multiplier": new_money_multiplier,
+        "predicted_new_money": predicted_new,
+        "baseline_rollover_rate_pct": p0 * 100.0,
+        "predicted_rollover_rate_pct": predicted_rollover_probability * 100.0,
+        "predicted_rollover": predicted_rollover,
+        "baseline_total": baseline_total,
+        "predicted_total": predicted_total,
+        "incremental_total": incremental_total,
+        "baseline_surface_interest": baseline_surface_interest,
+        "predicted_surface_interest": predicted_surface_interest,
+        "surface_interest_delta": surface_interest_delta,
+    }
+
+
+def _round_scenario_result(result: dict[str, float | str]) -> dict[str, float | str]:
+    """기존 public ``predict_scenario`` 정밀도 계약을 한 곳에서 적용한다."""
+    return {
+        "scenario": str(result["scenario"]),
+        "current_top10_gap_pp": round(float(result["current_top10_gap_pp"]), 4),
+        "proposed_top10_gap_pp": round(float(result["proposed_top10_gap_pp"]), 4),
+        "relative_change_pp": round(float(result["relative_change_pp"]), 4),
+        "rate_steps_10bp": round(float(result["rate_steps_10bp"]), 6),
+        "raw_new_money_log_effect": round(float(result["raw_new_money_log_effect"]), 6),
+        "applied_new_money_log_effect": round(
+            float(result["applied_new_money_log_effect"]), 6
         ),
-        "predicted_rollover": _round_amount(predicted_rollover),
-        "baseline_total": _round_amount(baseline_total),
-        "predicted_total": _round_amount(predicted_total),
-        "incremental_total": _round_amount(incremental_total),
-        "baseline_surface_interest": _round_amount(baseline_surface_interest),
-        "predicted_surface_interest": _round_amount(predicted_surface_interest),
-        "surface_interest_delta": _round_amount(surface_interest_delta),
+        "new_money_multiplier": round(float(result["new_money_multiplier"]), 6),
+        "predicted_new_money": _round_amount(float(result["predicted_new_money"])),
+        "baseline_rollover_rate_pct": round(
+            float(result["baseline_rollover_rate_pct"]), 4
+        ),
+        "predicted_rollover_rate_pct": round(
+            float(result["predicted_rollover_rate_pct"]), 4
+        ),
+        "predicted_rollover": _round_amount(float(result["predicted_rollover"])),
+        "baseline_total": _round_amount(float(result["baseline_total"])),
+        "predicted_total": _round_amount(float(result["predicted_total"])),
+        "incremental_total": _round_amount(float(result["incremental_total"])),
+        "baseline_surface_interest": _round_amount(
+            float(result["baseline_surface_interest"])
+        ),
+        "predicted_surface_interest": _round_amount(
+            float(result["predicted_surface_interest"])
+        ),
+        "surface_interest_delta": _round_amount(float(result["surface_interest_delta"])),
+    }
+
+
+def predict_scenario(
+    *,
+    baseline_new_money: float,
+    maturity_amount: float,
+    current_rollover_rate_pct: float,
+    current_own_rate: float,
+    proposed_rate: float,
+    market_top10_rate: float,
+    term_months: int,
+    scenario: SensitivityScenario,
+) -> dict[str, float | str]:
+    """한 민감도 시나리오의 신규자금·재예치·총수신을 공개 정밀도로 계산한다.
+
+    ``baseline_new_money``는 현재 당사 대표금리에서 관측한 월 신규취급액 anchor다.
+    시장 top10선 자체를 고정한 counterfactual이므로 금액 변화는 현재 대비 상대금리
+    이동량으로 계산한다. top10 gap은 현재/제안 포지션을 감사할 수 있도록 별도 반환한다.
+    """
+    return _round_scenario_result(
+        _predict_scenario_raw(
+            baseline_new_money=baseline_new_money,
+            maturity_amount=maturity_amount,
+            current_rollover_rate_pct=current_rollover_rate_pct,
+            current_own_rate=current_own_rate,
+            proposed_rate=proposed_rate,
+            market_top10_rate=market_top10_rate,
+            term_months=term_months,
+            scenario=scenario,
+        )
+    )
+
+
+def _predict_range_raw(
+    *,
+    baseline_new_money: float,
+    maturity_amount: float,
+    current_rollover_rate_pct: float,
+    current_own_rate: float,
+    proposed_rate: float,
+    market_top10_rate: float,
+    term_months: int,
+) -> dict[str, Any]:
+    """저/기준/고민감 결과를 반올림 전 정밀도로 반환하는 내부 parity 경로."""
+    results = {
+        scenario.key: _predict_scenario_raw(
+            baseline_new_money=baseline_new_money,
+            maturity_amount=maturity_amount,
+            current_rollover_rate_pct=current_rollover_rate_pct,
+            current_own_rate=current_own_rate,
+            proposed_rate=proposed_rate,
+            market_top10_rate=market_top10_rate,
+            term_months=term_months,
+            scenario=scenario,
+        )
+        for scenario in SCENARIOS
+    }
+    totals = [float(result["predicted_total"]) for result in results.values()]
+    return {
+        "model": public_model_config(),
+        "base": results["base"],
+        "scenarios": results,
+        "predicted_total_range": {
+            "min": min(totals),
+            "max": max(totals),
+        },
     }
 
 
