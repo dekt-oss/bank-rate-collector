@@ -7,6 +7,9 @@ from typing import Any
 
 from rate_monitor.services import strategy_service_base as _base
 from rate_monitor.services.strategy_product_history_service import build_product_history
+from rate_monitor.services.strategy_savings_trend_policy import (
+    build_savings_trend_display_policy,
+)
 from rate_monitor.services.strategy_service_base import *  # noqa: F403
 
 
@@ -16,5 +19,9 @@ def __getattr__(name: str) -> Any:
 
 def build_strategy_summary(db_path: Path) -> dict[str, Any]:
     summary = _base.build_strategy_summary(db_path)
-    summary["product_history"] = build_product_history(db_path)
+    product_history = build_product_history(db_path)
+    product_history["savings_trend_display_policy"] = (
+        build_savings_trend_display_policy(product_history)
+    )
+    summary["product_history"] = product_history
     return summary
