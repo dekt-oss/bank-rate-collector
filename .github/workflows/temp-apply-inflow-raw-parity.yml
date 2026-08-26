@@ -1,0 +1,298 @@
+name: TEMP apply inflow raw parity refactor
+
+on:
+  push:
+    branches:
+      - refactor/inflow-parity-raw-path-20260826
+    paths:
+      - ".github/workflows/temp-apply-inflow-raw-parity.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: refactor/inflow-parity-raw-path-20260826
+          fetch-depth: 0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Sync dependencies
+        run: uv sync --locked
+
+      - name: Capture exact public output baseline
+        run: |
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+          from rate_monitor.services.inflow_prediction_service import predict_range
+
+          payload = json.loads(Path("tests/data/inflow_parity_vectors.json").read_text(encoding="utf-8"))
+          baseline = {
+              vector["name"]: predict_range(**vector["inputs"])
+              for vector in payload["vectors"]
+          }
+          Path("work-public-baseline.json").write_text(
+              json.dumps(baseline, ensure_ascii=False, sort_keys=True),
+              encoding="utf-8",
+          )
+          print(f"captured {len(baseline)} public output vectors")
+          PY
+
+      - name: Introduce private raw calculation path and remove global round patch
+        run: |
+          uv run python - <<'PY'
+          from pathlib import Path
+
+          service_path = Path("src/rate_monitor/services/inflow_prediction_service.py")
+          text = service_path.read_text(encoding="utf-8")
+          start = text.index("\ndef predict_scenario(")
+          end = text.index("\ndef predict_range(", start)
+          replacement = r'''
+def _predict_scenario_raw(
+    *,
+    baseline_new_money: float,
+    maturity_amount: float,
+    current_rollover_rate_pct: float,
+    current_own_rate: float,
+    proposed_rate: float,
+    market_top10_rate: float,
+    term_months: int,
+    scenario: SensitivityScenario,
+) -> dict[str, float | str]:
+    """한 민감도 시나리오를 공개 반올림 전 정밀도로 계산한다.
+
+    Python/JS parity 검증처럼 계산 원값이 필요한 내부 호출 전용이다. 공개 계약의
+    반올림 위치와 반환 형태는 ``predict_scenario``가 계속 책임진다.
+    """
+    baseline = _nonnegative("baseline_new_money", baseline_new_money)
+    maturity = _nonnegative("maturity_amount", maturity_amount)
+    own_rate = _finite("current_own_rate", current_own_rate)
+    proposed = _finite("proposed_rate", proposed_rate)
+    top10 = _finite("market_top10_rate", market_top10_rate)
+    if term_months <= 0:
+        raise ValueError("term_months는 1 이상이어야 한다")
+
+    p0 = _probability_from_percent(current_rollover_rate_pct)
+    current_gap = own_rate - top10
+    proposed_gap = proposed - top10
+    relative_change = proposed_gap - current_gap
+    rate_steps = relative_change / RATE_STEP_PERCENTAGE_POINT
+
+    raw_log_effect = scenario.new_money_log_change_per_10bp * rate_steps
+    log_effect = max(
+        -MAX_ABS_NEW_MONEY_LOG_EFFECT,
+        min(MAX_ABS_NEW_MONEY_LOG_EFFECT, raw_log_effect),
+    )
+    new_money_multiplier = math.exp(log_effect)
+    predicted_new = baseline * new_money_multiplier
+
+    if abs(rate_steps) <= _ZERO_STEP_TOLERANCE:
+        predicted_rollover_probability = p0
+    else:
+        logit_anchor = min(_MAX_PROBABILITY, max(_MIN_PROBABILITY, p0))
+        rollover_logit = (
+            _logit(logit_anchor)
+            + scenario.rollover_log_odds_change_per_10bp * rate_steps
+        )
+        predicted_rollover_probability = _logistic(rollover_logit)
+    predicted_rollover = maturity * predicted_rollover_probability
+
+    baseline_rollover = maturity * p0
+    baseline_total = baseline + baseline_rollover
+    predicted_total = predicted_new + predicted_rollover
+    incremental_total = predicted_total - baseline_total
+
+    term_factor = term_months / 12.0
+    baseline_surface_interest = baseline_total * own_rate / 100.0 * term_factor
+    predicted_surface_interest = predicted_total * proposed / 100.0 * term_factor
+    surface_interest_delta = predicted_surface_interest - baseline_surface_interest
+
+    return {
+        "scenario": scenario.key,
+        "current_top10_gap_pp": current_gap,
+        "proposed_top10_gap_pp": proposed_gap,
+        "relative_change_pp": relative_change,
+        "rate_steps_10bp": rate_steps,
+        "raw_new_money_log_effect": raw_log_effect,
+        "applied_new_money_log_effect": log_effect,
+        "new_money_multiplier": new_money_multiplier,
+        "predicted_new_money": predicted_new,
+        "baseline_rollover_rate_pct": p0 * 100.0,
+        "predicted_rollover_rate_pct": predicted_rollover_probability * 100.0,
+        "predicted_rollover": predicted_rollover,
+        "baseline_total": baseline_total,
+        "predicted_total": predicted_total,
+        "incremental_total": incremental_total,
+        "baseline_surface_interest": baseline_surface_interest,
+        "predicted_surface_interest": predicted_surface_interest,
+        "surface_interest_delta": surface_interest_delta,
+    }
+
+
+def _round_scenario_result(result: dict[str, float | str]) -> dict[str, float | str]:
+    """기존 public ``predict_scenario`` 정밀도 계약을 한 곳에서 적용한다."""
+    return {
+        "scenario": str(result["scenario"]),
+        "current_top10_gap_pp": round(float(result["current_top10_gap_pp"]), 4),
+        "proposed_top10_gap_pp": round(float(result["proposed_top10_gap_pp"]), 4),
+        "relative_change_pp": round(float(result["relative_change_pp"]), 4),
+        "rate_steps_10bp": round(float(result["rate_steps_10bp"]), 6),
+        "raw_new_money_log_effect": round(float(result["raw_new_money_log_effect"]), 6),
+        "applied_new_money_log_effect": round(
+            float(result["applied_new_money_log_effect"]), 6
+        ),
+        "new_money_multiplier": round(float(result["new_money_multiplier"]), 6),
+        "predicted_new_money": _round_amount(float(result["predicted_new_money"])),
+        "baseline_rollover_rate_pct": round(
+            float(result["baseline_rollover_rate_pct"]), 4
+        ),
+        "predicted_rollover_rate_pct": round(
+            float(result["predicted_rollover_rate_pct"]), 4
+        ),
+        "predicted_rollover": _round_amount(float(result["predicted_rollover"])),
+        "baseline_total": _round_amount(float(result["baseline_total"])),
+        "predicted_total": _round_amount(float(result["predicted_total"])),
+        "incremental_total": _round_amount(float(result["incremental_total"])),
+        "baseline_surface_interest": _round_amount(
+            float(result["baseline_surface_interest"])
+        ),
+        "predicted_surface_interest": _round_amount(
+            float(result["predicted_surface_interest"])
+        ),
+        "surface_interest_delta": _round_amount(float(result["surface_interest_delta"])),
+    }
+
+
+def predict_scenario(
+    *,
+    baseline_new_money: float,
+    maturity_amount: float,
+    current_rollover_rate_pct: float,
+    current_own_rate: float,
+    proposed_rate: float,
+    market_top10_rate: float,
+    term_months: int,
+    scenario: SensitivityScenario,
+) -> dict[str, float | str]:
+    """한 민감도 시나리오의 신규자금·재예치·총수신을 공개 정밀도로 계산한다.
+
+    ``baseline_new_money``는 현재 당사 대표금리에서 관측한 월 신규취급액 anchor다.
+    시장 top10선 자체를 고정한 counterfactual이므로 금액 변화는 현재 대비 상대금리
+    이동량으로 계산한다. top10 gap은 현재/제안 포지션을 감사할 수 있도록 별도 반환한다.
+    """
+    return _round_scenario_result(
+        _predict_scenario_raw(
+            baseline_new_money=baseline_new_money,
+            maturity_amount=maturity_amount,
+            current_rollover_rate_pct=current_rollover_rate_pct,
+            current_own_rate=current_own_rate,
+            proposed_rate=proposed_rate,
+            market_top10_rate=market_top10_rate,
+            term_months=term_months,
+            scenario=scenario,
+        )
+    )
+
+
+def _predict_range_raw(
+    *,
+    baseline_new_money: float,
+    maturity_amount: float,
+    current_rollover_rate_pct: float,
+    current_own_rate: float,
+    proposed_rate: float,
+    market_top10_rate: float,
+    term_months: int,
+) -> dict[str, Any]:
+    """저/기준/고민감 결과를 반올림 전 정밀도로 반환하는 내부 parity 경로."""
+    results = {
+        scenario.key: _predict_scenario_raw(
+            baseline_new_money=baseline_new_money,
+            maturity_amount=maturity_amount,
+            current_rollover_rate_pct=current_rollover_rate_pct,
+            current_own_rate=current_own_rate,
+            proposed_rate=proposed_rate,
+            market_top10_rate=market_top10_rate,
+            term_months=term_months,
+            scenario=scenario,
+        )
+        for scenario in SCENARIOS
+    }
+    totals = [float(result["predicted_total"]) for result in results.values()]
+    return {
+        "model": public_model_config(),
+        "base": results["base"],
+        "scenarios": results,
+        "predicted_total_range": {
+            "min": min(totals),
+            "max": max(totals),
+        },
+    }
+
+'''
+          service_path.write_text(text[:start] + replacement + text[end:], encoding="utf-8")
+
+          parity_path = Path("tests/test_inflow_prediction_parity.py")
+          parity = parity_path.read_text(encoding="utf-8")
+          parity = parity.replace("import builtins\n", "", 1)
+          parity = parity.replace("from unittest.mock import patch\n", "", 1)
+          parity = parity.replace(
+              "from rate_monitor.services.inflow_prediction_service import predict_range\n",
+              "from rate_monitor.services.inflow_prediction_service import _predict_range_raw\n",
+              1,
+          )
+          helper_start = parity.index("\ndef _identity_round(")
+          helper_end = parity.index("\ndef _assert_close(", helper_start)
+          parity = parity[:helper_start] + "\n" + parity[helper_end:]
+          count = parity.count('_predict_range_raw(vector["inputs"])')
+          if count != 3:
+              raise SystemExit(f"expected 3 parity raw calls, found {count}")
+          parity = parity.replace(
+              '_predict_range_raw(vector["inputs"])',
+              '_predict_range_raw(**vector["inputs"])',
+          )
+          parity_path.write_text(parity, encoding="utf-8")
+          PY
+
+      - name: Verify public contract is byte-for-byte equivalent on frozen inputs
+        run: |
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+          from rate_monitor.services.inflow_prediction_service import predict_range
+
+          baseline = json.loads(Path("work-public-baseline.json").read_text(encoding="utf-8"))
+          payload = json.loads(Path("tests/data/inflow_parity_vectors.json").read_text(encoding="utf-8"))
+          actual = {
+              vector["name"]: predict_range(**vector["inputs"])
+              for vector in payload["vectors"]
+          }
+          assert actual == baseline, "public predict_range output changed during raw-path refactor"
+          print(f"public output equivalence PASS vectors={len(actual)}")
+          PY
+
+      - name: Run engine, parity, and lint verification
+        run: |
+          uv run pytest -q tests/test_inflow_prediction_service.py tests/test_inflow_prediction_parity.py
+          uv run ruff check src/rate_monitor/services/inflow_prediction_service.py tests/test_inflow_prediction_parity.py
+
+      - name: Commit code and tests only
+        run: |
+          set -euo pipefail
+          git config user.name "dekt-oss"
+          git config user.email "degackt@gmail.com"
+          git add src/rate_monitor/services/inflow_prediction_service.py tests/test_inflow_prediction_parity.py
+          git commit -m "refactor: expose internal raw path for inflow parity"
+          git push origin HEAD:refactor/inflow-parity-raw-path-20260826
