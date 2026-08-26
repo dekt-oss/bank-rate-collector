@@ -1,8 +1,6 @@
 from pathlib import Path
 
-from rate_monitor.services.dashboard_ui_refinement_presentation import (
-    inject_dashboard_ui_refinement,
-)
+from rate_monitor.services.dashboard_ui_refinement_presentation import inject_dashboard_ui_refinement
 
 
 SEARCH_TEMPLATE = Path("web/templates/site.html")
