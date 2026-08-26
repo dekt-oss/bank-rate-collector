@@ -6,6 +6,21 @@ function invariant(condition, message) {
   if (!condition) throw new Error(message);
 }
 
+function trackRuntimeErrors(page, runtimeErrors) {
+  page.on("pageerror", (error) => runtimeErrors.push(`pageerror: ${error.message}`));
+  page.on("console", (message) => {
+    if (message.type() === "error" && !message.text().includes("Failed to load resource")) {
+      runtimeErrors.push(`console: ${message.text()}`);
+    }
+  });
+  page.on("response", (response) => {
+    if (response.status() < 400) return;
+    const url = new URL(response.url());
+    if (url.pathname === "/favicon.ico") return;
+    runtimeErrors.push(`http ${response.status()}: ${url.pathname}`);
+  });
+}
+
 function latestCommonSpread(payload, term) {
   const scopes = payload.strategy?.product_history?.scopes || {};
   const points = (scope) => new Map(
@@ -34,10 +49,7 @@ function latestCommonSpread(payload, term) {
   const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
   const page = await context.newPage();
   const runtimeErrors = [];
-  page.on("pageerror", (error) => runtimeErrors.push(`pageerror: ${error.message}`));
-  page.on("console", (message) => {
-    if (message.type() === "error") runtimeErrors.push(`console: ${message.text()}`);
-  });
+  trackRuntimeErrors(page, runtimeErrors);
 
   try {
     const response = await page.goto(
