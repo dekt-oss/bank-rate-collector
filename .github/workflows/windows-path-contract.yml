@@ -1,0 +1,47 @@
+name: Windows path contract
+
+on:
+  push:
+    paths:
+      - "src/rate_monitor/services/site_service.py"
+      - "src/rate_monitor/services/collection_service.py"
+      - "tests/test_site_service.py"
+      - "tests/test_strategy_dashboard.py"
+      - "tests/test_repeat_guard.py"
+      - ".github/workflows/windows-path-contract.yml"
+  pull_request:
+    paths:
+      - "src/rate_monitor/services/site_service.py"
+      - "src/rate_monitor/services/collection_service.py"
+      - "tests/test_site_service.py"
+      - "tests/test_strategy_dashboard.py"
+      - "tests/test_repeat_guard.py"
+      - ".github/workflows/windows-path-contract.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  path-contract:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Sync dependencies
+        run: uv sync --locked
+
+      - name: Verify Windows path-sensitive regression tests
+        run: >-
+          uv run pytest -q
+          tests/test_site_service.py::test_manifest_records_what_was_written
+          tests/test_site_service.py::test_huge_export_is_compressed
+          tests/test_strategy_dashboard.py::test_release_gate_builds_strategy_page_without_replacing_index
+          tests/test_repeat_guard.py::test_identical_responses_share_one_row_but_no_query_is_lost
