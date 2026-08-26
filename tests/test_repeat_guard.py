@@ -208,8 +208,12 @@ def test_identical_responses_share_one_row_but_no_query_is_lost(tmp_path) -> Non
     # 안 적으면 그 행이 첫 조회(1203)만 가리켜서, 1204의 관측이 남의 이름을
     # 단 원본을 가리키게 된다 — 추적이 이 사고의 경우에만 끊긴다.
     with session_scope(factory) as session:
-        rows = {r.relative_path.rsplit("/", 1)[-1]: r.request_meta_json
-                for r in session.scalars(select(m.RawArtifact)).all()}
+        raw_rows = session.scalars(select(m.RawArtifact)).all()
+        assert all("\\" not in row.relative_path for row in raw_rows)
+        rows = {
+            row.relative_path.rsplit("/", 1)[-1]: row.request_meta_json
+            for row in raw_rows
+        }
         assert rows["rate_1203_13.html"]["shared_with"] == ["rate_1204_13.html"]
         assert "shared_with" not in rows["rate_1205_13.html"]
 

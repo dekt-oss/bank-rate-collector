@@ -109,7 +109,7 @@ def save_raw_artifacts(
         record = RawArtifact(
             run_id=run.id,
             artifact_type=artifact.artifact_type,
-            relative_path=str(path),
+            relative_path=path.as_posix(),
             sha256=digest,
             content_length=len(artifact.content),
             encoding="utf-8",

@@ -158,6 +158,7 @@ def test_manifest_records_what_was_written(db: Path, tmp_path: Path) -> None:
     assert recorded["page_bytes"] == manifest.page_bytes
     assert "index.html" in recorded["files"]
     assert TABLE_FILE in recorded["files"]
+    assert all("\\" not in relative_path for relative_path in recorded["files"])
 
 
 def test_head_office_notice_survives(db: Path, tmp_path: Path) -> None:
@@ -252,6 +253,9 @@ def test_huge_export_is_compressed(
     assert not (out / "data" / "rates.json").exists()
     packed = out / "data" / "rates.json.gz"
     assert packed.exists()
+    inline = _inline((out / "index.html").read_text(encoding="utf-8"))
+    assert inline["downloads"]["json"]["url"] == "data/rates.json.gz"
+    assert "\\" not in inline["downloads"]["json"]["url"]
     assert packed.stat().st_size < (exports / "rates_20260806.json").stat().st_size
     # 압축을 풀면 원본 그대로여야 한다. 줄이려다 내용을 잃으면 안 된다.
     assert gzip.decompress(packed.read_bytes()) == (

@@ -359,7 +359,7 @@ def build_site(
 
     # 검색·조회용 canonical 금리표. 전략 gate와 관계없이 기존 bytes를 유지한다.
     table_path, gz_path = _write_table(out_dir, TABLE_FILE, table)
-    files = [str(table_path.relative_to(out_dir)), str(gz_path.relative_to(out_dir))]
+    files = [table_path.relative_to(out_dir).as_posix(), gz_path.relative_to(out_dir).as_posix()]
 
     # 전략 전용 slice는 gate ON일 때만 발행한다. 별도 수집/DB 조회 결과가 아니라
     # 위 canonical table의 계약상 필터 + stable product_id 증강이다.
@@ -369,8 +369,8 @@ def build_site(
         )
         files.extend(
             [
-                str(strategy_table_path.relative_to(out_dir)),
-                str(strategy_table_gz_path.relative_to(out_dir)),
+                strategy_table_path.relative_to(out_dir).as_posix(),
+                strategy_table_gz_path.relative_to(out_dir).as_posix(),
             ]
         )
 
@@ -394,7 +394,7 @@ def build_site(
                     shutil.copyfileobj(src, dst)
             else:
                 shutil.copyfile(source, target)
-            relative = str(target.relative_to(out_dir))
+            relative = target.relative_to(out_dir).as_posix()
             files.append(relative)
             # 화면이 가리킬 주소와 크기. 눌러 보기 전에 얼마짜리인지 알아야
             # 한다 — 53 MB를 모르고 누르면 받는 줄도 모르고 기다린다.
