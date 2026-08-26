@@ -56,3 +56,9 @@ select = ["E", "F", "I", "UP", "B", "SIM", "W"]
 # Public Structural v2 Cockpit도 build-time에 브라우저 CSS/JS를 그대로 주입한다.
 # Python line wrapping이 SVG/JS template literal의 runtime source를 바꾸지 않게 E501만 제외한다.
 "src/rate_monitor/services/public_structural_v2_cockpit_presentation.py" = ["E501"]
+# 상품군 후속 UX도 shareable URL/empty-state/차트 JS를 build-time에 그대로 주입한다.
+# template literal 및 query-state runtime 원문 보존을 위해 E501만 제외한다.
+"src/rate_monitor/services/dashboard_product_scope_followup_presentation.py" = ["E501"]
+# 적금 유형 차이 배지/스프레드 KPI도 브라우저 CSS/JS 원문을 build-time에 주입한다.
+# runtime 문자열을 임의 줄바꿈하지 않도록 E501만 제외한다.
+"src/rate_monitor/services/dashboard_product_scope_insight_presentation.py" = ["E501"]

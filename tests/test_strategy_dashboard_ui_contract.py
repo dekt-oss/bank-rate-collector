@@ -56,9 +56,10 @@ def test_strategy_dashboard_uses_product_representatives_for_market_metrics() ->
     assert "function aggregateProducts(term)" in html
     assert 'const key=`${r.sector}\\0${r.productId}\\0${term}`' in html
     assert "r.max>p.max" in html
-    assert "products12=aggregateProducts(12)" in html
+    assert "products12=aggregateProducts(scopeTerm)" in html
     assert "ratesStats(products12)" in html
     assert 'productId:look("product_id"' in html
+    assert "scopeTerm=12" in html
 
 
 def test_strategy_dashboard_uses_real_national_and_busan_boundaries() -> None:
