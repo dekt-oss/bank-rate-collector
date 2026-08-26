@@ -1,0 +1,142 @@
+name: TEMP apply Strategy WCAG contrast fix
+
+on:
+  push:
+    branches:
+      - fix/strategy-wcag-aa-contrast-20260826
+    paths:
+      - ".github/workflows/temp-apply-strategy-contrast.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-runtime-verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/strategy-wcag-aa-contrast-20260826
+          fetch-depth: 0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Sync dependencies
+        run: uv sync --locked
+
+      - name: Apply contrast tokens and runtime guard
+        run: |
+          uv run python - <<'PY'
+          from pathlib import Path
+
+          def replace_exact(path: str, old: str, new: str, expected: int = 1) -> None:
+              target = Path(path)
+              text = target.read_text(encoding="utf-8")
+              count = text.count(old)
+              if count != expected:
+                  raise SystemExit(f"{path}: expected {expected} matches, found {count}: {old!r}")
+              target.write_text(text.replace(old, new), encoding="utf-8")
+
+          replace_exact(
+              "src/rate_monitor/services/strategy_brand_theme_presentation.py",
+              "--ink:#251D27;--muted:#665B68;--soft:#8B7F8D;--line:rgba(91,47,100,.12);",
+              "--ink:#251D27;--muted:#665B68;--soft:#746877;--line:rgba(91,47,100,.12);",
+          )
+          replace_exact(
+              "src/rate_monitor/services/strategy_brand_theme_presentation.py",
+              ".rate-response-table .scenario-note{color:#887A89}",
+              ".rate-response-table .scenario-note{color:#776A79}",
+          )
+
+          smoke = Path("scripts/strategy_workspace_smoke.js")
+          text = smoke.read_text(encoding="utf-8")
+          anchor = '''function invariant(condition, message) {\n  if (!condition) throw new Error(message);\n}\n'''
+          helpers = '''function invariant(condition, message) {\n  if (!condition) throw new Error(message);\n}\n\nfunction parseCssColor(value) {\n  const parts = String(value || "").match(/[\\d.]+/g)?.map(Number) || [];\n  if (parts.length < 3) throw new Error(`unsupported CSS color: ${value}`);\n  return { r: parts[0], g: parts[1], b: parts[2], a: parts.length >= 4 ? parts[3] : 1 };\n}\n\nfunction relativeLuminance(value) {\n  const { r, g, b } = parseCssColor(value);\n  const linear = [r, g, b].map((channel) => {\n    const normalized = channel / 255;\n    return normalized <= 0.04045\n      ? normalized / 12.92\n      : ((normalized + 0.055) / 1.055) ** 2.4;\n  });\n  return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2];\n}\n\nfunction contrastRatio(foreground, background) {\n  const a = relativeLuminance(foreground);\n  const b = relativeLuminance(background);\n  const lighter = Math.max(a, b);\n  const darker = Math.min(a, b);\n  return (lighter + 0.05) / (darker + 0.05);\n}\n'''
+          if text.count(anchor) != 1:
+              raise SystemExit("strategy_workspace_smoke.js invariant anchor mismatch")
+          text = text.replace(anchor, helpers, 1)
+
+          eval_anchor = '''    const rootStyle = getComputedStyle(document.documentElement);\n    const mapCard = document.querySelector(".workspace-detail.primary .mapcard");\n'''
+          eval_new = '''    const rootStyle = getComputedStyle(document.documentElement);\n    const effectiveBackground = (node) => {\n      for (let current = node; current; current = current.parentElement) {\n        const value = getComputedStyle(current).backgroundColor;\n        const parts = String(value || "").match(/[\\d.]+/g)?.map(Number) || [];\n        if (parts.length >= 3 && (parts.length < 4 || parts[3] > 0.01)) return value;\n      }\n      return "rgb(255, 255, 255)";\n    };\n    const sectionSoft = document.querySelector(".workspace-section-label span");\n    const scenarioNote = document.querySelector(".rate-response-table .scenario-note");\n    const mapCard = document.querySelector(".workspace-detail.primary .mapcard");\n'''
+          if text.count(eval_anchor) != 1:
+              raise SystemExit("strategy_workspace_smoke.js visual eval anchor mismatch")
+          text = text.replace(eval_anchor, eval_new, 1)
+
+          return_anchor = '''      accent: rootStyle.getPropertyValue("--accent").trim(),\n      accentInk: rootStyle.getPropertyValue("--accent-ink").trim(),\n      mapCardDisplay: mapCard ? getComputedStyle(mapCard).display : "missing",\n'''
+          return_new = '''      accent: rootStyle.getPropertyValue("--accent").trim(),\n      accentInk: rootStyle.getPropertyValue("--accent-ink").trim(),\n      sectionSoftColor: sectionSoft ? getComputedStyle(sectionSoft).color : "",\n      sectionSoftBackground: sectionSoft ? effectiveBackground(sectionSoft) : "",\n      scenarioNoteColor: scenarioNote ? getComputedStyle(scenarioNote).color : "",\n      scenarioNoteBackground: scenarioNote ? effectiveBackground(scenarioNote) : "",\n      mapCardDisplay: mapCard ? getComputedStyle(mapCard).display : "missing",\n'''
+          if text.count(return_anchor) != 1:
+              raise SystemExit("strategy_workspace_smoke.js return anchor mismatch")
+          text = text.replace(return_anchor, return_new, 1)
+
+          assert_anchor = '''  invariant(result.accent.toUpperCase() === "#D33A7C", `${label}: computed brand accent=${result.accent}`);\n  invariant(result.accentInk.toUpperCase() === "#5B2F64", `${label}: computed brand accent ink=${result.accentInk}`);\n'''
+          assert_new = '''  invariant(result.accent.toUpperCase() === "#D33A7C", `${label}: computed brand accent=${result.accent}`);\n  invariant(result.accentInk.toUpperCase() === "#5B2F64", `${label}: computed brand accent ink=${result.accentInk}`);\n  const sectionSoftContrast = contrastRatio(result.sectionSoftColor, result.sectionSoftBackground);\n  const scenarioNoteContrast = contrastRatio(result.scenarioNoteColor, result.scenarioNoteBackground);\n  invariant(\n    sectionSoftContrast >= 4.5,\n    `${label}: workspace section supporting text contrast=${sectionSoftContrast.toFixed(2)}`,\n  );\n  invariant(\n    scenarioNoteContrast >= 4.5,\n    `${label}: scenario note contrast=${scenarioNoteContrast.toFixed(2)}`,\n  );\n'''
+          if text.count(assert_anchor) != 1:
+              raise SystemExit("strategy_workspace_smoke.js contrast assert anchor mismatch")
+          smoke.write_text(text.replace(assert_anchor, assert_new, 1), encoding="utf-8")
+          PY
+
+      - name: Static syntax and targeted Python checks
+        run: |
+          node --check scripts/strategy_workspace_smoke.js
+          uv run ruff check src/rate_monitor/services/strategy_brand_theme_presentation.py
+
+      - name: Restore production DB to runner-local copy
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+          R2_REGION: ${{ vars.R2_REGION }}
+        run: |
+          set -euo pipefail
+          mkdir -p work
+          uv run rate-monitor storage restore --dest work/rate_monitor.sqlite3
+          test -s work/rate_monitor.sqlite3
+
+      - name: Apply migrations and build isolated Strategy site
+        env:
+          RATE_MONITOR_DB_URL: sqlite+pysqlite:///${{ github.workspace }}/work/rate_monitor.sqlite3
+          RATE_MONITOR_STRATEGY_DASHBOARD: "1"
+        run: |
+          uv run alembic upgrade head
+          uv run rate-monitor build-site --db work/rate_monitor.sqlite3 --template web/templates/site.html --out site-public
+          test -s site-public/strategy.html
+
+      - name: Set up Node and Playwright runner
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install Playwright and run Strategy desktop/mobile runtime smoke
+        run: |
+          set -euo pipefail
+          command -v google-chrome
+          npm install --no-save --package-lock=false @playwright/test@1.61.1
+          python -m http.server 4173 --directory site-public >work/strategy-contrast-http.log 2>&1 &
+          SERVER_PID=$!
+          trap 'kill "$SERVER_PID" >/dev/null 2>&1 || true' EXIT
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:4173/strategy.html >/dev/null; then break; fi
+            sleep 1
+          done
+          STRATEGY_PREVIEW_BASE_URL=http://127.0.0.1:4173 node scripts/strategy_workspace_smoke.js
+
+      - name: Remove one-off workflow, commit, and push
+        run: |
+          set -euo pipefail
+          rm -f .github/workflows/temp-apply-strategy-contrast.yml
+          git config user.name "dekt-oss"
+          git config user.email "degackt@gmail.com"
+          git add src/rate_monitor/services/strategy_brand_theme_presentation.py \
+                  scripts/strategy_workspace_smoke.js \
+                  .github/workflows/temp-apply-strategy-contrast.yml
+          git commit -m "fix: enforce WCAG AA contrast for Strategy microcopy"
+          git push origin HEAD:fix/strategy-wcag-aa-contrast-20260826
