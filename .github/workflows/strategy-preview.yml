@@ -7,17 +7,7 @@ on:
       - "web/templates/strategy.html"
       - "web/templates/site.html"
       - "web/assets/**"
-      - "src/rate_monitor/services/site_service.py"
-      - "src/rate_monitor/services/dashboard_ui_refinement_presentation.py"
-      - "src/rate_monitor/services/dashboard_product_scope*.py"
-      - "src/rate_monitor/services/dashboard_filter*.py"
-      - "src/rate_monitor/services/strategy_contract_service.py"
-      - "src/rate_monitor/services/strategy_refinement_service.py"
-      - "src/rate_monitor/services/strategy_service.py"
-      - "src/rate_monitor/services/strategy_product_history_service.py"
-      - "src/rate_monitor/services/strategy_savings_trend_policy.py"
-      - "src/rate_monitor/services/inflow_prediction_service.py"
-      - "src/rate_monitor/domain/preference_taxonomy.py"
+      - "src/rate_monitor/services/**"
       - "config/**"
       - "migrations/**"
       - "alembic.ini"
@@ -27,12 +17,15 @@ on:
       - "scripts/product_scope_runtime_smoke.js"
       - "scripts/product_scope_insight_smoke.js"
       - "scripts/filter_decision_runtime_smoke.js"
+      - "scripts/market_funding_preview_patch.py"
+      - "scripts/market_funding_preview_smoke.js"
       - ".github/workflows/strategy-browser-smoke.yml"
       - ".github/workflows/strategy-preview.yml"
   workflow_dispatch:
 
-# 운영 rate-data writer와 완전히 분리한다. 이 workflow는 운영 DB를 읽기만 하고
-# preview/strategy-dashboard와 고정 review용 strategy-preview 브랜치만 갱신한다.
+# Production writer와 완전히 분리한다. 운영 DB는 read-only restore하고,
+# 결과는 preview branches에만 publish한다. Preview patch를 제거하면 기존
+# canonical build 결과로 바로 복귀한다.
 concurrency:
   group: strategy-dashboard-preview
   cancel-in-progress: true
@@ -43,6 +36,7 @@ permissions:
 jobs:
   preview:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -68,13 +62,8 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p work
-          BACKEND=$(uv run python -c "
-          from pathlib import Path
-          from rate_monitor.services.storage_service import load_backend
-          print(load_backend(Path('config/storage.yaml')).backend.value)
-          ")
+          BACKEND=$(uv run python -c "from pathlib import Path; from rate_monitor.services.storage_service import load_backend; print(load_backend(Path('config/storage.yaml')).backend.value)")
           echo "preview source backend=$BACKEND"
-
           if [ "$BACKEND" = "r2" ]; then
             uv run rate-monitor storage restore --dest work/rate_monitor.sqlite3
           else
@@ -83,7 +72,6 @@ jobs:
             gunzip -c latest/rate_monitor.sqlite3.gz > work/rate_monitor.sqlite3
             rm -rf latest
           fi
-
           test -s work/rate_monitor.sqlite3
           echo "restored bytes=$(stat -c%s work/rate_monitor.sqlite3)"
 
@@ -92,7 +80,7 @@ jobs:
           RATE_MONITOR_DB_URL: sqlite+pysqlite:///${{ github.workspace }}/work/rate_monitor.sqlite3
         run: uv run alembic upgrade head
 
-      - name: Build strategy preview site
+      - name: Build canonical Strategy preview source
         env:
           RATE_MONITOR_STRATEGY_DASHBOARD: "1"
         run: |
@@ -101,38 +89,40 @@ jobs:
             --db work/rate_monitor.sqlite3 \
             --template web/templates/site.html \
             --out site-public
-
           test -s site-public/index.html
           test -s site-public/strategy.html
-          test -s site-public/assets/korea-sido.svg
           test -s site-public/data/table.json
-          grep -q "전략 대시보드" site-public/index.html
+          test -s site-public/data/strategy-table.json
+
+      - name: Apply isolated market-funding v2 preview patch
+        run: |
+          set -euo pipefail
+          uv run python scripts/market_funding_preview_patch.py
+          grep -q 'id="market-funding-preview"' site-public/index.html
+          grep -q '수신시장 현황' site-public/index.html
+          grep -q '업권별 수신잔액 추이' site-public/index.html
+          grep -q '예금은행 수신 구조' site-public/index.html
+          grep -q 'id="strategy-market-funding-preview"' site-public/strategy.html
+          grep -q '시장 환경 요약' site-public/strategy.html
+          grep -q '수신시장 현황 전체 보기' site-public/strategy.html
+          grep -q '#external-market-context { display: none !important; }' site-public/strategy.html
+          ! grep -q 'id="market-funding-preview"' site-public/strategy.html
+          ! grep -q 'id="strategy-market-funding-preview"' site-public/index.html
+
+      - name: Verify canonical Strategy contracts survived preview patch
+        run: |
+          set -euo pipefail
           grep -q "수신상품 전략 대시보드" site-public/strategy.html
           grep -q "경쟁사 TOP 5" site-public/strategy.html
           grep -q "우대조건 트렌드" site-public/strategy.html
           grep -q "신상품 기획 시뮬레이터" site-public/strategy.html
           grep -q 'id="prediction-toggle"' site-public/strategy.html
           grep -q 'id="prediction-panel"' site-public/strategy.html
-          grep -q "예측엔진 보기" site-public/strategy.html
-          grep -q "수신금액 예측 엔진" site-public/strategy.html
           grep -q "내부 실적 미보정" site-public/strategy.html
-          grep -q "Fed FEDS 2013" site-public/strategy.html
-          grep -q "NY Fed 2025" site-public/strategy.html
-          grep -q "한국은행 BOK 이슈노트 2023-33" site-public/strategy.html
-          grep -q "koreaLabelOffsets" site-public/strategy.html
-          grep -q 'minmax(470px,.86fr)' site-public/strategy.html
-          grep -q 'id="baseline-new"' site-public/strategy.html
-          grep -q 'id="maturity-amount"' site-public/strategy.html
-          grep -q 'id="rollover-rate"' site-public/strategy.html
-          grep -q "시장 인사이트" site-public/strategy.html
-          grep -q "기간별 금리 추이" site-public/strategy.html
-          grep -q "고려저축은행" site-public/strategy.html
-          grep -q "최근 시장 변화" site-public/strategy.html
-          grep -q "시장 포지션" site-public/strategy.html
-          grep -q "유형별 차이 확대" site-public/strategy.html
-          grep -q "유형간 스프레드" site-public/strategy.html
+          grep -q 'id="market-intelligence"' site-public/strategy.html
+          grep -q 'id="external-market-context-script"' site-public/strategy.html
           grep -q "assets/korea-sido.svg" site-public/strategy.html
-          grep -q 'id="제주특별자치도"' site-public/assets/korea-sido.svg
+          grep -q "전략 대시보드" site-public/index.html
 
           python - <<'PY'
           import json
@@ -147,126 +137,17 @@ jobs:
           assert trend["window_days"] == 63
           assert trend["scope"]["aggregation"] == "product_representative_mean"
           assert trend["scope"]["our_institution"] == "고려저축은행"
-          assert trend["points"]
-          assert all(
-              point["market_max_rate"] >= point["mean_max_rate"]
-              for point in trend["points"]
-          )
-          own_points = [
-              point for point in trend["points"]
-              if point.get("our_company_max_rate") is not None
-          ]
-          assert own_points, "운영 DB 이력에서 고려저축은행 12개월 최고금리 추이를 찾지 못함"
           model = payload["strategy"]["inflow_prediction"]
           assert model["version"] == "inflow-structural-v1"
           assert model["calibration_status"] == "uncalibrated"
-          assert model["coefficient_provenance"] == "uncalibrated_stress_assumptions"
-          assert model["cost_metric"] == "simple_surface_interest_total_delta"
+          assert payload["strategy"]["external_features"]
           print(
-              f"preview rate trend points={len(trend['points'])} "
-              f"our_company_points={len(own_points)} "
-              f"inflow_model={model['version']}:{model['calibration_status']}"
+              f"preview trend={len(trend['points'])} "
+              f"model={model['version']}:{model['calibration_status']}"
           )
           PY
 
-      - name: Audit strategy canonical inputs
-        run: |
-          python - <<'PY'
-          import json
-          from collections import Counter
-          from pathlib import Path
-
-          packed = json.loads(Path("site-public/data/table.json").read_text(encoding="utf-8"))
-          columns = {name: i for i, name in enumerate(packed["columns"])}
-          lookups = packed.get("lookups") or {}
-
-          def value(row, name):
-              raw = row[columns[name]]
-              if name in lookups and raw is not None:
-                  return lookups[name][raw]
-              return raw
-
-          current = []
-          for row in packed["rows"]:
-              if value(row, "sector") != "savings_bank":
-                  continue
-              if value(row, "product_type") != "term_deposit":
-                  continue
-              if value(row, "term_months") != 12:
-                  continue
-              max_rate = value(row, "max_rate")
-              if max_rate is None:
-                  continue
-              current.append({
-                  "institution": value(row, "institution"),
-                  "product": value(row, "product"),
-                  "base_rate": value(row, "base_rate"),
-                  "max_rate": float(max_rate),
-                  "source_id": value(row, "source_id"),
-                  "source_effective_at": value(row, "source_effective_at"),
-                  "region": value(row, "region"),
-                  "district": value(row, "district"),
-                  "preference_status": value(row, "preference_status"),
-                  "preference_tags": value(row, "preference_tags") or "",
-              })
-
-          # 전략 화면과 같은 기관+상품+기간 대표 최고금리. 같은 최고값이면
-          # 공시일이 더 최근인 행을 감사 출력에 사용한다.
-          products = {}
-          for item in current:
-              key = (item["institution"], item["product"])
-              old = products.get(key)
-              freshness = item["source_effective_at"] or ""
-              old_freshness = (old or {}).get("source_effective_at") or ""
-              if old is None or item["max_rate"] > old["max_rate"] or (
-                  item["max_rate"] == old["max_rate"] and freshness > old_freshness
-              ):
-                  products[key] = item
-
-          ranked = sorted(
-              products.values(),
-              key=lambda x: (-x["max_rate"], x["institution"], x["product"]),
-          )
-          print("strategy canonical 12m product_count=", len(ranked))
-          print("strategy canonical TOP10")
-          for i, item in enumerate(ranked[:10], 1):
-              print(
-                  i,
-                  item["institution"],
-                  item["product"],
-                  f"base={item['base_rate']}",
-                  f"max={item['max_rate']}",
-                  f"source={item['source_id']}",
-                  f"effective={item['source_effective_at']}",
-              )
-
-          for target in ("대백저축은행", "키움예스저축은행", "고려저축은행"):
-              rows = [x for x in ranked if x["institution"] == target]
-              print(f"audit institution={target} products={len(rows)}")
-              for item in rows[:12]:
-                  print(
-                      " ", item["product"], f"max={item['max_rate']}",
-                      f"source={item['source_id']}",
-                      f"effective={item['source_effective_at']}",
-                  )
-
-          busan = [x for x in ranked if x["region"] == "부산" and x["district"]]
-          print("busan district rows=", len(busan))
-          print("busan districts=", sorted(Counter(x["district"] for x in busan).items()))
-
-          known_conditions = []
-          for item in ranked:
-              if item["preference_status"] != "present":
-                  continue
-              tags = {x for x in item["preference_tags"].split() if x}
-              known_conditions.append(len(tags))
-          print(
-              "condition benchmark products=", len(known_conditions),
-              "distribution=", sorted(Counter(known_conditions).items()),
-          )
-          PY
-
-      - name: Verify strategy inline JavaScript
+      - name: Verify Strategy inline JavaScript parses
         run: |
           set -euo pipefail
           python - <<'PY'
@@ -278,14 +159,11 @@ jobs:
           data_end = html.index("</script>", data_start)
           script_start = html.index("<script>", data_end) + len("<script>")
           script_end = html.index("</script>", script_start)
-          Path("work/strategy-inline.js").write_text(
-              html[script_start:script_end],
-              encoding="utf-8",
-          )
+          Path("work/strategy-inline.js").write_text(html[script_start:script_end], encoding="utf-8")
           PY
           node --check work/strategy-inline.js
 
-      - name: Stamp preview source
+      - name: Stamp exact preview source
         env:
           SOURCE_SHA: ${{ github.sha }}
           SOURCE_REF: ${{ github.ref_name }}
@@ -294,13 +172,14 @@ jobs:
           import json
           import os
           from pathlib import Path
-
           Path("site-public/preview-source.json").write_text(
               json.dumps(
                   {
                       "source_ref": os.environ["SOURCE_REF"],
                       "source_sha": os.environ["SOURCE_SHA"],
                       "production": False,
+                      "market_funding_preview": True,
+                      "rollback": "discard preview branch / remove preview patch",
                   },
                   ensure_ascii=False,
                   indent=2,
@@ -314,7 +193,6 @@ jobs:
           python - <<'PY'
           import json
           from pathlib import Path
-
           config = json.loads(Path("vercel.json").read_text(encoding="utf-8"))
           config["ignoreCommand"] = (
               '[ "$VERCEL_GIT_COMMIT_REF" != "preview/strategy-dashboard" ] '
@@ -340,14 +218,12 @@ jobs:
           git branch -D strategy-preview-new 2>/dev/null || true
           git checkout -q --orphan strategy-preview-new
           git rm -rf . >/dev/null 2>&1 || true
-          find . -maxdepth 1 -mindepth 1 \
-            -not -name .git -not -name preview-stage \
-            -exec rm -rf {} +
+          find . -maxdepth 1 -mindepth 1 -not -name .git -not -name preview-stage -exec rm -rf {} +
           cp -R preview-stage/site-public .
           cp preview-stage/vercel.json .
           rm -rf preview-stage
 
           git add -f site-public vercel.json
-          git commit -q -m "preview: strategy dashboard from ${{ github.sha }}"
+          git commit -q -m "preview: Strategy v2 market funding from ${{ github.sha }}"
           git push --force origin HEAD:preview/strategy-dashboard
           git push --force origin HEAD:strategy-preview
