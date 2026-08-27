@@ -1,0 +1,133 @@
+name: Search performance branch comparison
+
+on:
+  push:
+    branches:
+      - "perf/search-*"
+    paths:
+      - "src/rate_monitor/services/dashboard_search_performance_presentation.py"
+      - "src/rate_monitor/services/dashboard_ui_refinement_presentation.py"
+      - "tests/test_dashboard_search_performance.py"
+      - "scripts/browser_perf.mjs"
+      - ".github/workflows/search-performance-branch.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv python install 3.12
+      - run: uv sync --locked
+      - name: Restore current production database read-only
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+          R2_REGION: ${{ vars.R2_REGION }}
+        run: |
+          set -euo pipefail
+          mkdir -p work
+          BACKEND=$(uv run python -c "from pathlib import Path; from rate_monitor.services.storage_service import load_backend; print(load_backend(Path('config/storage.yaml')).backend.value)")
+          if [ "$BACKEND" = "r2" ]; then
+            uv run rate-monitor storage restore --dest work/rate_monitor.sqlite3
+          else
+            git fetch --force origin +rate-data:refs/remotes/origin/rate-data --depth=1
+            git show refs/remotes/origin/rate-data:latest/rate_monitor.sqlite3.gz > work/rate_monitor.sqlite3.gz
+            gunzip work/rate_monitor.sqlite3.gz
+          fi
+          test -s work/rate_monitor.sqlite3
+      - name: Prepare latest main worktree
+        run: |
+          git fetch origin main
+          git worktree add baseline origin/main
+          (cd baseline && uv sync --locked)
+      - name: Apply migrations to shared snapshot
+        env:
+          RATE_MONITOR_DB_URL: sqlite+pysqlite:///${{ github.workspace }}/work/rate_monitor.sqlite3
+        run: uv run alembic upgrade head
+      - name: Build main and candidate from byte-identical data
+        env:
+          RATE_MONITOR_STRATEGY_DASHBOARD: "1"
+        run: |
+          uv run rate-monitor build-site --db work/rate_monitor.sqlite3 --template web/templates/site.html --out work/candidate-site
+          (cd baseline && uv run rate-monitor build-site --db ../work/rate_monitor.sqlite3 --template web/templates/site.html --out ../work/main-site)
+          cmp work/candidate-site/data/table.json work/main-site/data/table.json
+          sha256sum work/candidate-site/data/table.json work/main-site/data/table.json | tee work/table-sha256.txt
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install Playwright
+        run: |
+          npm install --no-save --no-package-lock playwright@1.54.2
+          npx playwright install --with-deps chromium
+          node --check scripts/browser_perf.mjs
+      - name: Serve both builds
+        run: |
+          python -m http.server 4173 --directory work/main-site > work/main-http.log 2>&1 &
+          python -m http.server 4174 --directory work/candidate-site > work/candidate-http.log 2>&1 &
+          for port in 4173 4174; do
+            for i in $(seq 1 30); do curl -fsS "http://127.0.0.1:${port}/" >/dev/null && break || sleep 1; done
+            curl -fsS "http://127.0.0.1:${port}/" >/dev/null
+          done
+      - name: Measure twice in identical Chromium/network scenarios
+        run: |
+          set -euo pipefail
+          for i in 1 2; do
+            PRODUCTION_URL=http://127.0.0.1:4173 PERF_JSON=work/perf-main-${i}.json PERF_MD=work/perf-main-${i}.md node scripts/browser_perf.mjs
+            PRODUCTION_URL=http://127.0.0.1:4174 PERF_JSON=work/perf-candidate-${i}.json PERF_MD=work/perf-candidate-${i}.md node scripts/browser_perf.mjs
+          done
+      - name: Compare repeated performance evidence
+        run: |
+          python - <<'PY'
+          import json, statistics
+          from pathlib import Path
+          samples = {"main": {}, "candidate": {}}
+          for side in samples:
+              for i in (1, 2):
+                  data = json.loads(Path(f"work/perf-{side}-{i}.json").read_text())
+                  for row in data["scenarios"]:
+                      samples[side].setdefault(row["scenario"], []).append(row)
+          output = []
+          for scenario in samples["main"]:
+              m, c = samples["main"][scenario], samples["candidate"][scenario]
+              assert [x["parsed_rows"] for x in m] == [x["parsed_rows"] for x in c]
+              assert [x["filter_count_before"] for x in m] == [x["filter_count_before"] for x in c]
+              assert [x["filter_count_after"] for x in m] == [x["filter_count_after"] for x in c]
+              row = {"scenario": scenario}
+              for key in ("initial_render_ms", "peak_heap_bytes", "filter_latency_ms"):
+                  mv = [x[key] for x in m if x[key] is not None]
+                  cv = [x[key] for x in c if x[key] is not None]
+                  mm, cm = statistics.median(mv), statistics.median(cv)
+                  row[f"main_{key}_median"] = mm
+                  row[f"candidate_{key}_median"] = cm
+                  row[f"{key}_change_pct"] = None if not mm else (cm - mm) / mm * 100
+                  row[f"main_{key}_range"] = [min(mv), max(mv)]
+                  row[f"candidate_{key}_range"] = [min(cv), max(cv)]
+              output.append(row)
+          Path("work/perf-comparison.json").write_text(json.dumps(output, indent=2) + "\n")
+          print(json.dumps(output, indent=2))
+          PY
+      - name: Upload Search performance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: search-performance-${{ github.run_id }}
+          path: |
+            work/perf-*.json
+            work/perf-*.md
+            work/table-sha256.txt
+            work/*-http.log
+          retention-days: 30
+          if-no-files-found: warn
