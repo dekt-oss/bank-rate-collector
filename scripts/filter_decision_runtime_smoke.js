@@ -86,11 +86,34 @@ async function assertStrategy(browser) {
   await page.close();
 }
 
+async function assertMobileHierarchy(browser) {
+  const page = await browser.newPage({ viewport: { width: 390, height: 844 }, isMobile: true });
+  const errors = [];
+  page.on("pageerror", (error) => errors.push(String(error)));
+  const response = await page.goto(`${base}/strategy.html`, { waitUntil: "networkidle", timeout: 60_000 });
+  invariant(response && response.ok(), "mobile Strategy page failed to load");
+  await page.waitForSelector(".strategy-sector-family-controls", { timeout: 30_000 });
+  invariant(await page.locator('[data-sector-family-toggle="savings_bank"]').isVisible(), "mobile savings-bank parent is hidden");
+  invariant(await page.locator('[data-sector-family-toggle="mutual_finance"]').isVisible(), "mobile mutual-finance parent is hidden");
+  invariant(await page.locator(".strategy-mutual-children .sector-toggle").count() === 3, "mobile mutual child controls are incomplete");
+  const layout = await page.evaluate(() => ({
+    clientWidth: document.documentElement.clientWidth,
+    scrollWidth: document.documentElement.scrollWidth,
+    columns: getComputedStyle(document.querySelector(".strategy-sector-family-controls")).gridTemplateColumns,
+  }));
+  invariant(layout.scrollWidth <= layout.clientWidth + 1, `mobile filter hierarchy overflows: ${JSON.stringify(layout)}`);
+  invariant(layout.columns.trim().split(/\s+/).length === 1, `mobile sector parents did not stack: ${layout.columns}`);
+  invariant(await page.locator(".market-position-reference").evaluate((node) => node.open), "mobile market position reference is closed by default");
+  invariant(errors.length === 0, `mobile Strategy runtime errors:\n${errors.join("\n")}`);
+  await page.close();
+}
+
 (async () => {
   const browser = await chromium.launch({ headless: true, executablePath: "/usr/bin/google-chrome" });
   try {
     await assertSearch(browser);
     await assertStrategy(browser);
+    await assertMobileHierarchy(browser);
     console.log("filter + decision runtime smoke: PASS");
   } finally {
     await browser.close();
