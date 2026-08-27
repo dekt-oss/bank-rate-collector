@@ -1,0 +1,89 @@
+name: Diagnostic — Data.go funding history samples
+
+on:
+  push:
+    branches: [feat/market-funding-ops-backfill-20260828]
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    if: ${{ contains(github.event.head_commit.message, '[funding-history-samples]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Sync dependencies
+        run: uv sync --locked
+
+      - name: Create runner-local database
+        env:
+          RATE_MONITOR_DB_URL: sqlite+pysqlite:///${{ github.workspace }}/work/history-samples.sqlite3
+        run: |
+          set -euo pipefail
+          mkdir -p work data/raw publish
+          uv run alembic upgrade head
+
+      - name: Probe representative historical months
+        env:
+          DATA_GO_KR_SERVICE_KEY_SB: ${{ secrets.DATA_GO_KR_SERVICE_KEY_SB }}
+          DATA_GO_KR_SERVICE_KEY_SH: ${{ secrets.DATA_GO_KR_SERVICE_KEY_SH }}
+          DATA_GO_KR_SERVICE_KEY_NH: ${{ secrets.DATA_GO_KR_SERVICE_KEY_NH }}
+          DATA_GO_KR_SERVICE_KEY: ${{ secrets.DATA_GO_KR_SERVICE_KEY }}
+          DATA_GO_FUNDING_TIMEOUT_SECONDS: "20"
+        run: |
+          set -euo pipefail
+          uv run python scripts/probe_funding_history_samples.py \
+            --db work/history-samples.sqlite3 \
+            --raw-root data/raw \
+            --json publish/history-samples.json
+          uv run python -m rate_monitor.collectors.data_go_funding.cli audit \
+            --db work/history-samples.sqlite3 \
+            --windows 24,36 \
+            --json publish/history-samples-audit.json
+
+      - name: Read back sample coverage
+        run: |
+          uv run python - <<'PY'
+          import json, sqlite3
+          db = sqlite3.connect("work/history-samples.sqlite3")
+          db.row_factory = sqlite3.Row
+          rows = db.execute(
+              "SELECT source_id, source_effective_month, COUNT(*) rows, "
+              "COUNT(DISTINCT source_institution_key) institutions "
+              "FROM institution_funding_observations WHERE valid_to IS NULL "
+              "GROUP BY source_id, source_effective_month "
+              "ORDER BY source_id, source_effective_month"
+          ).fetchall()
+          payload = {
+              "integrity_check": db.execute("PRAGMA integrity_check").fetchone()[0],
+              "foreign_key_violations": len(db.execute("PRAGMA foreign_key_check").fetchall()),
+              "coverage": [dict(row) for row in rows],
+          }
+          open("publish/history-samples-readback.json", "w", encoding="utf-8").write(
+              json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
+          )
+          print(json.dumps(payload, ensure_ascii=False, indent=2))
+          PY
+
+      - name: Upload sample evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: institution-funding-history-samples-${{ github.run_id }}
+          retention-days: 90
+          if-no-files-found: warn
+          path: |
+            data/raw/
+            publish/history-samples.json
+            publish/history-samples-audit.json
+            publish/history-samples-readback.json
