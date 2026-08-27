@@ -1,7 +1,7 @@
-"""한국은행 ECOS 수신시장 거시지표 어댑터 (Stage E0-3).
+"""한국은행 ECOS 수신시장 거시지표 어댑터.
 
-기존 ``BokEcosAdapter``는 기준금리 한 가지를 안정적으로 수집한다. 새 월별
-거시지표의 계약 변화가 기준금리 run까지 실패시키지 않도록 operational source를
+기존 ``BokEcosAdapter``는 기준금리 한 가지를 안정적으로 수집한다. 월별
+수신시장 계약 변화가 기준금리 run까지 실패시키지 않도록 operational source를
 ``bok_ecos_macro``로 분리한다. 저장 테이블과 API key는 기존 indicator 경로를
 그대로 재사용한다.
 """
@@ -23,6 +23,8 @@ from rate_monitor.domain.timeutil import now_kst
 BASE_URL = "https://ecos.bok.or.kr/api"
 API_KEY_ENV = "ECOS_API_KEY"
 REDACTED = "[REDACTED]"
+# 운영 collector는 최근 48개월만 요청한다. 따라서 ECOS 한 페이지 100건 안에
+# 항상 들어오며 parser가 list_total_count == returned rows를 검증한다.
 PAGE_SIZE = 100
 MONTH_WINDOW = 48
 CONNECT_TIMEOUT = 10.0
@@ -37,7 +39,7 @@ def _month_key_months_ago(today: date, months_ago: int) -> str:
 
 
 class BokEcosMacroAdapter:
-    """은행 수신 실현금리와 비은행 업권 수신잔액 수집기."""
+    """은행·비은행 수신금리와 업권/은행 수신잔액 수집기."""
 
     source_id = macro_parser.SOURCE_ID
     source_role = SourceRole.PRIMARY_OFFICIAL
@@ -92,14 +94,19 @@ class BokEcosMacroAdapter:
                             "url": self._mask(url),
                             "stat_code": contract.stat_code,
                             "item_code": contract.item_code,
+                            "item_name": contract.item_name,
                             "cycle": macro_parser.CYCLE,
                             "from": start_month,
                             "to": end_month,
                             "indicator_code": contract.indicator_code,
+                            "normalized_unit": contract.unit,
+                            "value_semantics": contract.value_semantics,
+                            "balance_basis": contract.balance_basis,
+                            "population": contract.population,
                         },
                         schema_fingerprint=(
                             f"{contract.stat_code}/{contract.item_code}/"
-                            f"{contract.source_unit}"
+                            f"{contract.item_name}/{contract.source_unit}"
                         ),
                         source_role=self.source_role,
                         trust_level=self.trust_level,
