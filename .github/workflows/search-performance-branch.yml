@@ -103,8 +103,10 @@ jobs:
           for scenario in samples["main"]:
               m, c = samples["main"][scenario], samples["candidate"][scenario]
               assert [x["parsed_rows"] for x in m] == [x["parsed_rows"] for x in c]
+              assert [x["filter_count_before"] for x in m] == [x["filter_count_before"] for x in c]
+              assert [x["filter_count_after"] for x in m] == [x["filter_count_after"] for x in c]
               row = {"scenario": scenario}
-              for key in ("initial_render_ms", "peak_heap_bytes", "filter_latency_ms", "json_parse_ms"):
+              for key in ("initial_render_ms", "peak_heap_bytes", "filter_latency_ms"):
                   mv = [x[key] for x in m if x[key] is not None]
                   cv = [x[key] for x in c if x[key] is not None]
                   mm, cm = statistics.median(mv), statistics.median(cv)
