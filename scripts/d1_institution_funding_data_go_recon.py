@@ -12,8 +12,10 @@ a candidate is usable only when the live gateway accepts it and returns data.
 
 Source-specific Data.go.kr credentials are supported because access approval is
 service-scoped in the portal. A legacy generic key is accepted only as a
-fallback. Credentials are redacted from all URLs, payload diagnostics, and
-errors before a report is written.
+fallback. The portal can display either an encoded or decoded service key, so
+keys are normalized to their decoded form once before query-string encoding.
+Credentials are redacted from all URLs, payload diagnostics, and errors before
+a report is written.
 """
 
 from __future__ import annotations
@@ -102,12 +104,23 @@ DISCOVERY_SUFFIXES = (
 )
 
 
+def _normalize_credential(raw: str) -> str:
+    """Accept either portal 'Encoding' or 'Decoding' service-key representation."""
+    value = raw.strip()
+    if not value:
+        return ""
+    # Data.go.kr's encoded key commonly contains %2B/%2F/%3D. Decoding once and
+    # letting urlencode encode the query parameter prevents accidental %25xx
+    # double-encoding while leaving an already-decoded key unchanged.
+    return urllib.parse.unquote(value)
+
+
 def _credential(service_key: str) -> tuple[str, str | None]:
     source_env = KEY_ENVS[service_key]
-    source_key = os.environ.get(source_env, "").strip()
+    source_key = _normalize_credential(os.environ.get(source_env, ""))
     if source_key:
         return source_key, source_env
-    generic_key = os.environ.get(GENERIC_KEY_ENV, "").strip()
+    generic_key = _normalize_credential(os.environ.get(GENERIC_KEY_ENV, ""))
     if generic_key:
         return generic_key, GENERIC_KEY_ENV
     return "", None
@@ -118,12 +131,17 @@ def _mask(text: str, keys: tuple[str, ...]) -> str:
     for key in keys:
         if not key:
             continue
-        encoded = urllib.parse.quote_plus(key)
-        masked = masked.replace(key, "[REDACTED]").replace(encoded, "[REDACTED]")
+        variants = {
+            key,
+            urllib.parse.quote_plus(key),
+            urllib.parse.quote(key, safe=""),
+        }
+        for variant in variants:
+            masked = masked.replace(variant, "[REDACTED]")
     return masked
 
 
-def _request(url: str, key: str, all_keys: tuple[str, ...]) -> dict[str, Any]:
+def _request(url: str, all_keys: tuple[str, ...]) -> dict[str, Any]:
     record: dict[str, Any] = {"url": _mask(url, all_keys)}
     request = urllib.request.Request(
         url,
@@ -221,7 +239,7 @@ def _row_text(row: dict[str, Any]) -> str:
             "acctnm",
             "itemnm",
             "itmnm",
-            "fncoNm".lower(),
+            "fnconm",
         }:
             useful.append(str(value))
     if useful:
@@ -253,7 +271,7 @@ def discover_service(
 ) -> dict[str, Any]:
     operations: list[dict[str, Any]] = []
     for operation in _operation_candidates(service):
-        record = _request(_operation_url(service, operation, key), key, all_keys)
+        record = _request(_operation_url(service, operation, key), all_keys)
         rows = _flatten_items(record.get("payload"))
         operations.append(
             {
@@ -286,14 +304,11 @@ def discover_service(
 
 def main() -> int:
     credentials = {service.key: _credential(service.key) for service in SERVICES}
-    all_keys = tuple(
-        key
-        for key in {
-            os.environ.get(env_name, "").strip()
-            for env_name in (*KEY_ENVS.values(), GENERIC_KEY_ENV)
-        }
-        if key
-    )
+    raw_keys = {
+        _normalize_credential(os.environ.get(env_name, ""))
+        for env_name in (*KEY_ENVS.values(), GENERIC_KEY_ENV)
+    }
+    all_keys = tuple(key for key in raw_keys if key)
     report = {
         "mode": "read_only_no_db_write",
         "source": "Financial Services Commission statistics via Data.go.kr",
@@ -318,7 +333,12 @@ def main() -> int:
 
     OUT.parent.mkdir(parents=True, exist_ok=True)
     blob = json.dumps(report, ensure_ascii=False, indent=2)
-    if any(key in blob or urllib.parse.quote_plus(key) in blob for key in all_keys):
+    if any(
+        key in blob
+        or urllib.parse.quote_plus(key) in blob
+        or urllib.parse.quote(key, safe="") in blob
+        for key in all_keys
+    ):
         blob = _mask(blob, all_keys)
         print("warning: credential residue removed before persistence")
     OUT.write_text(blob, encoding="utf-8")
