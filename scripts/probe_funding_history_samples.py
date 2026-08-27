@@ -26,10 +26,22 @@ def main() -> int:
     parser.add_argument("--db", type=Path, required=True)
     parser.add_argument("--raw-root", type=Path, required=True)
     parser.add_argument("--json", type=Path, required=True)
+    parser.add_argument(
+        "--sectors",
+        default="savings_bank,nh_local,cu",
+        help="쉼표로 구분한 probe sector 목록",
+    )
     args = parser.parse_args()
+    sectors = {value.strip() for value in args.sectors.split(",") if value.strip()}
+    known = {contract.sector for contract in CONTRACTS}
+    unknown = sectors - known
+    if not sectors or unknown:
+        raise SystemExit(f"지원하지 않는 sector: {sorted(unknown)}")
 
     results = []
     for contract in CONTRACTS:
+        if contract.sector not in sectors:
+            continue
         result = collect_source_resilient(
             contract,
             db_path=args.db,
