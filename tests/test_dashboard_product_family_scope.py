@@ -11,12 +11,12 @@ STRATEGY_TEMPLATE = Path("web/templates/strategy.html")
 def test_search_product_family_allows_empty_savings_and_global_terms() -> None:
     html = inject_dashboard_ui_refinement(SEARCH_TEMPLATE.read_text(encoding="utf-8"))
 
-    assert 'data-product-family="deposit"' in html
-    assert 'data-product-family="savings"' in html
+    assert 'data-product-family-toggle="deposit"' in html
+    assert 'data-product-family-toggle="savings"' in html
     assert 'value="installment_savings"' in html
     assert 'value="flexible_savings"' in html
     assert 'return "적금 · 선택 없음";' in html
-    assert 'emptySavingsSelected = !PRODUCT_SAVINGS_TYPES.some' in html
+    assert 'emptySavingsSelected = Boolean(parent?.checked)' in html
     assert 'data-global-term="${value}"' in html
     for term in (6, 12, 24, 36):
         assert f'>{term}개월<' in html or str(term) in html

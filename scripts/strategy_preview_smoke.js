@@ -31,8 +31,26 @@ async function waitForDashboard(page) {
 }
 
 async function selectMode(page, mode, expectedLabel) {
-  const button = page.locator(`[data-market-mode="${mode}"]`);
-  await button.click();
+  const savings = page.locator('[data-sector-family-toggle="savings_bank"]');
+  const mutual = page.locator('[data-sector-family-toggle="mutual_finance"]');
+  if ((await savings.count()) && (await mutual.count())) {
+    const target = {
+      savings_bank: { savings: true, mutual: false },
+      mutual_finance: { savings: false, mutual: true },
+      combined: { savings: true, mutual: true },
+    }[mode];
+    invariant(target, `unknown market mode: ${mode}`);
+    if ((await savings.isChecked()) !== target.savings) {
+      if (target.savings) await savings.check();
+      else await savings.uncheck();
+    }
+    if ((await mutual.isChecked()) !== target.mutual) {
+      if (target.mutual) await mutual.check();
+      else await mutual.uncheck();
+    }
+  } else {
+    await page.locator(`[data-market-mode="${mode}"]`).evaluate((button) => button.click());
+  }
   await page.waitForFunction(
     ({ mode, label }) => {
       const active = document.querySelector(`[data-market-mode="${mode}"]`);

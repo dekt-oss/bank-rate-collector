@@ -10,6 +10,7 @@ on:
       - "src/rate_monitor/services/site_service.py"
       - "src/rate_monitor/services/dashboard_ui_refinement_presentation.py"
       - "src/rate_monitor/services/dashboard_product_scope*.py"
+      - "src/rate_monitor/services/dashboard_filter*.py"
       - "src/rate_monitor/services/strategy_contract_service.py"
       - "src/rate_monitor/services/strategy_refinement_service.py"
       - "src/rate_monitor/services/strategy_service.py"
@@ -25,6 +26,7 @@ on:
       - "scripts/strategy_preview_smoke.js"
       - "scripts/product_scope_runtime_smoke.js"
       - "scripts/product_scope_insight_smoke.js"
+      - "scripts/filter_decision_runtime_smoke.js"
       - ".github/workflows/strategy-browser-smoke.yml"
       - ".github/workflows/strategy-preview.yml"
   workflow_dispatch:
