@@ -33,19 +33,31 @@ jobs:
 
       - name: Probe FSC institution funding APIs
         env:
+          DATA_GO_KR_SERVICE_KEY_SB: ${{ secrets.DATA_GO_KR_SERVICE_KEY_SB }}
+          DATA_GO_KR_SERVICE_KEY_SH: ${{ secrets.DATA_GO_KR_SERVICE_KEY_SH }}
+          DATA_GO_KR_SERVICE_KEY_NH: ${{ secrets.DATA_GO_KR_SERVICE_KEY_NH }}
           DATA_GO_KR_SERVICE_KEY: ${{ secrets.DATA_GO_KR_SERVICE_KEY }}
         run: uv run python scripts/d1_institution_funding_data_go_recon.py
 
-      - name: Check credential never reached report
+      - name: Check credentials never reached report
         env:
+          DATA_GO_KR_SERVICE_KEY_SB: ${{ secrets.DATA_GO_KR_SERVICE_KEY_SB }}
+          DATA_GO_KR_SERVICE_KEY_SH: ${{ secrets.DATA_GO_KR_SERVICE_KEY_SH }}
+          DATA_GO_KR_SERVICE_KEY_NH: ${{ secrets.DATA_GO_KR_SERVICE_KEY_NH }}
           DATA_GO_KR_SERVICE_KEY: ${{ secrets.DATA_GO_KR_SERVICE_KEY }}
         run: |
           set -euo pipefail
           REPORT=docs/source-recon/market-funding-d1-institution-recon.json
-          if [ -n "${DATA_GO_KR_SERVICE_KEY}" ] && grep -qF "$DATA_GO_KR_SERVICE_KEY" "$REPORT"; then
-            echo "::error::DATA_GO_KR_SERVICE_KEY leaked into $REPORT"
-            exit 1
-          fi
+          for key in \
+            "${DATA_GO_KR_SERVICE_KEY_SB}" \
+            "${DATA_GO_KR_SERVICE_KEY_SH}" \
+            "${DATA_GO_KR_SERVICE_KEY_NH}" \
+            "${DATA_GO_KR_SERVICE_KEY}"; do
+            if [ -n "$key" ] && grep -qF "$key" "$REPORT"; then
+              echo "::error::Data.go.kr credential leaked into $REPORT"
+              exit 1
+            fi
+          done
           echo "credential leak: 0"
 
       - uses: actions/upload-artifact@v4
