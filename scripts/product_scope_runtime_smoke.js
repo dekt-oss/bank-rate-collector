@@ -30,12 +30,14 @@ async function assertSearchShareableState(browser) {
   const url = `${baseUrl}/?family=savings&savings=none&term=24`;
   const response = await page.goto(url, { waitUntil: "networkidle" });
   invariant(response && response.ok(), "search shareable URL failed to load");
-  await page.waitForSelector('[data-product-family="savings"]', { timeout: 20_000 });
+  await page.waitForSelector('[data-product-family-toggle="savings"]', { timeout: 20_000 });
   await page.waitForSelector(".product-savings-detail", { timeout: 20_000 });
 
+  const searchDeposit = page.locator('[data-product-family-toggle="deposit"]');
+  const searchSavings = page.locator('[data-product-family-toggle="savings"]');
   invariant(
-    await page.locator('[data-product-family="savings"]').getAttribute("aria-pressed") === "true",
-    "search shared URL did not restore savings family",
+    await searchSavings.isChecked() && !(await searchDeposit.isChecked()),
+    "search shared URL did not restore savings-only family state",
   );
   invariant(
     await page.locator('.product-savings-detail input[data-group="type"]:checked').count() === 0,
@@ -214,8 +216,9 @@ async function assertStrategyShareableState(browser) {
     "strategy combined mode did not keep both product families checked",
   );
   invariant(
-    await page.locator("#prediction-toggle").isHidden(),
-    "combined product scope must keep the deposit-only prediction engine hidden",
+    await page.locator("#prediction-toggle").isVisible()
+      && await page.locator("#prediction-panel").isVisible(),
+    "combined product scope must keep prediction details visible while calculations remain deposit-only",
   );
   invariant(
     !(await page.locator("#strategy-product-empty").isVisible()),
