@@ -338,7 +338,7 @@ class RateObservation(Base):
     raw_artifact: Mapped["RawArtifact"] = relationship()
 
 
-# ── 5.10 preference_conditions (P1-A에서는 스키마만) ───────────────────
+# ── 5.10 preference_conditions (P1-A에서는 스키마만) ────────────────────
 class PreferenceCondition(Base):
     __tablename__ = "preference_conditions"
 
