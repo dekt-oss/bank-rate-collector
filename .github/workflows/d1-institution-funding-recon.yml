@@ -32,6 +32,8 @@ jobs:
         run: uv sync --locked
 
       - name: Probe FSC institution funding APIs
+        id: probe
+        continue-on-error: true
         env:
           DATA_GO_KR_SERVICE_KEY_SB: ${{ secrets.DATA_GO_KR_SERVICE_KEY_SB }}
           DATA_GO_KR_SERVICE_KEY_SH: ${{ secrets.DATA_GO_KR_SERVICE_KEY_SH }}
@@ -48,6 +50,7 @@ jobs:
         run: |
           set -euo pipefail
           REPORT=docs/source-recon/market-funding-d1-institution-recon.json
+          test -s "$REPORT"
           for key in \
             "${DATA_GO_KR_SERVICE_KEY_SB}" \
             "${DATA_GO_KR_SERVICE_KEY_SH}" \
@@ -60,8 +63,17 @@ jobs:
           done
           echo "credential leak: 0"
 
-      - uses: actions/upload-artifact@v4
+      - name: Upload D1 evidence
+        if: always()
+        uses: actions/upload-artifact@v4
         with:
           name: market-funding-d1-institution-recon
           path: docs/source-recon/market-funding-d1-institution-recon.json
+          if-no-files-found: error
           retention-days: 14
+
+      - name: Fail if configured credential control failed
+        if: steps.probe.outcome != 'success'
+        run: |
+          echo "::error::D1 probe did not pass the verified general-endpoint control. See the evidence artifact."
+          exit 1
