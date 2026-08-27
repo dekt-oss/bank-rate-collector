@@ -8,6 +8,7 @@ contract is created. Credentials are never written to the report.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import re
@@ -163,10 +164,8 @@ def _request(probe: Probe, key: str) -> dict[str, Any]:
     except Exception as error:  # noqa: BLE001 - evidence must retain transport class
         error_text = f"{type(error).__name__}: {error}"
     if text:
-        try:
+        with contextlib.suppress(json.JSONDecodeError):
             payload = json.loads(text)
-        except json.JSONDecodeError:
-            pass
     rows = _flatten(payload)
     hits = []
     for row in rows:
