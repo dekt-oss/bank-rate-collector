@@ -20,6 +20,7 @@ from sqlalchemy import select
 from rate_monitor.collectors.base import CollectorError, SourceBlockedError
 from rate_monitor.db import models as m
 from rate_monitor.db.session import session_scope
+from rate_monitor.db.types import canonical_quantity_text, quantize_quantity
 from rate_monitor.domain.enums import RunStatus
 from rate_monitor.domain.schemas import CollectionRequest
 from rate_monitor.services.collection_service import (
@@ -56,9 +57,6 @@ async def collect_indicator(
     방어선이지만, 여기서 먼저 세어 `no_change`로 끝낸다 — 그래야 "받았는데
     안 바뀐 것"과 "못 받은 것"이 구별된다.
     """
-    # 저장은 naive UTC다. 다른 수집원과 같은 자를 써야 `latest_run_ids`의
-    # MAX(started_at) 비교가 성립하고, 화면의 KST 변환도 맞는다
-    # (domain/timeutil). 로컬 시각을 넣으면 9시간 어긋난다.
     now = _utcnow()
     run_id = m.new_id()
     warnings: list[str] = []
@@ -70,8 +68,11 @@ async def collect_indicator(
         ensure_source(session, adapter, now)
         session.add(
             m.CollectionRun(
-                id=run_id, source_id=adapter.source_id, mode=adapter.mode,
-                started_at=now, status=RunStatus.RUNNING,
+                id=run_id,
+                source_id=adapter.source_id,
+                mode=adapter.mode,
+                started_at=now,
+                status=RunStatus.RUNNING,
                 query_context_json={"indicator": request.source_id},
             )
         )
@@ -93,44 +94,124 @@ async def collect_indicator(
             for artifact, record in zip(artifacts, records, strict=True):
                 points, notes = adapter.parse_points(artifact)
                 warnings.extend(notes)
+                for note in notes:
+                    _record_warning(
+                        session,
+                        run_id=run_id,
+                        source_id=adapter.source_id,
+                        artifact_id=record.id,
+                        message=note,
+                        now=now,
+                    )
                 parsed += len(points)
                 for point in points:
-                    if _upsert(session, point, adapter.source_id, record.id, now):
+                    if _upsert(
+                        session,
+                        point,
+                        adapter.source_id,
+                        record.id,
+                        run_id,
+                        now,
+                    ):
                         stored += 1
                     else:
                         unchanged += 1
     except Exception as error:  # noqa: BLE001 - 무엇이든 실행에 기록하고 끝낸다
-        # **파싱·저장 실패도 실행을 끝내야 한다.**
-        #
-        # 2026-08-06 run 31101956888에서 실제로 걸렸다. ECOS가 오류 본문을
-        # 200으로 줘서 `ParseError`가 났는데, 그때 이 구간이 try 밖이라
-        # 예외가 그대로 올라갔다. 그 결과 `collection_runs` 행이 `running`
-        # 상태로 영원히 남았다 — 그 원천이 "지금도 돌고 있다"로 보이고,
-        # 다음 실행이 좀비 행을 하나씩 더 쌓는다.
-        _finish(session_factory, run_id, RunStatus.FAILED, str(error),
-                fetched, parsed, stored, len(warnings))
-        return IndicatorResult(run_id, RunStatus.FAILED, fetched, parsed, stored,
-                               unchanged, len(warnings), str(error))
+        # 파싱·저장 실패도 실행을 끝낸다. 실패 artifact transaction은 rollback돼
+        # 구조가 틀린 contract의 일부 point만 DB에 남지 않는다.
+        _finish(
+            session_factory,
+            run_id,
+            RunStatus.FAILED,
+            str(error),
+            fetched,
+            parsed,
+            stored,
+            len(warnings),
+        )
+        return IndicatorResult(
+            run_id,
+            RunStatus.FAILED,
+            fetched,
+            parsed,
+            stored,
+            unchanged,
+            len(warnings),
+            str(error),
+        )
 
     if parsed == 0:
         status, message = RunStatus.FAILED, "지표를 하나도 읽지 못했다"
     elif stored == 0:
-        # 받았고 읽었는데 새 값이 없다. 실패가 아니다 (§7.3).
         status, message = RunStatus.NO_CHANGE, f"값이 그대로다 ({unchanged}개 시점)"
     else:
         message = f"새 시점 {stored}개, 그대로 {unchanged}개"
 
-    _finish(session_factory, run_id, status, message, fetched, parsed, stored,
-            len(warnings))
-    return IndicatorResult(run_id, status, fetched, parsed, stored, unchanged,
-                           len(warnings), message)
+    _finish(
+        session_factory,
+        run_id,
+        status,
+        message,
+        fetched,
+        parsed,
+        stored,
+        len(warnings),
+    )
+    return IndicatorResult(
+        run_id, status, fetched, parsed, stored, unchanged, len(warnings), message
+    )
 
 
-def _upsert(session, point, source_id: str, artifact_id: str, now: datetime) -> bool:
-    """새 시점이면 저장하고 True. 이미 있으면 False.
+def _content_hash(point: Any) -> tuple[object, str]:
+    """DB bind와 같은 normalized Decimal로 hash를 만든다."""
+    normalized = quantize_quantity(point.value)
+    canonical = canonical_quantity_text(normalized)
+    payload = (
+        f"{point.indicator_code}|{point.source_effective_at}|"
+        f"{canonical}|{point.unit}"
+    ).encode()
+    return normalized, "sha256:" + hashlib.sha256(payload).hexdigest()
 
-    같은 날짜를 두 번 쌓지 않는다. 값이 바뀌었으면 그 날짜의 값을 고친다 —
-    원천이 잠정치를 확정치로 바꾸는 경우가 있다.
+
+def _record_warning(
+    session: Any,
+    *,
+    run_id: str,
+    source_id: str,
+    artifact_id: str,
+    message: str,
+    now: datetime,
+) -> None:
+    no_data = "no_data" in message.lower()
+    session.add(
+        m.ReviewItem(
+            run_id=run_id,
+            entity_type="market_indicator",
+            issue_type=("market_indicator_no_data" if no_data else "market_indicator_warning"),
+            severity=("info" if no_data else "warning"),
+            message=message,
+            payload_json={
+                "source_id": source_id,
+                "raw_artifact_id": artifact_id,
+                "message": message,
+            },
+            created_at=now,
+        )
+    )
+
+
+def _upsert(
+    session: Any,
+    point: Any,
+    source_id: str,
+    artifact_id: str,
+    run_id: str,
+    now: datetime,
+) -> bool:
+    """새 시점/원천 revision이면 저장하고 True, 완전히 같으면 False.
+
+    동일 자연키의 값이 바뀌면 canonical row를 최신 원천값으로 갱신하되, 갱신
+    전후 값·원본·시각을 같은 transaction의 review_items에 남긴다.
     """
     existing = session.scalar(
         select(m.MarketIndicator).where(
@@ -139,17 +220,57 @@ def _upsert(session, point, source_id: str, artifact_id: str, now: datetime) -> 
             m.MarketIndicator.source_id == source_id,
         )
     )
-    content_hash = "sha256:" + hashlib.sha256(
-        f"{point.indicator_code}|{point.source_effective_at}|{point.value}".encode()
-    ).hexdigest()
+    normalized, content_hash = _content_hash(point)
 
     if existing is not None:
+        if existing.unit != point.unit:
+            raise CollectorError(
+                "market indicator unit drift: "
+                f"{point.indicator_code} {existing.unit!r} -> {point.unit!r}"
+            )
         if existing.content_hash == content_hash:
             return False
-        existing.value = point.value
+
+        old_value = canonical_quantity_text(existing.value)
+        new_value = canonical_quantity_text(normalized)
+        session.add(
+            m.ReviewItem(
+                run_id=run_id,
+                entity_type="market_indicator",
+                entity_id=existing.id,
+                issue_type="market_indicator_revision",
+                severity="info",
+                message=(
+                    f"{point.indicator_code} {point.source_effective_at} "
+                    f"원천 revision {old_value} -> {new_value}"
+                ),
+                payload_json={
+                    "indicator_code": point.indicator_code,
+                    "source_effective_at": (
+                        point.source_effective_at.isoformat()
+                        if point.source_effective_at
+                        else None
+                    ),
+                    "unit": point.unit,
+                    "old_value": old_value,
+                    "new_value": new_value,
+                    "old_content_hash": existing.content_hash,
+                    "new_content_hash": content_hash,
+                    "old_raw_artifact_id": existing.raw_artifact_id,
+                    "new_raw_artifact_id": artifact_id,
+                    "old_observed_at": existing.observed_at.isoformat(),
+                    "new_observed_at": now.isoformat(),
+                    "old_source_locator": existing.source_locator,
+                    "new_source_locator": point.source_locator,
+                },
+                created_at=now,
+            )
+        )
+        existing.value = normalized
         existing.content_hash = content_hash
         existing.observed_at = now
         existing.raw_artifact_id = artifact_id
+        existing.source_locator = point.source_locator
         return True
 
     session.add(
@@ -159,7 +280,7 @@ def _upsert(session, point, source_id: str, artifact_id: str, now: datetime) -> 
             source_id=source_id,
             observed_at=now,
             source_effective_at=point.source_effective_at,
-            value=point.value,
+            value=normalized,
             unit=point.unit,
             raw_artifact_id=artifact_id,
             source_locator=point.source_locator,
@@ -169,8 +290,16 @@ def _upsert(session, point, source_id: str, artifact_id: str, now: datetime) -> 
     return True
 
 
-def _finish(session_factory, run_id, status, message, fetched, parsed, stored,
-            warnings) -> None:
+def _finish(
+    session_factory: Any,
+    run_id: str,
+    status: str,
+    message: str,
+    fetched: int,
+    parsed: int,
+    stored: int,
+    warnings: int,
+) -> None:
     with session_scope(session_factory) as session:
         run = session.get(m.CollectionRun, run_id)
         run.status = status
