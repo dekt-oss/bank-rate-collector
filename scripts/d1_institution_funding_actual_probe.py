@@ -41,6 +41,28 @@ class Probe:
     contract_status: str
 
 
+CU_CURRENT_SERVICE = "https://apis.data.go.kr/1160100/service/GetCredUnioInfoService"
+# The official catalogue proves that a credit-union finance operation exists,
+# while its crawler-visible page exposes only getCredUnioGeneInfo. Keep this a
+# small, reviewable set of naming variants observed in the FSC statistics API
+# family; this is operation discovery, not an unbounded brute-force scan.
+CU_OPERATION_CANDIDATES = (
+    "getCredUnioFinaInfo",
+    "getCredUnioFinInfo",
+    "getCredUnioFinaStatInfo",
+    "getCredUnioFinStatInfo",
+    "getCredUnioFinaStatusInfo",
+    "getCredUnioFinStatusInfo",
+    "getCrdtUnioFinaInfo",
+    "getCrdtUnioFinInfo",
+    "getCrdtUnioFinaStatInfo",
+    "getCrdtUnioFinStatInfo",
+    "getCredUnionFinaInfo",
+    "getCredUnionFinInfo",
+    "getCrdtUnionFinaInfo",
+    "getCrdtUnionFinInfo",
+)
+
 PROBES = (
     Probe(
         "savings_bank",
@@ -57,35 +79,40 @@ PROBES = (
     Probe(
         "credit_union",
         "general",
-        "https://apis.data.go.kr/1160100/service/GetCredUnioInfoService/getCredUnioGeneInfo",
+        f"{CU_CURRENT_SERVICE}/getCredUnioGeneInfo",
         "catalogue_verified",
     ),
-    # The current catalogue proves that a finance operation exists but does not
-    # expose its path in the crawler-visible default function. These are finite
-    # discovery candidates only. A candidate is promoted only if the live
-    # gateway returns NORMAL SERVICE plus actual rows.
-    Probe(
-        "credit_union",
-        "finance_current_prefix",
-        "https://apis.data.go.kr/1160100/service/GetCredUnioInfoService/getCredUnioFinaInfo",
-        "discovery_only",
+    *(
+        Probe(
+            "credit_union",
+            f"finance_candidate_{operation}",
+            f"{CU_CURRENT_SERVICE}/{operation}",
+            "discovery_only",
+        )
+        for operation in CU_OPERATION_CANDIDATES
     ),
     Probe(
         "credit_union",
-        "finance_historical_prefix_on_current_service",
-        "https://apis.data.go.kr/1160100/service/GetCredUnioInfoService/getCrdtUnionFinaInfo",
-        "discovery_only",
-    ),
-    Probe(
-        "credit_union",
-        "finance_historical_service",
+        "finance_candidate_historical_service_crdt_union",
         "https://apis.data.go.kr/1160100/service/CrdtUnionInfoService/getCrdtUnionFinaInfo",
         "discovery_only",
     ),
     Probe(
         "credit_union",
-        "finance_historical_get_service",
+        "finance_candidate_historical_get_service_crdt_union",
         "https://apis.data.go.kr/1160100/service/GetCrdtUnionInfoService/getCrdtUnionFinaInfo",
+        "discovery_only",
+    ),
+    Probe(
+        "credit_union",
+        "finance_candidate_historical_get_service_crdt_unio",
+        "https://apis.data.go.kr/1160100/service/GetCrdtUnioInfoService/getCrdtUnioFinaInfo",
+        "discovery_only",
+    ),
+    Probe(
+        "credit_union",
+        "finance_candidate_historical_get_service_cred_union",
+        "https://apis.data.go.kr/1160100/service/GetCredUnionInfoService/getCredUnionFinaInfo",
         "discovery_only",
     ),
     Probe(
@@ -107,19 +134,89 @@ def _key(sector: str) -> str:
     return urllib.parse.unquote(os.environ.get(KEY_ENVS[sector], "").strip())
 
 
+def _item_rows(value: object) -> list[dict[str, Any]]:
+    if isinstance(value, dict):
+        return [value]
+    if isinstance(value, list):
+        return [row for row in value if isinstance(row, dict)]
+    return []
+
+
 def _flatten(value: Any) -> list[dict[str, Any]]:
     found: list[dict[str, Any]] = []
     if isinstance(value, dict):
         for key, child in value.items():
-            if key == "item" and isinstance(child, dict):
-                found.append(child)
-            elif key == "item" and isinstance(child, list):
-                found.extend(row for row in child if isinstance(row, dict))
+            if key == "item":
+                found.extend(_item_rows(child))
             else:
                 found.extend(_flatten(child))
     elif isinstance(value, list):
         for child in value:
             found.extend(_flatten(child))
+    return found
+
+
+def _response_context(value: Any, path: str = "$") -> list[dict[str, Any]]:
+    """Capture wrapper metadata that `_flatten` deliberately discards.
+
+    Data.go.kr often places `title`, pagination and result metadata next to the
+    `item` container rather than inside each row. Those values are part of the
+    source contract, so the probe retains a small sanitized structural summary
+    without persisting credentials or the request URL query string.
+    """
+    found: list[dict[str, Any]] = []
+    if isinstance(value, dict):
+        if "item" in value:
+            rows = _item_rows(value["item"])
+            found.append(
+                {
+                    "path": path,
+                    "container_keys": sorted(value),
+                    "row_count": len(rows),
+                    "row_keys": sorted({key for row in rows for key in row}),
+                    "metadata": {
+                        key: value[key]
+                        for key in (
+                            "resultCode",
+                            "resultMsg",
+                            "pageNo",
+                            "numOfRows",
+                            "totalCount",
+                            "title",
+                        )
+                        if key in value
+                    },
+                }
+            )
+        for key, child in value.items():
+            if key != "item":
+                found.extend(_response_context(child, f"{path}.{key}"))
+    elif isinstance(value, list):
+        for index, child in enumerate(value):
+            found.extend(_response_context(child, f"{path}[{index}]"))
+    return found
+
+
+def _metadata_values(value: Any, path: str = "$") -> list[dict[str, Any]]:
+    """Retain non-secret source metadata even when it is not beside `item`."""
+    found: list[dict[str, Any]] = []
+    if isinstance(value, dict):
+        for key, child in value.items():
+            child_path = f"{path}.{key}"
+            if key in {
+                "resultCode",
+                "resultMsg",
+                "pageNo",
+                "numOfRows",
+                "totalCount",
+                "title",
+            } and not isinstance(child, (dict, list)):
+                found.append({"path": child_path, "value": child})
+            else:
+                found.extend(_metadata_values(child, child_path))
+    elif isinstance(value, list):
+        for index, child in enumerate(value):
+            found.extend(_metadata_values(child, f"{path}[{index}]"))
     return found
 
 
@@ -185,6 +282,8 @@ def _request(probe: Probe, key: str) -> dict[str, Any]:
         "signature": _signature(payload, text, status) if error_text is None else "transport_error",
         "row_count_flattened": len(rows),
         "row_keys": sorted({field for row in rows for field in row}),
+        "response_context": _response_context(payload),
+        "response_metadata": _metadata_values(payload),
         "deposit_hit_count": len(hits),
         "deposit_hits": hits[:30],
         "sample_rows": rows[:5],
