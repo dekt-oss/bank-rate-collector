@@ -62,3 +62,6 @@ select = ["E", "F", "I", "UP", "B", "SIM", "W"]
 # 적금 유형 차이 배지/스프레드 KPI도 브라우저 CSS/JS 원문을 build-time에 주입한다.
 # runtime 문자열을 임의 줄바꿈하지 않도록 E501만 제외한다.
 "src/rate_monitor/services/dashboard_product_scope_insight_presentation.py" = ["E501"]
+# Strategy v2 Search/Strategy preview는 검증된 D0 snapshot을 HTML/CSS로 주입한다.
+# 실제 승인 전 isolated preview에 한정하며 embedded markup 원문을 보존한다.
+"src/rate_monitor/services/market_funding_preview_presentation.py" = ["E501"]
