@@ -10,6 +10,7 @@ on:
       - "src/rate_monitor/services/site_service.py"
       - "src/rate_monitor/services/dashboard_ui_refinement_presentation.py"
       - "src/rate_monitor/services/dashboard_product_scope*.py"
+      - "src/rate_monitor/services/dashboard_filter*.py"
       - "src/rate_monitor/services/strategy_contract_service.py"
       - "src/rate_monitor/services/strategy_refinement_service.py"
       - "src/rate_monitor/services/strategy_service.py"
@@ -25,6 +26,7 @@ on:
       - "scripts/strategy_preview_smoke.js"
       - "scripts/product_scope_runtime_smoke.js"
       - "scripts/product_scope_insight_smoke.js"
+      - "scripts/filter_decision_runtime_smoke.js"
       - ".github/workflows/strategy-preview.yml"
       - ".github/workflows/strategy-browser-smoke.yml"
   workflow_dispatch:
@@ -93,6 +95,7 @@ jobs:
           command -v google-chrome
           google-chrome --version
           npm install --no-save --package-lock=false @playwright/test@1.61.1
+          node --check scripts/filter_decision_runtime_smoke.js
 
       - name: Run desktop and mobile browser smoke
         env:
@@ -111,9 +114,11 @@ jobs:
             sleep 1
           done
           curl -fsS http://127.0.0.1:4173/strategy.html >/dev/null
+          curl -fsS http://127.0.0.1:4173/ >/dev/null
           node scripts/strategy_preview_smoke.js
           node scripts/product_scope_runtime_smoke.js
           node scripts/product_scope_insight_smoke.js
+          node scripts/filter_decision_runtime_smoke.js
 
       - name: Upload browser smoke evidence
         if: always()
