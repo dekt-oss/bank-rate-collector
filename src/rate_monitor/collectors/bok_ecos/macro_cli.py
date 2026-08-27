@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 from pathlib import Path
 
 from rate_monitor.collectors.bok_ecos.macro_adapter import BokEcosMacroAdapter
@@ -22,6 +23,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="한국은행 수신시장 거시지표 수집")
     parser.add_argument("--db", default=str(DEFAULT_DB_PATH))
     parser.add_argument("--raw-root", default=str(DEFAULT_RAW_ROOT))
+    parser.add_argument("--json", type=Path)
     return parser
 
 
@@ -38,6 +40,23 @@ def main(argv: list[str] | None = None) -> int:
             raw_root=Path(args.raw_root),
         )
     )
+
+    payload = {
+        "run_id": result.run_id,
+        "status": result.status,
+        "fetched": result.fetched,
+        "parsed": result.parsed,
+        "stored": result.stored,
+        "unchanged": result.unchanged,
+        "warnings": result.warnings,
+        "message": result.message,
+    }
+    if args.json:
+        args.json.parent.mkdir(parents=True, exist_ok=True)
+        args.json.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
 
     print(f"run_id      : {result.run_id}")
     print(f"status      : {result.status}")
