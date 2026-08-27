@@ -49,7 +49,11 @@ def test_strategy_decision_details_default_open_without_cross_family_prediction(
     html = _strategy_html()
 
     # Product-scope boot no longer closes the detail panel unconditionally.
-    assert '$("prediction-toggle").hidden=mutualOnly;$("prediction-panel").hidden=mutualOnly;' in html
+    prediction_visibility = (
+        '$("prediction-toggle").hidden=mutualOnly;'
+        '$("prediction-panel").hidden=mutualOnly;'
+    )
+    assert prediction_visibility in html
     assert 'if(toggle)toggle.hidden=false;if(panel)panel.hidden=false;' in html
     assert 'marketReference.open=true' in html
     assert 'modelDetail.open=true' in html
