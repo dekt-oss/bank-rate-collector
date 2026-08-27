@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# ruff: noqa: E501
 """D0 exact-series verification for market-funding ECOS data.
 
 Only series with explicit ECOS table/item labels are included. Ambiguous
