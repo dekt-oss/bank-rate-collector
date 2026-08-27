@@ -9,7 +9,17 @@ from __future__ import annotations
 from datetime import date, datetime
 from decimal import Decimal
 
-from sqlalchemy import Date, DateTime, ForeignKey, Index, Integer, String, Text, text
+from sqlalchemy import (
+    Date,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    text,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from rate_monitor.db.models import Base, new_id
@@ -25,6 +35,14 @@ class InstitutionFundingObservation(Base):
 
     __tablename__ = "institution_funding_observations"
     __table_args__ = (
+        UniqueConstraint(
+            "source_id",
+            "source_institution_key",
+            "metric_code",
+            "source_effective_month",
+            "revision",
+            name="uq_institution_funding_revision",
+        ),
         Index(
             "uq_institution_funding_active",
             "source_id",
@@ -67,7 +85,7 @@ class InstitutionFundingObservation(Base):
     observation_basis: Mapped[str] = mapped_column(String(32))
     statement_basis: Mapped[str] = mapped_column(String(32))
     population_scope: Mapped[str] = mapped_column(String(64))
-    identity_status: Mapped[str] = mapped_column(String(24))
+    identity_status: Mapped[str] = mapped_column(String(48))
     observed_at: Mapped[datetime] = mapped_column(DateTime)
     source_locator: Mapped[str] = mapped_column(Text)
     raw_artifact_id: Mapped[str] = mapped_column(ForeignKey("raw_artifacts.id"))
