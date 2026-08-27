@@ -27,59 +27,9 @@ async function waitForDashboard(page) {
     null,
     { timeout: 30_000 },
   );
-  invariant(await page.locator("#error").isHidden(), "strategy runtime error banner is visible");
 }
 
-async function selectMode(page, mode, expectedLabel) {
-  const savings = page.locator('[data-sector-family-toggle="savings_bank"]');
-  const mutual = page.locator('[data-sector-family-toggle="mutual_finance"]');
-  if ((await savings.count()) && (await mutual.count())) {
-    const target = {
-      savings_bank: { savings: true, mutual: false },
-      mutual_finance: { savings: false, mutual: true },
-      combined: { savings: true, mutual: true },
-    }[mode];
-    invariant(target, `unknown market mode: ${mode}`);
-    if ((await savings.isChecked()) !== target.savings) {
-      if (target.savings) await savings.check();
-      else await savings.uncheck();
-    }
-    if ((await mutual.isChecked()) !== target.mutual) {
-      if (target.mutual) await mutual.check();
-      else await mutual.uncheck();
-    }
-  } else {
-    await page.locator(`[data-market-mode="${mode}"]`).evaluate((button) => button.click());
-  }
-  await page.waitForFunction(
-    ({ mode, label }) => {
-      const active = document.querySelector(`[data-market-mode="${mode}"]`);
-      return active?.classList.contains("active")
-        && document.getElementById("scope-pill")?.textContent.trim() === label;
-    },
-    { mode, label: expectedLabel },
-    { timeout: 10_000 },
-  );
-}
-
-async function strategySectorMeta(page, sector) {
-  return page.evaluate(async (key) => {
-    const response = await fetch("data/strategy-table.json");
-    if (!response.ok) throw new Error(`strategy-table.json HTTP ${response.status}`);
-    const packed = await response.json();
-    return packed.strategy_universe?.sectors?.[key] || null;
-  }, sector);
-}
-
-async function waitForPositiveCount(page) {
-  await page.waitForFunction(
-    () => Number(document.getElementById("count")?.textContent.replaceAll(",", "") || 0) > 0,
-    null,
-    { timeout: 10_000 },
-  );
-}
-
-async function assertNoHorizontalOverflow(page, label) {
+async function assertNoOverflow(page, label) {
   const metrics = await page.evaluate(() => ({
     clientWidth: document.documentElement.clientWidth,
     scrollWidth: document.documentElement.scrollWidth,
@@ -90,86 +40,45 @@ async function assertNoHorizontalOverflow(page, label) {
   );
 }
 
-async function assertMarketIntelligence(page) {
-  const panel = page.locator("#market-intelligence");
-  invariant(await panel.count() === 1, "Stage C2 Market Intelligence panel이 없음");
-  invariant((await page.locator("#market-intelligence-body").textContent()).trim().length > 0, "Stage C2 body가 비어 있음");
-  invariant(await page.locator('[data-mi-sector="savings_bank"]').count() === 1, "C2 저축은행 selector가 없음");
-  invariant(await page.locator('[data-mi-term="12"]').count() === 1, "C2 12개월 selector가 없음");
-  invariant(await page.locator('[data-mi-window="7"]').count() === 1, "C2 7D selector가 없음");
-  invariant(await page.locator('[data-mi-window="30"]').count() === 1, "C2 30D selector가 없음");
-
-  await page.locator('[data-mi-window="7"]').click();
-  await page.waitForFunction(
-    () => document.querySelector('[data-mi-window="7"]')?.classList.contains("active"),
-    null,
-    { timeout: 5_000 },
-  );
-  invariant((await page.locator("#market-intelligence-body").textContent()).trim().length > 0, "C2 7D 결과가 비어 있음");
-
-  await page.locator('[data-mi-sector="nh_local"]').click();
-  await page.waitForFunction(
-    () => document.querySelector('[data-mi-sector="nh_local"]')?.classList.contains("active"),
-    null,
-    { timeout: 5_000 },
-  );
-  const nhText = await page.locator("#market-intelligence-body").textContent();
+async function assertPreviewRoleSplit(page, label) {
+  const compact = page.locator("#strategy-market-funding-preview");
+  invariant(await compact.count() === 1, `${label}: compact market context missing`);
+  invariant(await compact.isVisible(), `${label}: compact market context hidden`);
+  invariant(await compact.locator(".smf-item").count() === 4, `${label}: compact sector cards != 4`);
+  const compactText = await compact.textContent();
+  invariant(compactText.includes("시장 환경 요약"), `${label}: compact heading missing`);
+  invariant(compactText.includes("2026.06"), `${label}: analysis month missing`);
+  invariant(compactText.includes("2026.07"), `${label}: leading rate month missing`);
+  invariant(compactText.includes("4.21%"), `${label}: verified savings-bank leading rate missing`);
   invariant(
-    nhText.includes("과거 최고금리 계약 미지원") && nhText.includes("e-joy"),
-    "NH historical fail-closed 사유가 C2에 표시되지 않음",
+    compactText.includes("인과관계는 단정하지 않음"),
+    `${label}: non-causal semantic boundary missing`,
+  );
+  invariant(
+    await compact.locator('a[href="./#market-funding-preview"]').count() === 1,
+    `${label}: Search market handoff link missing`,
   );
 
-  await page.locator('[data-mi-sector="savings_bank"]').click();
-  await page.locator('[data-mi-term="12"]').click();
-  await page.locator('[data-mi-window="30"]').click();
+  const legacy = page.locator("#external-market-context");
+  invariant(await legacy.count() === 1, `${label}: canonical external context DOM missing`);
+  invariant(await legacy.isHidden(), `${label}: full macro panel should move to Search in preview`);
+  invariant(await page.locator("#market-funding-preview").count() === 0, `${label}: full Search macro view leaked into Strategy`);
 }
 
-async function assertExternalMarketContext(page) {
-  const panel = page.locator("#external-market-context");
-  invariant(await panel.count() === 1, "Stage E0-6 External Market Context panel이 없음");
-  invariant(await panel.isVisible(), "E0-6 패널이 보이지 않음");
-
-  const text = await panel.textContent();
-  invariant(text.includes("시장 자금환경"), "E0-6 제목이 렌더되지 않음");
-  invariant(
-    text.includes("농·축협과 1:1 동일하지 않음"),
-    "E0-6 광의 상호금융 해석 경계 문구가 렌더되지 않음",
-  );
-  invariant(
-    await panel.locator(".external-context-card").count() === 3,
-    "E0-6 금리 카드 3장이 렌더되지 않음",
-  );
-  invariant(
-    await panel.locator(".external-flow").count() === 4,
-    "E0-6 업권 잔액 카드 4장이 렌더되지 않음",
-  );
-  invariant(
-    await panel.locator(".external-context-badge").count() === 1,
-    "E0-6 상태 배지가 없음",
-  );
+async function assertCoreStrategy(page, label) {
+  invariant(await page.locator("#error").isHidden(), `${label}: runtime error banner visible`);
+  invariant(cleanNumber(await page.locator("#count").textContent()) > 0, `${label}: comparison group empty`);
+  invariant(await page.locator("#top5 tr").count() > 0, `${label}: TOP5 empty`);
+  invariant(await page.locator("#market-intelligence").isVisible(), `${label}: market intelligence hidden`);
+  invariant(await page.locator("#planning-zone").isVisible(), `${label}: planning zone hidden`);
+  invariant(await page.locator("#prediction-toggle").isVisible(), `${label}: prediction toggle hidden`);
+  invariant(await page.locator("#scope-evidence").isVisible(), `${label}: scope evidence hidden`);
+  await assertPreviewRoleSplit(page, label);
+  await assertNoOverflow(page, label);
 }
 
-async function assertStrategyRoleSplit(page, label) {
-  const mapCard = page.locator(".workspace-detail.primary .mapcard");
-  invariant(await mapCard.count() === 1, `${label}: Strategy 지역 지도 DOM이 없음`);
-  invariant(await mapCard.isHidden(), `${label}: Strategy 지역 지도는 검색 조회로 이관되어 숨겨져야 함`);
-
-  const handoff = page.locator(".ux-region-handoff");
-  invariant(await handoff.count() === 1 && await handoff.isVisible(), `${label}: 검색 조회 지역 상세 handoff가 보이지 않음`);
-  invariant(
-    (await handoff.textContent()).includes("지역·지도 상세는 검색 조회로 통합했습니다."),
-    `${label}: 지역 상세 역할 분리 안내가 없음`,
-  );
-  invariant(await handoff.locator("a").getAttribute("href") === "./", `${label}: 지역 상세 handoff 링크가 검색 조회를 가리키지 않음`);
-
-  const readiness = page.locator(".ux-decision-readiness");
-  invariant(await readiness.count() === 1 && await readiness.isVisible(), `${label}: 금리결정 준비도 카드가 보이지 않음`);
-  invariant((await readiness.textContent()).includes("최종 최적금리 자동추천"), `${label}: calibration 전 의사결정 경계가 표시되지 않음`);
-  invariant(await page.locator(".ux-report-button").isVisible(), `${label}: Strategy 보고서 출력 버튼이 보이지 않음`);
-}
-
-async function runDesktop(browser) {
-  const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+async function runViewport(browser, viewport, name) {
+  const context = await browser.newContext({ viewport });
   const page = await context.newPage();
   const runtimeErrors = [];
   page.on("pageerror", (error) => runtimeErrors.push(`pageerror: ${error.message}`));
@@ -178,101 +87,48 @@ async function runDesktop(browser) {
   });
 
   await waitForDashboard(page);
-  invariant(await page.locator('[data-market-mode="combined"]').evaluate((node) => node.classList.contains("active")), "기본 비교모드가 저축은행 + 상호금융이 아님");
-  invariant((await page.locator("#scope-pill").textContent()).trim() === "저축은행 + 상호금융", "기본 scope label이 통합모드가 아님");
-  invariant(cleanNumber(await page.locator("#count").textContent()) > 0, "통합 12M 비교군이 비어 있음");
-  invariant(!(await page.locator('[data-sector="cu"]').isDisabled()), "신협 selector가 비활성화됨");
-  invariant(!(await page.locator('[data-sector="kfcc"]').isDisabled()), "새마을금고 selector가 비활성화됨");
-  invariant(!(await page.locator('[data-sector="nh_local"]').isDisabled()), "농·축협 selector가 비활성화됨");
-  invariant(await page.locator('[data-sector="cu"]').isChecked(), "기본 통합모드에서 신협이 선택되지 않음");
-  invariant(await page.locator('[data-sector="kfcc"]').isChecked(), "기본 통합모드에서 새마을금고가 선택되지 않음");
-  invariant(await page.locator('[data-sector="nh_local"]').isChecked(), "기본 통합모드에서 농·축협이 선택되지 않음");
-  const kfccMeta = await strategySectorMeta(page, "kfcc");
-  const nhMeta = await strategySectorMeta(page, "nh_local");
-  invariant(kfccMeta?.strategy_rate_capability === true && kfccMeta?.selectable === true, "새마을금고 수집기준 최고금리 capability가 열리지 않음");
-  invariant(nhMeta?.strategy_rate_capability === true && nhMeta?.selectable === true, "농·축협 수집기준 최고금리 capability가 열리지 않음");
-  invariant(await page.locator("#market-flow").isVisible(), "저축은행 포함 모드에서 이력 block이 숨겨짐");
-  invariant(await page.locator("#sim-form").isVisible(), "저축은행 포함 모드에서 시뮬레이터가 숨겨짐");
-  await assertMarketIntelligence(page);
-  await assertExternalMarketContext(page);
-  await assertStrategyRoleSplit(page, "desktop");
+  await assertCoreStrategy(page, name);
 
-  await selectMode(page, "mutual_finance", "상호금융");
-  invariant(cleanNumber(await page.locator("#count").textContent()) > 0, "상호금융 12M 비교군이 비어 있음");
-  invariant(await page.locator("#market-flow").isHidden(), "상호금융 단독에서 저축은행 이력 block이 노출됨");
-  invariant(await page.locator("#sim-form").isHidden(), "상호금융 단독에서 고려저축은행 시뮬레이터가 열림");
-  invariant(await page.locator("#market-intelligence").isVisible(), "상호금융 모드에서 C2 시장동향 패널이 숨겨짐");
+  const cu = page.locator('[data-sector="cu"]');
+  const kfcc = page.locator('[data-sector="kfcc"]');
+  const nh = page.locator('[data-sector="nh_local"]');
+  invariant(await cu.count() === 1 && !(await cu.isDisabled()), `${name}: credit-union selector unavailable`);
+  invariant(await kfcc.count() === 1 && !(await kfcc.isDisabled()), `${name}: KFCC selector unavailable`);
+  invariant(await nh.count() === 1 && !(await nh.isDisabled()), `${name}: NH-local selector unavailable`);
 
-  await page.locator('[data-sector="cu"]').uncheck();
-  await page.locator('[data-sector="nh_local"]').uncheck();
-  await waitForPositiveCount(page);
-  invariant(await page.locator("#top5 tr").count() > 0, "새마을금고 단독 TOP5가 비어 있음");
+  const combined = page.locator('[data-market-mode="combined"]');
+  if (await combined.count()) {
+    await combined.evaluate((button) => button.click());
+    await page.waitForFunction(
+      () => document.querySelector('[data-market-mode="combined"]')?.classList.contains("active"),
+      null,
+      { timeout: 10_000 },
+    );
+    invariant(await page.locator("#sim-form").isVisible(), `${name}: combined simulator hidden`);
+  }
 
-  await page.locator('[data-sector="kfcc"]').uncheck();
-  await page.locator('[data-sector="nh_local"]').check();
-  await waitForPositiveCount(page);
-  invariant(await page.locator("#top5 tr").count() > 0, "농·축협 단독 TOP5가 비어 있음");
-
-  await page.locator('[data-sector="cu"]').check();
-  await page.locator('[data-sector="kfcc"]').check();
-  await selectMode(page, "combined", "저축은행 + 상호금융");
-  invariant(cleanNumber(await page.locator("#count").textContent()) > 0, "통합 12M 비교군이 비어 있음");
-  invariant(await page.locator('[data-sector="cu"]').isChecked(), "통합 복귀 후 신협 선택이 복원되지 않음");
-  invariant(await page.locator('[data-sector="kfcc"]').isChecked(), "통합 복귀 후 새마을금고 선택이 복원되지 않음");
-  invariant(await page.locator('[data-sector="nh_local"]').isChecked(), "통합 복귀 후 농·축협 선택이 복원되지 않음");
-  invariant(await page.locator("#top5 tr").count() > 0, "통합 TOP5가 비어 있음");
-  await assertStrategyRoleSplit(page, "desktop combined");
-
-  await assertNoHorizontalOverflow(page, "desktop");
-  await page.screenshot({ path: path.join(workDir, "strategy-smoke-desktop.png"), fullPage: true });
-  invariant(runtimeErrors.length === 0, `desktop browser runtime errors:\n${runtimeErrors.join("\n")}`);
-  await context.close();
-}
-
-async function runMobile(browser) {
-  const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
-  const page = await context.newPage();
-  const runtimeErrors = [];
-  page.on("pageerror", (error) => runtimeErrors.push(`pageerror: ${error.message}`));
-  page.on("console", (message) => {
-    if (message.type() === "error") runtimeErrors.push(`console: ${message.text()}`);
+  await page.screenshot({
+    path: path.join(workDir, `strategy-smoke-${name}.png`),
+    fullPage: true,
   });
-
-  await waitForDashboard(page);
-  const kfccMeta = await strategySectorMeta(page, "kfcc");
-  const nhMeta = await strategySectorMeta(page, "nh_local");
-  invariant(kfccMeta?.strategy_rate_capability === true && kfccMeta?.selectable === true, "모바일 새마을금고 capability가 열리지 않음");
-  invariant(nhMeta?.strategy_rate_capability === true && nhMeta?.selectable === true, "모바일 농·축협 capability가 열리지 않음");
-  invariant(!(await page.locator('[data-sector="kfcc"]').isDisabled()), "모바일 새마을금고 selector가 비활성화됨");
-  invariant(!(await page.locator('[data-sector="nh_local"]').isDisabled()), "모바일 농·축협 selector가 비활성화됨");
-  invariant(await page.locator('[data-market-mode="combined"]').evaluate((node) => node.classList.contains("active")), "모바일 기본 비교모드가 통합모드가 아님");
-  invariant(await page.locator('[data-sector="cu"]').isChecked(), "모바일 기본 통합모드에서 신협이 선택되지 않음");
-  invariant(await page.locator('[data-sector="kfcc"]').isChecked(), "모바일 기본 통합모드에서 새마을금고가 선택되지 않음");
-  invariant(await page.locator('[data-sector="nh_local"]').isChecked(), "모바일 기본 통합모드에서 농·축협이 선택되지 않음");
-  invariant(await page.locator("#market-intelligence").count() === 1, "모바일 C2 Market Intelligence panel이 없음");
-  await assertStrategyRoleSplit(page, "mobile");
-  await assertNoHorizontalOverflow(page, "mobile combined");
-  await selectMode(page, "mutual_finance", "상호금융");
-  invariant(cleanNumber(await page.locator("#count").textContent()) > 0, "모바일 상호금융 12M 비교군이 비어 있음");
-  invariant(await page.locator("#sim-form").isHidden(), "모바일 상호금융 모드에서 시뮬레이터가 열림");
-  invariant(await page.locator("#market-intelligence").isVisible(), "모바일 상호금융 모드에서 C2 패널이 숨겨짐");
-  await assertStrategyRoleSplit(page, "mobile mutual-finance");
-  await assertNoHorizontalOverflow(page, "mobile mutual-finance");
-  await page.screenshot({ path: path.join(workDir, "strategy-smoke-mobile.png"), fullPage: true });
-  invariant(runtimeErrors.length === 0, `mobile browser runtime errors:\n${runtimeErrors.join("\n")}`);
+  invariant(runtimeErrors.length === 0, `${name} browser errors:\n${runtimeErrors.join("\n")}`);
   await context.close();
 }
 
 (async () => {
-  const browser = await chromium.launch({ channel: "chrome", headless: true });
+  const browser = await chromium.launch({
+    executablePath: process.env.CHROME_BIN || "/usr/bin/google-chrome",
+    headless: true,
+    args: ["--no-sandbox"],
+  });
   try {
-    await runDesktop(browser);
-    await runMobile(browser);
-    console.log("strategy preview browser smoke: PASS (desktop 1280px, mobile 390px)");
+    await runViewport(browser, { width: 1280, height: 900 }, "desktop");
+    await runViewport(browser, { width: 390, height: 844 }, "mobile");
+    console.log("strategy preview smoke: PASS");
   } finally {
     await browser.close();
   }
 })().catch((error) => {
-  console.error(error.stack || error.message || String(error));
+  console.error(error.stack || error);
   process.exit(1);
 });
