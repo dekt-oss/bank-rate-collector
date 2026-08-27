@@ -48,9 +48,92 @@ def _alembic(command: str, db_path: Path) -> subprocess.CompletedProcess:
 
 
 def _seed_old_market_indicators(db_path: Path) -> None:
+    """Quantity 이전의 유효한 provenance 체인과 7개 지표를 심는다.
+
+    `market_indicators.source_id/raw_artifact_id`는 실제 DB에서 FK다. SQLite의
+    직접 연결은 기본적으로 FK 검사를 꺼 두기 때문에 예전 fixture는 존재하지
+    않는 부모 키를 심을 수 있었고, 이후 batch migration이 표를 복사할 때만
+    실패했다. migration이 고아 FK를 허용하도록 약화시키지 않고 fixture를
+    운영 DB와 같은 유효한 상태로 만든다.
+    """
     conn = sqlite3.connect(db_path)
     try:
+        now = "2026-08-27 00:00:00"
+        conn.execute(
+            """
+            INSERT INTO sources (
+                id, name, sector, mode, source_role, trust_level, priority,
+                base_reference, enabled, schedule_cron, policy_status,
+                coverage_status, parser_version, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "bok_ecos_macro",
+                "BOK ECOS fixture",
+                "macro",
+                "api",
+                "reference",
+                "official",
+                10,
+                "fixture",
+                1,
+                None,
+                "verified",
+                "fixture",
+                "test",
+                now,
+                now,
+            ),
+        )
+        conn.execute(
+            """
+            INSERT INTO collection_runs (
+                id, source_id, mode, started_at, finished_at, status,
+                query_context_json, raw_count, parsed_count, valid_count,
+                warning_count, error_count, message, schema_fingerprint,
+                previous_run_id, fallback_used, blocked_until
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "fixture-run",
+                "bok_ecos_macro",
+                "api",
+                now,
+                now,
+                "success",
+                "{}",
+                len(OLD_SEVEN),
+                len(OLD_SEVEN),
+                len(OLD_SEVEN),
+                0,
+                0,
+                None,
+                None,
+                None,
+                0,
+                None,
+            ),
+        )
         for index, (code, effective, value, unit) in enumerate(OLD_SEVEN):
+            conn.execute(
+                """
+                INSERT INTO raw_artifacts (
+                    id, run_id, artifact_type, relative_path, sha256,
+                    content_length, encoding, request_meta_json, captured_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    f"artifact-{index}",
+                    "fixture-run",
+                    "json",
+                    f"fixture/{code}.json",
+                    f"fixture-sha-{index:02d}",
+                    1,
+                    "utf-8",
+                    "{}",
+                    now,
+                ),
+            )
             conn.execute(
                 """
                 INSERT INTO market_indicators (
@@ -64,7 +147,7 @@ def _seed_old_market_indicators(db_path: Path) -> None:
                     code,
                     code,
                     "bok_ecos_macro",
-                    "2026-08-27 00:00:00",
+                    now,
                     effective,
                     value,
                     unit,
@@ -129,7 +212,7 @@ def test_quantity_migration_preserves_existing_seven_numeric_values(tmp_path: Pa
         raw = conn.execute(
             "SELECT value, typeof(value) FROM market_indicators "
             "WHERE indicator_code='bok_bank_term_deposit_1y_rate'"
-        ).one()
+        ).fetchone()
         market_decl = conn.execute("PRAGMA table_info(market_indicators)").fetchall()
         rate_decl = conn.execute("PRAGMA table_info(rate_observations)").fetchall()
     finally:
