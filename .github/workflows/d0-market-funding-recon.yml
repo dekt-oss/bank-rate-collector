@@ -9,6 +9,7 @@ on:
       - feat/market-funding-stage0-d0-20260827
     paths:
       - scripts/d0_market_funding_ecos_recon.py
+      - scripts/d0_market_funding_exact_probe.py
       - .github/workflows/d0-market-funding-recon.yml
 
 permissions:
@@ -43,26 +44,37 @@ jobs:
       - name: Sync dependencies
         run: uv sync --locked
 
-      - name: Run read-only ECOS market-funding recon
+      - name: Discover candidate ECOS market-funding contracts
         env:
           ECOS_API_KEY: ${{ secrets.ECOS_API_KEY }}
         run: uv run python scripts/d0_market_funding_ecos_recon.py
 
-      - name: Check ECOS key never reached report
+      - name: Verify exact labeled ECOS market-funding series
+        env:
+          ECOS_API_KEY: ${{ secrets.ECOS_API_KEY }}
+        run: uv run python scripts/d0_market_funding_exact_probe.py
+
+      - name: Check ECOS key never reached reports
         env:
           ECOS_API_KEY: ${{ secrets.ECOS_API_KEY }}
         run: |
-          REPORT=docs/source-recon/market-funding-d0-ecos-recon.json
-          if grep -qF "$ECOS_API_KEY" "$REPORT"; then
-            echo "ECOS_API_KEY leaked into $REPORT"
-            exit 1
-          fi
+          for REPORT in \
+            docs/source-recon/market-funding-d0-ecos-recon.json \
+            docs/source-recon/market-funding-d0-exact-series.json
+          do
+            if grep -qF "$ECOS_API_KEY" "$REPORT"; then
+              echo "ECOS_API_KEY leaked into $REPORT"
+              exit 1
+            fi
+          done
           echo "ECOS key leak: 0"
 
       - uses: actions/upload-artifact@v4
         with:
           name: market-funding-d0-ecos-recon
-          path: docs/source-recon/market-funding-d0-ecos-recon.json
+          path: |
+            docs/source-recon/market-funding-d0-ecos-recon.json
+            docs/source-recon/market-funding-d0-exact-series.json
           retention-days: 14
 
       - name: Mark diagnostic run successful
