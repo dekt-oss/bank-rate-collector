@@ -10,9 +10,10 @@ operation, but the rendered catalogue does not expose all operation paths at
 once. D1 therefore treats non-general operation names as discovery candidates:
 a candidate is usable only when the live gateway accepts it and returns data.
 
-DATA_GO_KR_SERVICE_KEY is optional so the workflow can still record whether the
-credential gate is the blocker. When it is present, the key is redacted from
-all URLs, payload diagnostics, and errors before a report is written.
+Source-specific Data.go.kr credentials are supported because access approval is
+service-scoped in the portal. A legacy generic key is accepted only as a
+fallback. Credentials are redacted from all URLs, payload diagnostics, and
+errors before a report is written.
 """
 
 from __future__ import annotations
@@ -29,7 +30,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-KEY_ENV = "DATA_GO_KR_SERVICE_KEY"
+GENERIC_KEY_ENV = "DATA_GO_KR_SERVICE_KEY"
+KEY_ENVS = {
+    "savings_bank": "DATA_GO_KR_SERVICE_KEY_SB",
+    "credit_union": "DATA_GO_KR_SERVICE_KEY_SH",
+    "agri_coop": "DATA_GO_KR_SERVICE_KEY_NH",
+}
 OUT = Path("docs/source-recon/market-funding-d1-institution-recon.json")
 TIMEOUT = 25
 INTERVAL = 0.3
@@ -96,15 +102,29 @@ DISCOVERY_SUFFIXES = (
 )
 
 
-def _mask(text: str, key: str) -> str:
-    if not key:
-        return text
-    encoded = urllib.parse.quote_plus(key)
-    return text.replace(key, "[REDACTED]").replace(encoded, "[REDACTED]")
+def _credential(service_key: str) -> tuple[str, str | None]:
+    source_env = KEY_ENVS[service_key]
+    source_key = os.environ.get(source_env, "").strip()
+    if source_key:
+        return source_key, source_env
+    generic_key = os.environ.get(GENERIC_KEY_ENV, "").strip()
+    if generic_key:
+        return generic_key, GENERIC_KEY_ENV
+    return "", None
 
 
-def _request(url: str, key: str) -> dict[str, Any]:
-    record: dict[str, Any] = {"url": _mask(url, key)}
+def _mask(text: str, keys: tuple[str, ...]) -> str:
+    masked = text
+    for key in keys:
+        if not key:
+            continue
+        encoded = urllib.parse.quote_plus(key)
+        masked = masked.replace(key, "[REDACTED]").replace(encoded, "[REDACTED]")
+    return masked
+
+
+def _request(url: str, key: str, all_keys: tuple[str, ...]) -> dict[str, Any]:
+    record: dict[str, Any] = {"url": _mask(url, all_keys)}
     request = urllib.request.Request(
         url,
         headers={"User-Agent": "rate-monitor/1 (+public financial-data recon)"},
@@ -118,13 +138,13 @@ def _request(url: str, key: str) -> dict[str, Any]:
             try:
                 record["payload"] = json.loads(text)
             except json.JSONDecodeError:
-                record["text"] = _mask(text[:4000], key)
+                record["text"] = _mask(text[:4000], all_keys)
     except urllib.error.HTTPError as error:
         body = error.read().decode("utf-8", "replace")
         record["http_status"] = error.code
-        record["text"] = _mask(body[:4000], key)
+        record["text"] = _mask(body[:4000], all_keys)
     except Exception as error:  # noqa: BLE001 - diagnostic must preserve failure class
-        record["error"] = f"{type(error).__name__}: {_mask(str(error), key)}"
+        record["error"] = f"{type(error).__name__}: {_mask(str(error), all_keys)}"
     time.sleep(INTERVAL)
     return record
 
@@ -225,10 +245,15 @@ def _safe_sample(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return rows[:8]
 
 
-def discover_service(service: Service, key: str) -> dict[str, Any]:
+def discover_service(
+    service: Service,
+    key: str,
+    credential_env: str | None,
+    all_keys: tuple[str, ...],
+) -> dict[str, Any]:
     operations: list[dict[str, Any]] = []
     for operation in _operation_candidates(service):
-        record = _request(_operation_url(service, operation, key), key)
+        record = _request(_operation_url(service, operation, key), key, all_keys)
         rows = _flatten_items(record.get("payload"))
         operations.append(
             {
@@ -250,6 +275,7 @@ def discover_service(service: Service, key: str) -> dict[str, Any]:
     return {
         "service": service.key,
         "base": service.base,
+        "credential_env": credential_env,
         "credential_present": bool(key),
         "operations": operations,
         "accepted_operations": [row["operation"] for row in accepted],
@@ -259,25 +285,51 @@ def discover_service(service: Service, key: str) -> dict[str, Any]:
 
 
 def main() -> int:
-    key = os.environ.get(KEY_ENV, "").strip()
+    credentials = {service.key: _credential(service.key) for service in SERVICES}
+    all_keys = tuple(
+        key
+        for key in {
+            os.environ.get(env_name, "").strip()
+            for env_name in (*KEY_ENVS.values(), GENERIC_KEY_ENV)
+        }
+        if key
+    )
     report = {
         "mode": "read_only_no_db_write",
         "source": "Financial Services Commission statistics via Data.go.kr",
-        "credential_env": KEY_ENV,
-        "credential_present": bool(key),
+        "credential_envs": {
+            service_key: env_name for service_key, env_name in KEY_ENVS.items()
+        },
+        "generic_fallback_env": GENERIC_KEY_ENV,
+        "credential_present_by_service": {
+            service_key: bool(key)
+            for service_key, (key, _env_name) in credentials.items()
+        },
         "services": {},
     }
     for service in SERVICES:
-        report["services"][service.key] = discover_service(service, key)
+        key, credential_env = credentials[service.key]
+        report["services"][service.key] = discover_service(
+            service,
+            key,
+            credential_env,
+            all_keys,
+        )
 
     OUT.parent.mkdir(parents=True, exist_ok=True)
     blob = json.dumps(report, ensure_ascii=False, indent=2)
-    if key and (key in blob or urllib.parse.quote_plus(key) in blob):
-        blob = _mask(blob, key)
+    if any(key in blob or urllib.parse.quote_plus(key) in blob for key in all_keys):
+        blob = _mask(blob, all_keys)
         print("warning: credential residue removed before persistence")
     OUT.write_text(blob, encoding="utf-8")
 
-    print(f"credential_present={bool(key)}")
+    print(
+        "credential_present="
+        + ",".join(
+            f"{service.key}:{bool(credentials[service.key][0])}"
+            for service in SERVICES
+        )
+    )
     for service in SERVICES:
         result = report["services"][service.key]
         print(
@@ -287,12 +339,13 @@ def main() -> int:
         )
     print(f"report={OUT} bytes={len(blob):,}")
 
-    # Missing credentials are an evidence result, not a CI failure. If a key is
-    # configured, however, the verified general endpoint must be accepted.
-    if not key:
-        return 0
+    # A missing credential remains evidence, not a CI failure. Once a source key
+    # is configured, however, that source's verified general endpoint must work.
     failed_controls = []
     for service in SERVICES:
+        key, _credential_env = credentials[service.key]
+        if not key:
+            continue
         result = report["services"][service.key]
         if service.general_operation not in result["accepted_operations"]:
             failed_controls.append(service.key)
