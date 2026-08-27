@@ -5,7 +5,7 @@ SQLite에는 진짜 DECIMAL 타입이 없고 SQLAlchemy Numeric을 쓰면 float 
 고정소수 문자열로 저장해 십진 정확도와 정렬 순서를 함께 보장한다.
 """
 
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 
 from sqlalchemy import String, TypeDecorator
 
@@ -35,17 +35,53 @@ class QuantityOutOfRangeError(ValueError):
     """금융시장 수량이 저장 가능한 범위를 벗어났다."""
 
 
+class QuantityPrecisionError(ValueError):
+    """원천 값이 Quantity의 6자리 소수 정밀도에 정확히 들어오지 않는다."""
+
+
+def _decimal(value: object) -> Decimal:
+    if isinstance(value, Decimal):
+        return value
+    try:
+        return Decimal(str(value))
+    except (InvalidOperation, ValueError, TypeError) as exc:
+        raise QuantityOutOfRangeError(f"십진 수량으로 변환할 수 없다: {value!r}") from exc
+
+
 def quantize_quantity(value: object) -> Decimal:
-    """MarketIndicator 저장값을 하나의 canonical Decimal로 만든다."""
-    if not isinstance(value, Decimal):
-        value = Decimal(str(value))
-    if value < 0:
-        raise QuantityOutOfRangeError(f"음수 수량은 지원하지 않는다: {value}")
-    if value > MAX_QUANTITY:
+    """MarketIndicator 저장값을 lossless canonical Decimal로 만든다.
+
+    TypeDecorator bind 시점에 조용히 반올림하면 content hash와 실제 DB 값이
+    달라질 수 있다. 따라서 6자리보다 정밀한 원천 값은 저장하지 않고 계약
+    재검토 대상으로 보낸다.
+    """
+    decimal_value = _decimal(value)
+    if not decimal_value.is_finite():
+        raise QuantityOutOfRangeError(f"유한한 수량만 지원한다: {decimal_value}")
+    if decimal_value < 0:
+        raise QuantityOutOfRangeError(f"음수 수량은 지원하지 않는다: {decimal_value}")
+    if decimal_value > MAX_QUANTITY:
         raise QuantityOutOfRangeError(
-            f"수량이 고정소수 저장 범위를 넘는다: {value} > {MAX_QUANTITY}"
+            f"수량이 고정소수 저장 범위를 넘는다: {decimal_value} > {MAX_QUANTITY}"
         )
-    return value.quantize(QUANTITY_EXPONENT)
+    quantized = decimal_value.quantize(QUANTITY_EXPONENT)
+    if quantized != decimal_value:
+        raise QuantityPrecisionError(
+            "수량이 6자리 소수 정밀도를 초과한다: "
+            f"{decimal_value} -> {quantized}"
+        )
+    return quantized
+
+
+def canonical_quantity_text(value: object) -> str:
+    """해시·감사 로그에 쓰는 부호 없는 6자리 canonical decimal text."""
+    return f"{quantize_quantity(value):.{QUANTITY_DEC_DIGITS}f}"
+
+
+def quantity_storage_text(value: object) -> str:
+    """SQLite에 저장하는 zero-padded Quantity 문자열."""
+    quantized = quantize_quantity(value)
+    return f"{quantized:0{QUANTITY_WIDTH}f}"
 
 
 class Rate(TypeDecorator):
@@ -107,8 +143,7 @@ class Quantity(TypeDecorator):
     def process_bind_param(self, value: object, dialect: object) -> str | None:
         if value is None:
             return None
-        quantized = quantize_quantity(value)
-        return f"{quantized:0{QUANTITY_WIDTH}f}"
+        return quantity_storage_text(value)
 
     def process_result_value(self, value: object, dialect: object) -> Decimal | None:
         if value is None:
