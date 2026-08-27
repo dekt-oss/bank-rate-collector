@@ -7,8 +7,17 @@ on:
         description: "관리자 수집 암호"
         required: true
         default: ""
+      mode:
+        description: "수집 모드"
+        type: choice
+        required: true
+        default: incremental
+        options:
+          - incremental
+          - backfill
+          - custom
       periods:
-        description: "업권별 최근 보고기간 수"
+        description: "custom 모드 업권별 최근 보고기간 수"
         type: number
         required: false
         default: 12
@@ -17,7 +26,7 @@ on:
     - cron: "52 15 * * 0-4"
 
   push:
-    branches: [feat/market-funding-stage0-d0-20260827]
+    branches: [feat/market-funding-ops-finalize-20260828]
 
 concurrency:
   group: rate-data-writer
@@ -29,7 +38,10 @@ permissions:
 
 jobs:
   collect:
-    if: ${{ github.event_name != 'push' || contains(github.event.head_commit.message, '[funding-r2]') }}
+    if: >-
+      ${{ github.event_name != 'push' ||
+          contains(github.event.head_commit.message, '[funding-r2]') ||
+          contains(github.event.head_commit.message, '[funding-backfill]') }}
     runs-on: ubuntu-latest
     steps:
       - name: Check collect password
@@ -93,6 +105,21 @@ jobs:
           RATE_MONITOR_DB_URL: sqlite+pysqlite:///${{ github.workspace }}/work/rate_monitor.sqlite3
         run: uv run alembic upgrade head
 
+      - name: Resolve collection mode
+        env:
+          DISPATCH_MODE: ${{ inputs.mode }}
+          COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
+        run: |
+          set -euo pipefail
+          MODE="incremental"
+          if [[ "$COMMIT_MESSAGE" == *"[funding-backfill]"* ]]; then
+            MODE="backfill"
+          elif [[ -n "${DISPATCH_MODE:-}" ]]; then
+            MODE="$DISPATCH_MODE"
+          fi
+          echo "FUNDING_MODE=$MODE" >> "$GITHUB_ENV"
+          echo "funding collection mode=$MODE"
+
       - name: Refresh ECOS funding-sector totals
         env:
           ECOS_API_KEY: ${{ secrets.ECOS_API_KEY }}
@@ -113,6 +140,7 @@ jobs:
           uv run python -m rate_monitor.collectors.data_go_funding.cli collect \
             --db work/rate_monitor.sqlite3 \
             --raw-root data/raw \
+            --mode "$FUNDING_MODE" \
             --periods "$PERIODS" \
             --json publish/funding-first-run.json
 
@@ -124,6 +152,9 @@ jobs:
             --json publish/funding-report.json
           uv run python - <<'PY'
           import json, sqlite3
+          from pathlib import Path
+          from rate_monitor.collectors.data_go_funding.operations import coverage_summary
+
           c = sqlite3.connect("work/rate_monitor.sqlite3")
           c.row_factory = sqlite3.Row
           total = c.execute(
@@ -144,6 +175,7 @@ jobs:
               "total": total,
               "active": active,
               "sources": [dict(r) for r in sources],
+              "historical_coverage": coverage_summary(Path("work/rate_monitor.sqlite3")),
               "integrity_check": c.execute("PRAGMA integrity_check").fetchone()[0],
               "foreign_key_violations": len(c.execute("PRAGMA foreign_key_check").fetchall()),
           }
@@ -169,6 +201,7 @@ jobs:
           uv run python -m rate_monitor.collectors.data_go_funding.cli collect \
             --db work/rate_monitor.sqlite3 \
             --raw-root data/raw \
+            --mode "$FUNDING_MODE" \
             --periods "$PERIODS" \
             --json publish/funding-second-run.json
           uv run python -m rate_monitor.collectors.data_go_funding.cli counts \
