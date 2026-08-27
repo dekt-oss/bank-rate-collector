@@ -36,15 +36,39 @@ def inject_dashboard_search_performance(html: str) -> str:
   const prefTagHas = (raw, code) => raw ? (` ${raw} `).includes(` ${code} `) : false;
 
   fetch(data.table_url || "data/table.json")'''
-    rendered = _replace_required(rendered, helper_anchor, helpers, "preference tag helpers")
-
-    rendered = _replace_required(rendered, 'r.prefTags ? [...r.prefTags] : []', 'prefTagValues(r.prefTags)', "preference tag code census")
     rendered = _replace_required(
         rendered,
-        'r.prefTags.forEach((code) => counts.set(code, (counts.get(code) || 0) + 1));',
-        'prefTagValues(r.prefTags).forEach((code) => counts.set(code, (counts.get(code) || 0) + 1));',
+        helper_anchor,
+        helpers,
+        "preference tag helpers",
+    )
+
+    rendered = _replace_required(
+        rendered,
+        'r.prefTags ? [...r.prefTags] : []',
+        'prefTagValues(r.prefTags)',
+        "preference tag code census",
+    )
+    rendered = _replace_required(
+        rendered,
+        'r.prefTags.forEach((code) => counts.set(code, '
+        '(counts.get(code) || 0) + 1));',
+        'prefTagValues(r.prefTags).forEach((code) => counts.set(code, '
+        '(counts.get(code) || 0) + 1));',
         "preference tag counts",
     )
-    rendered = _replace_required(rendered, 'if (!r.prefTags || !r.prefTags.size) return false;', 'if (!r.prefTags) return false;', "preference tag empty guard", count=2)
-    rendered = _replace_required(rendered, 'if (r.prefTags.has(code)) hit = true;', 'if (prefTagHas(r.prefTags, code)) hit = true;', "preference tag match", count=2)
+    rendered = _replace_required(
+        rendered,
+        'if (!r.prefTags || !r.prefTags.size) return false;',
+        'if (!r.prefTags) return false;',
+        "preference tag empty guard",
+        count=2,
+    )
+    rendered = _replace_required(
+        rendered,
+        'if (r.prefTags.has(code)) hit = true;',
+        'if (prefTagHas(r.prefTags, code)) hit = true;',
+        "preference tag match",
+        count=2,
+    )
     return rendered
