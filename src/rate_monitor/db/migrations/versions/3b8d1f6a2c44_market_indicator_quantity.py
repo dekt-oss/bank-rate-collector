@@ -9,7 +9,7 @@ fixed-decimal 문자열로 다시 쓰고, 동시에 새 normalized-value hash로
 행 identity/source/date/unit은 변경하지 않는다.
 
 Revision ID: 3b8d1f6a2c44
-Revises: f2c90d8e7a11
+Revises: a3b7c2d91e40
 Create Date: 2026-08-27
 """
 
@@ -35,7 +35,7 @@ from rate_monitor.db.types import (
 )
 
 revision: str = "3b8d1f6a2c44"
-down_revision: str | None = "f2c90d8e7a11"
+down_revision: str | None = "a3b7c2d91e40"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
