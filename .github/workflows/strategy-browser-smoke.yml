@@ -7,17 +7,7 @@ on:
       - "web/templates/strategy.html"
       - "web/templates/site.html"
       - "web/assets/**"
-      - "src/rate_monitor/services/site_service.py"
-      - "src/rate_monitor/services/dashboard_ui_refinement_presentation.py"
-      - "src/rate_monitor/services/dashboard_product_scope*.py"
-      - "src/rate_monitor/services/dashboard_filter*.py"
-      - "src/rate_monitor/services/strategy_contract_service.py"
-      - "src/rate_monitor/services/strategy_refinement_service.py"
-      - "src/rate_monitor/services/strategy_service.py"
-      - "src/rate_monitor/services/strategy_product_history_service.py"
-      - "src/rate_monitor/services/strategy_savings_trend_policy.py"
-      - "src/rate_monitor/services/inflow_prediction_service.py"
-      - "src/rate_monitor/domain/preference_taxonomy.py"
+      - "src/rate_monitor/services/**"
       - "config/**"
       - "migrations/**"
       - "alembic.ini"
@@ -27,15 +17,15 @@ on:
       - "scripts/product_scope_runtime_smoke.js"
       - "scripts/product_scope_insight_smoke.js"
       - "scripts/filter_decision_runtime_smoke.js"
+      - "scripts/market_funding_preview_patch.py"
+      - "scripts/market_funding_preview_smoke.js"
       - ".github/workflows/strategy-preview.yml"
       - ".github/workflows/strategy-browser-smoke.yml"
   workflow_dispatch:
 
-# Strategy Preview workflow가 만든 exact-source 정적 산출물을 실제 Chrome으로 검증한다.
-# 이전 source의 preview branch를 잘못 검사하지 않도록 preview-source.json의 SHA가
-# 현재 github.sha와 같아질 때까지 기다린 뒤 실행한다.
-# Stage E0-6 exact-source verification trigger.
-# F3/N1 review gate final-head verification trigger.
+# Strategy Preview workflow의 exact-source 산출물을 실제 Chrome으로 검증한다.
+# Search에는 full macro, Strategy에는 compact decision context만 노출되는지까지
+# desktop/mobile에서 확인하고 스크린샷을 증거로 보존한다.
 concurrency:
   group: strategy-dashboard-browser-smoke
   cancel-in-progress: true
@@ -71,9 +61,7 @@ jobs:
                 SOURCE_SHA=$(python - <<'PY'
           import json
           from pathlib import Path
-
-          path = Path("work/preview-source.json")
-          print(json.loads(path.read_text(encoding="utf-8")).get("source_sha") or "")
+          print(json.loads(Path("work/preview-source.json").read_text(encoding="utf-8")).get("source_sha") or "")
           PY
           )
                 echo "preview source attempt=$attempt sha=$SOURCE_SHA"
@@ -86,8 +74,11 @@ jobs:
           done
           test "$SOURCE_SHA" = "$EXPECTED_SOURCE_SHA"
           git archive refs/remotes/origin/preview/strategy-dashboard site-public | tar -x -C published
+          test -s published/site-public/index.html
           test -s published/site-public/strategy.html
           test -s published/site-public/data/strategy-table.json
+          grep -q 'id="market-funding-preview"' published/site-public/index.html
+          grep -q 'id="strategy-market-funding-preview"' published/site-public/strategy.html
 
       - name: Install Playwright runner
         run: |
@@ -95,7 +86,11 @@ jobs:
           command -v google-chrome
           google-chrome --version
           npm install --no-save --package-lock=false @playwright/test@1.61.1
+          node --check scripts/strategy_preview_smoke.js
+          node --check scripts/product_scope_runtime_smoke.js
+          node --check scripts/product_scope_insight_smoke.js
           node --check scripts/filter_decision_runtime_smoke.js
+          node --check scripts/market_funding_preview_smoke.js
 
       - name: Run desktop and mobile browser smoke
         env:
@@ -119,6 +114,7 @@ jobs:
           node scripts/product_scope_runtime_smoke.js
           node scripts/product_scope_insight_smoke.js
           node scripts/filter_decision_runtime_smoke.js
+          node scripts/market_funding_preview_smoke.js
 
       - name: Upload browser smoke evidence
         if: always()
@@ -127,6 +123,7 @@ jobs:
           name: strategy-browser-smoke-${{ github.run_id }}
           path: |
             work/strategy-smoke-*.png
+            work/market-funding-*.png
             work/strategy-preview-http.log
             work/preview-source.json
           retention-days: 30
