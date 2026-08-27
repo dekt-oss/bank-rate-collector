@@ -36,11 +36,13 @@ from rate_monitor.collectors.data_go_funding.collector import (
     candidate_months,
     parse_points,
 )
+from rate_monitor.collectors.data_go_funding.history import historical_months
 from rate_monitor.db import models as m
 from rate_monitor.db.session import create_db_engine, make_session_factory, session_scope
 from rate_monitor.services.collection_service import save_raw_artifacts
 
 RETRY_ROUNDS = 1
+CU_DISCOVERY_MONTHS = 8
 
 
 @dataclass(frozen=True)
@@ -236,6 +238,29 @@ def _attempt_month(
         return schemas, str(exc)
 
 
+def _discover_credit_union_endpoint_for_history(
+    client: httpx.Client,
+    key: str,
+    months: tuple[str, ...],
+) -> str:
+    """Try several historical reporting months before declaring CU finance unavailable."""
+    errors: list[str] = []
+    for bas_ym in months[:CU_DISCOVERY_MONTHS]:
+        try:
+            return _discover_credit_union_endpoint(client, key, bas_ym)
+        except (FundingSourceUnavailable, FundingTransportError) as exc:
+            errors.append(f"{bas_ym}:{exc}")
+    if any("transport" in error.lower() or "timed out" in error.lower() for error in errors):
+        raise FundingTransportError(
+            "신협 finance endpoint historical discovery에 transport 불확실성이 남았다: "
+            + " | ".join(errors[-3:])
+        )
+    raise FundingSourceUnavailable(
+        "공식 카탈로그는 신협 재무현황 operation 존재를 명시하지만 "
+        f"{min(len(months), CU_DISCOVERY_MONTHS)}개 보고월에서 exact path를 확정하지 못했다"
+    )
+
+
 def collect_source_resilient(
     contract: SourceContract,
     *,
@@ -243,8 +268,11 @@ def collect_source_resilient(
     raw_root: Path,
     periods: int,
     required: bool,
+    requested_months: tuple[str, ...] | None = None,
 ) -> ResilientSourceResult:
-    months = tuple(candidate_months(contract, periods))
+    months = requested_months or tuple(candidate_months(contract, periods))
+    if not months:
+        raise FundingContractError(f"{contract.source_id}: 요청 기준월이 비어 있다")
     engine = create_db_engine(db_path)
     factory = make_session_factory(engine)
     run_id = _new_run(factory, contract, months)
@@ -264,7 +292,7 @@ def collect_source_resilient(
             headers={"User-Agent": "bank-rate-collector/1 institution-funding"},
         ) as client:
             if endpoint is None:
-                endpoint = _discover_credit_union_endpoint(client, key, months[0])
+                endpoint = _discover_credit_union_endpoint_for_history(client, key, months)
 
             for bas_ym in months:
                 schemas, error = _attempt_month(
@@ -334,11 +362,7 @@ def collect_source_resilient(
         message = str(exc)
     except FundingContractError as exc:
         status = "failed"
-        failures = {
-            month: str(exc)
-            for month in months
-            if month not in completed
-        }
+        failures = {month: str(exc) for month in months if month not in completed}
         message = str(exc)
     except Exception as exc:
         status = "failed"
@@ -386,10 +410,21 @@ def collect_all_resilient(
     raw_root: Path,
     periods: int,
     require_credit_union: bool = False,
+    start_month: str | None = None,
+    end_month: str | None = None,
 ) -> list[ResilientSourceResult]:
+    if bool(start_month) != bool(end_month):
+        raise FundingContractError("--start-month과 --end-month는 함께 지정해야 한다")
+
     results: list[ResilientSourceResult] = []
     for contract in CONTRACTS:
         required = contract.sector != "cu" or require_credit_union
+        requested = None
+        if start_month and end_month:
+            try:
+                requested = tuple(historical_months(contract, start_month, end_month))
+            except ValueError as exc:
+                raise FundingContractError(str(exc)) from exc
         results.append(
             collect_source_resilient(
                 contract,
@@ -397,6 +432,7 @@ def collect_all_resilient(
                 raw_root=raw_root,
                 periods=periods,
                 required=required,
+                requested_months=requested,
             )
         )
     return results
