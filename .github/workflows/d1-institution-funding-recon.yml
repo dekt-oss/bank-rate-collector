@@ -1,0 +1,79 @@
+name: Diagnostic — Institution funding D1 recon
+
+# Read-only discovery for FSC/Data.go.kr institution-level funding data.
+# Never opens the production DB and never publishes Strategy output.
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feat/market-funding-stage0-d0-20260827
+    paths:
+      - scripts/d1_institution_funding_data_go_recon.py
+      - .github/workflows/d1-institution-funding-recon.yml
+
+permissions:
+  contents: read
+
+jobs:
+  recon:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Sync dependencies
+        run: uv sync --locked
+
+      - name: Probe FSC institution funding APIs
+        id: probe
+        continue-on-error: true
+        env:
+          DATA_GO_KR_SERVICE_KEY_SB: ${{ secrets.DATA_GO_KR_SERVICE_KEY_SB }}
+          DATA_GO_KR_SERVICE_KEY_SH: ${{ secrets.DATA_GO_KR_SERVICE_KEY_SH }}
+          DATA_GO_KR_SERVICE_KEY_NH: ${{ secrets.DATA_GO_KR_SERVICE_KEY_NH }}
+          DATA_GO_KR_SERVICE_KEY: ${{ secrets.DATA_GO_KR_SERVICE_KEY }}
+        run: uv run python scripts/d1_institution_funding_data_go_recon.py
+
+      - name: Check credentials never reached report
+        env:
+          DATA_GO_KR_SERVICE_KEY_SB: ${{ secrets.DATA_GO_KR_SERVICE_KEY_SB }}
+          DATA_GO_KR_SERVICE_KEY_SH: ${{ secrets.DATA_GO_KR_SERVICE_KEY_SH }}
+          DATA_GO_KR_SERVICE_KEY_NH: ${{ secrets.DATA_GO_KR_SERVICE_KEY_NH }}
+          DATA_GO_KR_SERVICE_KEY: ${{ secrets.DATA_GO_KR_SERVICE_KEY }}
+        run: |
+          set -euo pipefail
+          REPORT=docs/source-recon/market-funding-d1-institution-recon.json
+          test -s "$REPORT"
+          for key in \
+            "${DATA_GO_KR_SERVICE_KEY_SB}" \
+            "${DATA_GO_KR_SERVICE_KEY_SH}" \
+            "${DATA_GO_KR_SERVICE_KEY_NH}" \
+            "${DATA_GO_KR_SERVICE_KEY}"; do
+            if [ -n "$key" ] && grep -qF "$key" "$REPORT"; then
+              echo "::error::Data.go.kr credential leaked into $REPORT"
+              exit 1
+            fi
+          done
+          echo "credential leak: 0"
+
+      - name: Upload D1 evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: market-funding-d1-institution-recon
+          path: docs/source-recon/market-funding-d1-institution-recon.json
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Fail if configured credential control failed
+        if: steps.probe.outcome != 'success'
+        run: |
+          echo "::error::D1 probe did not pass the verified general-endpoint control. See the evidence artifact."
+          exit 1

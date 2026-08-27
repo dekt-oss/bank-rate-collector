@@ -26,7 +26,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
-from rate_monitor.db.types import Rate
+from rate_monitor.db.types import Quantity, Rate
 
 
 def new_id() -> str:
@@ -338,7 +338,7 @@ class RateObservation(Base):
     raw_artifact: Mapped["RawArtifact"] = relationship()
 
 
-# ── 5.10 preference_conditions (P1-A에서는 스키마만) ───────────────────
+# ── 5.10 preference_conditions (P1-A에서는 스키마만) ────────────────────
 class PreferenceCondition(Base):
     __tablename__ = "preference_conditions"
 
@@ -472,9 +472,9 @@ class MarketIndicator(Base):
     # 원천이 밝힌 적용일. 없으면 채우지 않는다 — 수집일로 대체하면 정책금리가
     # 바뀐 날이 우리가 받은 날로 바뀐다.
     source_effective_at: Mapped[date | None] = mapped_column(Date, nullable=True)
-    # 금리와 같은 저장 형식을 쓴다. float은 3.5를 3.4999…로 만들고,
-    # 그냥 문자열이면 "10.0000" < "2.0000"이 참이 된다 (db/types.Rate).
-    value: Mapped[Decimal] = mapped_column(Rate)
+    # 지표는 금리(percent)와 1,000조원을 넘는 잔액(trillion_krw)을 함께 담는다.
+    # 상품금리 Rate를 넓히지 않고 이 표만 12+6자리 fixed-decimal Quantity를 쓴다.
+    value: Mapped[Decimal] = mapped_column(Quantity)
     unit: Mapped[str] = mapped_column(String(16))
     raw_artifact_id: Mapped[str] = mapped_column(ForeignKey("raw_artifacts.id"))
     source_locator: Mapped[str | None] = mapped_column(String(255), nullable=True)

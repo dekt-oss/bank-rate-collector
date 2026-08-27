@@ -1,0 +1,40 @@
+name: Diagnostic — Institution funding actual rows
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feat/market-funding-stage0-d0-20260827
+    paths:
+      - scripts/d1_institution_funding_actual_probe.py
+      - .github/workflows/d1-institution-funding-actual-probe.yml
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Set up Python
+        run: uv python install 3.12
+      - name: Sync dependencies
+        run: uv sync --locked
+      - name: Probe actual Data.go.kr institution rows
+        env:
+          DATA_GO_KR_SERVICE_KEY_SB: ${{ secrets.DATA_GO_KR_SERVICE_KEY_SB }}
+          DATA_GO_KR_SERVICE_KEY_SH: ${{ secrets.DATA_GO_KR_SERVICE_KEY_SH }}
+          DATA_GO_KR_SERVICE_KEY_NH: ${{ secrets.DATA_GO_KR_SERVICE_KEY_NH }}
+        run: uv run python scripts/d1_institution_funding_actual_probe.py
+      - name: Upload redacted public-row evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: market-funding-d1-actual-probe
+          path: docs/source-recon/market-funding-d1-actual-probe.json
+          if-no-files-found: error
+          retention-days: 14

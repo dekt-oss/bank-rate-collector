@@ -52,6 +52,14 @@ def _version(db_path: Path) -> list[str]:
         conn.close()
 
 
+def _model_tables() -> set[str]:
+    # 모델은 도메인별 모듈로 나뉠 수 있으므로 registry extension을 먼저 로드한다.
+    from rate_monitor.db import institution_funding_models  # noqa: F401
+    from rate_monitor.db.models import Base
+
+    return set(Base.metadata.tables)
+
+
 @pytest.fixture()
 def db_path(tmp_path: Path) -> Path:
     return tmp_path / "migration.sqlite3"
@@ -63,11 +71,9 @@ def test_upgrade_creates_exactly_the_tables_the_models_declare(db_path: Path) ->
     `== 14` 같은 숫자를 네 번 고쳤다 (2026-08-06). 표를 하나 더할 때마다
     관계없는 자리가 빨개지고, 정작 무엇이 다른지는 안 알려 준다.
     """
-    from rate_monitor.db.models import ALL_TABLES
-
     result = _alembic("upgrade head", db_path)
     assert result.returncode == 0, result.stderr
-    assert _tables(db_path) == set(ALL_TABLES)
+    assert _tables(db_path) == _model_tables()
     assert _version(db_path), "버전이 기록되지 않았다"
 
 
@@ -86,10 +92,9 @@ def test_migration_is_reproducible(db_path: Path) -> None:
     _alembic("downgrade base", db_path)
     result = _alembic("upgrade head", db_path)
     assert result.returncode == 0, result.stderr
-    from rate_monitor.db.models import ALL_TABLES
 
     assert _tables(db_path) == first
-    assert first == set(ALL_TABLES)
+    assert first == _model_tables()
 
 
 def test_migration_matches_models(db_path: Path) -> None:
@@ -97,10 +102,8 @@ def test_migration_matches_models(db_path: Path) -> None:
 
     autogenerate가 놓친 테이블이 있으면 여기서 잡힌다.
     """
-    from rate_monitor.db.models import Base
-
     _alembic("upgrade head", db_path)
-    assert _tables(db_path) == set(Base.metadata.tables)
+    assert _tables(db_path) == _model_tables()
 
 
 def test_partial_unique_index_survives_migration(db_path: Path) -> None:
