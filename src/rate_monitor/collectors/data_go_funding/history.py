@@ -38,8 +38,8 @@ def historical_months(
     if start > end:
         raise ValueError(f"backfill 시작월이 종료월보다 늦다: {start} > {end}")
 
-    start_year, start_num = int(start[:4]), int(start[4:])
-    end_year, end_num = int(end[:4]), int(end[4:])
+    start_year = int(start[:4])
+    end_year = int(end[:4])
     out: list[str] = []
     for year in range(end_year, start_year - 1, -1):
         for month in sorted(contract.cadence_months, reverse=True):
