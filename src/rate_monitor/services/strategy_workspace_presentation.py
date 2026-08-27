@@ -9,6 +9,9 @@ Strategy DOM을 `결정 → 시장근거 → 상품설계 → 지역·경쟁사 
 from __future__ import annotations
 
 from rate_monitor.services.dashboard_service import DashboardBuildError
+from rate_monitor.services.market_funding_strategy_presentation import (
+    inject_market_funding_strategy_presentation,
+)
 from rate_monitor.services.strategy_brand_theme_presentation import inject_strategy_brand_theme
 
 STYLE_MARKER = 'id="strategy-workspace-style"'
@@ -130,9 +133,16 @@ def inject_strategy_workspace_presentation(html: str) -> str:
             raise DashboardBuildError("Strategy Workspace 주입 상태가 불완전하다")
         if "</head>" not in html or "</body>" not in html:
             raise DashboardBuildError("Strategy Workspace 주입 위치를 찾지 못했다")
-        required = ('id="planning-zone"', 'id="market-flow"', 'class="grid interpretation"', 'class="grid primary"')
+        required = (
+            'id="planning-zone"',
+            'id="market-flow"',
+            'class="grid interpretation"',
+            'class="grid primary"',
+        )
         if any(marker not in html for marker in required):
             raise DashboardBuildError("Strategy Workspace 기존 레이아웃 계약을 찾지 못했다")
         rendered = html.replace("</head>", _CSS + "\n</head>", 1)
         rendered = rendered.replace("</body>", _JS + "\n</body>", 1)
+    if 'id="rate-monitor-data"' in rendered and 'id="market-flow"' in rendered:
+        rendered = inject_market_funding_strategy_presentation(rendered)
     return inject_strategy_brand_theme(rendered)
