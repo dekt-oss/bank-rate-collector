@@ -4,7 +4,6 @@ from datetime import date, datetime
 from decimal import Decimal
 
 from rate_monitor.collectors.data_go_funding import operations as ops
-from rate_monitor.collectors.data_go_funding.collector import FundingPoint
 from rate_monitor.db import models as m
 from rate_monitor.db.institution_funding_models import InstitutionFundingObservation
 from rate_monitor.db.session import create_db_engine, make_session_factory, session_scope
@@ -62,7 +61,10 @@ def test_coverage_summary_reports_historical_span(tmp_path):
         )
         session.add(raw)
         session.flush()
-        for month, end in (("2025-06", date(2025, 6, 30)), ("2026-06", date(2026, 6, 30))):
+        for month, end in (
+            ("2025-06", date(2025, 6, 30)),
+            ("2026-06", date(2026, 6, 30)),
+        ):
             session.add(
                 InstitutionFundingObservation(
                     institution_id=None,
