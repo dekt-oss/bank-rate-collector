@@ -21,6 +21,9 @@ from rate_monitor.services.dashboard_product_scope_readability_presentation impo
 from rate_monitor.services.dashboard_product_scope_runtime_repair import (
     repair_strategy_product_scope_runtime,
 )
+from rate_monitor.services.dashboard_search_performance_presentation import (
+    inject_dashboard_search_performance,
+)
 from rate_monitor.services.dashboard_strategy_decision_clarity_presentation import (
     inject_dashboard_strategy_decision_clarity,
 )
@@ -50,4 +53,5 @@ def inject_dashboard_ui_refinement(html: str) -> str:
     rendered = inject_dashboard_product_scope_insight(rendered)
     rendered = inject_dashboard_product_scope_readability(rendered)
     rendered = inject_dashboard_strategy_decision_clarity(rendered)
+    rendered = inject_dashboard_search_performance(rendered)
     return repair_strategy_product_scope_runtime(rendered)
