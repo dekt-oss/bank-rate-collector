@@ -1,0 +1,241 @@
+name: 수집 — Data.go 기관별 수신잔액
+
+on:
+  workflow_dispatch:
+    inputs:
+      password:
+        description: "관리자 수집 암호"
+        required: true
+        default: ""
+      periods:
+        description: "업권별 최근 보고기간 수"
+        type: number
+        required: false
+        default: 12
+
+  schedule:
+    - cron: "52 15 * * 0-4"
+
+  push:
+    branches: [feat/market-funding-stage0-d0-20260827]
+
+concurrency:
+  group: rate-data-writer
+  queue: max
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  collect:
+    if: ${{ github.event_name != 'push' || contains(github.event.head_commit.message, '[funding-r2]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check collect password
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        env:
+          EXPECTED: ${{ secrets.DASHBOARD_PASSWORD }}
+          GIVEN: ${{ inputs.password }}
+        run: |
+          set -euo pipefail
+          test -n "$EXPECTED"
+          test "$GIVEN" = "$EXPECTED"
+
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Sync dependencies
+        run: uv sync --locked
+
+      - name: Require authoritative R2 backend
+        env:
+          STORAGE_BACKEND: ${{ vars.STORAGE_BACKEND }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+          R2_REGION: ${{ vars.R2_REGION }}
+        run: |
+          set -euo pipefail
+          BACKEND=$(uv run python - <<'PY'
+          from pathlib import Path
+          from rate_monitor.services.storage_service import load_backend
+          print(load_backend(Path("config/storage.yaml")).backend.value)
+          PY
+          )
+          test "$BACKEND" = "r2"
+          echo "authoritative backend=$BACKEND"
+
+      - name: Restore authoritative R2 database
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+          R2_REGION: ${{ vars.R2_REGION }}
+        run: |
+          set -euo pipefail
+          mkdir -p work publish data/raw
+          uv run rate-monitor storage restore --dest work/rate_monitor.sqlite3
+
+      - name: Apply migrations
+        env:
+          RATE_MONITOR_DB_URL: sqlite+pysqlite:///${{ github.workspace }}/work/rate_monitor.sqlite3
+        run: uv run alembic upgrade head
+
+      - name: Refresh ECOS funding-sector totals
+        env:
+          ECOS_API_KEY: ${{ secrets.ECOS_API_KEY }}
+        run: |
+          uv run python -m rate_monitor.collectors.bok_ecos.macro_cli \
+            --db work/rate_monitor.sqlite3 \
+            --raw-root data/raw
+
+      - name: Collect Data.go institution funding
+        env:
+          DATA_GO_KR_SERVICE_KEY_SB: ${{ secrets.DATA_GO_KR_SERVICE_KEY_SB }}
+          DATA_GO_KR_SERVICE_KEY_SH: ${{ secrets.DATA_GO_KR_SERVICE_KEY_SH }}
+          DATA_GO_KR_SERVICE_KEY_NH: ${{ secrets.DATA_GO_KR_SERVICE_KEY_NH }}
+          DATA_GO_KR_SERVICE_KEY: ${{ secrets.DATA_GO_KR_SERVICE_KEY }}
+          PERIODS: ${{ inputs.periods || 12 }}
+        run: |
+          set -euo pipefail
+          uv run python -m rate_monitor.collectors.data_go_funding.cli collect \
+            --db work/rate_monitor.sqlite3 \
+            --raw-root data/raw \
+            --periods "$PERIODS" \
+            --json publish/funding-first-run.json
+
+      - name: SQL readback and coverage/reconciliation
+        run: |
+          set -euo pipefail
+          uv run python -m rate_monitor.collectors.data_go_funding.cli report \
+            --db work/rate_monitor.sqlite3 \
+            --json publish/funding-report.json
+          uv run python - <<'PY'
+          import json, sqlite3
+          c = sqlite3.connect("work/rate_monitor.sqlite3")
+          c.row_factory = sqlite3.Row
+          total = c.execute(
+              "SELECT COUNT(*) FROM institution_funding_observations"
+          ).fetchone()[0]
+          active = c.execute(
+              "SELECT COUNT(*) FROM institution_funding_observations WHERE valid_to IS NULL"
+          ).fetchone()[0]
+          sources = c.execute(
+              "SELECT source_id, COUNT(*) n "
+              "FROM institution_funding_observations WHERE valid_to IS NULL "
+              "GROUP BY source_id ORDER BY source_id"
+          ).fetchall()
+          assert total > 0 and active > 0
+          assert any(r["source_id"] == "data_go_savings_bank_funding" and r["n"] > 0 for r in sources)
+          assert any(r["source_id"] == "data_go_agri_coop_funding" and r["n"] > 0 for r in sources)
+          payload = {
+              "total": total,
+              "active": active,
+              "sources": [dict(r) for r in sources],
+              "integrity_check": c.execute("PRAGMA integrity_check").fetchone()[0],
+              "foreign_key_violations": len(c.execute("PRAGMA foreign_key_check").fetchall()),
+          }
+          assert payload["integrity_check"] == "ok"
+          assert payload["foreign_key_violations"] == 0
+          open("publish/funding-readback.json", "w", encoding="utf-8").write(
+              json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
+          )
+          print(json.dumps(payload, ensure_ascii=False))
+          PY
+          uv run python -m rate_monitor.collectors.data_go_funding.cli counts \
+            --db work/rate_monitor.sqlite3 > work/funding-before-rerun.json
+
+      - name: Idempotent rerun
+        env:
+          DATA_GO_KR_SERVICE_KEY_SB: ${{ secrets.DATA_GO_KR_SERVICE_KEY_SB }}
+          DATA_GO_KR_SERVICE_KEY_SH: ${{ secrets.DATA_GO_KR_SERVICE_KEY_SH }}
+          DATA_GO_KR_SERVICE_KEY_NH: ${{ secrets.DATA_GO_KR_SERVICE_KEY_NH }}
+          DATA_GO_KR_SERVICE_KEY: ${{ secrets.DATA_GO_KR_SERVICE_KEY }}
+          PERIODS: ${{ inputs.periods || 12 }}
+        run: |
+          set -euo pipefail
+          uv run python -m rate_monitor.collectors.data_go_funding.cli collect \
+            --db work/rate_monitor.sqlite3 \
+            --raw-root data/raw \
+            --periods "$PERIODS" \
+            --json publish/funding-second-run.json
+          uv run python -m rate_monitor.collectors.data_go_funding.cli counts \
+            --db work/rate_monitor.sqlite3 > work/funding-after-rerun.json
+          uv run python - <<'PY'
+          import json
+          before = json.load(open("work/funding-before-rerun.json"))
+          after = json.load(open("work/funding-after-rerun.json"))
+          if before != after:
+              raise SystemExit(f"funding observation duplicate/revision drift: {before} -> {after}")
+          print("idempotency ok:", after)
+          PY
+
+      - name: Snapshot and validate
+        run: |
+          set -euo pipefail
+          uv run rate-monitor snapshot \
+            --db work/rate_monitor.sqlite3 \
+            --publish-db publish/rate_monitor.sqlite3 \
+            --manifest publish/manifest.json
+          uv run rate-monitor validate --db publish/rate_monitor.sqlite3
+
+      - name: Upload authoritative state to R2
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+          R2_REGION: ${{ vars.R2_REGION }}
+        run: uv run rate-monitor storage upload --db publish/rate_monitor.sqlite3
+
+      - name: Verify R2 restore byte-for-byte
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+          R2_REGION: ${{ vars.R2_REGION }}
+        run: |
+          set -euo pipefail
+          uv run rate-monitor storage restore --dest work/funding-from-r2.sqlite3
+          cmp -s publish/rate_monitor.sqlite3 work/funding-from-r2.sqlite3
+          uv run python - <<'PY'
+          import sqlite3
+          c = sqlite3.connect("work/funding-from-r2.sqlite3")
+          assert c.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+          assert not c.execute("PRAGMA foreign_key_check").fetchall()
+          n = c.execute(
+              "SELECT COUNT(*) FROM institution_funding_observations WHERE valid_to IS NULL"
+          ).fetchone()[0]
+          assert n > 0
+          print("R2 funding readback active rows:", n)
+          PY
+
+      - name: Upload funding evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: institution-funding-${{ github.run_id }}
+          retention-days: 90
+          if-no-files-found: warn
+          path: |
+            data/raw/
+            publish/funding-first-run.json
+            publish/funding-second-run.json
+            publish/funding-report.json
+            publish/funding-readback.json
+            publish/manifest.json
