@@ -63,3 +63,7 @@ GitHub Actions는 평일 00:52 KST에 실행한다.
 ## 후속 deep backfill
 
 6년 backfill 이후 원천에서 더 오래된 데이터가 실제 반환되고 분석 가치가 있으면 `custom` 모드로 기간을 늘린다. 보유기간을 추정해서 채우거나 현재값을 과거에 복제하지 않는다.
+
+## Runtime Evidence Gate
+
+PR #225 branch에서 `[funding-backfill]` writer를 실행해 실제 원천 보유기간, 신협 exact contract, DB/R2 readback을 확인한다. 실행 결과가 확인되기 전에는 이 문서의 6년은 **요청 목표**이지 확보 완료 선언이 아니다.
