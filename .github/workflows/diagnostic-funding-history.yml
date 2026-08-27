@@ -11,15 +11,12 @@ on:
         description: "Backfill end month (YYYYMM)"
         required: false
         default: "202606"
-  push:
-    branches: [feat/market-funding-ops-backfill-20260828]
 
 permissions:
   contents: read
 
 jobs:
   probe:
-    if: ${{ github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[funding-history-probe]') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
