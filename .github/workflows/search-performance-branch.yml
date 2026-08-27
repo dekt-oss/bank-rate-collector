@@ -1,0 +1,185 @@
+name: Search performance branch comparison
+
+on:
+  push:
+    branches:
+      - "perf/search-*"
+    paths:
+      - "src/rate_monitor/services/dashboard_search_performance_presentation.py"
+      - "src/rate_monitor/services/dashboard_ui_refinement_presentation.py"
+      - "tests/test_dashboard_search_performance.py"
+      - "scripts/browser_perf.mjs"
+      - ".github/workflows/search-performance-branch.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Sync branch dependencies
+        run: uv sync --locked
+
+      - name: Restore current production database read-only
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+          R2_REGION: ${{ vars.R2_REGION }}
+        run: |
+          set -euo pipefail
+          mkdir -p work
+          BACKEND=$(uv run python -c "
+          from pathlib import Path
+          from rate_monitor.services.storage_service import load_backend
+          print(load_backend(Path('config/storage.yaml')).backend.value)
+          ")
+          echo "performance source backend=$BACKEND"
+          if [ "$BACKEND" = "r2" ]; then
+            uv run rate-monitor storage restore --dest work/rate_monitor.sqlite3
+          else
+            git fetch --force origin +rate-data:refs/remotes/origin/rate-data --depth=1
+            git show refs/remotes/origin/rate-data:latest/rate_monitor.sqlite3.gz \
+              > work/rate_monitor.sqlite3.gz
+            gunzip work/rate_monitor.sqlite3.gz
+          fi
+          test -s work/rate_monitor.sqlite3
+
+      - name: Prepare main worktree
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          git worktree add baseline origin/main
+          cd baseline
+          uv sync --locked
+
+      - name: Apply migrations to shared read-only-derived copy
+        env:
+          RATE_MONITOR_DB_URL: sqlite+pysqlite:///${{ github.workspace }}/work/rate_monitor.sqlite3
+        run: uv run alembic upgrade head
+
+      - name: Build main and branch Search sites from identical data
+        env:
+          RATE_MONITOR_STRATEGY_DASHBOARD: "1"
+        run: |
+          set -euo pipefail
+          uv run rate-monitor build-site \
+            --db work/rate_monitor.sqlite3 \
+            --template web/templates/site.html \
+            --out work/branch-site
+          (
+            cd baseline
+            uv run rate-monitor build-site \
+              --db ../work/rate_monitor.sqlite3 \
+              --template web/templates/site.html \
+              --out ../work/main-site
+          )
+          test -s work/branch-site/index.html
+          test -s work/main-site/index.html
+          test -s work/branch-site/data/table.json
+          test -s work/main-site/data/table.json
+          cmp work/branch-site/data/table.json work/main-site/data/table.json
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install Playwright performance dependency
+        run: |
+          npm install --no-save --no-package-lock playwright@1.54.2
+          npx playwright install --with-deps chromium
+
+      - name: Serve both builds
+        run: |
+          set -euo pipefail
+          python -m http.server 4173 --directory work/main-site > work/main-http.log 2>&1 &
+          python -m http.server 4174 --directory work/branch-site > work/branch-http.log 2>&1 &
+          echo $! > work/branch-http.pid
+          for port in 4173 4174; do
+            for attempt in $(seq 1 30); do
+              if curl -fsS "http://127.0.0.1:${port}/" >/dev/null; then break; fi
+              sleep 1
+            done
+            curl -fsS "http://127.0.0.1:${port}/" >/dev/null
+          done
+
+      - name: Measure main and branch in identical Chromium/network scenarios
+        run: |
+          set -euo pipefail
+          PRODUCTION_URL=http://127.0.0.1:4173 \
+            PERF_JSON=work/perf-main.json PERF_MD=work/perf-main.md \
+            node scripts/browser_perf.mjs
+          PRODUCTION_URL=http://127.0.0.1:4174 \
+            PERF_JSON=work/perf-branch.json PERF_MD=work/perf-branch.md \
+            node scripts/browser_perf.mjs
+
+      - name: Compare performance evidence
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          main = json.loads(Path("work/perf-main.json").read_text())
+          branch = json.loads(Path("work/perf-branch.json").read_text())
+          m = {x["scenario"]: x for x in main["scenarios"]}
+          b = {x["scenario"]: x for x in branch["scenarios"]}
+          rows = []
+          for name in m:
+              assert b[name]["parsed_rows"] == m[name]["parsed_rows"], name
+              def pct(new, old):
+                  if new is None or old in (None, 0):
+                      return None
+                  return (new - old) / old * 100
+              rows.append({
+                  "scenario": name,
+                  "main_initial_render_ms": m[name]["initial_render_ms"],
+                  "branch_initial_render_ms": b[name]["initial_render_ms"],
+                  "initial_render_change_pct": pct(
+                      b[name]["initial_render_ms"], m[name]["initial_render_ms"]
+                  ),
+                  "main_peak_heap_bytes": m[name]["peak_heap_bytes"],
+                  "branch_peak_heap_bytes": b[name]["peak_heap_bytes"],
+                  "peak_heap_change_pct": pct(
+                      b[name]["peak_heap_bytes"], m[name]["peak_heap_bytes"]
+                  ),
+                  "main_filter_latency_ms": m[name]["filter_latency_ms"],
+                  "branch_filter_latency_ms": b[name]["filter_latency_ms"],
+              })
+          Path("work/perf-comparison.json").write_text(
+              json.dumps(rows, indent=2) + "\n", encoding="utf-8"
+          )
+          print(json.dumps(rows, indent=2))
+          PY
+
+      - name: Upload Search performance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: search-performance-${{ github.run_id }}
+          path: |
+            work/perf-main.json
+            work/perf-main.md
+            work/perf-branch.json
+            work/perf-branch.md
+            work/perf-comparison.json
+            work/main-http.log
+            work/branch-http.log
+          retention-days: 30
+          if-no-files-found: warn
