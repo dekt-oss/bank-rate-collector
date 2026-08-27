@@ -33,7 +33,7 @@ def inject_dashboard_search_performance(html: str) -> str:
     rendered = _replace_required(rendered, old_tags, new_tags, "row preference tags")
 
     helper_anchor = '''  fetch(data.table_url || "data/table.json")'''
-    helpers = '''  // search-pref-tags-lazy-v1: 행마다 Set을 만들지 않고 필요할 때만 짧은 코드열을 해석한다.
+    helpers = '''  // search-pref-tags-lazy-v1: per-row Set 할당 없이 필요할 때만 해석한다.
   const prefTagValues = (raw) => raw ? String(raw).split(" ").filter(Boolean) : [];
   const prefTagHas = (raw, code) => raw ? (` ${raw} `).includes(` ${code} `) : false;
 
@@ -47,10 +47,18 @@ def inject_dashboard_search_performance(html: str) -> str:
         "preference tag code census",
         count=1,
     )
+    old_counts = (
+        'r.prefTags.forEach((code) => counts.set(code, '
+        '(counts.get(code) || 0) + 1));'
+    )
+    new_counts = (
+        'prefTagValues(r.prefTags).forEach((code) => counts.set(code, '
+        '(counts.get(code) || 0) + 1));'
+    )
     rendered = _replace_required(
         rendered,
-        'r.prefTags.forEach((code) => counts.set(code, (counts.get(code) || 0) + 1));',
-        'prefTagValues(r.prefTags).forEach((code) => counts.set(code, (counts.get(code) || 0) + 1));',
+        old_counts,
+        new_counts,
         "preference tag counts",
         count=1,
     )
