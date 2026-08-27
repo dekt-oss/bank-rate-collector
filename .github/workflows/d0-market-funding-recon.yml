@@ -1,0 +1,78 @@
+name: Diagnostic — Market funding D0 recon
+
+# Read-only source reconnaissance. This workflow never opens or writes the
+# production DB and never publishes a dashboard.
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feat/market-funding-stage0-d0-20260827
+    paths:
+      - scripts/d0_market_funding_ecos_recon.py
+      - .github/workflows/d0-market-funding-recon.yml
+
+permissions:
+  contents: read
+  statuses: write
+
+jobs:
+  recon:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Publish diagnostic run locator
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            -f state=pending \
+            -f context=market-funding-d0-recon \
+            -f description="Market funding ECOS D0 recon running" \
+            -f target_url="$TARGET_URL"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Sync dependencies
+        run: uv sync --locked
+
+      - name: Run read-only ECOS market-funding recon
+        env:
+          ECOS_API_KEY: ${{ secrets.ECOS_API_KEY }}
+        run: uv run python scripts/d0_market_funding_ecos_recon.py
+
+      - name: Check ECOS key never reached report
+        env:
+          ECOS_API_KEY: ${{ secrets.ECOS_API_KEY }}
+        run: |
+          REPORT=docs/source-recon/market-funding-d0-ecos-recon.json
+          if grep -qF "$ECOS_API_KEY" "$REPORT"; then
+            echo "ECOS_API_KEY leaked into $REPORT"
+            exit 1
+          fi
+          echo "ECOS key leak: 0"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: market-funding-d0-ecos-recon
+          path: docs/source-recon/market-funding-d0-ecos-recon.json
+          retention-days: 14
+
+      - name: Mark diagnostic run successful
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            -f state=success \
+            -f context=market-funding-d0-recon \
+            -f description="Market funding ECOS D0 recon complete" \
+            -f target_url="$TARGET_URL"
