@@ -47,6 +47,7 @@ class Target:
     key: str
     table_patterns: tuple[str, ...]
     item_patterns: tuple[str, ...]
+    table_exclude_patterns: tuple[str, ...] = ()
 
 
 TARGETS = (
@@ -71,6 +72,7 @@ TARGETS = (
             r"정기예탁금",
             r"1년",
         ),
+        table_exclude_patterns=(r"대출",),
     ),
     Target(
         key="bank_deposit_balances",
@@ -87,6 +89,7 @@ TARGETS = (
             r"총예금",
             r"예금총액",
         ),
+        table_exclude_patterns=(r"회전율",),
     ),
 )
 
@@ -184,7 +187,10 @@ def _item_name(row: dict[str, Any]) -> str | None:
 def _candidate_tables(rows: list[dict[str, Any]], target: Target) -> list[dict[str, Any]]:
     found: list[dict[str, Any]] = []
     for row in rows:
-        hits = _pattern_hits(str(row.get("STAT_NAME") or ""), target.table_patterns)
+        name = str(row.get("STAT_NAME") or "")
+        if _pattern_hits(name, target.table_exclude_patterns):
+            continue
+        hits = _pattern_hits(name, target.table_patterns)
         if hits:
             found.append({**row, "_matched_patterns": hits})
     found.sort(
@@ -197,12 +203,28 @@ def _candidate_tables(rows: list[dict[str, Any]], target: Target) -> list[dict[s
     return found[:MAX_TABLES_PER_TARGET]
 
 
-def _candidate_items(rows: list[dict[str, Any]], target: Target) -> list[dict[str, Any]]:
-    found: list[dict[str, Any]] = []
+def _candidate_items(
+    rows: list[dict[str, Any]], target: Target, cycle: str
+) -> list[dict[str, Any]]:
+    """Return unique item codes for the table's actual cycle.
+
+    ECOS StatisticItemList can return the same item code three times for A/M/Q.
+    D0 is a monthly-series recon, so accepting all three creates duplicate probes
+    and makes the artifact look like there are more distinct series than exist.
+    """
+    by_code: dict[str, dict[str, Any]] = {}
     for row in rows:
+        row_cycle = str(row.get("CYCLE") or "").strip()
+        if row_cycle and row_cycle != cycle:
+            continue
         hits = _pattern_hits(_row_text(row), target.item_patterns)
-        if hits:
-            found.append({**row, "_matched_patterns": hits})
+        code = _item_code(row)
+        if hits and code:
+            candidate = {**row, "_matched_patterns": hits}
+            prior = by_code.get(code)
+            if prior is None or len(hits) > len(prior.get("_matched_patterns") or []):
+                by_code[code] = candidate
+    found = list(by_code.values())
     found.sort(
         key=lambda row: (
             -len(row.get("_matched_patterns") or []),
@@ -287,14 +309,13 @@ def discover(key: str) -> dict[str, Any]:
                 f"StatisticItemList/{key}/json/kr/1/{ITEM_LIMIT}/{stat}", key
             )
             items = _candidate_items(
-                _container_rows(item_record, "StatisticItemList"), target
+                _container_rows(item_record, "StatisticItemList"), target, cycle
             )
             target_report["candidate_tables"].append(
                 {
                     "stat_code": stat,
                     "stat_name": table.get("STAT_NAME"),
                     "cycle": cycle,
-                    "start_time": table.get("SRCH_YN"),
                     "item_api_result": _api_result(item_record),
                     "item_hits": items,
                 }
