@@ -7,17 +7,30 @@ on:
         description: "관리자 수집 암호"
         required: true
         default: ""
+      mode:
+        description: "watch=일상 갱신 감시 / backfill=명시적 과거 적재"
+        type: choice
+        required: true
+        default: watch
+        options:
+          - watch
+          - backfill
       periods:
-        description: "업권별 최근 보고기간 수"
+        description: "watch 모드의 업권별 최근 보고기간 수"
         type: number
         required: false
         default: 12
+      start_month:
+        description: "backfill 시작월 YYYYMM"
+        required: false
+        default: "201801"
+      end_month:
+        description: "backfill 종료월 YYYYMM (비우면 실행월)"
+        required: false
+        default: ""
 
   schedule:
     - cron: "52 15 * * 0-4"
-
-  push:
-    branches: [feat/market-funding-stage0-d0-20260827]
 
 concurrency:
   group: rate-data-writer
@@ -29,7 +42,6 @@ permissions:
 
 jobs:
   collect:
-    if: ${{ github.event_name != 'push' || contains(github.event.head_commit.message, '[funding-r2]') }}
     runs-on: ubuntu-latest
     steps:
       - name: Check collect password
@@ -99,7 +111,30 @@ jobs:
         run: |
           uv run python -m rate_monitor.collectors.bok_ecos.macro_cli \
             --db work/rate_monitor.sqlite3 \
-            --raw-root data/raw
+            --raw-root data/raw \
+            --json publish/ecos-funding-run.json
+
+      - name: Resolve Data.go collection window
+        id: window
+        env:
+          MODE: ${{ inputs.mode || 'watch' }}
+          PERIODS: ${{ inputs.periods || 12 }}
+          START_MONTH: ${{ inputs.start_month || '201801' }}
+          END_MONTH: ${{ inputs.end_month }}
+        run: |
+          set -euo pipefail
+          if [[ "$MODE" == "backfill" ]]; then
+            if [[ -z "$END_MONTH" ]]; then END_MONTH=$(date -u +%Y%m); fi
+            echo "mode=backfill" >> "$GITHUB_OUTPUT"
+            echo "start_month=$START_MONTH" >> "$GITHUB_OUTPUT"
+            echo "end_month=$END_MONTH" >> "$GITHUB_OUTPUT"
+            echo "periods=" >> "$GITHUB_OUTPUT"
+          else
+            echo "mode=watch" >> "$GITHUB_OUTPUT"
+            echo "start_month=" >> "$GITHUB_OUTPUT"
+            echo "end_month=" >> "$GITHUB_OUTPUT"
+            echo "periods=$PERIODS" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Collect Data.go institution funding
         env:
@@ -107,21 +142,31 @@ jobs:
           DATA_GO_KR_SERVICE_KEY_SH: ${{ secrets.DATA_GO_KR_SERVICE_KEY_SH }}
           DATA_GO_KR_SERVICE_KEY_NH: ${{ secrets.DATA_GO_KR_SERVICE_KEY_NH }}
           DATA_GO_KR_SERVICE_KEY: ${{ secrets.DATA_GO_KR_SERVICE_KEY }}
-          PERIODS: ${{ inputs.periods || 12 }}
+          MODE: ${{ steps.window.outputs.mode }}
+          PERIODS: ${{ steps.window.outputs.periods }}
+          START_MONTH: ${{ steps.window.outputs.start_month }}
+          END_MONTH: ${{ steps.window.outputs.end_month }}
         run: |
           set -euo pipefail
+          ARGS=(--db work/rate_monitor.sqlite3 --raw-root data/raw)
+          if [[ "$MODE" == "backfill" ]]; then
+            ARGS+=(--start-month "$START_MONTH" --end-month "$END_MONTH")
+          else
+            ARGS+=(--periods "$PERIODS")
+          fi
           uv run python -m rate_monitor.collectors.data_go_funding.cli collect \
-            --db work/rate_monitor.sqlite3 \
-            --raw-root data/raw \
-            --periods "$PERIODS" \
-            --json publish/funding-first-run.json
+            "${ARGS[@]}" --json publish/funding-first-run.json
 
-      - name: SQL readback and coverage/reconciliation
+      - name: SQL readback, continuity and reconciliation
         run: |
           set -euo pipefail
           uv run python -m rate_monitor.collectors.data_go_funding.cli report \
             --db work/rate_monitor.sqlite3 \
             --json publish/funding-report.json
+          uv run python -m rate_monitor.collectors.data_go_funding.cli audit \
+            --db work/rate_monitor.sqlite3 \
+            --windows 24,36 \
+            --json publish/funding-history-audit.json
           uv run python - <<'PY'
           import json, sqlite3
           c = sqlite3.connect("work/rate_monitor.sqlite3")
@@ -157,20 +202,43 @@ jobs:
           uv run python -m rate_monitor.collectors.data_go_funding.cli counts \
             --db work/rate_monitor.sqlite3 > work/funding-before-rerun.json
 
+      - name: Detect semantic data change
+        id: changes
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          import json, os
+          ecos = json.load(open("publish/ecos-funding-run.json"))
+          funding = json.load(open("publish/funding-first-run.json"))
+          changed = int(ecos.get("stored", 0)) > 0 or any(
+              int(row.get("stored", 0)) > 0 or int(row.get("revisions", 0)) > 0
+              for row in funding
+          )
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
+              out.write(f"changed={'true' if changed else 'false'}\n")
+          print("semantic data changed:", changed)
+          PY
+
       - name: Idempotent rerun
         env:
           DATA_GO_KR_SERVICE_KEY_SB: ${{ secrets.DATA_GO_KR_SERVICE_KEY_SB }}
           DATA_GO_KR_SERVICE_KEY_SH: ${{ secrets.DATA_GO_KR_SERVICE_KEY_SH }}
           DATA_GO_KR_SERVICE_KEY_NH: ${{ secrets.DATA_GO_KR_SERVICE_KEY_NH }}
           DATA_GO_KR_SERVICE_KEY: ${{ secrets.DATA_GO_KR_SERVICE_KEY }}
-          PERIODS: ${{ inputs.periods || 12 }}
+          MODE: ${{ steps.window.outputs.mode }}
+          PERIODS: ${{ steps.window.outputs.periods }}
+          START_MONTH: ${{ steps.window.outputs.start_month }}
+          END_MONTH: ${{ steps.window.outputs.end_month }}
         run: |
           set -euo pipefail
+          ARGS=(--db work/rate_monitor.sqlite3 --raw-root data/raw)
+          if [[ "$MODE" == "backfill" ]]; then
+            ARGS+=(--start-month "$START_MONTH" --end-month "$END_MONTH")
+          else
+            ARGS+=(--periods "$PERIODS")
+          fi
           uv run python -m rate_monitor.collectors.data_go_funding.cli collect \
-            --db work/rate_monitor.sqlite3 \
-            --raw-root data/raw \
-            --periods "$PERIODS" \
-            --json publish/funding-second-run.json
+            "${ARGS[@]}" --json publish/funding-second-run.json
           uv run python -m rate_monitor.collectors.data_go_funding.cli counts \
             --db work/rate_monitor.sqlite3 > work/funding-after-rerun.json
           uv run python - <<'PY'
@@ -182,7 +250,8 @@ jobs:
           print("idempotency ok:", after)
           PY
 
-      - name: Snapshot and validate
+      - name: Snapshot and validate changed state
+        if: ${{ steps.changes.outputs.changed == 'true' }}
         run: |
           set -euo pipefail
           uv run rate-monitor snapshot \
@@ -191,7 +260,8 @@ jobs:
             --manifest publish/manifest.json
           uv run rate-monitor validate --db publish/rate_monitor.sqlite3
 
-      - name: Upload authoritative state to R2
+      - name: Upload changed authoritative state to R2
+        if: ${{ steps.changes.outputs.changed == 'true' }}
         env:
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
@@ -201,7 +271,8 @@ jobs:
           R2_REGION: ${{ vars.R2_REGION }}
         run: uv run rate-monitor storage upload --db publish/rate_monitor.sqlite3
 
-      - name: Verify R2 restore byte-for-byte
+      - name: Verify changed R2 restore byte-for-byte
+        if: ${{ steps.changes.outputs.changed == 'true' }}
         env:
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
@@ -225,6 +296,10 @@ jobs:
           print("R2 funding readback active rows:", n)
           PY
 
+      - name: No-change R2 decision
+        if: ${{ steps.changes.outputs.changed != 'true' }}
+        run: echo "No semantic ECOS/Data.go change; authoritative R2 snapshot remains unchanged."
+
       - name: Upload funding evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -234,8 +309,10 @@ jobs:
           if-no-files-found: warn
           path: |
             data/raw/
+            publish/ecos-funding-run.json
             publish/funding-first-run.json
             publish/funding-second-run.json
             publish/funding-report.json
+            publish/funding-history-audit.json
             publish/funding-readback.json
             publish/manifest.json
