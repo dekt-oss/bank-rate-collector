@@ -8,30 +8,77 @@ from pathlib import Path
 
 from rate_monitor.collectors.data_go_funding.collector import current_counts
 from rate_monitor.collectors.data_go_funding.reconciliation import build_report
-from rate_monitor.collectors.data_go_funding.resilient import collect_all_resilient,required_failures
+from rate_monitor.collectors.data_go_funding.resilient import (
+    collect_all_resilient,
+    required_failures,
+)
 
 
 def _parser() -> argparse.ArgumentParser:
-    parser=argparse.ArgumentParser();sub=parser.add_subparsers(dest="command",required=True)
-    collect=sub.add_parser("collect");collect.add_argument("--db",type=Path,required=True);collect.add_argument("--raw-root",type=Path,default=Path("data/raw"));collect.add_argument("--periods",type=int,default=12);collect.add_argument("--require-credit-union",action="store_true",help="신협 exact finance contract가 미확정이면 전체 실행을 실패시킨다");collect.add_argument("--json",type=Path)
-    report=sub.add_parser("report");report.add_argument("--db",type=Path,required=True);report.add_argument("--json",type=Path,required=True)
-    counts=sub.add_parser("counts");counts.add_argument("--db",type=Path,required=True)
+    parser = argparse.ArgumentParser()
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    collect = sub.add_parser("collect")
+    collect.add_argument("--db", type=Path, required=True)
+    collect.add_argument("--raw-root", type=Path, default=Path("data/raw"))
+    collect.add_argument("--periods", type=int, default=12)
+    collect.add_argument(
+        "--require-credit-union",
+        action="store_true",
+        help="신협 exact finance contract가 미확정이면 전체 실행을 실패시킨다",
+    )
+    collect.add_argument("--json", type=Path)
+
+    report = sub.add_parser("report")
+    report.add_argument("--db", type=Path, required=True)
+    report.add_argument("--json", type=Path, required=True)
+
+    counts = sub.add_parser("counts")
+    counts.add_argument("--db", type=Path, required=True)
+
     return parser
 
 
 def main() -> int:
-    args=_parser().parse_args()
-    if args.command=="collect":
-        results=collect_all_resilient(db_path=args.db,raw_root=args.raw_root,periods=args.periods,require_credit_union=args.require_credit_union);payload=[result.__dict__ for result in results]
+    args = _parser().parse_args()
+    if args.command == "collect":
+        results = collect_all_resilient(
+            db_path=args.db,
+            raw_root=args.raw_root,
+            periods=args.periods,
+            require_credit_union=args.require_credit_union,
+        )
+        payload = [result.__dict__ for result in results]
         if args.json:
-            args.json.parent.mkdir(parents=True,exist_ok=True);args.json.write_text(json.dumps(payload,ensure_ascii=False,indent=2)+"\n",encoding="utf-8")
-        print(json.dumps(payload,ensure_ascii=False,indent=2));failures=required_failures(results)
+            args.json.parent.mkdir(parents=True, exist_ok=True)
+            args.json.write_text(
+                json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+                encoding="utf-8",
+            )
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        failures = required_failures(results)
         if failures:
-            failed=", ".join(f"{result.source_id}[{','.join(result.failed_months) or result.status}]" for result in failures);print(f"필수 source/month 미완료: {failed}");return 1
+            failed = ", ".join(
+                f"{result.source_id}[{','.join(result.failed_months) or result.status}]"
+                for result in failures
+            )
+            print(f"필수 source/month 미완료: {failed}")
+            return 1
         return 0
-    if args.command=="report":
-        payload=build_report(args.db);args.json.parent.mkdir(parents=True,exist_ok=True);args.json.write_text(json.dumps(payload,ensure_ascii=False,indent=2)+"\n",encoding="utf-8");print(json.dumps(payload,ensure_ascii=False,indent=2));return 0
-    print(json.dumps(current_counts(args.db),ensure_ascii=False));return 0
+
+    if args.command == "report":
+        payload = build_report(args.db)
+        args.json.parent.mkdir(parents=True, exist_ok=True)
+        args.json.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        return 0
+
+    print(json.dumps(current_counts(args.db), ensure_ascii=False))
+    return 0
 
 
-if __name__=="__main__": raise SystemExit(main())
+if __name__ == "__main__":
+    raise SystemExit(main())
