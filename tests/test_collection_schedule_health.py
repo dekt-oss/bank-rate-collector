@@ -120,6 +120,8 @@ def test_live_signal_script_is_injected_once_and_only_worsens_static_signal() ->
     rendered = inject_collection_health_live_signal(html)
     assert MARKER in rendered
     assert 'sla.status === "breached" || sla.status === "degraded"' in rendered
-    assert '(ranks[live] || 0) <= (ranks[existing] || 0)' in rendered
+    assert "baselineSignal = currentSignal(dot)" in rendered
+    assert "(ranks[live] || 0) > (ranks[baselineSignal] || 0)" in rendered
+    assert "label.textContent = baselineLabel" in rendered
     assert rendered.count(MARKER) == 1
     assert inject_collection_health_live_signal(rendered) == rendered
