@@ -26,9 +26,10 @@ jobs:
       - name: Sync dependencies
         run: uv sync --locked
 
-      - name: Probe known Data.go funding endpoints with one-row response
+      - name: Probe known Data.go funding endpoints with bounded responses
         env:
           DATA_GO_KR_SERVICE_KEY_SB: ${{ secrets.DATA_GO_KR_SERVICE_KEY_SB }}
+          DATA_GO_KR_SERVICE_KEY_SH: ${{ secrets.DATA_GO_KR_SERVICE_KEY_SH }}
           DATA_GO_KR_SERVICE_KEY_NH: ${{ secrets.DATA_GO_KR_SERVICE_KEY_NH }}
           DATA_GO_KR_SERVICE_KEY: ${{ secrets.DATA_GO_KR_SERVICE_KEY }}
         run: uv run python scripts/probe_data_go_funding.py
