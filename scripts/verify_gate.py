@@ -126,10 +126,16 @@ def main() -> int:
     # 여기서 죽는다 — 2026-08-06 run 31084088559이 그렇게 발행 직전에 멈췄고,
     # 정작 무엇이 다른지는 알려 주지 않았다. 이제 없는 것과 더 있는 것을
     # 이름으로 말한다.
-    from rate_monitor.db.models import ALL_TABLES
+    #
+    # extension 모델은 models.py 밖에서 같은 Base registry에 표를 추가한다.
+    # 정적 ALL_TABLES는 해당 모듈 import 시점에 고정되므로 새 extension 표를
+    # 놓칠 수 있다. 모든 extension을 등록한 뒤 살아있는 metadata를 기준으로 본다.
+    import rate_monitor.db.institution_funding_models  # noqa: F401
+    from rate_monitor.db.models import Base
 
-    missing = sorted(set(ALL_TABLES) - set(tables))
-    extra = sorted(set(tables) - set(ALL_TABLES))
+    expected_tables = set(Base.metadata.tables)
+    missing = sorted(expected_tables - set(tables))
+    extra = sorted(set(tables) - expected_tables)
     detail = f"{len(tables)}종, 모델과 일치"
     if missing or extra:
         detail = f"없음 {missing} / 더 있음 {extra}"
