@@ -6,6 +6,9 @@ from pathlib import Path
 from typing import Any
 
 from rate_monitor.services import dashboard_ui_refinement_base as _base
+from rate_monitor.services.collection_health_live_presentation import (
+    inject_collection_health_live_signal,
+)
 from rate_monitor.services.dashboard_filter_decision_ux_presentation import (
     inject_dashboard_filter_decision_ux,
 )
@@ -61,4 +64,5 @@ def inject_dashboard_ui_refinement(html: str) -> str:
     # decision cockpit이 먼저 합성된 실제 site build에서만 적용한다.
     if 'id="market-scope"' not in rendered or 'id="rate-response-cockpit-script"' in rendered:
         rendered = inject_dashboard_filter_decision_ux(rendered)
-    return repair_strategy_product_scope_runtime(rendered)
+    rendered = repair_strategy_product_scope_runtime(rendered)
+    return inject_collection_health_live_signal(rendered)
