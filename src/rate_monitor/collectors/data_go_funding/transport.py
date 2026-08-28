@@ -202,6 +202,13 @@ def _table_rows(table: dict[str, Any], *, context: str) -> list[dict[str, Any]]:
 
 
 def _row_matches_target(contract: SourceContract, row: dict[str, Any]) -> bool:
+    # For sources with an authenticated account filter, only that exact field
+    # may identify the target. A same-looking code in another hierarchy is not
+    # a fallback candidate (savings-bank dpsdbtDcd=A11 is ordinary deposits).
+    account_filter = ACCOUNT_FILTERS.get(contract.source_id)
+    if account_filter is not None:
+        field, value = account_filter
+        return str(row.get(field, "")).strip() == value
     return any(
         str(row.get(schema.code_field, "")).strip() == schema.total_code
         for schema in contract.account_schemas
