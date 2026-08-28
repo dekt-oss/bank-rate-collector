@@ -217,6 +217,48 @@ export const cycleSla = (
   };
 };
 
+// 상단 신호등은 "오늘 SLA 기록"이 아니라 "지금 조치가 필요한가"를 보여준다.
+// 정기시각을 놓쳤거나 실패/미완료인데 아무 수집도 안 돌면 빨강,
+// 같은 상태에서 현재 수집/복구가 진행 중이면 노랑이다. 정상 완료 후에는
+// 늦게 끝났더라도 현재 신호는 초록으로 회복하고 SLA 지연 이력은 sla에 남긴다.
+export const operationalSignal = (sla, activeCollection = null) => {
+  const active = Boolean(activeCollection && ACTIVE.has(activeCollection.status));
+  if (!sla || sla.status === "unknown" || sla.source_status === "unknown") {
+    return {
+      status: "unknown",
+      reason: "health_evidence_unavailable",
+      active_collection: active,
+    };
+  }
+
+  const sourceBroken = ["failed", "incomplete"].includes(sla.source_status);
+  const cycleFinished = Boolean(sla.latest_publish_completed_at) && !sourceBroken;
+  if (cycleFinished) {
+    return {
+      status: "normal",
+      reason: "cycle_complete",
+      active_collection: active,
+    };
+  }
+
+  const scheduleMissed = ["warning", "breached"].includes(sla.schedule_status);
+  const completionLate = ["warning", "breached"].includes(sla.timing_status);
+  const recoveryRequired = sourceBroken || scheduleMissed || completionLate;
+  if (recoveryRequired) {
+    return {
+      status: active ? "warning" : "breached",
+      reason: active ? "recovery_running" : "recovery_required_not_running",
+      active_collection: active,
+    };
+  }
+
+  return {
+    status: "pending",
+    reason: active ? "on_time_collection_running" : "awaiting_scheduled_cycle",
+    active_collection: active,
+  };
+};
+
 const SOURCE_STEPS = {
   "Collect finlife savings bank": "finlife_savings_bank",
   "Collect finlife bank": "finlife_bank",
@@ -476,6 +518,7 @@ export default async function handler(req, res) {
     ? { created_at: `${cycleDate}T00:17:00+09:00` }
     : null;
   const sla = cycleSla(cycleAnchor, publishCompletedAt, now, sourceState, scheduleState);
+  const signal = operationalSignal(sla, activeCollection);
 
   return json(res, 200, {
     ok: true,
@@ -487,5 +530,6 @@ export default async function handler(req, res) {
     pipeline_steps: detail.pipelineSteps,
     schedule: scheduleState,
     sla,
+    signal,
   });
 }
