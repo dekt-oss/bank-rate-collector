@@ -12,10 +12,7 @@ from rate_monitor.collectors.data_go_funding.operations import (
     operational_payload,
 )
 from rate_monitor.collectors.data_go_funding.reconciliation import build_report
-from rate_monitor.collectors.data_go_funding.resilient import (
-    collect_all_resilient,
-    required_failures,
-)
+from rate_monitor.collectors.data_go_funding.resilient import required_failures
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -55,27 +52,18 @@ def _parser() -> argparse.ArgumentParser:
 def main() -> int:
     args = _parser().parse_args()
     if args.command == "collect":
-        if args.mode == "custom":
-            results = collect_all_resilient(
-                db_path=args.db,
-                raw_root=args.raw_root,
-                periods=args.periods,
-                require_credit_union=args.require_credit_union,
-            )
-            payload: object = [result.__dict__ for result in results]
-        else:
-            results = collect_operational(
-                db_path=args.db,
-                raw_root=args.raw_root,
-                mode=args.mode,
-                custom_periods=args.periods,
-                require_credit_union=args.require_credit_union,
-            )
-            payload = operational_payload(
-                mode=args.mode,
-                results=results,
-                db_path=args.db,
-            )
+        results = collect_operational(
+            db_path=args.db,
+            raw_root=args.raw_root,
+            mode=args.mode,
+            custom_periods=args.periods,
+            require_credit_union=args.require_credit_union,
+        )
+        payload = operational_payload(
+            mode=args.mode,
+            results=results,
+            db_path=args.db,
+        )
 
         if args.json:
             args.json.parent.mkdir(parents=True, exist_ok=True)
