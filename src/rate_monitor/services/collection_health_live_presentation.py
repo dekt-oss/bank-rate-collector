@@ -1,10 +1,16 @@
-"""GitHub Actions 실시간 SLA를 정적 수집 신호등에 합성한다.
+"""GitHub Actions의 현재 운영상태를 정적 수집 신호등에 합성한다.
 
 공개 HTML의 기본 신호는 마지막으로 성공적으로 발행된 DB snapshot에서 온다.
-그 값은 fallback으로 계속 유효하지만, 다음 scheduled cycle이 늦거나 실패해도
-새 publish가 없으면 스스로 바뀔 수 없다. 이 presentation은 read-only
-``/api/health``를 페이지 로드 시 확인해 **더 나쁜 실시간 신호만** 상단 배지에
-덮어쓴다. 수집/DB/R2 쓰기 경로에는 관여하지 않는다.
+그 값은 live API를 읽지 못할 때의 fallback이다. API 조회가 성공하면 상단 배지는
+과거 snapshot보다 **현재 수집/복구 상태**를 우선한다.
+
+현재 신호 계약:
+- 정상 완료: green
+- 정상 시각 안의 수집 진행: blue
+- 정시 수집을 놓쳤지만 현재 수집/복구 중: yellow
+- 정시 수집을 놓쳤거나 실패했고 현재 수집도 없음: red
+
+수집/DB/R2 쓰기 경로에는 관여하지 않는다.
 """
 
 from __future__ import annotations
@@ -15,24 +21,24 @@ LIVE_HEALTH_SIGNAL_SCRIPT = r"""
 <script id="collection-health-live-signal-script">
 (() => {
   const endpoint = "api/health";
-  const ranks = { gray: 0, green: 1, blue: 2, yellow: 3, red: 4 };
   const labels = {
     green: "정상",
     blue: "진행 중",
-    yellow: "확인 필요",
-    red: "실패·지연",
-    gray: "대상 아님",
+    yellow: "지연·수집 중",
+    red: "미수집·실패",
+    gray: "확인 불가",
   };
   let baselineSignal = null;
   let baselineLabel = null;
   let baselineTitle = null;
 
-  const signalFor = (sla) => {
-    if (!sla) return null;
-    if (sla.status === "breached" || sla.status === "degraded") return "red";
-    if (sla.status === "warning") return "yellow";
-    if (sla.status === "pending") return "blue";
-    if (sla.status === "normal") return "green";
+  const signalFor = (state) => {
+    if (!state) return null;
+    if (state.status === "breached" || state.status === "degraded") return "red";
+    if (state.status === "warning") return "yellow";
+    if (state.status === "pending") return "blue";
+    if (state.status === "normal") return "green";
+    if (state.status === "unknown") return "gray";
     return null;
   };
 
@@ -41,36 +47,43 @@ LIVE_HEALTH_SIGNAL_SCRIPT = r"""
     || "gray"
   );
 
-  const apply = (sla) => {
+  const restoreBaseline = () => {
     const dot = document.getElementById("health-head-dot");
     const label = document.getElementById("health-head-label");
     const button = document.getElementById("health-open");
-    const live = signalFor(sla);
-    if (!dot || !label || !button || !live || !baselineSignal) return;
+    if (!dot || !label || !button || !baselineSignal) return;
+    dot.className = `health-dot ${baselineSignal}`;
+    label.textContent = baselineLabel;
+    button.title = baselineTitle;
+  };
 
-    const useLive = (ranks[live] || 0) > (ranks[baselineSignal] || 0);
-    const signal = useLive ? live : baselineSignal;
-    dot.className = `health-dot ${signal}`;
-    if (!useLive) {
-      label.textContent = baselineLabel;
-      button.title = baselineTitle;
-      return;
-    }
+  const apply = (state) => {
+    const dot = document.getElementById("health-head-dot");
+    const label = document.getElementById("health-head-label");
+    const button = document.getElementById("health-open");
+    const live = signalFor(state);
+    if (!dot || !label || !button || !live) return;
 
+    // API가 정상 응답하면 current operational signal이 authoritative다.
+    // 어제 snapshot의 green/red가 현재 회복/실패 상태를 가리지 않게 한다.
+    dot.className = `health-dot ${live}`;
     label.textContent = `수집 ${labels[live]}`;
-    const schedule = sla.schedule_status && sla.schedule_status !== "normal"
-      ? ` · 정기 실행 ${sla.schedule_status}`
-      : "";
-    button.title = `실시간 수집 상태: ${labels[live]}${schedule}`;
+    const reason = state.reason ? ` · ${state.reason}` : "";
+    button.title = `실시간 수집 상태: ${labels[live]}${reason}`;
   };
 
   const refresh = async () => {
     try {
       const response = await fetch(endpoint, { cache: "no-store" });
       const body = await response.json();
-      if (response.ok && body && body.ok) apply(body.sla);
+      if (response.ok && body && body.ok) {
+        apply(body.signal || body.sla);
+        return;
+      }
+      restoreBaseline();
     } catch {
       // live API가 실패하면 마지막 발행본의 정적 health를 fallback으로 유지한다.
+      restoreBaseline();
     }
   };
 
@@ -99,7 +112,7 @@ LIVE_HEALTH_SIGNAL_SCRIPT = r"""
 
 
 def inject_collection_health_live_signal(html: str) -> str:
-    """수집 상태 버튼이 있는 화면에 live SLA override를 한 번만 붙인다."""
+    """수집 상태 버튼이 있는 화면에 live current-state signal을 한 번만 붙인다."""
     if MARKER in html or 'id="health-head-dot"' not in html:
         return html
     if "</body>" not in html:

@@ -1,4 +1,4 @@
-"""정기 workflow trigger 지연이 초록불로 숨지 않는지 검증한다."""
+"""정기 workflow 지연과 현재 수집 상태가 신호등에 정확히 반영되는지 검증한다."""
 
 from __future__ import annotations
 
@@ -37,13 +37,36 @@ def _schedule(runs: list[dict], now: str) -> dict:
     return _node(script)
 
 
+def _signal(sla: dict, active_collection: dict | None = None) -> dict:
+    script = f"""
+      import {{ operationalSignal }} from {json.dumps(HEALTH_API)};
+      console.log(JSON.stringify(operationalSignal(
+        {json.dumps(sla)},
+        {json.dumps(active_collection)},
+      )));
+    """
+    return _node(script)
+
+
 def _run(created_at: str) -> dict:
     return {"created_at": created_at, "run_started_at": created_at}
 
 
-def test_missing_today_schedule_turns_yellow_after_trigger_grace() -> None:
-    # 2026-08-12 00:50 KST. core 00:17 / NH 00:37은 이미 예정됐지만
-    # GitHub가 오늘 scheduled run을 하나도 만들지 않은 상황이다.
+def _sla(**overrides: object) -> dict:
+    value: dict[str, object] = {
+        "status": "warning",
+        "source_status": "pending",
+        "schedule_status": "warning",
+        "timing_status": "pending",
+        "latest_publish_completed_at": None,
+    }
+    value.update(overrides)
+    return value
+
+
+def test_missing_today_schedule_is_diagnostic_warning_after_trigger_grace() -> None:
+    # schedule SLA 자체는 warning이다. 상단 current-state 신호는 아래 별도 테스트에서
+    # 현재 수집 유무를 합쳐 red/yellow로 결정한다.
     result = _schedule([], "2026-08-11T15:50:00Z")
     assert result["cycle_date_kst"] == "2026-08-12"
     assert result["expected_count"] == 2
@@ -53,7 +76,7 @@ def test_missing_today_schedule_turns_yellow_after_trigger_grace() -> None:
     assert result["status"] == "warning"
 
 
-def test_missing_schedule_is_red_after_eight_am_hard_deadline() -> None:
+def test_missing_schedule_is_diagnostic_breach_after_eight_am_hard_deadline() -> None:
     result = _schedule([], "2026-08-11T23:05:00Z")  # 08:05 KST
     assert result["cycle_date_kst"] == "2026-08-12"
     assert result["expected_count"] == 3
@@ -91,7 +114,7 @@ def test_on_time_schedule_stays_normal() -> None:
     assert result["status"] == "normal"
 
 
-def test_late_schedule_remains_yellow_even_when_all_runs_exist() -> None:
+def test_late_schedule_keeps_diagnostic_warning_even_when_all_runs_exist() -> None:
     runs = [
         _run("2026-08-11T15:45:00Z"),  # core +28m
         _run("2026-08-11T16:00:00Z"),  # NH +23m
@@ -127,7 +150,81 @@ def test_schedule_warning_worsens_otherwise_normal_cycle_sla() -> None:
     assert result["schedule_max_delay_minutes"] == 28
 
 
-def test_live_signal_script_is_injected_once_and_only_worsens_static_signal() -> None:
+def test_missed_schedule_without_current_collection_is_red() -> None:
+    result = _signal(_sla(schedule_status="warning"))
+    assert result == {
+        "status": "breached",
+        "reason": "recovery_required_not_running",
+        "active_collection": False,
+    }
+
+
+def test_missed_schedule_with_current_collection_is_yellow() -> None:
+    result = _signal(
+        _sla(schedule_status="warning"),
+        {"status": "in_progress"},
+    )
+    assert result == {
+        "status": "warning",
+        "reason": "recovery_running",
+        "active_collection": True,
+    }
+
+
+def test_failed_source_without_recovery_is_red() -> None:
+    result = _signal(
+        _sla(
+            status="degraded",
+            source_status="failed",
+            schedule_status="normal",
+        )
+    )
+    assert result["status"] == "breached"
+    assert result["reason"] == "recovery_required_not_running"
+
+
+def test_failed_source_with_recovery_running_is_yellow() -> None:
+    result = _signal(
+        _sla(
+            status="degraded",
+            source_status="failed",
+            schedule_status="normal",
+        ),
+        {"status": "queued"},
+    )
+    assert result["status"] == "warning"
+    assert result["reason"] == "recovery_running"
+
+
+def test_late_but_completed_healthy_cycle_recovers_to_green() -> None:
+    result = _signal(
+        _sla(
+            status="breached",
+            source_status="healthy",
+            schedule_status="warning",
+            timing_status="breached",
+            latest_publish_completed_at="2026-08-12T00:10:00Z",
+        )
+    )
+    assert result["status"] == "normal"
+    assert result["reason"] == "cycle_complete"
+
+
+def test_on_time_unfinished_collection_is_blue_not_yellow() -> None:
+    result = _signal(
+        _sla(
+            status="pending",
+            source_status="pending",
+            schedule_status="normal",
+            timing_status="pending",
+        ),
+        {"status": "in_progress"},
+    )
+    assert result["status"] == "pending"
+    assert result["reason"] == "on_time_collection_running"
+
+
+def test_live_signal_script_uses_current_signal_and_static_only_as_fallback() -> None:
     html = (
         '<html><body><button id="health-open">'
         '<span id="health-head-dot" class="health-dot green"></span>'
@@ -136,9 +233,11 @@ def test_live_signal_script_is_injected_once_and_only_worsens_static_signal() ->
     )
     rendered = inject_collection_health_live_signal(html)
     assert MARKER in rendered
-    assert 'sla.status === "breached" || sla.status === "degraded"' in rendered
-    assert "baselineSignal = currentSignal(dot)" in rendered
-    assert "(ranks[live] || 0) > (ranks[baselineSignal] || 0)" in rendered
-    assert "label.textContent = baselineLabel" in rendered
+    assert "apply(body.signal || body.sla)" in rendered
+    assert 'yellow: "지연·수집 중"' in rendered
+    assert 'red: "미수집·실패"' in rendered
+    assert "dot.className = `health-dot ${live}`" in rendered
+    assert "restoreBaseline();" in rendered
+    assert "ranks" not in rendered
     assert rendered.count(MARKER) == 1
     assert inject_collection_health_live_signal(rendered) == rendered
