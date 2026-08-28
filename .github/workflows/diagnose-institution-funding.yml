@@ -34,11 +34,20 @@ jobs:
           DATA_GO_KR_SERVICE_KEY: ${{ secrets.DATA_GO_KR_SERVICE_KEY }}
         run: uv run python scripts/diagnose_data_go_transport.py
 
+      - name: Reproduce production numOfRows 9999 on one known month
+        env:
+          DATA_GO_KR_SERVICE_KEY_SB: ${{ secrets.DATA_GO_KR_SERVICE_KEY_SB }}
+          DATA_GO_KR_SERVICE_KEY_NH: ${{ secrets.DATA_GO_KR_SERVICE_KEY_NH }}
+          DATA_GO_KR_SERVICE_KEY: ${{ secrets.DATA_GO_KR_SERVICE_KEY }}
+        run: uv run python scripts/probe_data_go_page_size.py
+
       - name: Upload diagnosis evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: data-go-diagnosis-${{ github.run_id }}
-          path: data-go-diagnosis.json
+          path: |
+            data-go-diagnosis.json
+            data-go-page-size-probe.json
           if-no-files-found: warn
           retention-days: 30
