@@ -19,8 +19,8 @@ from pathlib import Path
 from sqlalchemy import select
 
 from rate_monitor.collectors.data_go_funding.collector import (
-    FundingContractError,
     TOTAL_METRIC_CODE,
+    FundingContractError,
 )
 from rate_monitor.db.institution_funding_models import InstitutionFundingObservation
 from rate_monitor.db.session import create_db_engine, make_session_factory, session_scope
