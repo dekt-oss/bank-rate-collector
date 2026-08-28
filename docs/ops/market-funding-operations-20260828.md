@@ -36,19 +36,32 @@ GitHub Actions는 평일 00:52 KST에 실행한다.
 
 새 값 또는 과거 revision은 기존 observation을 삭제하지 않고 revision chain으로 보존한다.
 
+## Transport fail-fast
+
+Data.go gateway 또는 제공기관 upstream 연결이 불안정할 때 기준월별 timeout을 수십 번 반복하지 않는다.
+
+1. source fan-out 전에 `numOfRows=1` bounded preflight를 1회 수행한다.
+2. 15초 안에 연결되지 않거나 HTTP error가 발생하면 해당 source를 fail-closed 처리한다.
+3. 필수 source인 저축은행·농축협 preflight 실패는 전체 writer를 실패시켜 R2 upload를 막는다.
+4. exact finance endpoint가 아직 검증되지 않은 신협은 fan-out하지 않고 partial evidence로 남긴다.
+5. workflow 전체는 90분 hard timeout을 둔다.
+
+이 gate는 원천 장애를 데이터 부재로 오판하지 않기 위한 것이다. preflight timeout을 `0건 데이터`로 저장하지 않는다.
+
 ## R2 publication gate
 
 1. authoritative R2 DB restore
 2. migration
 3. ECOS refresh
-4. Data.go source/month checkpoint collection
-5. SQL readback / source coverage / reconciliation
-6. 동일 모드 재실행 idempotency
-7. snapshot validation
-8. R2 upload
-9. R2 restore 및 byte-for-byte / integrity / FK 검증
+4. bounded Data.go transport preflight
+5. Data.go source/month checkpoint collection
+6. SQL readback / source coverage / reconciliation
+7. 최근 revision-watch 범위만 재수집해 idempotency 확인
+8. snapshot validation
+9. R2 upload
+10. R2 restore 및 byte-for-byte / integrity / FK 검증
 
-저축은행 또는 농·축협 필수 source/month가 끝까지 실패하면 8번에 도달하지 않는다.
+저축은행 또는 농·축협 필수 source/month가 끝까지 실패하면 9번에 도달하지 않는다.
 
 신협은 공식 데이터셋의 재무현황 operation 존재는 확인됐으나 exact finance endpoint가 아직 live-verified되지 않았다. exact operation/schema가 확정되기 전에는 fail-closed/partial로 유지하고 랭킹 population에 포함하지 않는다.
 
@@ -66,4 +79,23 @@ GitHub Actions는 평일 00:52 KST에 실행한다.
 
 ## Runtime Evidence Gate
 
-PR #225 branch에서 `[funding-backfill]` writer를 실행해 실제 원천 보유기간, 신협 exact contract, DB/R2 readback을 확인한다. 실행 결과가 확인되기 전에는 이 문서의 6년은 **요청 목표**이지 확보 완료 선언이 아니다.
+### 1차 6년 backfill — 실패
+
+PR #225 branch의 run `33123943113`은 약 2시간 46분 실행된 뒤 Data.go 단계에서 실패했다.
+
+- 저축은행 24개 분기: completed 0 / artifact 0 / point 0
+- 농·축협 12개 반기: completed 0 / artifact 0 / point 0
+- 신협 후보 endpoint: transport 실패
+- SQL coverage, idempotency, snapshot, R2 upload/readback은 실행되지 않음
+- authoritative R2는 변경되지 않음
+
+이 실행은 정상적인 backfill 소요시간 증거가 아니라 per-month timeout/retry storm으로 판정한다.
+
+### Bounded probe
+
+- run `33133449630`: 저축은행 202606 `numOfRows=1` → 15.9초 ReadTimeout. 농축협 202606 `numOfRows=1` → 14.0초 HTTP 200 / NORMAL SERVICE / totalCount=0.
+- run `33133676103`: 다른 GitHub-hosted runner에서 저축은행 finance/general, 농축협 finance, 신협 general 모두 `numOfRows=1` 수준에서 약 15초 ConnectTimeout.
+
+따라서 `PAGE_SIZE=9999`만의 문제로 단정하지 않는다. GitHub-hosted runner에서 Data.go gateway/upstream 연결 불안정성이 재현되었다.
+
+이 문서의 6년은 **요청 목표**이며, 실제 확보 완료는 authenticated backfill + coverage + R2 readback이 모두 성공한 이후에만 선언한다.
