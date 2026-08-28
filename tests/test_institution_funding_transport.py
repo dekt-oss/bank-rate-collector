@@ -25,7 +25,8 @@ def test_request_params_filter_only_verified_total_accounts():
         page_no=1,
     )
     assert savings["numOfRows"] == "500"
-    assert savings["dpsdbtDcd"] == "A11"
+    assert savings["debtCptlSmryStfnpsAcitCd"] == "A11"
+    assert "dpsdbtDcd" not in savings
 
     agri = request_params(
         _contract("nh_local"),
@@ -43,6 +44,7 @@ def test_request_params_filter_only_verified_total_accounts():
         page_no=1,
     )
     assert credit_union["numOfRows"] == "500"
+    assert "debtCptlSmryStfnpsAcitCd" not in credit_union
     assert "dpsdbtDcd" not in credit_union
     assert "astDebtSmryBlnshDcd" not in credit_union
 
@@ -58,13 +60,24 @@ def _agri_row(page_no: int, index: int) -> dict[str, str]:
     }
 
 
-def _savings_row(index: int) -> dict[str, str]:
+def _savings_total_row(index: int) -> dict[str, str]:
+    return {
+        "basYm": "202506",
+        "fncoCd": f"001{index:04d}",
+        "fncoNm": f"저축은행{index}",
+        "debtCptlSmryStfnpsAcitCd": "A11",
+        "debtCptlSmryStfnpsAcitCdNm": "예수부채",
+        "debtCptlAmt": "5000000",
+    }
+
+
+def _savings_ordinary_deposit_row(index: int) -> dict[str, str]:
     return {
         "basYm": "202506",
         "fncoCd": f"001{index:04d}",
         "fncoNm": f"저축은행{index}",
         "dpsdbtDcd": "A11",
-        "dpsdbtDcdNm": "예수부채",
+        "dpsdbtDcdNm": "예수부채_예수금_(보 통 예 금)",
         "dpsdbtClsfAmt": "1000000",
     }
 
@@ -96,6 +109,7 @@ class _TablePagingClient:
         repeat_target_page: bool = False,
         change_total_on_page: int | None = None,
         omit_target_on_page: int | None = None,
+        include_misleading_savings_table: bool = False,
     ):
         self.page_lengths = page_lengths
         self.total_count = total_count
@@ -103,6 +117,7 @@ class _TablePagingClient:
         self.repeat_target_page = repeat_target_page
         self.change_total_on_page = change_total_on_page
         self.omit_target_on_page = omit_target_on_page
+        self.include_misleading_savings_table = include_misleading_savings_table
         self.calls: list[dict[str, str]] = []
         self._first_target_rows: list[dict[str, str]] | None = None
 
@@ -114,8 +129,8 @@ class _TablePagingClient:
             target_title = "농협_재무현황_요약재무상태표(부채및자본)"
             target_rows = [_agri_row(page_no, index) for index in range(length)]
         else:
-            target_title = "저축_재무현황_부채부문별현황_예수부채"
-            target_rows = [_savings_row(index) for index in range(length)]
+            target_title = "저축_재무현황_요약재무상태표(부채및자본)"
+            target_rows = [_savings_total_row(index) for index in range(length)]
 
         if page_no == 1:
             self._first_target_rows = target_rows
@@ -133,6 +148,14 @@ class _TablePagingClient:
                 [{"basYm": "202506", "unrelated": f"page-{page_no}"}],
             )
         ]
+        if self.include_misleading_savings_table and self.sector == "savings_bank":
+            tables.append(
+                _table(
+                    "저축_재무현황_부채부문별현황_예수부채",
+                    80,
+                    [_savings_ordinary_deposit_row(index) for index in range(80)],
+                )
+            )
         if self.omit_target_on_page != page_no:
             tables.append(_table(target_title, total_count, target_rows))
         raw = json.dumps(_payload(tables), ensure_ascii=False).encode()
@@ -140,8 +163,13 @@ class _TablePagingClient:
         return httpx.Response(200, content=raw, request=request)
 
 
-def test_fetch_month_uses_target_table_total_count_not_unrelated_tables():
-    client = _TablePagingClient([80], total_count=80, sector="savings_bank")
+def test_fetch_month_uses_summary_total_not_dedicated_ordinary_deposit_table():
+    client = _TablePagingClient(
+        [80],
+        total_count=80,
+        sector="savings_bank",
+        include_misleading_savings_table=True,
+    )
     contract = _contract("savings_bank")
 
     rows, artifacts = fetch_month(
@@ -155,7 +183,10 @@ def test_fetch_month_uses_target_table_total_count_not_unrelated_tables():
     assert len(rows) == 80
     assert len(artifacts) == 1
     assert [call["pageNo"] for call in client.calls] == ["1"]
-    assert client.calls[0]["dpsdbtDcd"] == "A11"
+    assert client.calls[0]["debtCptlSmryStfnpsAcitCd"] == "A11"
+    assert "dpsdbtDcd" not in client.calls[0]
+    assert all(row["debtCptlSmryStfnpsAcitCdNm"] == "예수부채" for row in rows)
+    assert all("dpsdbtDcd" not in row for row in rows)
 
 
 def test_fetch_month_paginates_by_target_table_total_count_and_preserves_metadata():
@@ -245,7 +276,7 @@ def test_fetch_month_accepts_empty_reporting_month_without_paginating_unrelated_
                 _payload(
                     [
                         _table("관계없는_표", 1000, [{"basYm": "202606", "foo": "bar"}]),
-                        _table("저축_재무현황_부채부문별현황_예수부채", 0, []),
+                        _table("저축_재무현황_요약재무상태표(부채및자본)", 0, []),
                     ]
                 ),
                 ensure_ascii=False,
