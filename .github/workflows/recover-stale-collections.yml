@@ -1,0 +1,107 @@
+name: 복구 — 누락 수집 직렬 재실행
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+# 복구 오케스트레이터 자체는 canonical writer가 아니다. 기존 수집 workflow를
+# 하나씩 dispatch하고 완료를 기다린다. 실제 DB/R2 write는 각 child workflow의
+# rate-data-writer lock이 그대로 보호한다.
+concurrency:
+  group: stale-collection-recovery-control-plane
+  cancel-in-progress: false
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  recover:
+    if: ${{ github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[recover-stale]') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      COLLECT_PASSWORD: ${{ secrets.DASHBOARD_PASSWORD }}
+    steps:
+      - name: Validate recovery credentials
+        run: |
+          set -euo pipefail
+          if [ -z "$COLLECT_PASSWORD" ]; then
+            echo "::error::DASHBOARD_PASSWORD secret is missing"
+            exit 1
+          fi
+
+      - name: Recover stale sources serially on current main
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          dispatch_and_wait() {
+            local workflow="$1"
+            shift
+
+            local before
+            before=$(gh run list \
+              --repo "$GITHUB_REPOSITORY" \
+              --workflow "$workflow" \
+              --event workflow_dispatch \
+              --branch main \
+              --limit 1 \
+              --json databaseId \
+              --jq '.[0].databaseId // 0')
+
+            gh workflow run "$workflow" \
+              --repo "$GITHUB_REPOSITORY" \
+              --ref main \
+              "$@"
+
+            local run_id=""
+            for _ in $(seq 1 30); do
+              run_id=$(gh run list \
+                --repo "$GITHUB_REPOSITORY" \
+                --workflow "$workflow" \
+                --event workflow_dispatch \
+                --branch main \
+                --limit 5 \
+                --json databaseId \
+                --jq "map(select(.databaseId != $before)) | .[0].databaseId // empty")
+              if [ -n "$run_id" ]; then
+                break
+              fi
+              sleep 2
+            done
+
+            if [ -z "$run_id" ]; then
+              echo "::error::$workflow dispatch run id를 찾지 못했다"
+              exit 1
+            fi
+
+            echo "recovery child workflow=$workflow run_id=$run_id"
+            gh run watch "$run_id" --repo "$GITHUB_REPOSITORY" --exit-status --interval 15
+          }
+
+          # 8/28 일반 #229는 모든 collector가 성공했지만 P1-A에서 발행만 막혔다.
+          # 현재 main의 verifier fix로 다시 수집·검증·발행한다.
+          dispatch_and_wait collect.yml \
+            -f password="$COLLECT_PASSWORD" \
+            -f manual_target="일반 전체" \
+            -f accept_volume_drop=false
+
+          # KFCC #230도 수집 자체는 93,403행 성공했으므로 checkpoint auto-resume을
+          # 우선 사용해 불필요한 전국 재조회 시간을 줄인다.
+          dispatch_and_wait collect.yml \
+            -f password="$COLLECT_PASSWORD" \
+            -f manual_target="새마을금고만" \
+            -f kfcc_scope="전국" \
+            -f kfcc_resume_mode=auto \
+            -f accept_volume_drop=false
+
+          # NH #12 역시 수집 성공 후 P1-A에서 발행이 막혔다. 마지막에 auto-resume으로
+          # 복구해 장기 NH writer가 다른 핵심 source 복구를 선행 차단하지 않게 한다.
+          dispatch_and_wait collect-nh.yml \
+            -f password="$COLLECT_PASSWORD" \
+            -f nh_local_scope="전국" \
+            -f nh_resume_mode=auto \
+            -f accept_volume_drop=false
