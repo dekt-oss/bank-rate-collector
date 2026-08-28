@@ -3,7 +3,7 @@
 The funding finance APIs return a ``response.body.tableList`` containing many
 financial-statement tables. ``numOfRows``/``pageNo`` paginate each table, while
 each table carries its own ``totalCount``. The collector only needs the
-source-specific canonical deposit-liabilities table. Pagination must therefore
+source-specific canonical deposit-liabilities total. Pagination must therefore
 follow that table's own count; recursively counting every ``item`` in the
 response mixes unrelated tables and can create a false endless pagination.
 """
@@ -32,17 +32,20 @@ from rate_monitor.domain.schemas import RawArtifactData
 PAGE_SIZE = 500
 MAX_PAGES = 20
 
-# Verified against the live Data.go finance operations on 2026-08-28.
+# Verified against authenticated Data.go finance payloads on 2026-08-28.
+#
+# Savings-bank caution: ``dpsdbtDcd=A11`` in the dedicated deposit-liabilities
+# table is NOT the total. Its source name is ``예수부채_예수금_(보 통 예 금)``.
+# The canonical total is ``A11=예수부채`` in the summary liabilities/capital
+# table, using ``debtCptlSmryStfnpsAcitCd``.
 ACCOUNT_FILTERS: dict[str, tuple[str, str]] = {
-    "data_go_savings_bank_funding": ("dpsdbtDcd", "A11"),
+    "data_go_savings_bank_funding": ("debtCptlSmryStfnpsAcitCd", "A11"),
     "data_go_agri_coop_funding": ("astDebtSmryBlnshDcd", "A1"),
 }
 
-# A total account code can also appear in a summary balance-sheet table. The
-# dedicated funding table is the canonical source when Data.go returns both.
-# These titles were verified from authenticated finance payloads on 2026-08-28.
+# Canonical source tables for institution-level total deposit liabilities.
 TARGET_TABLE_TITLES: dict[str, str] = {
-    "data_go_savings_bank_funding": "저축_재무현황_부채부문별현황_예수부채",
+    "data_go_savings_bank_funding": "저축_재무현황_요약재무상태표(부채및자본)",
     "data_go_agri_coop_funding": "농협_재무현황_요약재무상태표(부채및자본)",
 }
 
@@ -218,10 +221,10 @@ def _select_target_table(
 ) -> tuple[str | None, int, list[dict[str, Any]]]:
     """Return the canonical paginated table for the verified total account.
 
-    Data.go can return the same total account code in both a summary statement
-    and a dedicated deposit-liabilities table. The source-specific canonical
-    table title wins when present. After page 1 the title is pinned, so a schema
-    drift or table disappearance fails closed instead of switching populations.
+    Data.go can reuse the same code text in tables with different hierarchy
+    semantics. The source-specific canonical table title therefore wins. After
+    page 1 the title is pinned, so a schema drift or table disappearance fails
+    closed instead of switching populations.
     """
     context = f"{contract.source_id}/{bas_ym}"
     tables = _table_list(payload, context=context)
@@ -286,7 +289,9 @@ def _select_target_table(
         return title, total_count, rows
 
     schema_rows = [
-        row for _title, _count, table_rows in parsed for row in table_rows
+        row
+        for _title, _count, table_rows in parsed
+        for row in table_rows
         if _row_uses_account_schema(contract, row)
     ]
     if schema_rows:
@@ -308,7 +313,9 @@ def _select_target_table(
 
 
 def _rows_hash(rows: list[dict[str, Any]]) -> str:
-    encoded = json.dumps(rows, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
+    encoded = json.dumps(
+        rows, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    ).encode()
     return hashlib.sha256(encoded).hexdigest()
 
 
