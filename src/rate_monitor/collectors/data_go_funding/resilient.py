@@ -27,7 +27,6 @@ from rate_monitor.collectors.data_go_funding.collector import (
     SourceContract,
     _discover_credit_union_endpoint,
     _ensure_source,
-    _fetch_month,
     _finish_run,
     _infer_credit_union_schema,
     _now,
@@ -36,6 +35,7 @@ from rate_monitor.collectors.data_go_funding.collector import (
     candidate_months,
     parse_points,
 )
+from rate_monitor.collectors.data_go_funding.transport import fetch_month as _fetch_month
 from rate_monitor.db import models as m
 from rate_monitor.db.session import create_db_engine, make_session_factory, session_scope
 from rate_monitor.services.collection_service import save_raw_artifacts
