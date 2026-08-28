@@ -1,19 +1,31 @@
 """Operational plans for institution-funding collection.
 
-The source APIs expose historical reporting months through ``basYm``.  This
+The source APIs expose historical reporting months through ``basYm``. This
 module separates one-time historical backfill from the recurring revision
 watch so scheduled collection does not re-fetch the whole history every day.
+
+A bounded transport preflight runs before a source fan-out. This prevents an
+unreachable Data.go gateway from turning a 24-period backfill into hours of
+per-month timeout/retry storms while preserving fail-closed publication.
 """
 
 from __future__ import annotations
 
+import os
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
+import httpx
 from sqlalchemy import func, select
 
-from rate_monitor.collectors.data_go_funding.collector import CONTRACTS
+from rate_monitor.collectors.data_go_funding.collector import (
+    CONTRACTS,
+    FundingSourceUnavailable,
+    SourceContract,
+    _service_key,
+    candidate_months,
+)
 from rate_monitor.collectors.data_go_funding.resilient import (
     ResilientSourceResult,
     collect_source_resilient,
@@ -22,23 +34,19 @@ from rate_monitor.collectors.data_go_funding.resilient import (
 from rate_monitor.db.institution_funding_models import InstitutionFundingObservation
 from rate_monitor.db.session import create_db_engine, make_session_factory, session_scope
 
-# Recurring revision-watch window.  This intentionally covers about one year
-# of source reporting periods without re-downloading the entire history.
 INCREMENTAL_PERIODS = {
-    "savings_bank": 4,  # quarterly: 1 year
-    "cu": 4,  # quarterly: 1 year
-    "nh_local": 2,  # half-yearly: 1 year
+    "savings_bank": 4,
+    "cu": 4,
+    "nh_local": 2,
 }
 
-# Initial historical backfill target.  Six years is enough to support YoY,
-# multi-year trend and 12/24/36m response analysis while keeping the first
-# authenticated run bounded.  If the source exposes more history, a later
-# explicit deep-backfill can extend this without changing the data contract.
 BACKFILL_PERIODS = {
-    "savings_bank": 24,  # quarterly: 6 years
-    "cu": 24,  # quarterly: 6 years
-    "nh_local": 12,  # half-yearly: 6 years
+    "savings_bank": 24,
+    "cu": 24,
+    "nh_local": 12,
 }
+
+PREFLIGHT_TIMEOUT_SECONDS = 15.0
 
 
 def periods_for_mode(mode: str, sector: str, custom_periods: int = 12) -> int:
@@ -54,6 +62,84 @@ def periods_for_mode(mode: str, sector: str, custom_periods: int = 12) -> int:
     raise ValueError(f"지원하지 않는 collection mode: {mode}")
 
 
+def _preflight_timeout() -> float:
+    raw = os.environ.get("DATA_GO_FUNDING_PREFLIGHT_TIMEOUT_SECONDS", "").strip()
+    if not raw:
+        return PREFLIGHT_TIMEOUT_SECONDS
+    try:
+        value = float(raw)
+    except ValueError as exc:
+        raise ValueError("DATA_GO_FUNDING_PREFLIGHT_TIMEOUT_SECONDS는 숫자여야 한다") from exc
+    if value < 5 or value > 30:
+        raise ValueError("DATA_GO_FUNDING_PREFLIGHT_TIMEOUT_SECONDS는 5~30초여야 한다")
+    return value
+
+
+def _transport_preflight(contract: SourceContract) -> tuple[bool, str]:
+    """Make one bounded request before expanding into many reporting months."""
+    if contract.finance_endpoint is None:
+        return False, "exact finance endpoint 미확정; fan-out 생략"
+
+    try:
+        key = _service_key(contract)
+    except FundingSourceUnavailable as exc:
+        return False, str(exc)
+
+    bas_ym = candidate_months(contract, 1)[0]
+    params = {
+        "serviceKey": key,
+        "numOfRows": "1",
+        "pageNo": "1",
+        "resultType": "json",
+        "basYm": bas_ym,
+    }
+    try:
+        with httpx.Client(
+            timeout=_preflight_timeout(),
+            follow_redirects=True,
+            headers={"User-Agent": "bank-rate-collector/1 institution-funding-preflight"},
+        ) as client:
+            response = client.get(contract.finance_endpoint, params=params)
+    except httpx.TimeoutException as exc:
+        return False, f"transport preflight timeout: {type(exc).__name__}"
+    except httpx.HTTPError as exc:
+        return False, f"transport preflight error: {type(exc).__name__}"
+
+    if response.status_code >= 500:
+        return False, f"transport preflight upstream status={response.status_code}"
+    if response.status_code >= 400:
+        return False, f"transport preflight rejected status={response.status_code}"
+    return True, f"transport preflight ok status={response.status_code} basYm={bas_ym}"
+
+
+def _preflight_result(
+    contract: SourceContract,
+    *,
+    periods: int,
+    required: bool,
+    message: str,
+) -> ResilientSourceResult:
+    months = tuple(candidate_months(contract, periods))
+    return ResilientSourceResult(
+        source_id=contract.source_id,
+        sector=contract.sector,
+        required=required,
+        status="failed" if required else "partial",
+        requested_months=months,
+        completed_months=(),
+        failed_months=months,
+        fetched_artifacts=0,
+        parsed_points=0,
+        stored=0,
+        unchanged=0,
+        revisions=0,
+        mapped=0,
+        unmapped=0,
+        retry_recovered_months=(),
+        message=message,
+    )
+
+
 def collect_operational(
     *,
     db_path: Path,
@@ -66,12 +152,34 @@ def collect_operational(
     results: list[ResilientSourceResult] = []
     for contract in CONTRACTS:
         required = contract.sector != "cu" or require_credit_union
+        periods = periods_for_mode(mode, contract.sector, custom_periods)
+        print(
+            f"funding preflight source={contract.source_id} mode={mode} periods={periods}",
+            flush=True,
+        )
+        reachable, preflight_message = _transport_preflight(contract)
+        print(
+            f"funding preflight source={contract.source_id} reachable={reachable} "
+            f"detail={preflight_message}",
+            flush=True,
+        )
+        if not reachable:
+            results.append(
+                _preflight_result(
+                    contract,
+                    periods=periods,
+                    required=required,
+                    message=preflight_message,
+                )
+            )
+            continue
+
         results.append(
             collect_source_resilient(
                 contract,
                 db_path=db_path,
                 raw_root=raw_root,
-                periods=periods_for_mode(mode, contract.sector, custom_periods),
+                periods=periods,
                 required=required,
             )
         )
@@ -125,6 +233,7 @@ def operational_payload(
         "plan": {
             "incremental_periods": INCREMENTAL_PERIODS,
             "backfill_periods": BACKFILL_PERIODS,
+            "transport_preflight_seconds": _preflight_timeout(),
         },
         "results": [asdict(result) for result in results],
         "required_failures": [result.source_id for result in failures],
