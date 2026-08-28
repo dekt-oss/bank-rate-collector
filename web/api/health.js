@@ -7,6 +7,12 @@ const WORKFLOWS = [CORE_WORKFLOW, NH_WORKFLOW];
 const ACTIVE = new Set(["in_progress", "queued", "waiting", "pending"]);
 
 const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
+const SCHEDULE_TRIGGER_GRACE_MINUTES = 10;
+const SCHEDULE_SLOTS = [
+  { id: "core", hour: 0, minute: 17 },
+  { id: "nh", hour: 0, minute: 37 },
+  { id: "kfcc", hour: 4, minute: 17 },
+];
 const SCHEDULED_SOURCES = [
   "finlife_savings_bank", "finlife_bank", "bok_ecos", "fsb", "cu", "nh_local", "kfcc",
 ];
@@ -23,11 +29,18 @@ const kstParts = (value) => {
   };
 };
 const pad2 = (value) => String(value).padStart(2, "0");
+const kstDateKey = ({ year, month, day }) => (
+  `${year}-${pad2(month)}-${pad2(day)}`
+);
 const kstIsoAt = ({ year, month, day }, hour, minute) => (
   `${year}-${pad2(month)}-${pad2(day)}T${pad2(hour)}:${pad2(minute)}:00+09:00`
 );
 const runTime = (run) => {
   const value = Date.parse(run?.run_started_at || run?.created_at || "");
+  return Number.isFinite(value) ? value : 0;
+};
+const createdTime = (run) => {
+  const value = Date.parse(run?.created_at || run?.run_started_at || "");
   return Number.isFinite(value) ? value : 0;
 };
 const mergeRuns = (...groups) => groups
@@ -36,10 +49,111 @@ const mergeRuns = (...groups) => groups
 
 const kstDateOfRun = (run) => {
   if (!run) return null;
-  const reference = run.run_started_at || run.created_at;
+  // scheduled cycle 소속은 job 시작시각이 아니라 GitHub가 run을 만든 시각으로 본다.
+  // writer queue 때문에 자정 뒤에 실제 job이 시작돼도 원래 cycle을 잃지 않는다.
+  const reference = run.created_at || run.run_started_at;
   if (!reference) return null;
-  const parts = kstParts(reference);
-  return `${parts.year}-${pad2(parts.month)}-${pad2(parts.day)}`;
+  return kstDateKey(kstParts(reference));
+};
+
+const previousBusinessDayParts = (parts) => {
+  const cursor = new Date(Date.UTC(parts.year, parts.month - 1, parts.day));
+  do {
+    cursor.setUTCDate(cursor.getUTCDate() - 1);
+  } while (cursor.getUTCDay() === 0 || cursor.getUTCDay() === 6);
+  return {
+    year: cursor.getUTCFullYear(),
+    month: cursor.getUTCMonth() + 1,
+    day: cursor.getUTCDate(),
+  };
+};
+
+const expectedCycleParts = (now) => {
+  const instant = new Date(now);
+  const shifted = new Date(instant.getTime() + KST_OFFSET_MS);
+  const parts = {
+    year: shifted.getUTCFullYear(),
+    month: shifted.getUTCMonth() + 1,
+    day: shifted.getUTCDate(),
+  };
+  const weekday = shifted.getUTCDay();
+  const minuteOfDay = shifted.getUTCHours() * 60 + shifted.getUTCMinutes();
+  const isWeekday = weekday >= 1 && weekday <= 5;
+  // 첫 정기 cycle(00:17 KST)이 아직 오지 않은 평일 새벽은 직전 영업일을 본다.
+  if (isWeekday && minuteOfDay >= 17) return parts;
+  return previousBusinessDayParts(parts);
+};
+
+export const scheduleTriggerHealth = (scheduledRuns, now = new Date()) => {
+  const nowDate = new Date(now);
+  const nowMs = nowDate.getTime();
+  const cycleParts = expectedCycleParts(nowDate);
+  const cycleDate = kstDateKey(cycleParts);
+  const today = kstDateKey(kstParts(nowDate));
+  const isCurrentCycle = cycleDate === today;
+  const deadlineMs = Date.parse(kstIsoAt(cycleParts, 8, 0));
+  const graceMs = SCHEDULE_TRIGGER_GRACE_MINUTES * 60 * 1000;
+
+  const dueSlots = SCHEDULE_SLOTS.filter((slot) => (
+    !isCurrentCycle || nowMs >= Date.parse(kstIsoAt(cycleParts, slot.hour, slot.minute))
+  ));
+  const observed = scheduledRuns
+    .filter((run) => kstDateOfRun(run) === cycleDate)
+    .sort((a, b) => createdTime(a) - createdTime(b));
+  const paired = dueSlots.map((slot, index) => {
+    const expectedMs = Date.parse(kstIsoAt(cycleParts, slot.hour, slot.minute));
+    const run = observed[index] || null;
+    const actualMs = run ? createdTime(run) : null;
+    return {
+      slot: slot.id,
+      expected_at: kstIsoAt(cycleParts, slot.hour, slot.minute),
+      created_at: run?.created_at || null,
+      delay_minutes: actualMs === null
+        ? null
+        : Math.max(0, Math.floor((actualMs - expectedMs) / 60000)),
+    };
+  });
+  const missingCount = Math.max(0, dueSlots.length - observed.length);
+  const delays = paired
+    .map((item) => item.delay_minutes)
+    .filter((value) => value !== null);
+  const maxDelayMinutes = delays.length ? Math.max(...delays) : 0;
+  const anyCreatedAfterDeadline = observed.some((run) => createdTime(run) > deadlineMs);
+  const latestDueMs = dueSlots.length
+    ? Date.parse(kstIsoAt(
+      cycleParts,
+      dueSlots[dueSlots.length - 1].hour,
+      dueSlots[dueSlots.length - 1].minute,
+    ))
+    : null;
+
+  let status = "normal";
+  if (!dueSlots.length) {
+    status = "pending";
+  } else if (nowMs >= deadlineMs && (missingCount > 0 || anyCreatedAfterDeadline)) {
+    status = "breached";
+  } else if (
+    missingCount > 0
+    && latestDueMs !== null
+    && nowMs >= latestDueMs + graceMs
+  ) {
+    status = "warning";
+  } else if (maxDelayMinutes > SCHEDULE_TRIGGER_GRACE_MINUTES) {
+    status = "warning";
+  } else if (missingCount > 0) {
+    status = "pending";
+  }
+
+  return {
+    cycle_date_kst: cycleDate,
+    expected_count: dueSlots.length,
+    observed_count: Math.min(observed.length, dueSlots.length),
+    missing_count: missingCount,
+    max_trigger_delay_minutes: maxDelayMinutes,
+    grace_minutes: SCHEDULE_TRIGGER_GRACE_MINUTES,
+    status,
+    triggers: paired,
+  };
 };
 
 export const cycleSla = (
@@ -47,12 +161,13 @@ export const cycleSla = (
   publishCompletedAt,
   now = new Date(),
   sourceState = null,
+  scheduleState = null,
 ) => {
   if (!scheduledRun) return null;
-  const reference = scheduledRun.run_started_at || scheduledRun.created_at;
+  const reference = scheduledRun.created_at || scheduledRun.run_started_at;
   if (!reference) return null;
   const parts = kstParts(reference);
-  const cycleDate = `${parts.year}-${pad2(parts.month)}-${pad2(parts.day)}`;
+  const cycleDate = kstDateKey(parts);
   const normalTargetAt = kstIsoAt(parts, 7, 30);
   const deadlineAt = kstIsoAt(parts, 8, 0);
   const normalMs = Date.parse(normalTargetAt);
@@ -72,13 +187,16 @@ export const cycleSla = (
   }
 
   const sourceStatus = sourceState?.status || "not_checked";
+  const scheduleStatus = scheduleState?.status || "not_checked";
   let status = timingStatus;
   if (sourceState && sourceStatus === "unknown") {
     status = "unknown";
-  } else if (
-    timingStatus !== "breached" && ["failed", "incomplete"].includes(sourceStatus)
-  ) {
+  } else if (timingStatus === "breached" || scheduleStatus === "breached") {
+    status = "breached";
+  } else if (["failed", "incomplete"].includes(sourceStatus)) {
     status = "degraded";
+  } else if (timingStatus === "warning" || scheduleStatus === "warning") {
+    status = "warning";
   }
 
   return {
@@ -88,6 +206,11 @@ export const cycleSla = (
     normal_target_at: normalTargetAt,
     sla_deadline_at: deadlineAt,
     timing_status: timingStatus,
+    schedule_status: scheduleStatus,
+    schedule_expected_count: scheduleState?.expected_count ?? null,
+    schedule_observed_count: scheduleState?.observed_count ?? null,
+    schedule_missing_count: scheduleState?.missing_count ?? null,
+    schedule_max_delay_minutes: scheduleState?.max_trigger_delay_minutes ?? null,
     source_status: sourceStatus,
     failed_sources: sourceState?.failed_sources || [],
     missing_sources: sourceState?.missing_sources || [],
@@ -320,12 +443,13 @@ export default async function handler(req, res) {
     .find((run) => ACTIVE.has(run.status)) || null;
   const activePublish = runs.find((run) => run.event === "push" && ACTIVE.has(run.status)) || null;
   const latestCollection = collections[0] || null;
-  const latestScheduled = scheduledRuns[0] || null;
   const latestPublish = runs.find((run) => run.conclusion === "success") || null;
   const detailRun = activeCollection || latestCollection;
 
   const detail = await loadRunSteps(token, slug, detailRun);
-  const cycleDate = kstDateOfRun(latestScheduled);
+  const now = new Date();
+  const scheduleState = scheduleTriggerHealth(scheduledRuns, now);
+  const cycleDate = scheduleState.cycle_date_kst;
   const cycleRuns = scheduledRuns.filter((run) => kstDateOfRun(run) === cycleDate);
   const cycleDetails = await Promise.all(cycleRuns.map(async (run) => (
     detailRun && run.id === detailRun.id ? detail : loadRunSteps(token, slug, run)
@@ -342,7 +466,10 @@ export default async function handler(req, res) {
     ? publishStep.completed_at
     : null;
   const sourceState = cycleSourceState(cycleDetails, publishCompletedAt);
-  const sla = cycleSla(latestScheduled, publishCompletedAt, new Date(), sourceState);
+  const cycleAnchor = cycleDate
+    ? { created_at: `${cycleDate}T00:17:00+09:00` }
+    : null;
+  const sla = cycleSla(cycleAnchor, publishCompletedAt, now, sourceState, scheduleState);
 
   return json(res, 200, {
     ok: true,
@@ -352,6 +479,7 @@ export default async function handler(req, res) {
     latest_publish: runView(latestPublish),
     source_steps: detail.sourceSteps,
     pipeline_steps: detail.pipelineSteps,
+    schedule: scheduleState,
     sla,
   });
 }
