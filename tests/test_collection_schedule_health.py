@@ -49,6 +49,7 @@ def test_missing_today_schedule_turns_yellow_after_trigger_grace() -> None:
     assert result["expected_count"] == 2
     assert result["observed_count"] == 0
     assert result["missing_count"] == 2
+    assert result["max_trigger_delay_minutes"] is None
     assert result["status"] == "warning"
 
 
@@ -57,7 +58,23 @@ def test_missing_schedule_is_red_after_eight_am_hard_deadline() -> None:
     assert result["cycle_date_kst"] == "2026-08-12"
     assert result["expected_count"] == 3
     assert result["missing_count"] == 3
+    assert result["max_trigger_delay_minutes"] is None
     assert result["status"] == "breached"
+
+
+def test_before_monday_first_trigger_uses_previous_business_cycle() -> None:
+    # 월요일 00:10 KST에는 아직 월요일 core 00:17도 예정 전이다.
+    # 이 시점에 월요일을 누락으로 만들지 않고 직전 금요일 완료 cycle을 본다.
+    friday_runs = [
+        _run("2026-08-06T15:17:30Z"),  # 8/7 00:17:30 KST
+        _run("2026-08-06T15:37:20Z"),  # 8/7 00:37:20 KST
+        _run("2026-08-06T19:17:40Z"),  # 8/7 04:17:40 KST
+    ]
+    result = _schedule(friday_runs, "2026-08-09T15:10:00Z")  # 8/10 월 00:10 KST
+    assert result["cycle_date_kst"] == "2026-08-07"
+    assert result["expected_count"] == 3
+    assert result["missing_count"] == 0
+    assert result["status"] == "normal"
 
 
 def test_on_time_schedule_stays_normal() -> None:
