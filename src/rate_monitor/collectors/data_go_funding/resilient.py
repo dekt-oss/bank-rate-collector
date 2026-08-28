@@ -10,12 +10,14 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import httpx
+from sqlalchemy import select
 
 from rate_monitor.collectors.data_go_funding.collector import (
     CONTRACTS,
@@ -38,6 +40,7 @@ from rate_monitor.collectors.data_go_funding.collector import (
 from rate_monitor.collectors.data_go_funding.transport import fetch_month as _fetch_month
 from rate_monitor.db import models as m
 from rate_monitor.db.session import create_db_engine, make_session_factory, session_scope
+from rate_monitor.domain.timeutil import kst_path_stamp
 from rate_monitor.services.collection_service import save_raw_artifacts
 
 RETRY_ROUNDS = 1
@@ -137,6 +140,59 @@ def _new_run(
         return run.id
 
 
+def _save_month_artifacts(
+    *,
+    session: Any,
+    run: m.CollectionRun,
+    artifacts: list[Any],
+    raw_root: Path,
+    now: Any,
+) -> list[m.RawArtifact]:
+    """Persist month artifacts while reusing an identical payload in one run.
+
+    Data.go can return byte-identical empty payloads for multiple ``basYm``
+    values. ``raw_artifacts`` intentionally has ``UNIQUE(run_id, sha256)``;
+    source-month transactions therefore need to reuse an already committed row
+    instead of trying to INSERT the same digest again. The per-request file is
+    still written and the shared request metadata is attached to the canonical
+    row, so evidence is not lost.
+    """
+    saved: list[m.RawArtifact] = []
+    for artifact in artifacts:
+        digest = hashlib.sha256(artifact.content).hexdigest()
+        existing = session.scalar(
+            select(m.RawArtifact).where(
+                m.RawArtifact.run_id == run.id,
+                m.RawArtifact.sha256 == digest,
+            )
+        )
+        if existing is None:
+            saved.extend(
+                save_raw_artifacts(session, run, [artifact], raw_root, now)
+            )
+            continue
+
+        day_dir = raw_root / kst_path_stamp(now) / run.id
+        day_dir.mkdir(parents=True, exist_ok=True)
+        path = day_dir / artifact.filename
+        path.write_bytes(artifact.content)
+
+        meta = dict(existing.request_meta_json or {})
+        shared_with = list(meta.get("shared_with", []))
+        if artifact.filename not in shared_with:
+            shared_with.append(artifact.filename)
+        meta["shared_with"] = shared_with
+        shared_requests = list(meta.get("shared_requests", []))
+        request_meta = dict(artifact.request_meta or {})
+        if request_meta not in shared_requests:
+            shared_requests.append(request_meta)
+        meta["shared_requests"] = shared_requests
+        existing.request_meta_json = meta
+        saved.append(existing)
+    session.flush()
+    return saved
+
+
 def _persist_month(
     *,
     factory: Any,
@@ -166,7 +222,13 @@ def _persist_month(
         run = session.get(m.CollectionRun, run_id)
         if run is None:
             raise FundingContractError(f"collection run이 없다: {run_id}")
-        records = save_raw_artifacts(session, run, artifacts, raw_root, now)
+        records = _save_month_artifacts(
+            session=session,
+            run=run,
+            artifacts=artifacts,
+            raw_root=raw_root,
+            now=now,
+        )
         if points and not records:
             raise FundingContractError(
                 f"{contract.source_id}/{bas_ym}: raw artifact provenance가 없다"
