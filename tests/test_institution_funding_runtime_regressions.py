@@ -16,13 +16,24 @@ def _contract(sector: str):
     return next(contract for contract in CONTRACTS if contract.sector == sector)
 
 
-def _savings_row(*, bank: str = "001") -> dict[str, str]:
+def _savings_summary_total_row(*, bank: str = "001") -> dict[str, str]:
+    return {
+        "basYm": "202603",
+        "fncoCd": bank,
+        "fncoNm": f"저축은행-{bank}",
+        "debtCptlSmryStfnpsAcitCd": "A11",
+        "debtCptlSmryStfnpsAcitCdNm": "예수부채",
+        "debtCptlAmt": "5000000",
+    }
+
+
+def _savings_ordinary_deposit_row(*, bank: str = "001") -> dict[str, str]:
     return {
         "basYm": "202603",
         "fncoCd": bank,
         "fncoNm": f"저축은행-{bank}",
         "dpsdbtDcd": "A11",
-        "dpsdbtDcdNm": "예수부채",
+        "dpsdbtDcdNm": "예수부채_예수금_(보 통 예 금)",
         "dpsdbtClsfAmt": "1000000",
     }
 
@@ -35,9 +46,9 @@ def _table(title: str, rows: list[dict[str, str]]) -> dict:
     }
 
 
-def test_savings_prefers_dedicated_deposit_liabilities_table_when_a11_is_duplicated():
-    summary_row = _savings_row(bank="summary")
-    dedicated_row = _savings_row(bank="dedicated")
+def test_savings_prefers_summary_total_when_a11_text_is_reused_across_hierarchies():
+    summary_row = _savings_summary_total_row(bank="summary")
+    ordinary_row = _savings_ordinary_deposit_row(bank="ordinary")
     payload = {
         "response": {
             "header": {"resultCode": "00", "resultMsg": "NORMAL SERVICE"},
@@ -49,7 +60,7 @@ def test_savings_prefers_dedicated_deposit_liabilities_table_when_a11_is_duplica
                     ),
                     _table(
                         "저축_재무현황_부채부문별현황_예수부채",
-                        [dedicated_row],
+                        [ordinary_row],
                     ),
                 ]
             },
@@ -63,9 +74,10 @@ def test_savings_prefers_dedicated_deposit_liabilities_table_when_a11_is_duplica
         target_title=None,
     )
 
-    assert title == "저축_재무현황_부채부문별현황_예수부채"
+    assert title == "저축_재무현황_요약재무상태표(부채및자본)"
     assert total_count == 1
-    assert rows == [dedicated_row]
+    assert rows == [summary_row]
+    assert rows[0]["debtCptlSmryStfnpsAcitCdNm"] == "예수부채"
 
 
 def _source(now: datetime) -> Source:
