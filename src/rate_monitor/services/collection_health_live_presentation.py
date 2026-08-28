@@ -23,6 +23,9 @@ LIVE_HEALTH_SIGNAL_SCRIPT = r"""
     red: "실패·지연",
     gray: "대상 아님",
   };
+  let baselineSignal = null;
+  let baselineLabel = null;
+  let baselineTitle = null;
 
   const signalFor = (sla) => {
     if (!sla) return null;
@@ -43,12 +46,17 @@ LIVE_HEALTH_SIGNAL_SCRIPT = r"""
     const label = document.getElementById("health-head-label");
     const button = document.getElementById("health-open");
     const live = signalFor(sla);
-    if (!dot || !label || !button || !live) return;
+    if (!dot || !label || !button || !live || !baselineSignal) return;
 
-    const existing = currentSignal(dot);
-    if ((ranks[live] || 0) <= (ranks[existing] || 0)) return;
+    const useLive = (ranks[live] || 0) > (ranks[baselineSignal] || 0);
+    const signal = useLive ? live : baselineSignal;
+    dot.className = `health-dot ${signal}`;
+    if (!useLive) {
+      label.textContent = baselineLabel;
+      button.title = baselineTitle;
+      return;
+    }
 
-    dot.className = `health-dot ${live}`;
     label.textContent = `수집 ${labels[live]}`;
     const schedule = sla.schedule_status && sla.schedule_status !== "normal"
       ? ` · 정기 실행 ${sla.schedule_status}`
@@ -67,8 +75,15 @@ LIVE_HEALTH_SIGNAL_SCRIPT = r"""
   };
 
   const start = () => {
+    const dot = document.getElementById("health-head-dot");
+    const label = document.getElementById("health-head-label");
+    const button = document.getElementById("health-open");
+    if (!dot || !label || !button) return;
+    baselineSignal = currentSignal(dot);
+    baselineLabel = label.textContent;
+    baselineTitle = button.title;
     refresh();
-    document.getElementById("health-open")?.addEventListener("click", refresh);
+    button.addEventListener("click", refresh);
     document.getElementById("health-refresh")?.addEventListener("click", refresh);
     window.setInterval(refresh, 5 * 60 * 1000);
   };
