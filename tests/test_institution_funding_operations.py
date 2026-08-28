@@ -3,10 +3,17 @@ from __future__ import annotations
 from datetime import date, datetime
 from decimal import Decimal
 
+import httpx
+
 from rate_monitor.collectors.data_go_funding import operations as ops
+from rate_monitor.collectors.data_go_funding.collector import CONTRACTS
 from rate_monitor.db import models as m
 from rate_monitor.db.institution_funding_models import InstitutionFundingObservation
 from rate_monitor.db.session import create_db_engine, make_session_factory, session_scope
+
+
+def _contract(sector: str):
+    return next(contract for contract in CONTRACTS if contract.sector == sector)
 
 
 def test_operational_period_plans_cover_one_and_six_years():
@@ -17,6 +24,36 @@ def test_operational_period_plans_cover_one_and_six_years():
     assert ops.periods_for_mode("backfill", "cu") == 24
     assert ops.periods_for_mode("backfill", "nh_local") == 12
     assert ops.periods_for_mode("custom", "savings_bank", 7) == 7
+
+
+def test_transport_preflight_timeout_fails_before_fanout(monkeypatch):
+    class Client:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def get(self, *args, **kwargs):
+            request = httpx.Request("GET", "https://example.test")
+            raise httpx.ConnectTimeout("timeout", request=request)
+
+    monkeypatch.setattr(ops, "_service_key", lambda _contract: "key")
+    monkeypatch.setattr(ops.httpx, "Client", Client)
+
+    reachable, message = ops._transport_preflight(_contract("savings_bank"))
+
+    assert reachable is False
+    assert "ConnectTimeout" in message
+
+
+def test_unknown_credit_union_finance_endpoint_skips_fanout():
+    reachable, message = ops._transport_preflight(_contract("cu"))
+    assert reachable is False
+    assert "exact finance endpoint" in message
 
 
 def test_coverage_summary_reports_historical_span(tmp_path):
