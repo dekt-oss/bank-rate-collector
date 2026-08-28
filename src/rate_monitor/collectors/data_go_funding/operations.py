@@ -4,14 +4,16 @@ The source APIs expose historical reporting months through ``basYm``. This
 module separates one-time historical backfill from the recurring revision
 watch so scheduled collection does not re-fetch the whole history every day.
 
-A bounded transport preflight runs before a source fan-out. This prevents an
-unreachable Data.go gateway from turning a 24-period backfill into hours of
-per-month timeout/retry storms while preserving fail-closed publication.
+A bounded transport preflight runs before a source fan-out. Transient gateway
+failures get a small number of fresh-client retries; hard 4xx rejections stop
+immediately. This prevents one network wobble from discarding a required
+source without recreating the old multi-hour per-month retry storm.
 """
 
 from __future__ import annotations
 
 import os
+import time
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
@@ -52,6 +54,8 @@ BACKFILL_PERIODS = {
 }
 
 PREFLIGHT_TIMEOUT_SECONDS = 15.0
+PREFLIGHT_ATTEMPTS = 3
+PREFLIGHT_RETRY_DELAYS = (1.0, 3.0)
 
 
 def periods_for_mode(mode: str, sector: str, custom_periods: int = 12) -> int:
@@ -81,7 +85,7 @@ def _preflight_timeout() -> float:
 
 
 def _transport_preflight(contract: SourceContract) -> tuple[bool, str]:
-    """Make one bounded exact-account request before expanding into many months."""
+    """Make bounded fresh-client attempts before expanding into many months."""
     if contract.finance_endpoint is None:
         return False, "exact finance endpoint 미확정; fan-out 생략"
 
@@ -98,23 +102,44 @@ def _transport_preflight(contract: SourceContract) -> tuple[bool, str]:
         page_no=1,
         num_rows=1,
     )
-    try:
-        with httpx.Client(
-            timeout=_preflight_timeout(),
-            follow_redirects=True,
-            headers={"User-Agent": "bank-rate-collector/1 institution-funding-preflight"},
-        ) as client:
-            response = client.get(contract.finance_endpoint, params=params)
-    except httpx.TimeoutException as exc:
-        return False, f"transport preflight timeout: {type(exc).__name__}"
-    except httpx.HTTPError as exc:
-        return False, f"transport preflight error: {type(exc).__name__}"
+    last_error = "unknown"
+    for attempt in range(1, PREFLIGHT_ATTEMPTS + 1):
+        if attempt > 1:
+            time.sleep(PREFLIGHT_RETRY_DELAYS[attempt - 2])
+        try:
+            with httpx.Client(
+                timeout=_preflight_timeout(),
+                follow_redirects=True,
+                headers={"User-Agent": "bank-rate-collector/1 institution-funding-preflight"},
+            ) as client:
+                response = client.get(contract.finance_endpoint, params=params)
+        except httpx.TimeoutException as exc:
+            last_error = f"timeout: {type(exc).__name__}"
+            continue
+        except httpx.HTTPError as exc:
+            last_error = f"error: {type(exc).__name__}"
+            continue
 
-    if response.status_code >= 500:
-        return False, f"transport preflight upstream status={response.status_code}"
-    if response.status_code >= 400:
-        return False, f"transport preflight rejected status={response.status_code}"
-    return True, f"transport preflight ok status={response.status_code} basYm={bas_ym}"
+        if response.status_code >= 500:
+            last_error = f"upstream status={response.status_code}"
+            continue
+        if response.status_code >= 400:
+            return (
+                False,
+                f"transport preflight rejected status={response.status_code} "
+                f"attempt={attempt}/{PREFLIGHT_ATTEMPTS}",
+            )
+        return (
+            True,
+            f"transport preflight ok status={response.status_code} basYm={bas_ym} "
+            f"attempt={attempt}/{PREFLIGHT_ATTEMPTS}",
+        )
+
+    return (
+        False,
+        f"transport preflight retry exhausted attempts={PREFLIGHT_ATTEMPTS} "
+        f"last={last_error}",
+    )
 
 
 def _preflight_result(
@@ -239,6 +264,8 @@ def operational_payload(
             "incremental_periods": INCREMENTAL_PERIODS,
             "backfill_periods": BACKFILL_PERIODS,
             "transport_preflight_seconds": _preflight_timeout(),
+            "transport_preflight_attempts": PREFLIGHT_ATTEMPTS,
+            "transport_preflight_retry_delays": PREFLIGHT_RETRY_DELAYS,
             "page_size": PAGE_SIZE,
             "account_filters": ACCOUNT_FILTERS,
         },
