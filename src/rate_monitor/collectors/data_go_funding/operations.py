@@ -31,6 +31,11 @@ from rate_monitor.collectors.data_go_funding.resilient import (
     collect_source_resilient,
     required_failures,
 )
+from rate_monitor.collectors.data_go_funding.transport import (
+    ACCOUNT_FILTERS,
+    PAGE_SIZE,
+    request_params,
+)
 from rate_monitor.db.institution_funding_models import InstitutionFundingObservation
 from rate_monitor.db.session import create_db_engine, make_session_factory, session_scope
 
@@ -76,7 +81,7 @@ def _preflight_timeout() -> float:
 
 
 def _transport_preflight(contract: SourceContract) -> tuple[bool, str]:
-    """Make one bounded request before expanding into many reporting months."""
+    """Make one bounded exact-account request before expanding into many months."""
     if contract.finance_endpoint is None:
         return False, "exact finance endpoint 미확정; fan-out 생략"
 
@@ -86,13 +91,13 @@ def _transport_preflight(contract: SourceContract) -> tuple[bool, str]:
         return False, str(exc)
 
     bas_ym = candidate_months(contract, 1)[0]
-    params = {
-        "serviceKey": key,
-        "numOfRows": "1",
-        "pageNo": "1",
-        "resultType": "json",
-        "basYm": bas_ym,
-    }
+    params = request_params(
+        contract,
+        key=key,
+        bas_ym=bas_ym,
+        page_no=1,
+        num_rows=1,
+    )
     try:
         with httpx.Client(
             timeout=_preflight_timeout(),
@@ -234,6 +239,8 @@ def operational_payload(
             "incremental_periods": INCREMENTAL_PERIODS,
             "backfill_periods": BACKFILL_PERIODS,
             "transport_preflight_seconds": _preflight_timeout(),
+            "page_size": PAGE_SIZE,
+            "account_filters": ACCOUNT_FILTERS,
         },
         "results": [asdict(result) for result in results],
         "required_failures": [result.source_id for result in failures],
