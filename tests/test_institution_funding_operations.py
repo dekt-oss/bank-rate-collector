@@ -26,10 +26,14 @@ def test_operational_period_plans_cover_one_and_six_years():
     assert ops.periods_for_mode("custom", "savings_bank", 7) == 7
 
 
-def test_transport_preflight_timeout_fails_before_fanout(monkeypatch):
+def test_transport_preflight_retries_transient_timeout_with_fresh_clients(monkeypatch):
+    created = 0
+
     class Client:
         def __init__(self, *args, **kwargs):
-            pass
+            nonlocal created
+            created += 1
+            self.number = created
 
         def __enter__(self):
             return self
@@ -37,17 +41,81 @@ def test_transport_preflight_timeout_fails_before_fanout(monkeypatch):
         def __exit__(self, *args):
             return False
 
-        def get(self, *args, **kwargs):
-            request = httpx.Request("GET", "https://example.test")
+        def get(self, endpoint, *, params):
+            request = httpx.Request("GET", endpoint, params=params)
+            if self.number == 1:
+                raise httpx.ReadTimeout("timeout", request=request)
+            return httpx.Response(200, json={"ok": True}, request=request)
+
+    monkeypatch.setattr(ops, "_service_key", lambda _contract: "key")
+    monkeypatch.setattr(ops.httpx, "Client", Client)
+    monkeypatch.setattr(ops.time, "sleep", lambda _seconds: None)
+
+    reachable, message = ops._transport_preflight(_contract("nh_local"))
+
+    assert reachable is True
+    assert created == 2
+    assert "attempt=2/3" in message
+
+
+def test_transport_preflight_exhausts_bounded_transient_retries(monkeypatch):
+    created = 0
+
+    class Client:
+        def __init__(self, *args, **kwargs):
+            nonlocal created
+            created += 1
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def get(self, endpoint, *, params):
+            request = httpx.Request("GET", endpoint, params=params)
             raise httpx.ConnectTimeout("timeout", request=request)
 
     monkeypatch.setattr(ops, "_service_key", lambda _contract: "key")
     monkeypatch.setattr(ops.httpx, "Client", Client)
+    monkeypatch.setattr(ops.time, "sleep", lambda _seconds: None)
 
     reachable, message = ops._transport_preflight(_contract("savings_bank"))
 
     assert reachable is False
+    assert created == ops.PREFLIGHT_ATTEMPTS == 3
+    assert "retry exhausted" in message
     assert "ConnectTimeout" in message
+
+
+def test_transport_preflight_does_not_retry_hard_4xx(monkeypatch):
+    created = 0
+
+    class Client:
+        def __init__(self, *args, **kwargs):
+            nonlocal created
+            created += 1
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def get(self, endpoint, *, params):
+            request = httpx.Request("GET", endpoint, params=params)
+            return httpx.Response(401, json={"error": "bad key"}, request=request)
+
+    monkeypatch.setattr(ops, "_service_key", lambda _contract: "key")
+    monkeypatch.setattr(ops.httpx, "Client", Client)
+    monkeypatch.setattr(ops.time, "sleep", lambda _seconds: None)
+
+    reachable, message = ops._transport_preflight(_contract("savings_bank"))
+
+    assert reachable is False
+    assert created == 1
+    assert "rejected status=401" in message
+    assert "attempt=1/3" in message
 
 
 def test_unknown_credit_union_finance_endpoint_skips_fanout():
