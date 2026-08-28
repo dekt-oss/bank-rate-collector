@@ -15,7 +15,7 @@ def test_stale_recovery_serializes_existing_current_main_workflows():
     assert "needs: recover_general" in text
     assert "recover_nh:" in text
     assert "needs: recover_kfcc" in text
-    assert text.count("timeout-minutes: 300") == 3
+    assert text.count("timeout-minutes: 360") == 3
     assert 'manual_target="일반 전체"' in text
     assert 'manual_target="새마을금고만"' in text
     assert 'kfcc_resume_mode=auto' in text
@@ -26,3 +26,6 @@ def test_stale_recovery_serializes_existing_current_main_workflows():
     ) < text.index('gh workflow run collect-nh.yml')
     assert text.count('gh run watch "$run_id"') == 3
     assert text.count("--exit-status") == 3
+    assert text.count("--limit 1") == 6
+    assert "--limit 5" not in text
+    assert text.count("databaseId != $before") == 3
