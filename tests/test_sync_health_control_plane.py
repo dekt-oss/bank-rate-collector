@@ -4,11 +4,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from scripts.sync_health_control_plane import sync_control_plane, sync_html_text
+
 from rate_monitor.services.collection_health_live_presentation import (
     LIVE_HEALTH_SIGNAL_SCRIPT,
     MARKER,
 )
-from scripts.sync_health_control_plane import sync_control_plane, sync_html_text
 
 
 def _page(script: str = "") -> str:
