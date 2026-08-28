@@ -7,11 +7,12 @@ import json
 from pathlib import Path
 
 from rate_monitor.collectors.data_go_funding.collector import current_counts
-from rate_monitor.collectors.data_go_funding.reconciliation import build_report
-from rate_monitor.collectors.data_go_funding.resilient import (
-    collect_all_resilient,
-    required_failures,
+from rate_monitor.collectors.data_go_funding.operations import (
+    collect_operational,
+    operational_payload,
 )
+from rate_monitor.collectors.data_go_funding.reconciliation import build_report
+from rate_monitor.collectors.data_go_funding.resilient import required_failures
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -22,6 +23,15 @@ def _parser() -> argparse.ArgumentParser:
     collect.add_argument("--db", type=Path, required=True)
     collect.add_argument("--raw-root", type=Path, default=Path("data/raw"))
     collect.add_argument("--periods", type=int, default=12)
+    collect.add_argument(
+        "--mode",
+        choices=("incremental", "backfill", "custom"),
+        default="custom",
+        help=(
+            "incremental=최근 약 1년 revision watch, "
+            "backfill=최초 6년 이력 수집, custom=--periods 사용"
+        ),
+    )
     collect.add_argument(
         "--require-credit-union",
         action="store_true",
@@ -42,13 +52,19 @@ def _parser() -> argparse.ArgumentParser:
 def main() -> int:
     args = _parser().parse_args()
     if args.command == "collect":
-        results = collect_all_resilient(
+        results = collect_operational(
             db_path=args.db,
             raw_root=args.raw_root,
-            periods=args.periods,
+            mode=args.mode,
+            custom_periods=args.periods,
             require_credit_union=args.require_credit_union,
         )
-        payload = [result.__dict__ for result in results]
+        payload = operational_payload(
+            mode=args.mode,
+            results=results,
+            db_path=args.db,
+        )
+
         if args.json:
             args.json.parent.mkdir(parents=True, exist_ok=True)
             args.json.write_text(
