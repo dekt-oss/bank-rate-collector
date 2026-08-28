@@ -104,20 +104,17 @@ export const scheduleTriggerHealth = (scheduledRuns, now = new Date()) => {
     const expectedMs = Date.parse(kstIsoAt(cycleParts, slot.hour, slot.minute));
     const run = observed[index] || null;
     const actualMs = run ? createdTime(run) : null;
-    return {
-      slot: slot.id,
-      expected_at: kstIsoAt(cycleParts, slot.hour, slot.minute),
-      created_at: run?.created_at || null,
-      delay_minutes: actualMs === null
-        ? null
-        : Math.max(0, Math.floor((actualMs - expectedMs) / 60000)),
-    };
+    return actualMs === null
+      ? null
+      : Math.max(0, Math.floor((actualMs - expectedMs) / 60000));
   });
   const missingCount = Math.max(0, dueSlots.length - observed.length);
-  const delays = paired
-    .map((item) => item.delay_minutes)
-    .filter((value) => value !== null);
-  const maxDelayMinutes = delays.length ? Math.max(...delays) : 0;
+  const delays = paired.filter((value) => value !== null);
+  // 일부 trigger가 아예 없으면 남은 run을 어느 slot에 대응할지 확정할 수 없다.
+  // 그 상태에서는 지연 분수를 지어내지 않고 missing 자체로 warning/red를 판정한다.
+  const maxDelayMinutes = missingCount === 0 && delays.length
+    ? Math.max(...delays)
+    : null;
   const anyCreatedAfterDeadline = observed.some((run) => createdTime(run) > deadlineMs);
   const latestDueMs = dueSlots.length
     ? Date.parse(kstIsoAt(
@@ -138,7 +135,10 @@ export const scheduleTriggerHealth = (scheduledRuns, now = new Date()) => {
     && nowMs >= latestDueMs + graceMs
   ) {
     status = "warning";
-  } else if (maxDelayMinutes > SCHEDULE_TRIGGER_GRACE_MINUTES) {
+  } else if (
+    maxDelayMinutes !== null
+    && maxDelayMinutes > SCHEDULE_TRIGGER_GRACE_MINUTES
+  ) {
     status = "warning";
   } else if (missingCount > 0) {
     status = "pending";
@@ -152,7 +152,6 @@ export const scheduleTriggerHealth = (scheduledRuns, now = new Date()) => {
     max_trigger_delay_minutes: maxDelayMinutes,
     grace_minutes: SCHEDULE_TRIGGER_GRACE_MINUTES,
     status,
-    triggers: paired,
   };
 };
 
@@ -351,6 +350,13 @@ const settings = () => {
   return { token, slug };
 };
 
+const healthNow = () => {
+  const override = process.env.RATE_MONITOR_HEALTH_NOW;
+  if (!override) return new Date();
+  const parsed = new Date(override);
+  return Number.isFinite(parsed.getTime()) ? parsed : new Date();
+};
+
 const loadWorkflowRuns = async (token, slug, workflow, scheduledOnly = false) => {
   const suffix = scheduledOnly ? "?event=schedule&per_page=20" : "?per_page=30";
   const response = await gh(
@@ -447,7 +453,7 @@ export default async function handler(req, res) {
   const detailRun = activeCollection || latestCollection;
 
   const detail = await loadRunSteps(token, slug, detailRun);
-  const now = new Date();
+  const now = healthNow();
   const scheduleState = scheduleTriggerHealth(scheduledRuns, now);
   const cycleDate = scheduleState.cycle_date_kst;
   const cycleRuns = scheduledRuns.filter((run) => kstDateOfRun(run) === cycleDate);
