@@ -189,6 +189,39 @@ def test_fetch_month_uses_summary_total_not_dedicated_ordinary_deposit_table():
     assert all("dpsdbtDcd" not in row for row in rows)
 
 
+def test_fetch_month_rejects_ordinary_deposit_lookalike_when_summary_total_is_missing():
+    contract = _contract("savings_bank")
+
+    class LookalikeOnlyClient:
+        def get(self, endpoint: str, *, params: dict[str, str]):
+            raw = json.dumps(
+                _payload(
+                    [
+                        _table(
+                            "저축_재무현황_부채부문별현황_예수부채",
+                            80,
+                            [_savings_ordinary_deposit_row(index) for index in range(80)],
+                        )
+                    ]
+                ),
+                ensure_ascii=False,
+            ).encode()
+            return httpx.Response(
+                200,
+                content=raw,
+                request=httpx.Request("GET", endpoint, params=params),
+            )
+
+    with pytest.raises(FundingContractError, match="account filter"):
+        fetch_month(
+            LookalikeOnlyClient(),
+            contract=contract,
+            endpoint=contract.finance_endpoint or "https://example.test",
+            key="key",
+            bas_ym="202506",
+        )
+
+
 def test_fetch_month_paginates_by_target_table_total_count_and_preserves_metadata():
     client = _TablePagingClient([PAGE_SIZE, PAGE_SIZE, 126], total_count=1126)
     contract = _contract("nh_local")
