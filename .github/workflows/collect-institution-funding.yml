@@ -43,6 +43,7 @@ jobs:
           contains(github.event.head_commit.message, '[funding-r2]') ||
           contains(github.event.head_commit.message, '[funding-backfill]') }}
     runs-on: ubuntu-latest
+    timeout-minutes: 90
     steps:
       - name: Check collect password
         if: ${{ github.event_name == 'workflow_dispatch' }}
@@ -134,6 +135,7 @@ jobs:
           DATA_GO_KR_SERVICE_KEY_SH: ${{ secrets.DATA_GO_KR_SERVICE_KEY_SH }}
           DATA_GO_KR_SERVICE_KEY_NH: ${{ secrets.DATA_GO_KR_SERVICE_KEY_NH }}
           DATA_GO_KR_SERVICE_KEY: ${{ secrets.DATA_GO_KR_SERVICE_KEY }}
+          DATA_GO_FUNDING_PREFLIGHT_TIMEOUT_SECONDS: "15"
           PERIODS: ${{ inputs.periods || 12 }}
         run: |
           set -euo pipefail
@@ -189,20 +191,21 @@ jobs:
           uv run python -m rate_monitor.collectors.data_go_funding.cli counts \
             --db work/rate_monitor.sqlite3 > work/funding-before-rerun.json
 
-      - name: Idempotent rerun
+      - name: Bounded idempotent rerun
         env:
           DATA_GO_KR_SERVICE_KEY_SB: ${{ secrets.DATA_GO_KR_SERVICE_KEY_SB }}
           DATA_GO_KR_SERVICE_KEY_SH: ${{ secrets.DATA_GO_KR_SERVICE_KEY_SH }}
           DATA_GO_KR_SERVICE_KEY_NH: ${{ secrets.DATA_GO_KR_SERVICE_KEY_NH }}
           DATA_GO_KR_SERVICE_KEY: ${{ secrets.DATA_GO_KR_SERVICE_KEY }}
-          PERIODS: ${{ inputs.periods || 12 }}
+          DATA_GO_FUNDING_PREFLIGHT_TIMEOUT_SECONDS: "15"
         run: |
           set -euo pipefail
+          # Backfill 전체를 다시 받지 않는다. 최근 revision-watch 범위만 재수집해
+          # active observation count/revision drift가 없는지 검증한다.
           uv run python -m rate_monitor.collectors.data_go_funding.cli collect \
             --db work/rate_monitor.sqlite3 \
             --raw-root data/raw \
-            --mode "$FUNDING_MODE" \
-            --periods "$PERIODS" \
+            --mode incremental \
             --json publish/funding-second-run.json
           uv run python -m rate_monitor.collectors.data_go_funding.cli counts \
             --db work/rate_monitor.sqlite3 > work/funding-after-rerun.json
@@ -212,7 +215,7 @@ jobs:
           after = json.load(open("work/funding-after-rerun.json"))
           if before != after:
               raise SystemExit(f"funding observation duplicate/revision drift: {before} -> {after}")
-          print("idempotency ok:", after)
+          print("bounded idempotency ok:", after)
           PY
 
       - name: Snapshot and validate
