@@ -23,6 +23,7 @@ def test_schema_gate_accepts_registered_institution_funding_table(tmp_path: Path
     engine.dispose()
 
     assert "institution_funding_observations" in Base.metadata.tables
+    expected_count = len(Base.metadata.tables)
 
     manifest = tmp_path / "manifest.json"
     manifest.write_text(
@@ -65,5 +66,7 @@ def test_schema_gate_accepts_registered_institution_funding_table(tmp_path: Path
     schema_lines = [
         line for line in done.stdout.splitlines() if "SQLite 표가 모델과 같은가" in line
     ]
-    assert schema_lines == ["  [PASS] SQLite 표가 모델과 같은가 — 16종, 모델과 일치"]
-    assert "institution_funding_observations" not in "\n".join(schema_lines)
+    assert schema_lines == [
+        f"  [PASS] SQLite 표가 모델과 같은가 — {expected_count}종, 모델과 일치"
+    ]
+    assert "[FAIL] SQLite 표가 모델과 같은가" not in done.stdout
