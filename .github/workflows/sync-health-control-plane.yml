@@ -1,0 +1,79 @@
+name: Sync health control plane
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "web/api/health.js"
+      - "src/rate_monitor/services/collection_health_live_presentation.py"
+      - "scripts/sync_health_control_plane.py"
+      - ".github/workflows/sync-health-control-plane.yml"
+  workflow_run:
+    workflows:
+      - "수집 — 일반·새마을금고"
+      - "Collect bank rates fast"
+    types: [completed]
+
+# 데이터 writer와 다른 control-plane 전용 줄이다. 이 workflow는 DB/R2/금리 데이터에
+# 손대지 않으며, 수집 장애가 rate-data-writer를 오래 점유해도 경고 신호는 배포한다.
+concurrency:
+  group: health-control-plane
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout latest main health source
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: source
+
+      - name: Checkout deployed rate-data tree
+        uses: actions/checkout@v4
+        with:
+          ref: rate-data
+          path: deploy
+          fetch-depth: 1
+
+      - name: Sync health control plane with race-safe retry
+        shell: bash
+        run: |
+          set -euo pipefail
+          git -C deploy config user.name "github-actions[bot]"
+          git -C deploy config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          for attempt in 1 2 3; do
+            echo "health control-plane sync attempt=$attempt"
+            git -C deploy fetch origin rate-data --depth=1
+            git -C deploy reset --hard origin/rate-data
+
+            python source/scripts/sync_health_control_plane.py --deploy-root deploy
+            node --check deploy/api/health.js
+
+            git -C deploy add -f api/health.js site-public/index.html
+            if [ -f deploy/site-public/strategy.html ]; then
+              git -C deploy add -f site-public/strategy.html
+            fi
+
+            if git -C deploy diff --cached --quiet; then
+              echo "rate-data health control-plane already current"
+              exit 0
+            fi
+
+            git -C deploy commit -m "ops: health control-plane 동기화 (source $GITHUB_SHA)"
+            if git -C deploy push origin HEAD:rate-data; then
+              echo "health control-plane push success"
+              exit 0
+            fi
+
+            echo "rate-data changed concurrently; retrying against newest branch"
+          done
+
+          echo "health control-plane push failed after retries" >&2
+          exit 1
