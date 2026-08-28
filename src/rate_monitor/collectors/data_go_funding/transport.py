@@ -2,10 +2,10 @@
 
 The funding finance APIs return a ``response.body.tableList`` containing many
 financial-statement tables. ``numOfRows``/``pageNo`` paginate each table, while
-each table carries its own ``totalCount``.  The collector only needs the table
-that contains the verified total deposit-liabilities account.  Pagination must
-therefore follow that table's own count; recursively counting every ``item`` in
-the response mixes unrelated tables and can create a false endless pagination.
+each table carries its own ``totalCount``. The collector only needs the
+source-specific canonical deposit-liabilities table. Pagination must therefore
+follow that table's own count; recursively counting every ``item`` in the
+response mixes unrelated tables and can create a false endless pagination.
 """
 
 from __future__ import annotations
@@ -36,6 +36,14 @@ MAX_PAGES = 20
 ACCOUNT_FILTERS: dict[str, tuple[str, str]] = {
     "data_go_savings_bank_funding": ("dpsdbtDcd", "A11"),
     "data_go_agri_coop_funding": ("astDebtSmryBlnshDcd", "A1"),
+}
+
+# A total account code can also appear in a summary balance-sheet table. The
+# dedicated funding table is the canonical source when Data.go returns both.
+# These titles were verified from authenticated finance payloads on 2026-08-28.
+TARGET_TABLE_TITLES: dict[str, str] = {
+    "data_go_savings_bank_funding": "저축_재무현황_부채부문별현황_예수부채",
+    "data_go_agri_coop_funding": "농협_재무현황_요약재무상태표(부채및자본)",
 }
 
 
@@ -208,14 +216,12 @@ def _select_target_table(
     bas_ym: str,
     target_title: str | None,
 ) -> tuple[str | None, int, list[dict[str, Any]]]:
-    """Return the one paginated table containing the verified total account.
+    """Return the canonical paginated table for the verified total account.
 
-    Data.go applies the account-code filter to its matching statement table but
-    still returns the other finance tables in ``tableList``.  On page 1 we
-    identify the target table from the verified account code and then pin its
-    title for every later page.  If a month contains no row from the relevant
-    account-schema family, it is an empty source month rather than permission
-    to paginate unrelated tables.
+    Data.go can return the same total account code in both a summary statement
+    and a dedicated deposit-liabilities table. The source-specific canonical
+    table title wins when present. After page 1 the title is pinned, so a schema
+    drift or table disappearance fails closed instead of switching populations.
     """
     context = f"{contract.source_id}/{bas_ym}"
     tables = _table_list(payload, context=context)
@@ -251,9 +257,24 @@ def _select_target_table(
     target_tables = [
         entry for entry in parsed if any(_row_matches_target(contract, row) for row in entry[2])
     ]
+    preferred_title = TARGET_TABLE_TITLES.get(contract.source_id)
+    if preferred_title is not None:
+        preferred = [entry for entry in target_tables if entry[0] == preferred_title]
+        if len(preferred) > 1:
+            raise FundingContractError(
+                f"{context}: canonical target table {preferred_title!r}가 {len(preferred)}개다"
+            )
+        if len(preferred) == 1:
+            title, total_count, rows = preferred[0]
+            if any(not _row_matches_target(contract, row) for row in rows):
+                raise FundingContractError(
+                    f"{context}/{title}: account filter 밖의 row가 섞였다"
+                )
+            return title, total_count, rows
+
     if len(target_tables) > 1:
         raise FundingContractError(
-            f"{context}: total account가 여러 table에 나타났다: "
+            f"{context}: canonical table을 특정할 수 없는 total account 중복: "
             f"{[entry[0] for entry in target_tables]}"
         )
     if len(target_tables) == 1:
