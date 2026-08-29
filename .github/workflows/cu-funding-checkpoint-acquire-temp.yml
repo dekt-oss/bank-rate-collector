@@ -59,7 +59,7 @@ jobs:
           R2_REGION: ${{ vars.R2_REGION }}
         run: |
           set -euo pipefail
-          mkdir -p work publish
+          mkdir -p work publish data/raw
           uv run rate-monitor storage restore --dest work/rate_monitor.sqlite3
 
       - name: Apply migrations to runner-local baseline
@@ -99,17 +99,68 @@ jobs:
           done
           test "$STATUS" = "complete"
 
+      - name: Refresh ECOS CU sector total on runner-local candidate
+        env:
+          ECOS_API_KEY: ${{ secrets.ECOS_API_KEY }}
+        run: |
+          set -euo pipefail
+          uv run python -m rate_monitor.collectors.bok_ecos.macro_cli \
+            --db work/rate_monitor.sqlite3 \
+            --raw-root data/raw
+
+      - name: Replay complete checkpoint twice and reconcile
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+          R2_REGION: ${{ vars.R2_REGION }}
+        run: |
+          set -euo pipefail
+          uv run python -m rate_monitor.collectors.cu.funding_checkpoint_cli validate \
+            --db work/rate_monitor.sqlite3 \
+            --raw-root data/raw \
+            --cycle-date "2026-08-29" \
+            --periods 12 \
+            --json publish/cu-funding-checkpoint-validation.json
+
+      - name: Validate runner-local candidate without publishing it
+        run: |
+          set -euo pipefail
+          uv run rate-monitor snapshot \
+            --db work/rate_monitor.sqlite3 \
+            --publish-db publish/rate_monitor.sqlite3 \
+            --manifest publish/manifest.json
+          uv run rate-monitor validate --db publish/rate_monitor.sqlite3
+          uv run python - <<'PY'
+          import sqlite3
+          c = sqlite3.connect("publish/rate_monitor.sqlite3")
+          assert c.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+          assert not c.execute("PRAGMA foreign_key_check").fetchall()
+          n = c.execute(
+              "SELECT COUNT(*) FROM institution_funding_observations "
+              "WHERE source_id='cu_disclosure_funding' AND valid_to IS NULL"
+          ).fetchone()[0]
+          assert n > 0
+          print("runner-local CU funding candidate active rows:", n)
+          PY
+
       - name: Verify canonical R2 pointer was not changed by this workflow
         run: |
           set -euo pipefail
           echo "CU acquisition writes checkpoint staging only."
+          echo "Validation modifies only the runner-local database."
           echo "No storage upload command is present; state/current.json is not updated."
 
-      - name: Upload acquisition progress evidence
+      - name: Upload acquisition and validation evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: cu-funding-checkpoint-acquire-${{ github.run_id }}
           retention-days: 90
           if-no-files-found: warn
-          path: publish/cu-funding-checkpoint-acquire-*.json
+          path: |
+            publish/cu-funding-checkpoint-acquire-*.json
+            publish/cu-funding-checkpoint-validation.json
+            publish/manifest.json
