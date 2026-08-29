@@ -176,6 +176,7 @@ def main() -> int:
             "stored": result.stored,
             "unchanged": result.unchanged,
             "revisions": result.revisions,
+            "warning_count": result.warning_count,
             "message": result.message,
         },
         "observations": observations,
