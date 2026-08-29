@@ -1,0 +1,31 @@
+name: Maintenance — apply CU regDate guard patch
+
+on:
+  push:
+    branches:
+      - feat/cu-funding-disclosure-20260829
+    paths:
+      - .github/workflows/patch-cu-funding-regdate-guard.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/cu-funding-disclosure-20260829
+
+      - name: Apply patch and remove temporary patch machinery
+        run: |
+          set -euo pipefail
+          python scripts/patch_cu_funding_regdate_guard.py
+          rm -f .github/workflows/patch-cu-funding-regdate-guard.yml
+          rm -f scripts/patch_cu_funding_regdate_guard.py
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m "fix: fail closed on malformed CU disclosure regDate"
+          git push origin HEAD:feat/cu-funding-disclosure-20260829
