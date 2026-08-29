@@ -1,0 +1,201 @@
+name: 수집 — 신협 수신잔액 checkpoint
+
+on:
+  workflow_dispatch:
+    inputs:
+      password:
+        description: "관리자 수집 암호"
+        required: true
+        default: ""
+      mode:
+        description: "acquire=R2 checkpoint만 수집, validate=complete checkpoint를 runner-local 검증"
+        type: choice
+        required: true
+        default: acquire
+        options:
+          - acquire
+          - validate
+      cycle_date:
+        description: "checkpoint cycle key (KST YYYY-MM-DD). resume 시 반드시 동일 값"
+        required: true
+        default: ""
+      periods:
+        description: "기관별 최근 정기/반기 공시 개수"
+        type: number
+        required: true
+        default: 12
+      resume_mode:
+        description: "acquire resume 정책"
+        type: choice
+        required: true
+        default: auto
+        options:
+          - auto
+          - fresh
+      max_new_targets:
+        description: "이번 acquire에서 새로 완료할 최대 기관 수. 0=무제한"
+        type: number
+        required: true
+        default: 150
+
+concurrency:
+  group: cu-funding-checkpoint
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  checkpoint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Check collect password
+        env:
+          EXPECTED: ${{ secrets.DASHBOARD_PASSWORD }}
+          GIVEN: ${{ inputs.password }}
+        run: |
+          set -euo pipefail
+          test -n "$EXPECTED"
+          test "$GIVEN" = "$EXPECTED"
+
+      - name: Validate operator inputs
+        env:
+          CYCLE_DATE: ${{ inputs.cycle_date }}
+          MAX_NEW_TARGETS: ${{ inputs.max_new_targets }}
+        run: |
+          set -euo pipefail
+          [[ "$CYCLE_DATE" =~ ^20[0-9]{2}-[0-9]{2}-[0-9]{2}$ ]]
+          test "$MAX_NEW_TARGETS" -ge 0
+
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Sync dependencies
+        run: uv sync --locked
+
+      - name: Require authoritative R2 configuration
+        env:
+          STORAGE_BACKEND: ${{ vars.STORAGE_BACKEND }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+          R2_REGION: ${{ vars.R2_REGION }}
+        run: |
+          set -euo pipefail
+          BACKEND=$(uv run python - <<'PY'
+          from pathlib import Path
+          from rate_monitor.services.storage_service import load_backend
+          print(load_backend(Path("config/storage.yaml")).backend.value)
+          PY
+          )
+          test "$BACKEND" = "r2"
+          echo "authoritative backend=$BACKEND"
+
+      - name: Restore authoritative R2 database as runner-local baseline
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+          R2_REGION: ${{ vars.R2_REGION }}
+        run: |
+          set -euo pipefail
+          mkdir -p work publish data/raw
+          uv run rate-monitor storage restore --dest work/rate_monitor.sqlite3
+
+      - name: Apply migrations to runner-local baseline
+        env:
+          RATE_MONITOR_DB_URL: sqlite+pysqlite:///${{ github.workspace }}/work/rate_monitor.sqlite3
+        run: uv run alembic upgrade head
+
+      - name: Acquire durable R2 checkpoint slice
+        if: ${{ inputs.mode == 'acquire' }}
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+          R2_REGION: ${{ vars.R2_REGION }}
+        run: |
+          set -euo pipefail
+          uv run python -m rate_monitor.collectors.cu.funding_checkpoint_cli acquire \
+            --db work/rate_monitor.sqlite3 \
+            --cycle-date "${{ inputs.cycle_date }}" \
+            --periods "${{ inputs.periods }}" \
+            --resume-mode "${{ inputs.resume_mode }}" \
+            --max-new-targets "${{ inputs.max_new_targets }}" \
+            --request-interval 1.0 \
+            --json publish/cu-funding-checkpoint-acquire.json
+
+      - name: Refresh ECOS sector totals for complete-checkpoint validation
+        if: ${{ inputs.mode == 'validate' }}
+        env:
+          ECOS_API_KEY: ${{ secrets.ECOS_API_KEY }}
+        run: |
+          uv run python -m rate_monitor.collectors.bok_ecos.macro_cli \
+            --db work/rate_monitor.sqlite3 \
+            --raw-root data/raw
+
+      - name: Replay complete checkpoint and prove idempotency/reconciliation
+        if: ${{ inputs.mode == 'validate' }}
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+          R2_REGION: ${{ vars.R2_REGION }}
+        run: |
+          set -euo pipefail
+          uv run python -m rate_monitor.collectors.cu.funding_checkpoint_cli validate \
+            --db work/rate_monitor.sqlite3 \
+            --raw-root data/raw \
+            --cycle-date "${{ inputs.cycle_date }}" \
+            --periods "${{ inputs.periods }}" \
+            --json publish/cu-funding-checkpoint-validation.json
+
+      - name: Snapshot and validate runner-local candidate
+        if: ${{ inputs.mode == 'validate' }}
+        run: |
+          set -euo pipefail
+          uv run rate-monitor snapshot \
+            --db work/rate_monitor.sqlite3 \
+            --publish-db publish/rate_monitor.sqlite3 \
+            --manifest publish/manifest.json
+          uv run rate-monitor validate --db publish/rate_monitor.sqlite3
+          uv run python - <<'PY'
+          import sqlite3
+          c = sqlite3.connect("publish/rate_monitor.sqlite3")
+          assert c.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+          assert not c.execute("PRAGMA foreign_key_check").fetchall()
+          print("CU complete-checkpoint candidate integrity/FK PASS")
+          PY
+
+      - name: Explicit no-publish gate
+        run: |
+          set -euo pipefail
+          echo "This workflow never updates state/current.json."
+          echo "Canonical R2 publish requires a separate reviewed gate."
+
+      - name: Upload checkpoint evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cu-funding-checkpoint-${{ github.run_id }}
+          retention-days: 90
+          if-no-files-found: warn
+          path: |
+            publish/cu-funding-checkpoint-acquire.json
+            publish/cu-funding-checkpoint-validation.json
+            publish/manifest.json
