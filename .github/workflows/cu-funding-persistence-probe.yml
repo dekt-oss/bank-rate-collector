@@ -1,0 +1,39 @@
+name: Diagnostic — CU funding persistence proof
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feat/cu-funding-disclosure-20260829
+    paths:
+      - src/rate_monitor/collectors/cu/funding.py
+      - tests/test_cu_funding.py
+      - scripts/cu_funding_persistence_probe.py
+      - .github/workflows/cu-funding-persistence-probe.yml
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Set up Python
+        run: uv python install 3.12
+      - name: Sync dependencies
+        run: uv sync --locked
+      - name: Run bounded live CU funding persistence proof
+        run: uv run python scripts/cu_funding_persistence_probe.py
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cu-funding-persistence-proof-${{ github.run_id }}
+          path: docs/source-recon/cu-funding-persistence-probe-20260829.json
+          if-no-files-found: error
+          retention-days: 30
