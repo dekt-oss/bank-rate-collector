@@ -1,0 +1,85 @@
+name: Diagnostic — CU funding checkpoint resume proof
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feat/cu-funding-disclosure-20260829
+    paths:
+      - src/rate_monitor/collectors/cu/funding.py
+      - src/rate_monitor/collectors/cu/resumable_funding.py
+      - tests/test_cu_funding_resumable.py
+      - scripts/cu_funding_checkpoint_probe.py
+      - .github/workflows/cu-funding-checkpoint-probe.yml
+
+permissions:
+  contents: read
+
+jobs:
+  checkpoint-probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Sync dependencies
+        run: uv sync --locked
+
+      - name: Restore authoritative R2 database as runner-local baseline
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+          R2_REGION: ${{ vars.R2_REGION }}
+        run: |
+          set -euo pipefail
+          mkdir -p work/checkpoint-store data/raw publish
+          uv run rate-monitor storage restore --dest work/rate_monitor.sqlite3
+
+      - name: Apply migrations to runner-local baseline
+        env:
+          RATE_MONITOR_DB_URL: sqlite+pysqlite:///${{ github.workspace }}/work/rate_monitor.sqlite3
+        run: uv run alembic upgrade head
+
+      - name: Prove bounded interruption, resume, replay, and idempotency
+        run: |
+          set -euo pipefail
+          uv run python scripts/cu_funding_checkpoint_probe.py \
+            --db work/rate_monitor.sqlite3 \
+            --raw-root data/raw \
+            --checkpoint-root work/checkpoint-store \
+            --json publish/cu-funding-checkpoint-probe.json \
+            --cycle-date 2026-08-29 \
+            --periods 12 \
+            --request-interval 1.0
+
+      - name: Verify runner-local DB integrity independently
+        run: |
+          uv run python - <<'PY'
+          import sqlite3
+          connection = sqlite3.connect("work/rate_monitor.sqlite3")
+          assert connection.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+          assert not connection.execute("PRAGMA foreign_key_check").fetchall()
+          print("runner-local CU checkpoint integrity/FK PASS")
+          PY
+
+      - name: Upload evidence only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cu-funding-checkpoint-probe-${{ github.run_id }}
+          retention-days: 30
+          if-no-files-found: error
+          path: |
+            publish/cu-funding-checkpoint-probe.json
+            work/checkpoint-store/
+            data/raw/
