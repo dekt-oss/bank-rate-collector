@@ -33,14 +33,14 @@ PROBES = (
 )
 
 DO_PATH = re.compile(r"[\"']([^\"']*?\.do(?:\?[^\"']*)?)[\"']")
-INPUT = re.compile(
-    r"<input\b[^>]*\bname=[\"']([^\"']+)[\"'][^>]*>", re.I
-)
+INPUT = re.compile(r"<input\b[^>]*\bname=[\"']([^\"']+)[\"'][^>]*>", re.I)
 VALUE = re.compile(r"\bvalue=[\"']([^\"']*)[\"']", re.I)
 FORM = re.compile(r"<form\b([^>]*)>", re.I)
 ACTION = re.compile(r"\baction=[\"']([^\"']*)[\"']", re.I)
 METHOD = re.compile(r"\bmethod=[\"']([^\"']*)[\"']", re.I)
 TAG = re.compile(r"<[^>]+>")
+TR = re.compile(r"<tr\b[^>]*>(.*?)</tr>", re.I | re.S)
+CELL = re.compile(r"<t[dh]\b[^>]*>(.*?)</t[dh]>", re.I | re.S)
 
 KEYWORDS = (
     "cuNo",
@@ -73,12 +73,15 @@ LIST_SAFE_FIELDS = (
 SUMMARY_KEYWORDS = (
     "예수부채",
     "예수금",
+    "예탁금",
+    "부채",
     "부채 및 자본",
     "단위",
     "백만원",
     "기준일",
     "결산",
 )
+DEPOSIT_LIKE = ("예수", "예금", "예탁", "수신")
 
 
 def _clean(text: str) -> str:
@@ -104,6 +107,17 @@ def _snippets(text: str, keyword: str, *, radius: int = 420, limit: int = 12) ->
             out.append(snippet)
         start = index + len(keyword)
     return out
+
+
+def _table_rows(text: str) -> list[list[str]]:
+    """Extract bounded, text-only table rows from the structured summary page."""
+    rows: list[list[str]] = []
+    for tr in TR.finditer(text):
+        cells = [_clean(match.group(1)) for match in CELL.finditer(tr.group(1))]
+        cells = [cell for cell in cells if cell]
+        if cells:
+            rows.append(cells)
+    return rows[:120]
 
 
 def _inputs(text: str) -> list[dict[str, str]]:
@@ -138,9 +152,7 @@ def _paths(text: str) -> list[str]:
     return [path for path in paths if "disclos" in path.lower() or "/cu/ad/" in path][:120]
 
 
-def _page_request(
-    client: httpx.Client, params: dict[str, str], label: str
-) -> dict[str, object]:
+def _page_request(client: httpx.Client, params: dict[str, str], label: str) -> dict[str, object]:
     response = client.get(f"{BASE}{DISCLOSURE_PATH}", params=params)
     text = response.text
     title_match = re.search(r"<title[^>]*>(.*?)</title>", text, re.I | re.S)
@@ -177,12 +189,7 @@ def _json_rows(payload: Any) -> list[dict[str, Any]]:
 def _list_request(
     client: httpx.Client, *, cu_no: str, expected_name: str
 ) -> tuple[dict[str, object], list[dict[str, Any]]]:
-    request_data = {
-        "usrId": cu_no,
-        "currPage": "1",
-        "srchVal": "",
-        "btnChk": "N",
-    }
+    request_data = {"usrId": cu_no, "currPage": "1", "srchVal": "", "btnChk": "N"}
     response = client.post(f"{BASE}{LIST_PATH}", data=request_data)
     content_type = response.headers.get("content-type")
     payload: Any = None
@@ -268,6 +275,10 @@ def _summary_request(
         "cu_no": cu_no,
         "cu_no_present": cu_no in clean,
     }
+    table_rows = _table_rows(text)
+    deposit_like_rows = [
+        cells for cells in table_rows if any(token in " ".join(cells) for token in DEPOSIT_LIKE)
+    ]
     return {
         "label": f"summary_{cu_no}_{expected_name}",
         "request_path": SUMMARY_PATH,
@@ -287,7 +298,9 @@ def _summary_request(
         "bytes": len(response.content),
         "title": _clean(title_match.group(1)) if title_match else None,
         "identity_mentions": identity_mentions,
-        "deposit_liability_present": "예수부채" in text,
+        "unit_million_krw_present": "백만원" in clean,
+        "table_rows": table_rows,
+        "deposit_like_rows": deposit_like_rows,
         "keyword_snippets": snippets,
     }
 
@@ -310,11 +323,7 @@ def main() -> int:
                 "searchTxt": short_name,
             }
             pages.append(_page_request(client, params, f"selected_{cu_no}_{short_name}"))
-            list_evidence, rows = _list_request(
-                client,
-                cu_no=cu_no,
-                expected_name=short_name,
-            )
+            list_evidence, rows = _list_request(client, cu_no=cu_no, expected_name=short_name)
             lists.append(list_evidence)
             candidate = _summary_candidate(rows)
             if candidate is not None:
@@ -330,8 +339,8 @@ def main() -> int:
     report = {
         "mode": "read_only_bounded_no_application_db_write",
         "purpose": (
-            "prove CU central disclosure identity/list contract and verify whether "
-            "structured summary disclosures expose deposit liabilities"
+            "prove CU central disclosure identity/list contract and expose exact "
+            "structured finance-row labels before persistence"
         ),
         "rate_fixture_controls": [
             {"cuIngno": cu_no, "cuNm": short_name} for cu_no, short_name in PROBES
@@ -358,9 +367,8 @@ def main() -> int:
         )
     for row in summaries:
         print(
-            f"{row['label']}: status={row['status']} "
-            f"deposit_liability={row['deposit_liability_present']} "
-            f"identity={row['identity_mentions']}"
+            f"{row['label']}: status={row['status']} rows={len(row['table_rows'])} "
+            f"deposit_like={row['deposit_like_rows']}"
         )
 
     page_ok = all(row["status"] == 200 for row in pages)
@@ -372,7 +380,9 @@ def main() -> int:
         for row in lists
     )
     summary_ok = len(summaries) == len(PROBES) and all(
-        row["status"] == 200 and row["deposit_liability_present"] is True
+        row["status"] == 200
+        and row["unit_million_krw_present"] is True
+        and bool(row["table_rows"])
         for row in summaries
     )
     return 0 if page_ok and list_ok and summary_ok else 1
