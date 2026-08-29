@@ -115,6 +115,7 @@ class CuFundingCollectionResult:
     stored: int
     unchanged: int
     revisions: int
+    warning_count: int
     message: str
 
 
@@ -141,7 +142,9 @@ def extract_table_rows(text: str) -> list[list[str]]:
     return rows
 
 
-def _record_from_row(row: dict[str, Any], expected_cu: str) -> DisclosureRecord | None:
+def _report_row_meta(
+    row: dict[str, Any], expected_cu: str
+) -> tuple[int, str, str, str, str] | None:
     cu_ingno = str(row.get("cuIngno") or "").strip()
     if cu_ingno != expected_cu:
         raise CuFundingContractError(
@@ -157,25 +160,123 @@ def _record_from_row(row: dict[str, Any], expected_cu: str) -> DisclosureRecord 
     short_file_name = str(row.get("shortFileName") or "").strip()
     if not short_file_name:
         return None
-    name = str(row.get("disclosureName") or "").strip()
-    match = _YEAR.search(name)
-    if match is None:
-        raise CuFundingContractError(f"공시명에서 연도를 읽을 수 없다: {name!r}")
-    year = int(match.group(1))
-    month = 12 if disclosure_type == "1" else 6
     raw_no = str(row.get("disclosureNo") or "").strip()
     if not raw_no.isdigit():
         raise CuFundingContractError(f"disclosureNo 형식 오류: {raw_no!r}")
+    return (
+        int(raw_no),
+        disclosure_type,
+        str(row.get("disclosureName") or "").strip(),
+        str(row.get("regDate") or "").strip(),
+        short_file_name,
+    )
+
+
+def _record_from_meta(
+    *,
+    cu_ingno: str,
+    disclosure_no: int,
+    disclosure_type: str,
+    disclosure_name: str,
+    reg_date: str,
+    short_file_name: str,
+) -> DisclosureRecord:
+    match = _YEAR.search(disclosure_name)
+    if match is None:
+        raise CuFundingContractError(
+            f"공시명에서 연도를 읽을 수 없다: {disclosure_name!r}"
+        )
+    year = int(match.group(1))
     return DisclosureRecord(
         cu_ingno=cu_ingno,
-        disclosure_no=int(raw_no),
+        disclosure_no=disclosure_no,
         disclosure_type=disclosure_type,
-        disclosure_name=name,
-        reg_date=str(row.get("regDate") or "").strip(),
+        disclosure_name=disclosure_name,
+        reg_date=reg_date,
         short_file_name=short_file_name,
         year=year,
-        month=month,
+        month=12 if disclosure_type == "1" else 6,
     )
+
+
+def _record_from_row(row: dict[str, Any], expected_cu: str) -> DisclosureRecord | None:
+    meta = _report_row_meta(row, expected_cu)
+    if meta is None:
+        return None
+    return _record_from_meta(
+        cu_ingno=expected_cu,
+        disclosure_no=meta[0],
+        disclosure_type=meta[1],
+        disclosure_name=meta[2],
+        reg_date=meta[3],
+        short_file_name=meta[4],
+    )
+
+
+def _select_latest_disclosures_with_warnings(
+    rows: list[dict[str, Any]],
+    *,
+    cu_ingno: str,
+    periods: int,
+) -> tuple[list[DisclosureRecord], list[str]]:
+    """검증 가능한 공시는 선택하고 오래된 연도불명 행만 evidence로 격리한다."""
+    if periods < 1:
+        raise ValueError("periods는 1 이상이어야 한다")
+
+    candidates: list[DisclosureRecord] = []
+    ambiguous: list[tuple[int, str, str]] = []
+    for row in rows:
+        meta = _report_row_meta(row, cu_ingno)
+        if meta is None:
+            continue
+        disclosure_no, disclosure_type, name, reg_date, short_file_name = meta
+        if _YEAR.search(name) is None:
+            ambiguous.append((disclosure_no, name, reg_date))
+            continue
+        candidates.append(
+            _record_from_meta(
+                cu_ingno=cu_ingno,
+                disclosure_no=disclosure_no,
+                disclosure_type=disclosure_type,
+                disclosure_name=name,
+                reg_date=reg_date,
+                short_file_name=short_file_name,
+            )
+        )
+
+    if not candidates:
+        if ambiguous:
+            raise CuFundingContractError(
+                f"검증 가능한 연도 공시가 없고 연도불명 행만 있다: cuIngno={cu_ingno}"
+            )
+        return [], []
+
+    newest_explicit_reg_date = max(record.reg_date for record in candidates)
+    warnings: list[str] = []
+    for disclosure_no, name, reg_date in ambiguous:
+        if not reg_date or reg_date >= newest_explicit_reg_date:
+            raise CuFundingContractError(
+                "최신권 공시의 연도를 검증할 수 없다: "
+                f"cuIngno={cu_ingno} disclosureNo={disclosure_no} "
+                f"regDate={reg_date!r} name={name!r}"
+            )
+        warnings.append(
+            "historical disclosure quarantined: missing explicit year "
+            f"cuIngno={cu_ingno} disclosureNo={disclosure_no} "
+            f"regDate={reg_date} name={name!r}"
+        )
+
+    by_period: dict[str, DisclosureRecord] = {}
+    for record in candidates:
+        prior = by_period.get(record.source_effective_month)
+        if prior is None or record.disclosure_no > prior.disclosure_no:
+            by_period[record.source_effective_month] = record
+    selected = sorted(
+        by_period.values(),
+        key=lambda record: (record.year, record.month, record.disclosure_no),
+        reverse=True,
+    )[:periods]
+    return selected, warnings
 
 
 def select_latest_disclosures(
@@ -185,23 +286,12 @@ def select_latest_disclosures(
     periods: int,
 ) -> list[DisclosureRecord]:
     """정기/반기 요약공시를 reporting period별 한 건으로 결정론적으로 고른다."""
-    if periods < 1:
-        raise ValueError("periods는 1 이상이어야 한다")
-    candidates = [
-        record
-        for row in rows
-        if (record := _record_from_row(row, cu_ingno)) is not None
-    ]
-    by_period: dict[str, DisclosureRecord] = {}
-    for record in candidates:
-        prior = by_period.get(record.source_effective_month)
-        if prior is None or record.disclosure_no > prior.disclosure_no:
-            by_period[record.source_effective_month] = record
-    return sorted(
-        by_period.values(),
-        key=lambda record: (record.year, record.month, record.disclosure_no),
-        reverse=True,
-    )[:periods]
+    selected, _warnings = _select_latest_disclosures_with_warnings(
+        rows,
+        cu_ingno=cu_ingno,
+        periods=periods,
+    )
+    return selected
 
 
 def _parse_amount(raw: str) -> Decimal:
@@ -271,6 +361,37 @@ def parse_summary_point(
         disclosure_type=disclosure.disclosure_type,
         source_locator=source_locator,
     )
+
+
+def _parse_summary_with_history_policy(
+    text: str,
+    *,
+    disclosure: DisclosureRecord,
+    institution_id: str,
+    institution_name: str,
+    source_locator: str,
+    is_latest: bool,
+) -> tuple[CuFundingPoint | None, str | None]:
+    try:
+        return (
+            parse_summary_point(
+                text,
+                disclosure=disclosure,
+                institution_id=institution_id,
+                institution_name=institution_name,
+                source_locator=source_locator,
+            ),
+            None,
+        )
+    except CuFundingContractError as exc:
+        if is_latest:
+            raise
+        return (
+            None,
+            "historical disclosure quarantined: summary contract mismatch "
+            f"cuIngno={disclosure.cu_ingno} disclosureNo={disclosure.disclosure_no} "
+            f"claimedMonth={disclosure.source_effective_month} reason={exc}",
+        )
 
 
 def _list_rows(payload: Any) -> list[dict[str, Any]]:
@@ -417,14 +538,14 @@ def _fetch_target(
     institution_name: str,
     periods: int,
     request_interval: float,
-) -> tuple[list[CuFundingPoint], list[RawArtifactData], dict[int, int]]:
+) -> tuple[list[CuFundingPoint], list[RawArtifactData], dict[int, int], list[str]]:
     rows, artifacts = _fetch_disclosure_rows(
         client,
         cu_ingno=cu_ingno,
         periods=periods,
         request_interval=request_interval,
     )
-    disclosures = select_latest_disclosures(
+    disclosures, warnings = _select_latest_disclosures_with_warnings(
         rows,
         cu_ingno=cu_ingno,
         periods=periods,
@@ -434,41 +555,58 @@ def _fetch_target(
 
     points: list[CuFundingPoint] = []
     summary_artifact_index: dict[int, int] = {}
-    for disclosure in disclosures:
+    for index, disclosure in enumerate(disclosures):
         if request_interval:
             time.sleep(request_interval)
         url = _summary_url(disclosure)
         response = client.get(url)
         response.raise_for_status()
         raw = response.content
-        point = parse_summary_point(
+        point, warning = _parse_summary_with_history_policy(
             response.text,
             disclosure=disclosure,
             institution_id=institution_id,
             institution_name=institution_name,
             source_locator=url,
+            is_latest=index == 0,
         )
-        summary_artifact_index[disclosure.disclosure_no] = len(artifacts)
+        artifact_index = len(artifacts)
+        request_meta: dict[str, Any] = {
+            "kind": "summary_disclosure",
+            "cuIngno": cu_ingno,
+            "disclosure_no": disclosure.disclosure_no,
+            "disclosure_type": disclosure.disclosure_type,
+            "source_effective_month": disclosure.source_effective_month,
+            "endpoint": url,
+        }
+        if warning is not None:
+            request_meta["quarantined"] = True
+            request_meta["quarantine_reason"] = warning
         artifacts.append(
             _artifact(
                 content=raw,
                 filename=(
-                    f"cu-funding-{cu_ingno}-{point.source_effective_month}-"
+                    f"cu-funding-{cu_ingno}-{disclosure.source_effective_month}-"
                     f"{disclosure.disclosure_no}.html"
                 ),
-                request_meta={
-                    "kind": "summary_disclosure",
-                    "cuIngno": cu_ingno,
-                    "disclosure_no": disclosure.disclosure_no,
-                    "disclosure_type": disclosure.disclosure_type,
-                    "source_effective_month": point.source_effective_month,
-                    "endpoint": url,
-                },
+                request_meta=request_meta,
                 artifact_type="html",
             )
         )
+        if warning is not None:
+            warnings.append(warning)
+            continue
+        if point is None:
+            raise CuFundingContractError(
+                "summary policy가 point와 warning을 모두 반환하지 않았다"
+            )
+        summary_artifact_index[disclosure.disclosure_no] = artifact_index
         points.append(point)
-    return points, artifacts, summary_artifact_index
+    if not points:
+        raise CuFundingContractError(
+            f"검증 가능한 예수부채 observation이 없다: cuIngno={cu_ingno}"
+        )
+    return points, artifacts, summary_artifact_index, warnings
 
 
 def _ensure_source(session: Any, now: datetime) -> None:
@@ -703,6 +841,7 @@ def collect_cu_disclosure_funding(
         run_id = run.id
 
     fetched = parsed = stored = unchanged = revisions = 0
+    warning_count = 0
     completed = 0
     failures: dict[str, str] = {}
     timeout = httpx.Timeout(REQUEST_TIMEOUT)
@@ -714,7 +853,7 @@ def collect_cu_disclosure_funding(
     ) as client:
         for cu_ingno, institution_id, institution_name in targets:
             try:
-                points, artifacts, summary_index = _fetch_target(
+                points, artifacts, summary_index, target_warnings = _fetch_target(
                     client,
                     cu_ingno=cu_ingno,
                     institution_id=institution_id,
@@ -755,6 +894,9 @@ def collect_cu_disclosure_funding(
                             unchanged += 1
                 fetched += len(artifacts)
                 parsed += len(points)
+                warning_count += len(target_warnings)
+                for warning in target_warnings:
+                    print(f"CU funding warning: {warning}", flush=True)
                 completed += 1
             except (httpx.HTTPError, CuFundingContractError) as exc:
                 failures[cu_ingno] = f"{type(exc).__name__}: {exc}"
@@ -766,7 +908,8 @@ def collect_cu_disclosure_funding(
     status = "success" if not failures else "partial"
     message = (
         f"targets={completed}/{len(targets)} points={parsed} stored={stored} "
-        f"revisions={revisions} unchanged={unchanged} failures={len(failures)}"
+        f"revisions={revisions} unchanged={unchanged} warnings={warning_count} "
+        f"failures={len(failures)}"
     )
     with session_scope(factory) as session:
         run = session.get(m.CollectionRun, run_id)
@@ -777,6 +920,7 @@ def collect_cu_disclosure_funding(
         run.raw_count = fetched
         run.parsed_count = parsed
         run.valid_count = parsed if not failures else 0
+        run.warning_count = warning_count
         run.error_count = len(failures)
         run.message = message[:500]
 
@@ -791,5 +935,6 @@ def collect_cu_disclosure_funding(
         stored=stored,
         unchanged=unchanged,
         revisions=revisions,
+        warning_count=warning_count,
         message=message,
     )

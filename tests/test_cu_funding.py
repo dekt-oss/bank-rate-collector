@@ -14,6 +14,8 @@ from rate_monitor.collectors.cu.funding import (
     CuFundingPoint,
     DisclosureRecord,
     _ensure_source,
+    _parse_summary_with_history_policy,
+    _select_latest_disclosures_with_warnings,
     _targets,
     _upsert_point,
     parse_summary_point,
@@ -155,13 +157,14 @@ def _list_row(
     disclosure_type: str,
     disclosure_name: str,
     bogo_ty: str = "Y",
+    reg_date: str = "2026-02-01",
 ) -> dict[str, object]:
     return {
         "cuIngno": "02002",
         "disclosureNo": disclosure_no,
         "disclosureTy": disclosure_type,
         "disclosureName": disclosure_name,
-        "regDate": "2026-02-01",
+        "regDate": reg_date,
         "shortFileName": "summary.pdf",
         "bogoTy": bogo_ty,
         "chkYn3": "Y",
@@ -219,6 +222,86 @@ def test_non_report_summary_is_not_selected() -> None:
 
     assert selected[0].source_effective_month == "2025-12"
     assert selected[0].disclosure_no == 22820
+
+
+def test_historical_missing_year_row_is_quarantined() -> None:
+    rows = [
+        _list_row(
+            disclosure_no=25111,
+            disclosure_type="2",
+            disclosure_name="2026년도 상반기 경영공시",
+            reg_date="2026-08-21",
+        ),
+        _list_row(
+            disclosure_no=7658,
+            disclosure_type="2",
+            disclosure_name="상반기결산공시",
+            reg_date="2021-09-09",
+        ),
+    ]
+
+    selected, warnings = _select_latest_disclosures_with_warnings(
+        rows,
+        cu_ingno="02002",
+        periods=12,
+    )
+
+    assert [item.disclosure_no for item in selected] == [25111]
+    assert len(warnings) == 1
+    assert "7658" in warnings[0]
+    assert "missing explicit year" in warnings[0]
+
+
+def test_latest_missing_year_row_fails_closed() -> None:
+    rows = [
+        _list_row(
+            disclosure_no=22820,
+            disclosure_type="1",
+            disclosure_name="2025년도 결산정기공시",
+            reg_date="2026-03-01",
+        ),
+        _list_row(
+            disclosure_no=26000,
+            disclosure_type="2",
+            disclosure_name="상반기결산공시",
+            reg_date="2026-08-29",
+        ),
+    ]
+
+    with pytest.raises(CuFundingContractError, match="최신권 공시"):
+        _select_latest_disclosures_with_warnings(
+            rows,
+            cu_ingno="02002",
+            periods=12,
+        )
+
+
+def test_historical_summary_mismatch_is_quarantined_but_latest_fails() -> None:
+    disclosure = _disclosure(year=2022, disclosure_no=9786)
+    mismatched_html = _summary_html(year=2021, prior=2020, amount="1,925")
+
+    point, warning = _parse_summary_with_history_policy(
+        mismatched_html,
+        disclosure=disclosure,
+        institution_id="inst-1",
+        institution_name="테스트",
+        source_locator="https://example.test/summary",
+        is_latest=False,
+    )
+    assert point is None
+    assert warning is not None
+    assert "summary contract mismatch" in warning
+    assert "9786" in warning
+
+    with pytest.raises(CuFundingContractError, match="header 불일치"):
+        _parse_summary_with_history_policy(
+            mismatched_html,
+            disclosure=disclosure,
+            institution_id="inst-1",
+            institution_name="테스트",
+            source_locator="https://example.test/summary",
+            is_latest=True,
+        )
 
 
 def _source(source_id: str, now: datetime) -> m.Source:
