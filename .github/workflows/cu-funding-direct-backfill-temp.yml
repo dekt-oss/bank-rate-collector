@@ -1,0 +1,164 @@
+name: ops — 신협 수신잔액 전국 direct backfill 임시 실행
+
+on:
+  push:
+    branches: [feat/cu-funding-disclosure-20260829]
+
+concurrency:
+  group: cu-funding-direct-backfill
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  backfill:
+    if: ${{ contains(github.event.head_commit.message, '[cu-funding-direct-backfill]') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 420
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Sync dependencies
+        run: uv sync --locked
+
+      - name: Require authoritative R2 configuration
+        env:
+          STORAGE_BACKEND: ${{ vars.STORAGE_BACKEND }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+          R2_REGION: ${{ vars.R2_REGION }}
+        run: |
+          set -euo pipefail
+          BACKEND=$(uv run python - <<'PY'
+          from pathlib import Path
+          from rate_monitor.services.storage_service import load_backend
+          print(load_backend(Path("config/storage.yaml")).backend.value)
+          PY
+          )
+          test "$BACKEND" = "r2"
+          echo "authoritative backend=$BACKEND"
+
+      - name: Restore authoritative R2 database as runner-local baseline
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+          R2_REGION: ${{ vars.R2_REGION }}
+        run: |
+          set -euo pipefail
+          mkdir -p work publish data/raw
+          uv run rate-monitor storage restore --dest work/rate_monitor.sqlite3
+
+      - name: Apply migrations to runner-local candidate
+        env:
+          RATE_MONITOR_DB_URL: sqlite+pysqlite:///${{ github.workspace }}/work/rate_monitor.sqlite3
+        run: uv run alembic upgrade head
+
+      - name: Refresh ECOS sector totals
+        env:
+          ECOS_API_KEY: ${{ secrets.ECOS_API_KEY }}
+        run: |
+          uv run python -m rate_monitor.collectors.bok_ecos.macro_cli \
+            --db work/rate_monitor.sqlite3 \
+            --raw-root data/raw
+
+      - name: Collect all CU disclosure funding targets
+        run: |
+          set -euo pipefail
+          uv run python scripts/cu_funding_nationwide_backfill.py \
+            --db work/rate_monitor.sqlite3 \
+            --raw-root data/raw \
+            --periods 12 \
+            --request-interval 1.0 \
+            --json publish/cu-funding-nationwide-backfill.json
+
+      - name: Structural QC and coverage inventory
+        run: |
+          set -euo pipefail
+          uv run python scripts/cu_funding_candidate_qc.py \
+            --db work/rate_monitor.sqlite3 \
+            --json publish/cu-funding-candidate-qc.json
+
+      - name: Bounded idempotency regression on known controls
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+          from rate_monitor.collectors.cu.funding import collect_cu_disclosure_funding
+
+          result = collect_cu_disclosure_funding(
+              db_path=Path("work/rate_monitor.sqlite3"),
+              raw_root=Path("data/raw"),
+              periods=12,
+              only_cu_nos={"02002", "02022", "03087", "10154"},
+              request_interval=1.0,
+          )
+          payload = {
+              "status": result.status,
+              "target_count": result.target_count,
+              "completed_targets": result.completed_targets,
+              "failed_targets": list(result.failed_targets),
+              "stored": result.stored,
+              "revisions": result.revisions,
+              "unchanged": result.unchanged,
+              "parsed_points": result.parsed_points,
+          }
+          Path("publish/cu-funding-bounded-idempotency.json").write_text(
+              json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          if result.stored != 0 or result.revisions != 0:
+              raise SystemExit(f"bounded idempotency drift: {payload}")
+          print(json.dumps(payload, ensure_ascii=False))
+          PY
+
+      - name: Snapshot and validate candidate
+        run: |
+          set -euo pipefail
+          uv run rate-monitor snapshot \
+            --db work/rate_monitor.sqlite3 \
+            --publish-db publish/rate_monitor.sqlite3 \
+            --manifest publish/manifest.json
+          uv run rate-monitor validate --db publish/rate_monitor.sqlite3
+          uv run python - <<'PY'
+          import sqlite3
+          c = sqlite3.connect("publish/rate_monitor.sqlite3")
+          assert c.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+          assert not c.execute("PRAGMA foreign_key_check").fetchall()
+          print("CU nationwide candidate integrity/FK PASS")
+          PY
+
+      - name: Explicit no-publish gate
+        run: |
+          set -euo pipefail
+          echo "Candidate only: this workflow does not call rate-monitor storage upload."
+          echo "Canonical state/current.json remains unchanged."
+
+      - name: Upload nationwide candidate and evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cu-funding-nationwide-candidate-${{ github.run_id }}
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            publish/cu-funding-nationwide-backfill.json
+            publish/cu-funding-candidate-qc.json
+            publish/cu-funding-bounded-idempotency.json
+            publish/manifest.json
+            publish/rate_monitor.sqlite3
+            data/raw/
