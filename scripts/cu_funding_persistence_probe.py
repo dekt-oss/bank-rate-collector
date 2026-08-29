@@ -148,16 +148,20 @@ def main() -> int:
             raw_count = len(
                 list(
                     session.scalars(
-                        select(m.RawArtifact).join(
+                        select(m.RawArtifact)
+                        .join(
                             m.CollectionRun,
                             m.RawArtifact.run_id == m.CollectionRun.id,
-                        ).where(m.CollectionRun.source_id == SOURCE_ID)
+                        )
+                        .where(m.CollectionRun.source_id == SOURCE_ID)
                     )
                 )
             )
 
         if len(observations) != 2:
-            raise SystemExit(f"unexpected active observation count: {len(observations)}")
+            raise SystemExit(
+                f"unexpected active observation count: {len(observations)}"
+            )
 
         rows = []
         for observation in observations:
@@ -168,13 +172,21 @@ def main() -> int:
             value = format(observation.value, "f")
             if EXPECTED.get(key) != value:
                 raise SystemExit(f"unexpected CU funding value: {key}={value}")
-            if observation.source_unit != SOURCE_UNIT or observation.unit != "million_krw":
+            if (
+                observation.source_unit != SOURCE_UNIT
+                or observation.unit != "million_krw"
+            ):
                 raise SystemExit(
-                    f"CU funding unit contract mismatch: {observation.source_unit}/{observation.unit}"
+                    "CU funding unit contract mismatch: "
+                    f"{observation.source_unit}/{observation.unit}"
                 )
-            if observation.identity_status != IDENTITY_STATUS or observation.institution_id is None:
+            if (
+                observation.identity_status != IDENTITY_STATUS
+                or observation.institution_id is None
+            ):
                 raise SystemExit(
-                    f"CU exact identity contract mismatch: {observation.source_institution_key}"
+                    "CU exact identity contract mismatch: "
+                    f"{observation.source_institution_key}"
                 )
             rows.append(
                 {
@@ -191,7 +203,8 @@ def main() -> int:
         payload = {
             "mode": "bounded_live_temp_db_no_r2",
             "controls": [
-                {"cuIngno": cu, "source_name": name} for cu, name, _ in CONTROLS
+                {"cuIngno": cu, "source_name": name}
+                for cu, name, _ in CONTROLS
             ],
             "first_run": first.__dict__,
             "second_run": second.__dict__,
