@@ -1,6 +1,6 @@
 """Derived institution-funding read model.
 
-The canonical observation table remains the source of truth.  This module keeps
+The canonical observation table remains the source of truth. This module keeps
 6M/12M growth and peer-relative metrics recomputable and deliberately refuses
 nearest-month interpolation or missing-as-zero fallbacks.
 """
@@ -48,17 +48,19 @@ def _shift_month(month: str, delta: int) -> str:
     return f"{shifted_year:04d}-{shifted_mon0 + 1:02d}"
 
 
-def _growth(current: Decimal, prior: Decimal | None) -> tuple[Decimal | None, Decimal | None]:
+def _growth(
+    current: Decimal, prior: Decimal | None
+) -> tuple[Decimal | None, Decimal | None]:
     if prior is None or prior <= 0:
         return None, None
     return current - prior, current / prior - Decimal(1)
 
 
 def _percentile_rank(value: Decimal, population: list[Decimal]) -> Decimal:
-    """Average-rank percentile where larger values receive larger percentiles."""
+    """Mid-distribution percentile; larger values receive larger percentiles."""
     below = sum(item < value for item in population)
     equal = sum(item == value for item in population)
-    rank = Decimal(below) + Decimal(equal + 1) / Decimal(2)
+    rank = Decimal(below) + Decimal(equal) / Decimal(2)
     return rank / Decimal(len(population)) * Decimal(100)
 
 
@@ -76,7 +78,7 @@ def build_institution_funding_read_model(
     """Build exact-month peer metrics for one sector and analysis month.
 
     Only ``usable_exact`` / exact-identity observations enter the ranking
-    population.  Missing prior periods remain ``None`` and are not imputed.
+    population. Missing prior periods remain ``None`` and are not imputed.
     """
     usable = [
         point
@@ -134,7 +136,9 @@ def build_institution_funding_read_model(
                 change_6m_pct=pct_6m,
                 change_12m_amount=metrics["amount_12m"],
                 change_12m_pct=pct_12m,
-                sector_balance_percentile=_percentile_rank(point.balance, balance_population),
+                sector_balance_percentile=_percentile_rank(
+                    point.balance, balance_population
+                ),
                 sector_growth_6m_percentile=(
                     _percentile_rank(pct_6m, growth_6m_population)
                     if pct_6m is not None
