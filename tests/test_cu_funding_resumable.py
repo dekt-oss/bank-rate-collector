@@ -9,8 +9,8 @@ import pytest
 from sqlalchemy import select
 
 from rate_monitor.collectors.cu.funding import (
-    DisclosureRecord,
     SOURCE_ID,
+    DisclosureRecord,
     parse_summary_point,
 )
 from rate_monitor.collectors.cu.resumable_funding import (

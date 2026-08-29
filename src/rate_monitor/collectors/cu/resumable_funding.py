@@ -11,10 +11,11 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 import httpx
 from sqlalchemy import select
@@ -52,7 +53,9 @@ CU_FUNDING_ACQUISITION_CONTRACT_VERSION = 1
 CU_FUNDING_BUNDLE_SCHEMA_VERSION = 1
 CU_FUNDING_BUNDLE_KIND = "cu_funding_target_bundle"
 
-FetchTarget = Callable[..., tuple[list[CuFundingPoint], list[RawArtifactData], dict[int, int], list[str]]]
+FetchTarget = Callable[
+    ..., tuple[list[CuFundingPoint], list[RawArtifactData], dict[int, int], list[str]]
+]
 
 
 @dataclass(frozen=True)
