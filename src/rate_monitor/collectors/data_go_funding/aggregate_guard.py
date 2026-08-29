@@ -163,7 +163,7 @@ def retire_validated_agri_coop_aggregates(
 
         aggregates_to_retire: list[InstitutionFundingObservation] = []
         checked_months = 0
-        for month, month_rows in sorted(by_month.items()):
+        for _month, month_rows in sorted(by_month.items()):
             has_aggregate_signal = any(
                 row.source_institution_key in AGRI_COOP_AGGREGATE_KEYS
                 or row.source_institution_key.endswith("S")
