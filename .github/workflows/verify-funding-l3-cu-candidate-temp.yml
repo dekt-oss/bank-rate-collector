@@ -1,0 +1,92 @@
+name: verify — 신협 funding L3 actual candidate
+
+on:
+  push:
+    branches: [verify/funding-l3-cu-candidate-20260830]
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  verify:
+    if: ${{ contains(github.event.head_commit.message, '[verify-funding-l3-cu]') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Sync dependencies
+        run: uv sync --locked
+
+      - name: Download nationwide CU candidate
+        uses: actions/download-artifact@v4
+        with:
+          name: cu-funding-nationwide-candidate-33251704349
+          path: candidate
+          github-token: ${{ github.token }}
+          run-id: 33251704349
+
+      - name: Build actual CU Strategy funding payload
+        run: |
+          set -euo pipefail
+          mkdir -p verify
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+
+          from rate_monitor.services.institution_funding_strategy_payload import (
+              build_institution_funding_strategy_payload,
+          )
+
+          db = Path('candidate/publish/rate_monitor.sqlite3')
+          payload = build_institution_funding_strategy_payload(
+              db,
+              sector='cu',
+              analysis_month='2026-06',
+              eligible_institutions=848,
+          )
+          rows = payload['rows']
+          summary = {
+              'sector': payload['sector'],
+              'analysis_month': payload['analysis_month'],
+              'coverage': payload['coverage'],
+              'availability': payload['availability'],
+              'row_count': len(rows),
+              'top_balance': sorted(
+                  (
+                      {
+                          'institution_id': row['institution_id'],
+                          'balance': row['balance'],
+                          'balance_percentile': row['sector_balance_percentile'],
+                          'growth_6m_pct': row['change_6m_pct'],
+                          'growth_6m_percentile': row['sector_growth_6m_percentile'],
+                      }
+                      for row in rows
+                  ),
+                  key=lambda row: float(row['balance']),
+                  reverse=True,
+              )[:10],
+          }
+          Path('verify/cu-funding-l3-summary.json').write_text(
+              json.dumps(summary, ensure_ascii=False, indent=2) + '\n',
+              encoding='utf-8',
+          )
+          assert len(rows) == 633, f"expected 633 CU rows, got {len(rows)}"
+          assert payload['coverage']['observed_institutions'] == 633
+          print(json.dumps(summary, ensure_ascii=False))
+          PY
+
+      - name: Upload compact verification
+        uses: actions/upload-artifact@v4
+        with:
+          name: cu-funding-l3-verification-${{ github.run_id }}
+          retention-days: 14
+          path: verify/cu-funding-l3-summary.json
