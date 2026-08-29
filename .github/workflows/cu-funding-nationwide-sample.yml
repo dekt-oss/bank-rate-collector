@@ -9,11 +9,10 @@ on:
       - src/rate_monitor/collectors/cu/funding.py
       - tests/test_cu_funding_year_format.py
       - scripts/cu_funding_nationwide_sample.py
-      - scripts/patch_cu_funding_source_contract.py
       - .github/workflows/cu-funding-nationwide-sample.yml
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   sample:
@@ -21,21 +20,6 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: feat/cu-funding-disclosure-20260829
-
-      - name: Apply nationwide-evidence source-contract patch if needed
-        run: |
-          set -euo pipefail
-          python scripts/patch_cu_funding_source_contract.py
-          rm -f .github/workflows/patch-cu-funding-list-contract.yml
-          if ! git diff --quiet; then
-            git config user.name github-actions[bot]
-            git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-            git add src/rate_monitor/collectors/cu/funding.py .github/workflows/patch-cu-funding-list-contract.yml
-            git commit -m "fix: align CU disclosure list parsing with nationwide evidence"
-            git push origin HEAD:feat/cu-funding-disclosure-20260829
-          fi
 
       - uses: astral-sh/setup-uv@v5
         with:
