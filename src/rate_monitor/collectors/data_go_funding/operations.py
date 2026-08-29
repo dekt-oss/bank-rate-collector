@@ -32,6 +32,9 @@ from rate_monitor.collectors.data_go_funding.collector import (
     _service_key,
     candidate_months,
 )
+from rate_monitor.collectors.data_go_funding.identity_reconciliation import (
+    reconcile_agri_funding_identity,
+)
 from rate_monitor.collectors.data_go_funding.resilient import (
     ResilientSourceResult,
     collect_source_resilient,
@@ -226,6 +229,16 @@ def collect_operational(
                 "funding aggregate guard "
                 f"source={contract.source_id} checked_months={guard.checked_months} "
                 f"retired={guard.retired_observations}",
+                flush=True,
+            )
+        if contract.sector == "nh_local" and result.status == "success":
+            identity = reconcile_agri_funding_identity(db_path)
+            print(
+                "funding identity reconciliation "
+                f"source={contract.source_id} scanned={identity.scanned} "
+                f"eligible={identity.eligible} mapped={identity.mapped} "
+                f"unchanged={identity.unchanged} no_brc_link={identity.no_brc_link} "
+                f"name_mismatch={identity.name_mismatch} invalid_link={identity.invalid_link}",
                 flush=True,
             )
         results.append(result)
