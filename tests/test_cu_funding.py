@@ -7,12 +7,12 @@ import pytest
 from sqlalchemy import func, select
 
 from rate_monitor.collectors.cu.funding import (
-    CuFundingContractError,
-    CuFundingPoint,
-    DisclosureRecord,
     IDENTITY_STATUS,
     SOURCE_ID,
     SOURCE_UNIT,
+    CuFundingContractError,
+    CuFundingPoint,
+    DisclosureRecord,
     _ensure_source,
     _targets,
     _upsert_point,
@@ -24,7 +24,12 @@ from rate_monitor.db.institution_funding_models import InstitutionFundingObserva
 from rate_monitor.db.session import create_db_engine, make_session_factory, session_scope
 
 
-def _disclosure(*, year: int = 2025, disclosure_no: int = 22820, disclosure_type: str = "1") -> DisclosureRecord:
+def _disclosure(
+    *,
+    year: int = 2025,
+    disclosure_no: int = 22820,
+    disclosure_type: str = "1",
+) -> DisclosureRecord:
     return DisclosureRecord(
         cu_ingno="02002",
         disclosure_no=disclosure_no,
@@ -41,16 +46,37 @@ def _disclosure(*, year: int = 2025, disclosure_no: int = 22820, disclosure_type
     )
 
 
-def _summary_html(*, year: int = 2025, prior: int = 2024, label: str = "예 수 부 채", amount: str = "1,720,194", unit: str = "백만원") -> str:
+def _summary_html(
+    *,
+    year: int = 2025,
+    prior: int = 2024,
+    label: str = "예 수 부 채",
+    amount: str = "1,720,194",
+    unit: str = "백만원",
+) -> str:
     return f"""
     <html><body>
       <div>단위 : {unit}</div>
       <table>
-        <tr><th>구분</th><th>{year}년도</th><th>{prior}년도</th><th>증감</th></tr>
-        <tr><th></th><th>금액</th><th>구성비</th><th>금액</th><th>구성비</th><th>금액</th><th>증감율</th></tr>
-        <tr><td>현금및예치금</td><td>227,264</td><td>11.74</td><td>188,554</td><td>12.59</td><td>38,710</td><td>20.53</td></tr>
-        <tr><td>{label}</td><td>{amount}</td><td>88.85</td><td>1,313,185</td><td>87.66</td><td>407,009</td><td>30.99</td></tr>
-        <tr><td>부 채 계</td><td>1,761,416</td><td>90.98</td><td>1,341,937</td><td>89.57</td><td>419,479</td><td>31.26</td></tr>
+        <tr>
+          <th>구분</th><th>{year}년도</th><th>{prior}년도</th><th>증감</th>
+        </tr>
+        <tr>
+          <th></th><th>금액</th><th>구성비</th><th>금액</th>
+          <th>구성비</th><th>금액</th><th>증감율</th>
+        </tr>
+        <tr>
+          <td>현금및예치금</td><td>227,264</td><td>11.74</td><td>188,554</td>
+          <td>12.59</td><td>38,710</td><td>20.53</td>
+        </tr>
+        <tr>
+          <td>{label}</td><td>{amount}</td><td>88.85</td><td>1,313,185</td>
+          <td>87.66</td><td>407,009</td><td>30.99</td>
+        </tr>
+        <tr>
+          <td>부 채 계</td><td>1,761,416</td><td>90.98</td><td>1,341,937</td>
+          <td>89.57</td><td>419,479</td><td>31.26</td>
+        </tr>
       </table>
     </body></html>
     """
@@ -75,7 +101,11 @@ def test_summary_parser_accepts_source_spacing_but_exact_account_semantics() -> 
 def test_summary_parser_half_year_uses_june_period() -> None:
     point = parse_summary_point(
         _summary_html(year=2026, prior=2025, amount="6,460"),
-        disclosure=_disclosure(year=2026, disclosure_no=25111, disclosure_type="2"),
+        disclosure=_disclosure(
+            year=2026,
+            disclosure_no=25111,
+            disclosure_type="2",
+        ),
         institution_id="inst-2",
         institution_name="HJ중공업",
         source_locator="https://example.test/summary",
@@ -119,44 +149,47 @@ def test_summary_parser_rejects_header_year_mismatch() -> None:
         )
 
 
+def _list_row(
+    *,
+    disclosure_no: int,
+    disclosure_type: str,
+    disclosure_name: str,
+    bogo_ty: str = "Y",
+) -> dict[str, object]:
+    return {
+        "cuIngno": "02002",
+        "disclosureNo": disclosure_no,
+        "disclosureTy": disclosure_type,
+        "disclosureName": disclosure_name,
+        "regDate": "2026-02-01",
+        "shortFileName": "summary.pdf",
+        "bogoTy": bogo_ty,
+        "chkYn3": "Y",
+    }
+
+
 def test_disclosure_selection_uses_reporting_period_and_latest_correction() -> None:
     rows = [
-        {
-            "cuIngno": "02002",
-            "disclosureNo": 100,
-            "disclosureTy": "1",
-            "disclosureName": "2025년도 결산정기공시",
-            "regDate": "2026-02-01",
-            "shortFileName": "a.pdf",
-            "chkYn3": "Y",
-        },
-        {
-            "cuIngno": "02002",
-            "disclosureNo": 101,
-            "disclosureTy": "1",
-            "disclosureName": "2025년도 결산정기공시",
-            "regDate": "2026-02-02",
-            "shortFileName": "b.pdf",
-            "chkYn3": "Y",
-        },
-        {
-            "cuIngno": "02002",
-            "disclosureNo": 90,
-            "disclosureTy": "2",
-            "disclosureName": "2025년도 상반기 경영공시",
-            "regDate": "2025-08-01",
-            "shortFileName": "c.pdf",
-            "chkYn3": "Y",
-        },
-        {
-            "cuIngno": "02002",
-            "disclosureNo": 999,
-            "disclosureTy": "3",
-            "disclosureName": "2025년도 수시공시",
-            "regDate": "2025-09-01",
-            "shortFileName": "d.pdf",
-            "chkYn3": "Y",
-        },
+        _list_row(
+            disclosure_no=100,
+            disclosure_type="1",
+            disclosure_name="2025년도 결산정기공시",
+        ),
+        _list_row(
+            disclosure_no=101,
+            disclosure_type="1",
+            disclosure_name="2025년도 결산정기공시",
+        ),
+        _list_row(
+            disclosure_no=90,
+            disclosure_type="2",
+            disclosure_name="2025년도 상반기 경영공시",
+        ),
+        _list_row(
+            disclosure_no=999,
+            disclosure_type="3",
+            disclosure_name="2025년도 수시공시",
+        ),
     ]
 
     selected = select_latest_disclosures(rows, cu_ingno="02002", periods=2)
@@ -165,6 +198,27 @@ def test_disclosure_selection_uses_reporting_period_and_latest_correction() -> N
         ("2025-12", 101),
         ("2025-06", 90),
     ]
+
+
+def test_non_report_summary_is_not_selected() -> None:
+    rows = [
+        _list_row(
+            disclosure_no=24856,
+            disclosure_type="2",
+            disclosure_name="2026년도 상반기 결산공시",
+            bogo_ty="N",
+        ),
+        _list_row(
+            disclosure_no=22820,
+            disclosure_type="1",
+            disclosure_name="2025년도 결산정기공시",
+        ),
+    ]
+
+    selected = select_latest_disclosures(rows, cu_ingno="02002", periods=1)
+
+    assert selected[0].source_effective_month == "2025-12"
+    assert selected[0].disclosure_no == 22820
 
 
 def _source(source_id: str, now: datetime) -> m.Source:
@@ -244,7 +298,10 @@ def _raw(factory, now: datetime) -> str:
         return raw.id
 
 
-def _point(institution_id: str, value: Decimal = Decimal("1720194")) -> CuFundingPoint:
+def _point(
+    institution_id: str,
+    value: Decimal = Decimal("1720194"),
+) -> CuFundingPoint:
     return CuFundingPoint(
         institution_id=institution_id,
         cu_ingno="02002",
@@ -272,19 +329,29 @@ def test_exact_link_target_and_funding_revision_are_idempotent(tmp_path) -> None
     assert _targets(factory, {cu_ingno}) == [("02002", institution_id, "광안")]
 
     with session_scope(factory) as session:
-        assert _upsert_point(session, _point(institution_id), raw_artifact_id=raw_id, now=now) == "stored"
-    with session_scope(factory) as session:
-        assert _upsert_point(session, _point(institution_id), raw_artifact_id=raw_id, now=now) == "unchanged"
-    with session_scope(factory) as session:
-        assert (
-            _upsert_point(
-                session,
-                _point(institution_id, Decimal("1720200")),
-                raw_artifact_id=raw_id,
-                now=datetime(2026, 8, 29, 3, 0, 0),
-            )
-            == "revision"
+        action = _upsert_point(
+            session,
+            _point(institution_id),
+            raw_artifact_id=raw_id,
+            now=now,
         )
+        assert action == "stored"
+    with session_scope(factory) as session:
+        action = _upsert_point(
+            session,
+            _point(institution_id),
+            raw_artifact_id=raw_id,
+            now=now,
+        )
+        assert action == "unchanged"
+    with session_scope(factory) as session:
+        action = _upsert_point(
+            session,
+            _point(institution_id, Decimal("1720200")),
+            raw_artifact_id=raw_id,
+            now=datetime(2026, 8, 29, 3, 0, 0),
+        )
+        assert action == "revision"
 
     with session_scope(factory) as session:
         observations = list(
