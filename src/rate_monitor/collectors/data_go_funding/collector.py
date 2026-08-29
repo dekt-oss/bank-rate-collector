@@ -50,6 +50,8 @@ NORMALIZED_UNIT = "million_krw"
 SOURCE_UNIT = "krw"
 OBSERVATION_BASIS = "reported_period_end"
 STATEMENT_BASIS = "source_reported_unconsolidated_unspecified"
+SAVINGS_BANK_SECTOR_TOTAL_KEY = "030350S"
+SAVINGS_BANK_SECTOR_TOTAL_NAME = "저축은행"
 
 DATA_GO_BASE = "https://apis.data.go.kr/1160100/service"
 
@@ -391,6 +393,78 @@ def _parse_source_amount(raw: object) -> tuple[str, Decimal]:
     return format(krw, "f"), normalized
 
 
+def _exclude_validated_savings_bank_sector_totals(
+    contract: SourceContract,
+    points: list[FundingPoint],
+) -> list[FundingPoint]:
+    """검증된 저축은행 업권 합계행을 기관 observation 저장 전에 제외한다.
+
+    raw artifact는 이미 별도로 그대로 보존된다. 이 함수는 기관별 observation
+    후보만 다루며, ``030350S``가 같은 기준월의 나머지 기관 합계와 정확히
+    일치할 때만 제외한다. 원천 의미가 바뀌면 조용히 버리지 않고 fail closed한다.
+    """
+    if contract.sector != "savings_bank":
+        return points
+
+    grouped: dict[str, list[FundingPoint]] = {}
+    for point in points:
+        grouped.setdefault(point.source_effective_month, []).append(point)
+
+    filtered: list[FundingPoint] = []
+    for month in sorted(grouped):
+        month_points = grouped[month]
+        aggregates = [
+            point
+            for point in month_points
+            if point.source_institution_key == SAVINGS_BANK_SECTOR_TOTAL_KEY
+        ]
+        if not aggregates:
+            filtered.extend(month_points)
+            continue
+        if len(aggregates) != 1:
+            raise FundingContractError(
+                "저축은행 sector-total row가 기준월에 하나가 아니다: "
+                f"month={month} count={len(aggregates)}"
+            )
+
+        aggregate = aggregates[0]
+        normalized_name = normalize_institution_name(aggregate.source_institution_name)
+        crno = str(aggregate.source_crno or "").strip()
+        if normalized_name != SAVINGS_BANK_SECTOR_TOTAL_NAME or crno:
+            raise FundingContractError(
+                "저축은행 sector-total identity 계약 불일치: "
+                f"month={month} fncoCd={aggregate.source_institution_key!r} "
+                f"fncoNm={aggregate.source_institution_name!r} "
+                f"crno={aggregate.source_crno!r}"
+            )
+
+        peers = [
+            point
+            for point in month_points
+            if point.source_institution_key != SAVINGS_BANK_SECTOR_TOTAL_KEY
+        ]
+        if not peers:
+            raise FundingContractError(
+                f"저축은행 sector-total 검증 대상 기관 row가 없다: month={month}"
+            )
+        institution_total = sum(
+            (point.value for point in peers),
+            start=Decimal("0"),
+        )
+        if aggregate.value != institution_total:
+            raise FundingContractError(
+                "저축은행 sector-total 합계 불일치: "
+                f"month={month} aggregate={aggregate.value} "
+                f"institutions={institution_total} institution_rows={len(peers)}"
+            )
+        filtered.extend(peers)
+
+    return sorted(
+        filtered,
+        key=lambda point: (point.source_effective_month, point.source_institution_key),
+    )
+
+
 def parse_points(
     contract: SourceContract,
     rows: list[dict[str, Any]],
@@ -467,10 +541,11 @@ def parse_points(
         raise FundingContractError(
             f"{contract.source_id}: 응답 row는 있으나 총 예수부채 code를 찾지 못했다"
         )
-    return sorted(
+    points = sorted(
         by_key.values(),
         key=lambda point: (point.source_effective_month, point.source_institution_key),
     )
+    return _exclude_validated_savings_bank_sector_totals(contract, points)
 
 
 def _content_hash(point: FundingPoint) -> str:
