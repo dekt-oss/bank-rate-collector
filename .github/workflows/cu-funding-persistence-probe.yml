@@ -8,6 +8,7 @@ on:
     paths:
       - src/rate_monitor/collectors/cu/funding.py
       - tests/test_cu_funding.py
+      - tests/test_cu_funding_year_format.py
       - scripts/cu_funding_persistence_probe.py
       - .github/workflows/cu-funding-persistence-probe.yml
 
