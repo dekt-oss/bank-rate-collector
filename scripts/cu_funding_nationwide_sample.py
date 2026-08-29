@@ -177,6 +177,7 @@ def main() -> int:
             "unchanged": result.unchanged,
             "revisions": result.revisions,
             "warning_count": result.warning_count,
+            "warning_rate_per_target": round(result.warning_count / len(sample), 6),
             "message": result.message,
         },
         "observations": observations,
