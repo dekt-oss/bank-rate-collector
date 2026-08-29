@@ -9,7 +9,7 @@ retire legacy active rows. It intentionally has no DB or collector dependency.
 from __future__ import annotations
 
 from decimal import Decimal
-from typing import Protocol, TypeVar
+from typing import Protocol
 
 AGRI_COOP_INSTITUTION_KEY_PREFIX = "0010027"
 AGRI_COOP_LEGACY_TOTALS = {"032120S": "농업협동조합"}
@@ -51,9 +51,6 @@ class FundingAggregateRow(Protocol):
     population_scope: str
 
 
-RowT = TypeVar("RowT", bound=FundingAggregateRow)
-
-
 def is_agri_coop_institution_key(key: str) -> bool:
     """Return whether a source key matches the verified local-coop key shape."""
     return (
@@ -74,7 +71,7 @@ def _validate_identity(row: FundingAggregateRow, expected_name: str) -> None:
         )
 
 
-def partition_validated_agri_coop_rows(
+def partition_validated_agri_coop_rows[RowT: FundingAggregateRow](
     rows: list[RowT],
 ) -> tuple[list[RowT], list[RowT]]:
     """Return (institution_rows, aggregate_rows) after exact hierarchy checks.
