@@ -30,6 +30,10 @@ from typing import Any
 import httpx
 from sqlalchemy import func, select
 
+from rate_monitor.collectors.data_go_funding.aggregate_policy import (
+    AggregateValidationError,
+    partition_validated_agri_coop_rows,
+)
 from rate_monitor.db import models as m
 from rate_monitor.db.institution_funding_models import InstitutionFundingObservation
 from rate_monitor.db.session import create_db_engine, make_session_factory, session_scope
@@ -465,6 +469,23 @@ def _exclude_validated_savings_bank_sector_totals(
     )
 
 
+def _exclude_validated_agri_coop_aggregates(
+    contract: SourceContract,
+    points: list[FundingPoint],
+) -> list[FundingPoint]:
+    """검증된 농·축협 지역/업권 합계행을 persistence 전에 제외한다."""
+    if contract.sector != "nh_local":
+        return points
+    try:
+        institutions, _aggregates = partition_validated_agri_coop_rows(points)
+    except AggregateValidationError as exc:
+        raise FundingContractError(str(exc)) from exc
+    return sorted(
+        institutions,
+        key=lambda point: (point.source_effective_month, point.source_institution_key),
+    )
+
+
 def parse_points(
     contract: SourceContract,
     rows: list[dict[str, Any]],
@@ -545,7 +566,8 @@ def parse_points(
         by_key.values(),
         key=lambda point: (point.source_effective_month, point.source_institution_key),
     )
-    return _exclude_validated_savings_bank_sector_totals(contract, points)
+    points = _exclude_validated_savings_bank_sector_totals(contract, points)
+    return _exclude_validated_agri_coop_aggregates(contract, points)
 
 
 def _content_hash(point: FundingPoint) -> str:

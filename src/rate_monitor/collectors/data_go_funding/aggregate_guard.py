@@ -1,12 +1,9 @@
 """Guards for Data.go funding rows that are not institution observations.
 
-The savings-bank summary table includes a source-reported sector total row
-(``fncoCd=030350S``, ``fncoNm=저축은행``) alongside individual institutions.
-Persisting that row as an institution doubles sector reconciliation totals.
-Raw evidence remains untouched; after validating that the aggregate equals the
-sum of active institution rows for the same reporting month, this module
-retires only the aggregate observation via the existing ``valid_to`` history
-contract.
+Some Data.go finance tables include source-reported totals alongside individual
+institutions. Raw evidence remains untouched. Legacy active pseudo rows are
+retired only after exact source-specific hierarchy validation, while the
+collector filters newly observed aggregate rows before persistence.
 """
 
 from __future__ import annotations
@@ -18,6 +15,11 @@ from pathlib import Path
 
 from sqlalchemy import select
 
+from rate_monitor.collectors.data_go_funding.aggregate_policy import (
+    AGRI_COOP_AGGREGATE_KEYS,
+    AggregateValidationError,
+    partition_validated_agri_coop_rows,
+)
 from rate_monitor.collectors.data_go_funding.collector import (
     TOTAL_METRIC_CODE,
     FundingContractError,
@@ -29,6 +31,7 @@ from rate_monitor.domain.normalization import normalize_institution_name
 SAVINGS_BANK_SOURCE_ID = "data_go_savings_bank_funding"
 SAVINGS_BANK_SECTOR_TOTAL_KEY = "030350S"
 SAVINGS_BANK_SECTOR_TOTAL_NAME = "저축은행"
+AGRI_COOP_SOURCE_ID = "data_go_agri_coop_funding"
 
 
 @dataclass(frozen=True)
@@ -125,4 +128,63 @@ def retire_validated_savings_bank_sector_totals(
     return AggregateGuardResult(
         checked_months=len(aggregates),
         retired_observations=len(aggregates),
+    )
+
+
+def retire_validated_agri_coop_aggregates(
+    db_path: Path,
+    *,
+    now: datetime | None = None,
+) -> AggregateGuardResult:
+    """Retire legacy active NH regional/sector totals after exact validation."""
+    stamp = now or _now()
+    engine = create_db_engine(db_path)
+    factory = make_session_factory(engine)
+
+    with session_scope(factory) as session:
+        active_rows = list(
+            session.scalars(
+                select(InstitutionFundingObservation)
+                .where(
+                    InstitutionFundingObservation.source_id == AGRI_COOP_SOURCE_ID,
+                    InstitutionFundingObservation.metric_code == TOTAL_METRIC_CODE,
+                    InstitutionFundingObservation.valid_to.is_(None),
+                )
+                .order_by(
+                    InstitutionFundingObservation.source_effective_month,
+                    InstitutionFundingObservation.source_institution_key,
+                )
+            )
+        )
+
+        by_month: dict[str, list[InstitutionFundingObservation]] = {}
+        for row in active_rows:
+            by_month.setdefault(row.source_effective_month, []).append(row)
+
+        aggregates_to_retire: list[InstitutionFundingObservation] = []
+        checked_months = 0
+        for _month, month_rows in sorted(by_month.items()):
+            has_aggregate_signal = any(
+                row.source_institution_key in AGRI_COOP_AGGREGATE_KEYS
+                or row.source_institution_key.endswith("S")
+                for row in month_rows
+            )
+            if not has_aggregate_signal:
+                continue
+            try:
+                _institutions, aggregates = partition_validated_agri_coop_rows(
+                    month_rows
+                )
+            except AggregateValidationError as exc:
+                raise FundingContractError(str(exc)) from exc
+            if aggregates:
+                checked_months += 1
+                aggregates_to_retire.extend(aggregates)
+
+        for aggregate in aggregates_to_retire:
+            aggregate.valid_to = stamp
+
+    return AggregateGuardResult(
+        checked_months=checked_months,
+        retired_observations=len(aggregates_to_retire),
     )
