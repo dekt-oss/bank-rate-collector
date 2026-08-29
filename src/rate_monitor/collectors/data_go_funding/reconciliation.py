@@ -1,9 +1,13 @@
-"""기관별 Data.go 예수부채 ↔ ECOS 업권 수신잔액 reconciliation.
+"""기관별 공식 예수부채 ↔ ECOS 업권 수신잔액 reconciliation.
 
 두 통계는 회계/통계 분류가 완전히 동일하다고 가정하지 않는다.
 - 저축은행·신협: 동일 기준월에 합계 차이를 QC band로 측정한다.
 - 농·축협: Data.go 단위 농·축협은 ECOS 광의 상호금융의 부분모집단이므로
   equality가 아니라 coverage ratio만 계산한다.
+
+한 업권/기준월에 둘 이상의 기관별 funding source가 동시에 active면 절대로
+합산하지 않는다. 같은 기관 모집단을 서로 다른 공식 원천이 중복 관측할 수
+있기 때문에, source precedence가 명시적으로 결정되기 전에는 fail-closed한다.
 """
 
 from __future__ import annotations
@@ -11,7 +15,7 @@ from __future__ import annotations
 from collections import defaultdict
 from decimal import Decimal
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 
 from sqlalchemy import select
 
@@ -29,6 +33,17 @@ ECOS_CODE = {
     "nh_local": "bok_broad_mutual_finance_deposit_balance",
 }
 
+SOURCE_UNITS = {
+    "data_go_savings_bank_funding": "krw",
+    "data_go_credit_union_funding": "krw",
+    "data_go_agri_coop_funding": "krw",
+    "cu_disclosure_funding": "million_krw",
+}
+
+
+class FundingSourceCollision(RuntimeError):
+    """같은 업권/기준월에 둘 이상의 active funding source가 존재한다."""
+
 
 def _band(pct: Decimal) -> str:
     if pct <= ALIGN_MAX_PCT:
@@ -42,6 +57,22 @@ def _month(date_value: Any) -> str | None:
     if date_value is None:
         return None
     return f"{date_value.year:04d}-{date_value.month:02d}"
+
+
+def _single_source_id(
+    *,
+    sector: str,
+    month: str,
+    items: Iterable[InstitutionFundingObservation],
+) -> str:
+    source_ids = sorted({item.source_id for item in items})
+    if len(source_ids) != 1:
+        raise FundingSourceCollision(
+            "기관별 funding source collision: "
+            f"sector={sector} month={month} sources={source_ids}. "
+            "source precedence를 명시적으로 결정하기 전에는 합산하지 않는다."
+        )
+    return source_ids[0]
 
 
 def build_report(db_path: Path) -> dict[str, Any]:
@@ -71,9 +102,12 @@ def build_report(db_path: Path) -> dict[str, Any]:
         grouped[(row.sector, row.source_effective_month)].append(row)
 
     for (sector, month), items in sorted(grouped.items()):
+        source_id = _single_source_id(sector=sector, month=month, items=items)
         coverage[(sector, month)] = {
             "sector": sector,
             "month": month,
+            "source_id": source_id,
+            "source_unit": SOURCE_UNITS.get(source_id, "unknown"),
             "institution_count": len({row.source_institution_key for row in items}),
             "mapped_count": len(
                 {
@@ -89,7 +123,9 @@ def build_report(db_path: Path) -> dict[str, Any]:
                     if row.institution_id is None
                 }
             ),
-            "institution_sum_million_krw": str(sum((row.value for row in items), Decimal("0"))),
+            "institution_sum_million_krw": str(
+                sum((row.value for row in items), Decimal("0"))
+            ),
         }
 
     ecos_by_key: dict[tuple[str, str], Decimal] = {}
@@ -108,6 +144,8 @@ def build_report(db_path: Path) -> dict[str, Any]:
         base = {
             "sector": sector,
             "month": month,
+            "source_id": item["source_id"],
+            "source_unit": item["source_unit"],
             "institution_count": item["institution_count"],
             "institution_sum_million_krw": str(institution_sum),
             "ecos_indicator_code": ECOS_CODE[sector],
@@ -157,9 +195,11 @@ def build_report(db_path: Path) -> dict[str, Any]:
                 "sector_total_million_krw": str(sector_total),
                 "difference_million_krw": str(difference),
                 "difference_pct": str(pct),
-                "coverage_ratio": str(institution_sum / sector_total) if sector_total != 0 else None,
+                "coverage_ratio": (
+                    str(institution_sum / sector_total) if sector_total != 0 else None
+                ),
                 "basis_note": (
-                    "Data.go 예수부채는 금융회사 재무상태표 계정, ECOS 수신잔액은 "
+                    "기관별 공식 예수부채는 금융회사 재무상태표 계정, ECOS 수신잔액은 "
                     "금융통계 업권 합계다. 2% 이하는 정합, 2~5%는 review, 5% 초과는 "
                     "contract/population mismatch review로 분류하되 수집값 자체를 폐기하지 않는다."
                 ),
@@ -174,8 +214,13 @@ def build_report(db_path: Path) -> dict[str, Any]:
     return {
         "contract": {
             "normalized_unit": "million_krw",
-            "source_unit": "krw",
+            "source_units_by_source": SOURCE_UNITS,
             "data_go_basis": "reported_period_end",
+            "cu_disclosure_basis": "summary_disclosure_period_end",
+            "source_collision_policy": (
+                "same sector+month must have exactly one active source_id; "
+                "multiple sources fail closed until explicit precedence is approved"
+            ),
             "reconciliation_policy": {
                 "savings_bank_credit_union_aligned_max_pct": "2",
                 "review_max_pct": "5",
@@ -183,9 +228,11 @@ def build_report(db_path: Path) -> dict[str, Any]:
                 "agri_coop": "coverage_only_no_equality_tolerance",
             },
             "identity_policy": {
-                "primary_key": "FSS fncoCd",
-                "secondary_evidence": "crno",
-                "automatic_cross_source_merge": "exact same sector+fncoCd+normalized name only",
+                "primary_key": "source-specific official institution code",
+                "secondary_evidence": "source-specific exact identity evidence",
+                "automatic_cross_source_merge": (
+                    "only source-specific deterministic contracts; no name-only merge"
+                ),
                 "name_only_merge": False,
                 "legal_effective_dates": (
                     "source_entity_links.valid_from/valid_to는 공식 합병·폐업·조직전환 "
