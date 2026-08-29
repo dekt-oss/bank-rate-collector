@@ -21,6 +21,9 @@ from typing import Any
 import httpx
 from sqlalchemy import func, select
 
+from rate_monitor.collectors.data_go_funding.aggregate_guard import (
+    retire_validated_savings_bank_sector_totals,
+)
 from rate_monitor.collectors.data_go_funding.collector import (
     CONTRACTS,
     FundingSourceUnavailable,
@@ -204,15 +207,22 @@ def collect_operational(
             )
             continue
 
-        results.append(
-            collect_source_resilient(
-                contract,
-                db_path=db_path,
-                raw_root=raw_root,
-                periods=periods,
-                required=required,
-            )
+        result = collect_source_resilient(
+            contract,
+            db_path=db_path,
+            raw_root=raw_root,
+            periods=periods,
+            required=required,
         )
+        if contract.sector == "savings_bank" and result.status == "success":
+            guard = retire_validated_savings_bank_sector_totals(db_path)
+            print(
+                "funding aggregate guard "
+                f"source={contract.source_id} checked_months={guard.checked_months} "
+                f"retired={guard.retired_observations}",
+                flush=True,
+            )
+        results.append(result)
     return results
 
 
