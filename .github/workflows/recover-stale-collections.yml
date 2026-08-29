@@ -1,0 +1,162 @@
+name: 복구 — 누락 수집 직렬 재실행
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+# 복구 오케스트레이터 자체는 canonical writer가 아니다. 기존 수집 workflow를
+# 하나씩 dispatch하고 완료를 기다린다. 실제 DB/R2 write는 각 child workflow의
+# rate-data-writer lock이 그대로 보호한다.
+concurrency:
+  group: stale-collection-recovery-control-plane
+  cancel-in-progress: false
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  recover_general:
+    if: ${{ github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[recover-stale]') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      COLLECT_PASSWORD: ${{ secrets.DASHBOARD_PASSWORD }}
+    steps:
+      - name: Recover general sources on current main
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$COLLECT_PASSWORD"
+
+          before=$(gh run list \
+            --repo "$GITHUB_REPOSITORY" \
+            --workflow collect.yml \
+            --event workflow_dispatch \
+            --branch main \
+            --limit 1 \
+            --json databaseId \
+            --jq '.[0].databaseId // 0')
+
+          gh workflow run collect.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref main \
+            -f password="$COLLECT_PASSWORD" \
+            -f manual_target="일반 전체" \
+            -f accept_volume_drop=false
+
+          run_id=""
+          for _ in $(seq 1 30); do
+            run_id=$(gh run list \
+              --repo "$GITHUB_REPOSITORY" \
+              --workflow collect.yml \
+              --event workflow_dispatch \
+              --branch main \
+              --limit 1 \
+              --json databaseId \
+              --jq "if length > 0 and .[0].databaseId != $before then .[0].databaseId else empty end")
+            [ -n "$run_id" ] && break
+            sleep 2
+          done
+          test -n "$run_id"
+          echo "general recovery run_id=$run_id"
+          gh run watch "$run_id" --repo "$GITHUB_REPOSITORY" --exit-status --interval 15
+
+  recover_kfcc:
+    needs: recover_general
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      COLLECT_PASSWORD: ${{ secrets.DASHBOARD_PASSWORD }}
+    steps:
+      - name: Recover KFCC on current main
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$COLLECT_PASSWORD"
+
+          before=$(gh run list \
+            --repo "$GITHUB_REPOSITORY" \
+            --workflow collect.yml \
+            --event workflow_dispatch \
+            --branch main \
+            --limit 1 \
+            --json databaseId \
+            --jq '.[0].databaseId // 0')
+
+          gh workflow run collect.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref main \
+            -f password="$COLLECT_PASSWORD" \
+            -f manual_target="새마을금고만" \
+            -f kfcc_scope="전국" \
+            -f kfcc_resume_mode=auto \
+            -f accept_volume_drop=false
+
+          run_id=""
+          for _ in $(seq 1 30); do
+            run_id=$(gh run list \
+              --repo "$GITHUB_REPOSITORY" \
+              --workflow collect.yml \
+              --event workflow_dispatch \
+              --branch main \
+              --limit 1 \
+              --json databaseId \
+              --jq "if length > 0 and .[0].databaseId != $before then .[0].databaseId else empty end")
+            [ -n "$run_id" ] && break
+            sleep 2
+          done
+          test -n "$run_id"
+          echo "KFCC recovery run_id=$run_id"
+          gh run watch "$run_id" --repo "$GITHUB_REPOSITORY" --exit-status --interval 15
+
+  recover_nh:
+    needs: recover_kfcc
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      COLLECT_PASSWORD: ${{ secrets.DASHBOARD_PASSWORD }}
+    steps:
+      - name: Recover NH local on current main
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$COLLECT_PASSWORD"
+
+          before=$(gh run list \
+            --repo "$GITHUB_REPOSITORY" \
+            --workflow collect-nh.yml \
+            --event workflow_dispatch \
+            --branch main \
+            --limit 1 \
+            --json databaseId \
+            --jq '.[0].databaseId // 0')
+
+          gh workflow run collect-nh.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref main \
+            -f password="$COLLECT_PASSWORD" \
+            -f nh_local_scope="전국" \
+            -f nh_resume_mode=auto \
+            -f accept_volume_drop=false
+
+          run_id=""
+          for _ in $(seq 1 30); do
+            run_id=$(gh run list \
+              --repo "$GITHUB_REPOSITORY" \
+              --workflow collect-nh.yml \
+              --event workflow_dispatch \
+              --branch main \
+              --limit 1 \
+              --json databaseId \
+              --jq "if length > 0 and .[0].databaseId != $before then .[0].databaseId else empty end")
+            [ -n "$run_id" ] && break
+            sleep 2
+          done
+          test -n "$run_id"
+          echo "NH recovery run_id=$run_id"
+          gh run watch "$run_id" --repo "$GITHUB_REPOSITORY" --exit-status --interval 15
