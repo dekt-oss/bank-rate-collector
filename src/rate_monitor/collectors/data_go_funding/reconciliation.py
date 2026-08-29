@@ -13,9 +13,10 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from collections.abc import Iterable
 from decimal import Decimal
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 from sqlalchemy import select
 
