@@ -1,0 +1,37 @@
+name: Diagnostic — CU funding edge cases
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feat/cu-funding-disclosure-20260829
+    paths:
+      - scripts/cu_funding_edge_probe.py
+      - .github/workflows/cu-funding-edge-probe.yml
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Set up Python
+        run: uv python install 3.12
+      - name: Sync dependencies
+        run: uv sync --locked
+      - name: Run bounded read-only edge probe
+        run: uv run python scripts/cu_funding_edge_probe.py
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cu-funding-edge-probe-${{ github.run_id }}
+          path: publish/cu-funding-edge-probe.json
+          if-no-files-found: error
+          retention-days: 30
