@@ -1,13 +1,11 @@
 #!/usr/bin/env python3
 """Read-only bounded reconnaissance for official CU management disclosures.
 
-Goal: determine whether the central CU disclosure page exposes a deterministic
-contract from the existing rate-source ``cuIngno`` (approval number) to a
-management-disclosure listing/document that contains deposit liabilities.
-
-This script performs only a handful of GET requests against public official CU
-pages. It does not log in, bypass blocks, enumerate the nationwide population,
-or write application data. It stores structural evidence/snippets only.
+Goal: prove a deterministic contract from the existing rate-source ``cuIngno``
+to the central CU management-disclosure list and its structured disclosure
+identifiers. This probe is intentionally tiny: two repository-captured control
+institutions, page 1 only, no document download, no nationwide enumeration and
+no application DB write.
 """
 
 from __future__ import annotations
@@ -16,12 +14,14 @@ import html
 import json
 import re
 from pathlib import Path
+from typing import Any
 
 import httpx
 
 OUT = Path("docs/source-recon/cu-funding-disclosure-recon-20260829.json")
 BASE = "https://www.cu.co.kr"
 DISCLOSURE_PATH = "/cu/ad/disclosureList.do"
+LIST_PATH = "/cu/ad/dis/getDisclosureList.do"
 TIMEOUT = 25.0
 USER_AGENT = "rate-monitor/1 (+public CU disclosure contract reconnaissance)"
 
@@ -44,17 +44,28 @@ KEYWORDS = (
     "cuNo",
     "cuMbrCd",
     "cuSearchTab",
-    "disclosure",
     "getDisclosureList.do",
     "dwldDisData.do",
     "GSSP020000.do",
     "GSSP040000.do",
     "경영공시",
     "요약공시",
-    "공시자료",
-    "file",
-    "download",
-    "ajax",
+)
+
+LIST_SAFE_FIELDS = (
+    "cuIngno",
+    "disclosureName",
+    "regDate",
+    "disclosureNo",
+    "disclosureTy",
+    "bogoTy",
+    "chkYn1",
+    "chkYn2",
+    "chkYn3",
+    "disclosureFileName",
+    "auditFileName",
+    "shortFileName",
+    "listTotalCount",
 )
 
 
@@ -114,7 +125,9 @@ def _paths(text: str) -> list[str]:
     return [path for path in paths if "disclos" in path.lower() or "/cu/ad/" in path][:120]
 
 
-def _request(client: httpx.Client, params: dict[str, str], label: str) -> dict[str, object]:
+def _page_request(
+    client: httpx.Client, params: dict[str, str], label: str
+) -> dict[str, object]:
     response = client.get(f"{BASE}{DISCLOSURE_PATH}", params=params)
     text = response.text
     title_match = re.search(r"<title[^>]*>(.*?)</title>", text, re.I | re.S)
@@ -137,14 +150,82 @@ def _request(client: httpx.Client, params: dict[str, str], label: str) -> dict[s
     }
 
 
+def _json_rows(payload: Any) -> list[dict[str, Any]]:
+    if isinstance(payload, list):
+        return [row for row in payload if isinstance(row, dict)]
+    if isinstance(payload, dict):
+        for key in ("list", "data", "items", "result"):
+            value = payload.get(key)
+            if isinstance(value, list):
+                return [row for row in value if isinstance(row, dict)]
+    return []
+
+
+def _list_request(
+    client: httpx.Client, *, cu_no: str, expected_name: str
+) -> dict[str, object]:
+    request_data = {
+        "usrId": cu_no,
+        "currPage": "1",
+        "srchVal": "",
+        "btnChk": "N",
+    }
+    response = client.post(f"{BASE}{LIST_PATH}", data=request_data)
+    content_type = response.headers.get("content-type")
+    payload: Any = None
+    parse_error: str | None = None
+    try:
+        payload = response.json()
+    except ValueError as exc:
+        parse_error = f"{type(exc).__name__}: {exc}"
+
+    rows = _json_rows(payload)
+    sampled = [
+        {field: row.get(field) for field in LIST_SAFE_FIELDS if field in row}
+        for row in rows[:10]
+    ]
+    returned_ids = sorted(
+        {
+            str(row.get("cuIngno") or "").strip()
+            for row in rows
+            if str(row.get("cuIngno") or "").strip()
+        }
+    )
+    row_keys = sorted({key for row in rows for key in row})
+    total_values = sorted(
+        {
+            int(str(row.get("listTotalCount")))
+            for row in rows
+            if str(row.get("listTotalCount") or "").isdigit()
+        }
+    )
+    return {
+        "label": f"disclosure_list_{cu_no}_{expected_name}",
+        "request_path": LIST_PATH,
+        "request_data": request_data,
+        "status": response.status_code,
+        "content_type": content_type,
+        "bytes": len(response.content),
+        "parse_error": parse_error,
+        "payload_type": type(payload).__name__ if payload is not None else None,
+        "row_count": len(rows),
+        "row_keys": row_keys,
+        "returned_cu_ingno": returned_ids,
+        "identity_exact": returned_ids == [cu_no] if rows else False,
+        "list_total_count_values": total_values,
+        "sample_rows": sampled,
+    }
+
+
 def main() -> int:
-    results: list[dict[str, object]] = []
+    pages: list[dict[str, object]] = []
+    lists: list[dict[str, object]] = []
     with httpx.Client(
         timeout=TIMEOUT,
         follow_redirects=True,
         headers={"User-Agent": USER_AGENT},
     ) as client:
-        results.append(_request(client, {"mi": "100518"}, "central_disclosure_base"))
+        pages.append(_page_request(client, {"mi": "100518"}, "central_disclosure_base"))
         for cu_no, short_name in PROBES:
             params = {
                 "mi": "100518",
@@ -152,33 +233,50 @@ def main() -> int:
                 "cuNo": cu_no,
                 "searchTxt": short_name,
             }
-            results.append(_request(client, params, f"selected_{cu_no}_{short_name}"))
+            pages.append(_page_request(client, params, f"selected_{cu_no}_{short_name}"))
+            lists.append(_list_request(client, cu_no=cu_no, expected_name=short_name))
 
     report = {
         "mode": "read_only_bounded_no_application_db_write",
         "purpose": (
-            "discover deterministic CU central management-disclosure contract from "
-            "existing rate cuIngno without nationwide enumeration"
+            "prove CU central disclosure list contract from existing rate cuIngno, "
+            "without nationwide enumeration or document downloads"
         ),
         "rate_fixture_controls": [
             {"cuIngno": cu_no, "cuNm": short_name} for cu_no, short_name in PROBES
         ],
-        "requests": results,
+        "page_contract": pages,
+        "list_contract": lists,
         "notes": [
             "cuIngno values are sourced from the repository's captured official CU rate fixture.",
-            "No credentials, cookies, personal data, or full disclosure documents are persisted.",
-            "A later collector is forbidden until exact listing/document identity and amount semantics are live-verified.",
+            "Only two control institutions and page 1 are requested.",
+            "No disclosure files or application DB rows are downloaded/written by this stage.",
+            "Production persistence remains forbidden until amount/date/unit semantics are separately verified.",
         ],
     }
     OUT.parent.mkdir(parents=True, exist_ok=True)
     OUT.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
-    for row in results:
+    for row in pages:
         print(
             f"{row['label']}: status={row['status']} bytes={row['bytes']} "
             f"paths={len(row['candidate_do_paths'])} inputs={len(row['relevant_inputs'])}"
         )
-    return 0 if all(row["status"] == 200 for row in results) else 1
+    for row in lists:
+        print(
+            f"{row['label']}: status={row['status']} rows={row['row_count']} "
+            f"returned={row['returned_cu_ingno']} identity_exact={row['identity_exact']}"
+        )
+
+    page_ok = all(row["status"] == 200 for row in pages)
+    list_ok = all(
+        row["status"] == 200
+        and row["parse_error"] is None
+        and row["row_count"] > 0
+        and row["identity_exact"] is True
+        for row in lists
+    )
+    return 0 if page_ok and list_ok else 1
 
 
 if __name__ == "__main__":
