@@ -8,6 +8,7 @@ Data.go 신협 재무 API의 exact operation URL은 아직 검증되지 않았�
 - 기관은 기존 active ``cu:<cuIngno>`` SourceEntityLink만 사용한다.
 - 이름 유사도나 전국 검색으로 새 기관을 만들지 않는다.
 - 공시목록이 요청한 cuIngno만 반환하는지 exact 검증한다.
+- 요약공시 제공 대상(``bogoTy=Y``, ``chkYn3=Y``)만 사용한다.
 - 요약표 단위 ``백만원``과 행명 ``예수부채``를 exact 검증한다.
 - PDF/OCR을 사용하지 않는다.
 - 값이 같으면 새 observation을 만들지 않고, 값이 바뀔 때만 revision을 만든다.
@@ -18,7 +19,6 @@ from __future__ import annotations
 import calendar
 import hashlib
 import html
-import json
 import re
 import time
 import urllib.parse
@@ -150,7 +150,9 @@ def _record_from_row(row: dict[str, Any], expected_cu: str) -> DisclosureRecord 
     disclosure_type = str(row.get("disclosureTy") or "").strip()
     if disclosure_type not in {"1", "2"}:
         return None
-    if str(row.get("chkYn3") or "").strip() == "N":
+    if str(row.get("bogoTy") or "").strip() != "Y":
+        return None
+    if str(row.get("chkYn3") or "").strip() != "Y":
         return None
     short_file_name = str(row.get("shortFileName") or "").strip()
     if not short_file_name:
@@ -182,7 +184,7 @@ def select_latest_disclosures(
     cu_ingno: str,
     periods: int,
 ) -> list[DisclosureRecord]:
-    """정기/반기 공시를 reporting period별 한 건으로 결정론적으로 고른다."""
+    """정기/반기 요약공시를 reporting period별 한 건으로 결정론적으로 고른다."""
     if periods < 1:
         raise ValueError("periods는 1 이상이어야 한다")
     candidates = [
@@ -233,18 +235,19 @@ def parse_summary_point(
     )
     if header is None or len(header) < 3:
         raise CuFundingContractError("신협 요약재무현황 연도 header를 찾지 못했다")
-    years = [int(match.group(1)) for cell in header for match in [_YEAR.search(cell)] if match]
+    years = [
+        int(match.group(1))
+        for cell in header
+        for match in [_YEAR.search(cell)]
+        if match
+    ]
     if not years or years[0] != disclosure.year:
         raise CuFundingContractError(
             "신협 공시연도와 요약재무현황 header 불일치: "
             f"disclosure={disclosure.year} header={years}"
         )
 
-    targets = [
-        row
-        for row in rows
-        if row and _normalized_label(row[0]) == METRIC_NAME
-    ]
+    targets = [row for row in rows if row and _normalized_label(row[0]) == METRIC_NAME]
     if len(targets) != 1:
         raise CuFundingContractError(
             f"예수부채 row는 정확히 1개여야 한다: count={len(targets)}"
@@ -313,7 +316,12 @@ def _fetch_disclosure_rows(
     prior_disclosure_no: int | None = None
 
     for page in range(1, MAX_LIST_PAGES + 1):
-        body = {"usrId": cu_ingno, "currPage": str(page), "srchVal": "", "btnChk": "N"}
+        body = {
+            "usrId": cu_ingno,
+            "currPage": str(page),
+            "srchVal": "",
+            "btnChk": "N",
+        }
         response = client.post(f"{BASE}{LIST_PATH}", data=body)
         response.raise_for_status()
         raw = response.content
@@ -326,7 +334,8 @@ def _fetch_disclosure_rows(
             returned = str(row.get("cuIngno") or "").strip()
             if returned != cu_ingno:
                 raise CuFundingContractError(
-                    f"신협 공시목록 identity 불일치: requested={cu_ingno} returned={returned!r}"
+                    "신협 공시목록 identity 불일치: "
+                    f"requested={cu_ingno} returned={returned!r}"
                 )
             raw_no = str(row.get("disclosureNo") or "").strip()
             if raw_no.isdigit():
@@ -352,7 +361,11 @@ def _fetch_disclosure_rows(
         )
         all_rows.extend(rows)
 
-        selected = select_latest_disclosures(all_rows, cu_ingno=cu_ingno, periods=periods)
+        selected = select_latest_disclosures(
+            all_rows,
+            cu_ingno=cu_ingno,
+            periods=periods,
+        )
         totals = {
             int(str(row.get("listTotalCount")))
             for row in rows
@@ -399,7 +412,11 @@ def _fetch_target(
         periods=periods,
         request_interval=request_interval,
     )
-    disclosures = select_latest_disclosures(rows, cu_ingno=cu_ingno, periods=periods)
+    disclosures = select_latest_disclosures(
+        rows,
+        cu_ingno=cu_ingno,
+        periods=periods,
+    )
     if not disclosures:
         raise CuFundingContractError(f"정기/반기 요약공시가 없다: cuIngno={cu_ingno}")
 
@@ -412,9 +429,8 @@ def _fetch_target(
         response = client.get(url)
         response.raise_for_status()
         raw = response.content
-        text = response.text
         point = parse_summary_point(
-            text,
+            response.text,
             disclosure=disclosure,
             institution_id=institution_id,
             institution_name=institution_name,
@@ -469,7 +485,10 @@ def _ensure_source(session: Any, now: datetime) -> None:
         source.updated_at = now
 
 
-def _targets(factory: Any, only_cu_nos: set[str] | None) -> list[tuple[str, str, str]]:
+def _targets(
+    factory: Any,
+    only_cu_nos: set[str] | None,
+) -> list[tuple[str, str, str]]:
     with session_scope(factory) as session:
         links = list(
             session.scalars(
@@ -487,7 +506,9 @@ def _targets(factory: Any, only_cu_nos: set[str] | None) -> list[tuple[str, str,
             if not link.source_entity_key.startswith(prefix):
                 continue
             cu_ingno = link.source_entity_key.removeprefix(prefix).strip()
-            if not cu_ingno or (only_cu_nos is not None and cu_ingno not in only_cu_nos):
+            if not cu_ingno:
+                continue
+            if only_cu_nos is not None and cu_ingno not in only_cu_nos:
                 continue
             if cu_ingno in seen:
                 raise CuFundingContractError(f"active CU link가 중복됐다: {cu_ingno}")
@@ -576,7 +597,8 @@ def _upsert_point(
             InstitutionFundingObservation.source_id == SOURCE_ID,
             InstitutionFundingObservation.source_institution_key == point.cu_ingno,
             InstitutionFundingObservation.metric_code == METRIC_CODE,
-            InstitutionFundingObservation.source_effective_month == point.source_effective_month,
+            InstitutionFundingObservation.source_effective_month
+            == point.source_effective_month,
             InstitutionFundingObservation.valid_to.is_(None),
         )
         .order_by(InstitutionFundingObservation.revision.desc())
@@ -704,7 +726,8 @@ def collect_cu_disclosure_funding(
                         artifact_index = summary_index.get(point.disclosure_no)
                         if artifact_index is None or artifact_index >= len(records):
                             raise CuFundingContractError(
-                                f"summary raw provenance가 없다: {cu_ingno}/{point.disclosure_no}"
+                                "summary raw provenance가 없다: "
+                                f"{cu_ingno}/{point.disclosure_no}"
                             )
                         action = _upsert_point(
                             session,
@@ -723,6 +746,10 @@ def collect_cu_disclosure_funding(
                 completed += 1
             except (httpx.HTTPError, CuFundingContractError) as exc:
                 failures[cu_ingno] = f"{type(exc).__name__}: {exc}"
+                print(
+                    f"CU funding target failed cuIngno={cu_ingno}: {failures[cu_ingno]}",
+                    flush=True,
+                )
 
     status = "success" if not failures else "partial"
     message = (
