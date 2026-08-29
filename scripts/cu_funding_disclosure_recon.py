@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """Read-only bounded reconnaissance for official CU management disclosures.
 
-Goal: prove a deterministic contract from the existing rate-source ``cuIngno``
-to the central CU management-disclosure list and its structured disclosure
-identifiers. This probe is intentionally tiny: two repository-captured control
-institutions, page 1 only, no document download, no nationwide enumeration and
-no application DB write.
+This probe proves, with two repository-captured control institutions, the
+contract from the existing rate-source ``cuIngno`` to the central CU disclosure
+list and then to one structured summary disclosure per institution. It never
+enumerates the nationwide population, downloads PDFs, logs in, bypasses blocks,
+or writes application data.
 """
 
 from __future__ import annotations
@@ -22,6 +22,7 @@ OUT = Path("docs/source-recon/cu-funding-disclosure-recon-20260829.json")
 BASE = "https://www.cu.co.kr"
 DISCLOSURE_PATH = "/cu/ad/disclosureList.do"
 LIST_PATH = "/cu/ad/dis/getDisclosureList.do"
+SUMMARY_PATH = "/GSSP020000.do"
 TIMEOUT = 25.0
 USER_AGENT = "rate-monitor/1 (+public CU disclosure contract reconnaissance)"
 
@@ -39,6 +40,7 @@ VALUE = re.compile(r"\bvalue=[\"']([^\"']*)[\"']", re.I)
 FORM = re.compile(r"<form\b([^>]*)>", re.I)
 ACTION = re.compile(r"\baction=[\"']([^\"']*)[\"']", re.I)
 METHOD = re.compile(r"\bmethod=[\"']([^\"']*)[\"']", re.I)
+TAG = re.compile(r"<[^>]+>")
 
 KEYWORDS = (
     "cuNo",
@@ -68,9 +70,20 @@ LIST_SAFE_FIELDS = (
     "listTotalCount",
 )
 
+SUMMARY_KEYWORDS = (
+    "예수부채",
+    "예수금",
+    "부채 및 자본",
+    "단위",
+    "백만원",
+    "기준일",
+    "결산",
+)
+
 
 def _clean(text: str) -> str:
     text = html.unescape(text)
+    text = TAG.sub(" ", text)
     text = re.sub(r"\s+", " ", text)
     return text.strip()
 
@@ -163,7 +176,7 @@ def _json_rows(payload: Any) -> list[dict[str, Any]]:
 
 def _list_request(
     client: httpx.Client, *, cu_no: str, expected_name: str
-) -> dict[str, object]:
+) -> tuple[dict[str, object], list[dict[str, Any]]]:
     request_data = {
         "usrId": cu_no,
         "currPage": "1",
@@ -199,7 +212,7 @@ def _list_request(
             if str(row.get("listTotalCount") or "").isdigit()
         }
     )
-    return {
+    evidence = {
         "label": f"disclosure_list_{cu_no}_{expected_name}",
         "request_path": LIST_PATH,
         "request_data": request_data,
@@ -215,11 +228,74 @@ def _list_request(
         "list_total_count_values": total_values,
         "sample_rows": sampled,
     }
+    return evidence, rows
+
+
+def _summary_candidate(rows: list[dict[str, Any]]) -> dict[str, Any] | None:
+    for row in rows:
+        short_name = str(row.get("shortFileName") or "").strip()
+        disclosure_ty = str(row.get("disclosureTy") or "").strip()
+        if short_name and disclosure_ty in {"1", "2"} and row.get("bogoTy") == "Y":
+            return row
+    return None
+
+
+def _summary_request(
+    client: httpx.Client,
+    *,
+    cu_no: str,
+    expected_name: str,
+    row: dict[str, Any],
+) -> dict[str, object]:
+    params = {
+        "cu_ingno": str(row.get("cuIngno") or ""),
+        "busi_ty": "610",
+        "disclosure_no": str(row.get("disclosureNo") or ""),
+        "disclosure_ty": str(row.get("disclosureTy") or ""),
+    }
+    response = client.get(f"{BASE}{SUMMARY_PATH}", params=params)
+    text = response.text
+    clean = _clean(text)
+    title_match = re.search(r"<title[^>]*>(.*?)</title>", text, re.I | re.S)
+    snippets = {
+        keyword: _snippets(text, keyword, radius=700, limit=8)
+        for keyword in SUMMARY_KEYWORDS
+        if keyword in text
+    }
+    identity_mentions = {
+        "expected_short_name": expected_name,
+        "name_present": expected_name in clean,
+        "cu_no": cu_no,
+        "cu_no_present": cu_no in clean,
+    }
+    return {
+        "label": f"summary_{cu_no}_{expected_name}",
+        "request_path": SUMMARY_PATH,
+        "request_params": params,
+        "source_disclosure": {
+            field: row.get(field)
+            for field in (
+                "disclosureName",
+                "regDate",
+                "disclosureNo",
+                "disclosureTy",
+                "shortFileName",
+            )
+        },
+        "status": response.status_code,
+        "content_type": response.headers.get("content-type"),
+        "bytes": len(response.content),
+        "title": _clean(title_match.group(1)) if title_match else None,
+        "identity_mentions": identity_mentions,
+        "deposit_liability_present": "예수부채" in text,
+        "keyword_snippets": snippets,
+    }
 
 
 def main() -> int:
     pages: list[dict[str, object]] = []
     lists: list[dict[str, object]] = []
+    summaries: list[dict[str, object]] = []
     with httpx.Client(
         timeout=TIMEOUT,
         follow_redirects=True,
@@ -234,38 +310,57 @@ def main() -> int:
                 "searchTxt": short_name,
             }
             pages.append(_page_request(client, params, f"selected_{cu_no}_{short_name}"))
-            lists.append(_list_request(client, cu_no=cu_no, expected_name=short_name))
+            list_evidence, rows = _list_request(
+                client,
+                cu_no=cu_no,
+                expected_name=short_name,
+            )
+            lists.append(list_evidence)
+            candidate = _summary_candidate(rows)
+            if candidate is not None:
+                summaries.append(
+                    _summary_request(
+                        client,
+                        cu_no=cu_no,
+                        expected_name=short_name,
+                        row=candidate,
+                    )
+                )
 
     report = {
         "mode": "read_only_bounded_no_application_db_write",
         "purpose": (
-            "prove CU central disclosure list contract from existing rate cuIngno, "
-            "without nationwide enumeration or document downloads"
+            "prove CU central disclosure identity/list contract and verify whether "
+            "structured summary disclosures expose deposit liabilities"
         ),
         "rate_fixture_controls": [
             {"cuIngno": cu_no, "cuNm": short_name} for cu_no, short_name in PROBES
         ],
         "page_contract": pages,
         "list_contract": lists,
+        "summary_contract": summaries,
         "notes": [
             "cuIngno values are sourced from the repository's captured official CU rate fixture.",
-            "Only two control institutions and page 1 are requested.",
-            "No disclosure files or application DB rows are downloaded/written by this stage.",
-            "Production persistence remains forbidden until amount/date/unit semantics are separately verified.",
+            "Only two control institutions, page 1, and at most one summary disclosure each are requested.",
+            "No PDFs or application DB rows are downloaded/written by this stage.",
+            "Production persistence remains forbidden until amount/date/unit semantics are exact and reproducible.",
         ],
     }
     OUT.parent.mkdir(parents=True, exist_ok=True)
     OUT.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
     for row in pages:
-        print(
-            f"{row['label']}: status={row['status']} bytes={row['bytes']} "
-            f"paths={len(row['candidate_do_paths'])} inputs={len(row['relevant_inputs'])}"
-        )
+        print(f"{row['label']}: status={row['status']} bytes={row['bytes']}")
     for row in lists:
         print(
             f"{row['label']}: status={row['status']} rows={row['row_count']} "
             f"returned={row['returned_cu_ingno']} identity_exact={row['identity_exact']}"
+        )
+    for row in summaries:
+        print(
+            f"{row['label']}: status={row['status']} "
+            f"deposit_liability={row['deposit_liability_present']} "
+            f"identity={row['identity_mentions']}"
         )
 
     page_ok = all(row["status"] == 200 for row in pages)
@@ -276,7 +371,11 @@ def main() -> int:
         and row["identity_exact"] is True
         for row in lists
     )
-    return 0 if page_ok and list_ok else 1
+    summary_ok = len(summaries) == len(PROBES) and all(
+        row["status"] == 200 and row["deposit_liability_present"] is True
+        for row in summaries
+    )
+    return 0 if page_ok and list_ok and summary_ok else 1
 
 
 if __name__ == "__main__":
