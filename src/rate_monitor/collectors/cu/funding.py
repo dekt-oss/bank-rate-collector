@@ -199,6 +199,16 @@ def _record_from_meta(
     )
 
 
+def _parse_disclosure_reg_date(raw: str, *, cu_ingno: str, disclosure_no: int) -> date:
+    try:
+        return date.fromisoformat(raw)
+    except ValueError as exc:
+        raise CuFundingContractError(
+            "신협 공시목록 regDate 형식 오류: "
+            f"cuIngno={cu_ingno} disclosureNo={disclosure_no} regDate={raw!r}"
+        ) from exc
+
+
 def _record_from_row(row: dict[str, Any], expected_cu: str) -> DisclosureRecord | None:
     meta = _report_row_meta(row, expected_cu)
     if meta is None:
@@ -251,10 +261,24 @@ def _select_latest_disclosures_with_warnings(
             )
         return [], []
 
-    newest_explicit_reg_date = max(record.reg_date for record in candidates)
     warnings: list[str] = []
+    newest_explicit_reg_date: date | None = None
+    if ambiguous:
+        newest_explicit_reg_date = max(
+            _parse_disclosure_reg_date(
+                record.reg_date,
+                cu_ingno=cu_ingno,
+                disclosure_no=record.disclosure_no,
+            )
+            for record in candidates
+        )
     for disclosure_no, name, reg_date in ambiguous:
-        if not reg_date or reg_date >= newest_explicit_reg_date:
+        ambiguous_date = _parse_disclosure_reg_date(
+            reg_date,
+            cu_ingno=cu_ingno,
+            disclosure_no=disclosure_no,
+        )
+        if newest_explicit_reg_date is None or ambiguous_date >= newest_explicit_reg_date:
             raise CuFundingContractError(
                 "최신권 공시의 연도를 검증할 수 없다: "
                 f"cuIngno={cu_ingno} disclosureNo={disclosure_no} "

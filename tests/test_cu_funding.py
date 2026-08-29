@@ -276,6 +276,30 @@ def test_latest_missing_year_row_fails_closed() -> None:
         )
 
 
+def test_missing_year_quarantine_fails_closed_on_malformed_reg_date() -> None:
+    rows = [
+        _list_row(
+            disclosure_no=25111,
+            disclosure_type="2",
+            disclosure_name="2026년도 상반기 경영공시",
+            reg_date="2026-08-21",
+        ),
+        _list_row(
+            disclosure_no=7658,
+            disclosure_type="2",
+            disclosure_name="상반기결산공시",
+            reg_date="2021/09/09",
+        ),
+    ]
+
+    with pytest.raises(CuFundingContractError, match="regDate 형식 오류"):
+        _select_latest_disclosures_with_warnings(
+            rows,
+            cu_ingno="02002",
+            periods=12,
+        )
+
+
 def test_historical_summary_mismatch_is_quarantined_but_latest_fails() -> None:
     disclosure = _disclosure(year=2022, disclosure_no=9786)
     mismatched_html = _summary_html(year=2021, prior=2020, amount="1,925")
