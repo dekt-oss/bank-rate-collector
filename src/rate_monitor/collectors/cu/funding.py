@@ -65,7 +65,7 @@ LIST_PAGE_SIZE = 10
 _TAG = re.compile(r"<[^>]+>")
 _TR = re.compile(r"<tr\b[^>]*>(.*?)</tr>", re.I | re.S)
 _CELL = re.compile(r"<t[dh]\b[^>]*>(.*?)</t[dh]>", re.I | re.S)
-_YEAR = re.compile(r"(20\d{2})\s*년도")
+_YEAR = re.compile(r"(20\d{2})\s*년(?:도)?")
 
 
 class CuFundingContractError(RuntimeError):
