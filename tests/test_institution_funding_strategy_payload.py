@@ -1,17 +1,17 @@
 from decimal import Decimal
 from pathlib import Path
 
+from rate_monitor.services import institution_funding_strategy_payload as payload_module
 from rate_monitor.services.institution_funding_read_model import InstitutionFundingReadRow
 from rate_monitor.services.institution_funding_read_model_db import VERIFIED_IDENTITY_STATUSES
-from rate_monitor.services import institution_funding_strategy_payload as payload_module
 
 
 def test_verified_identity_statuses_cover_current_exact_sources() -> None:
-    assert VERIFIED_IDENTITY_STATUSES == {
+    assert {
         "mapped_exact_fss_code",
         "mapped_exact_nh_brc_name",
         "mapped_exact_cu_ingno",
-    }
+    } == VERIFIED_IDENTITY_STATUSES
 
 
 def test_strategy_payload_reports_coverage_and_growth_availability(monkeypatch) -> None:
