@@ -16,7 +16,6 @@ import html
 import json
 import re
 from pathlib import Path
-from urllib.parse import urlencode
 
 import httpx
 
@@ -46,6 +45,10 @@ KEYWORDS = (
     "cuMbrCd",
     "cuSearchTab",
     "disclosure",
+    "getDisclosureList.do",
+    "dwldDisData.do",
+    "GSSP020000.do",
+    "GSSP040000.do",
     "경영공시",
     "요약공시",
     "공시자료",
@@ -61,7 +64,7 @@ def _clean(text: str) -> str:
     return text.strip()
 
 
-def _snippets(text: str, keyword: str, *, radius: int = 220, limit: int = 8) -> list[str]:
+def _snippets(text: str, keyword: str, *, radius: int = 420, limit: int = 12) -> list[str]:
     lower = text.lower()
     needle = keyword.lower()
     out: list[str] = []
@@ -114,6 +117,7 @@ def _paths(text: str) -> list[str]:
 def _request(client: httpx.Client, params: dict[str, str], label: str) -> dict[str, object]:
     response = client.get(f"{BASE}{DISCLOSURE_PATH}", params=params)
     text = response.text
+    title_match = re.search(r"<title[^>]*>(.*?)</title>", text, re.I | re.S)
     return {
         "label": label,
         "request_path": DISCLOSURE_PATH,
@@ -121,14 +125,14 @@ def _request(client: httpx.Client, params: dict[str, str], label: str) -> dict[s
         "status": response.status_code,
         "content_type": response.headers.get("content-type"),
         "bytes": len(response.content),
-        "title": _clean(re.search(r"<title[^>]*>(.*?)</title>", text, re.I | re.S).group(1))
-        if re.search(r"<title[^>]*>(.*?)</title>", text, re.I | re.S)
-        else None,
+        "title": _clean(title_match.group(1)) if title_match else None,
         "forms": _forms(text),
         "relevant_inputs": _inputs(text),
         "candidate_do_paths": _paths(text),
         "keyword_snippets": {
-            keyword: _snippets(text, keyword) for keyword in KEYWORDS if keyword.lower() in text.lower()
+            keyword: _snippets(text, keyword)
+            for keyword in KEYWORDS
+            if keyword.lower() in text.lower()
         },
     }
 
@@ -140,9 +144,7 @@ def main() -> int:
         follow_redirects=True,
         headers={"User-Agent": USER_AGENT},
     ) as client:
-        results.append(
-            _request(client, {"mi": "100518"}, "central_disclosure_base")
-        )
+        results.append(_request(client, {"mi": "100518"}, "central_disclosure_base"))
         for cu_no, short_name in PROBES:
             params = {
                 "mi": "100518",
