@@ -22,6 +22,7 @@ import httpx
 from sqlalchemy import func, select
 
 from rate_monitor.collectors.data_go_funding.aggregate_guard import (
+    retire_validated_agri_coop_aggregates,
     retire_validated_savings_bank_sector_totals,
 )
 from rate_monitor.collectors.data_go_funding.collector import (
@@ -214,8 +215,13 @@ def collect_operational(
             periods=periods,
             required=required,
         )
-        if contract.sector == "savings_bank" and result.status == "success":
-            guard = retire_validated_savings_bank_sector_totals(db_path)
+        guard = None
+        if result.status == "success":
+            if contract.sector == "savings_bank":
+                guard = retire_validated_savings_bank_sector_totals(db_path)
+            elif contract.sector == "nh_local":
+                guard = retire_validated_agri_coop_aggregates(db_path)
+        if guard is not None:
             print(
                 "funding aggregate guard "
                 f"source={contract.source_id} checked_months={guard.checked_months} "
