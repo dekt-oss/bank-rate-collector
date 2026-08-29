@@ -1,5 +1,6 @@
 name: Maintenance — apply CU list-contract evidence fix
 
+# One-shot branch maintenance workflow. It deletes itself after applying the patch.
 on:
   push:
     branches:
