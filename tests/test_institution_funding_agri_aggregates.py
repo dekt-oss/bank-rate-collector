@@ -221,8 +221,24 @@ def test_legacy_active_aggregates_are_retired_idempotently(tmp_path) -> None:
         session.flush()
         raw_id = raw.id
 
-        session.add(_observation(key="0010027000001", name="가농협", value=Decimal("40"), raw_id=raw_id, now=now))
-        session.add(_observation(key="0010027000002", name="나농협", value=Decimal("60"), raw_id=raw_id, now=now))
+        session.add(
+            _observation(
+                key="0010027000001",
+                name="가농협",
+                value=Decimal("40"),
+                raw_id=raw_id,
+                now=now,
+            )
+        )
+        session.add(
+            _observation(
+                key="0010027000002",
+                name="나농협",
+                value=Decimal("60"),
+                raw_id=raw_id,
+                now=now,
+            )
+        )
         for index, (key, name) in enumerate(AGRI_COOP_REGION_TOTALS.items()):
             session.add(
                 _observation(
