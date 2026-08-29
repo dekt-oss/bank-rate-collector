@@ -7,9 +7,9 @@ nearest-month interpolation or missing-as-zero fallbacks.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Iterable
 
 
 @dataclass(frozen=True)
