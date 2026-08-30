@@ -43,21 +43,24 @@ def test_calibration_report_uses_latest_position_month_without_choosing_n(
         if analysis_month == "2025-12"
         else [],
     )
-    monkeypatch.setattr(
-        peer_db,
-        "calibrate_direct_peer_count",
-        lambda _points, *, sector, requested_count: DirectPeerCalibration(
-            sector=sector,
-            requested_count=requested_count,
-            target_count=2,
-            full_count=0,
-            shortfall_count=2,
-            scope_counts={"nationwide": 2},
-            max_log_distance_p50=Decimal("0.10"),
-            max_log_distance_p90=Decimal("0.20"),
-            growth_comparison_count=2,
-        ),
-    )
+
+    def fake_calibrations(_points, *, sector, requested_counts):
+        return {
+            count: DirectPeerCalibration(
+                sector=sector,
+                requested_count=count,
+                target_count=2,
+                full_count=0,
+                shortfall_count=2,
+                scope_counts={"nationwide": 2},
+                max_log_distance_p50=Decimal("0.10"),
+                max_log_distance_p90=Decimal("0.20"),
+                growth_comparison_count=2,
+            )
+            for count in requested_counts
+        }
+
+    monkeypatch.setattr(peer_db, "calibrate_direct_peer_counts", fake_calibrations)
 
     report = peer_db.build_direct_peer_calibration_report(
         db,
