@@ -17,6 +17,16 @@
 4분의 1이 되지 않는다. 그렇게 되면 원천이 바뀌었거나 우리가 덜 받아온 것이고,
 둘 다 사람이 봐야 한다.
 
+다만 이 스크립트는 **rate-data 발행 게이트**다. 같은 canonical DB에 보관되는
+기관별 수신잔액은 별도 데이터 제품이며 자체 workflow에서 SQL readback,
+coverage/reconciliation, idempotency, R2 restore 검증을 수행한다. 그 수집원의
+과거 물량 변화가 금리 웹 발행을 막으면, 금리 데이터와 R2가 정상이어도 공개
+사이트만 과거 상태에 멈춘다.
+
+따라서 기관별 수신잔액의 확인된 source ID만 이 발행 게이트에서 제외한다.
+그 외 source는 기존과 똑같이 모두 검사한다. 새 금리 source를 allowlist에 넣지
+않아도 자동으로 검사되므로 fail-open 범위를 넓히지 않는다.
+
 무엇을 비교하느냐가 중요하다. 처음에는 `sources[].observation_count`를 썼는데
 **그 값은 누적이라 나쁜 실행에서도 늘어난다.** 실제 사고 데이터로 시험해 보니
 finlife가 24,060 → 25,135로 **증가**해 그냥 통과했다. 화면 행 수도 97.8%라
@@ -26,7 +36,8 @@ finlife가 24,060 → 25,135로 **증가**해 그냥 통과했다. 화면 행 �
 안에서는 73% 손실로 또렷하게 드러난다.
 
 발행을 막는 쪽을 고른다. 막으면 어제 사이트가 그대로 남는다 — 틀린 것을
-새로 올리는 것보다 낫다.
+새로 올리는 것보다 낫다. 단, 별도 데이터 제품의 이상 때문에 무관한 금리 웹
+발행까지 멈추지는 않는다.
 """
 
 import argparse
@@ -47,6 +58,17 @@ MIN_RATIO = 0.75
 # 그건 그냥 작은 수다.
 MIN_BASELINE = 100
 
+# 기관별 수신잔액은 rate-data 금리 발행과 별도 failure domain이다.
+# source prefix 전체를 제외하지 않고, 현재 collector contract에서 확인된 ID만
+# 열거한다. 새 source가 생기면 기본적으로 다시 검사되어 fail closed가 유지된다.
+SEPARATE_DATA_PRODUCT_SOURCE_IDS = frozenset(
+    {
+        "data_go_savings_bank_funding",
+        "data_go_credit_union_funding",
+        "data_go_agri_coop_funding",
+    }
+)
+
 
 @dataclass(frozen=True)
 class Change:
@@ -63,11 +85,19 @@ class Change:
         return self.before >= MIN_BASELINE and self.ratio < MIN_RATIO
 
 
-def last_two_runs(summary: dict) -> dict[str, list[dict]]:
+def last_two_runs(
+    summary: dict,
+    *,
+    include_separate_data_products: bool = False,
+) -> dict[str, list[dict]]:
     """수집원마다 최근 실행 두 개. 최신이 앞이다.
 
     실패한 실행은 빼고 본다. 실패는 이미 다른 검사가 잡고, 여기 넣으면
     0건과 비교해 늘 급감으로 나온다.
+
+    기본값은 rate-data 발행과 별도인 기관별 수신잔액 source를 제외한다.
+    진단 목적으로 전체 source를 보고 싶을 때만
+    ``include_separate_data_products=True``를 명시한다.
 
     >>> s = {"runs": [
     ...   {"source_id": "a", "status": "success", "parsed_count": 10},
@@ -81,17 +111,31 @@ def last_two_runs(summary: dict) -> dict[str, list[dict]]:
     for run in summary.get("runs") or []:
         if run.get("status") not in counted:
             continue
-        grouped.setdefault(run.get("source_id", "?"), []).append(run)
+        source_id = run.get("source_id", "?")
+        if (
+            not include_separate_data_products
+            and source_id in SEPARATE_DATA_PRODUCT_SOURCE_IDS
+        ):
+            continue
+        grouped.setdefault(source_id, []).append(run)
     return {k: v[:2] for k, v in grouped.items()}
 
 
-def compare(summary: dict) -> list[Change]:
+def compare(
+    summary: dict,
+    *,
+    include_separate_data_products: bool = False,
+) -> list[Change]:
     """각 수집원의 최신 실행을 그 직전 실행과 견준다.
 
     비교할 직전 실행이 없으면 건너뛴다 — 첫 수집은 급감이 아니다.
     """
     changes = []
-    for source_id, runs in sorted(last_two_runs(summary).items()):
+    grouped = last_two_runs(
+        summary,
+        include_separate_data_products=include_separate_data_products,
+    )
+    for source_id, runs in sorted(grouped.items()):
         if len(runs) < 2:
             continue
         changes.append(
@@ -138,14 +182,25 @@ def main(argv: list[str] | None = None) -> int:
         "--accept", action="store_true",
         help="급감을 알고도 발행한다. 원천이 정말 줄었을 때만 쓴다",
     )
+    parser.add_argument(
+        "--include-separate-data-products",
+        action="store_true",
+        help="진단용: 기관별 수신잔액 등 별도 데이터 제품까지 함께 검사한다",
+    )
     args = parser.parse_args(argv)
 
     if not args.summary.is_file():
         print(f"summary가 없다: {args.summary}", file=sys.stderr)
         return 2
 
-    print("물량 급감 검사 — 수집원별 직전 실행 대비")
-    code = report(compare(json.loads(args.summary.read_text(encoding="utf-8"))))
+    scope = "all" if args.include_separate_data_products else "rate-publication"
+    print(f"물량 급감 검사 — 수집원별 직전 실행 대비 (scope={scope})")
+    code = report(
+        compare(
+            json.loads(args.summary.read_text(encoding="utf-8")),
+            include_separate_data_products=args.include_separate_data_products,
+        )
+    )
     if code and args.accept:
         print("\n  --accept — 급감을 알고 발행한다")
         return 0
