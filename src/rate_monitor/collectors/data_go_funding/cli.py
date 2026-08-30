@@ -100,6 +100,8 @@ def main() -> int:
         # Reconcile historical rows before any network fan-out. This makes old
         # persisted observations recover automatically once an exact nh_local
         # BRC link becomes available. A conflicting existing mapping fails closed.
+        # New NH rows are reconciled by collect_operational after a successful
+        # required-source collection; partial required runs still fail publication.
         pre_identity = _identity_payload(args.db)
         _print_identity("pre_collect", pre_identity)
 
@@ -111,12 +113,6 @@ def main() -> int:
             require_credit_union=args.require_credit_union,
         )
 
-        # Run again after collection so newly persisted NH observations are not
-        # dependent on a transport result being exactly "success". Required
-        # partial/failed source handling below is unchanged and can still block publish.
-        post_identity = _identity_payload(args.db)
-        _print_identity("post_collect", post_identity)
-
         payload = operational_payload(
             mode=args.mode,
             results=results,
@@ -124,7 +120,7 @@ def main() -> int:
         )
         payload["nh_identity_reconciliation"] = {
             "pre_collect": pre_identity,
-            "post_collect": post_identity,
+            "new_rows": "reconciled_after_successful_nh_source_collection",
         }
 
         if args.json:
