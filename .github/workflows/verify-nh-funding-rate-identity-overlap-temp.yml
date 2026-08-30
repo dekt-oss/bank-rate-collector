@@ -1,0 +1,130 @@
+name: verify — NH funding-rate identity overlap temp
+
+on:
+  push:
+    branches:
+      - verify/nh-funding-rate-identity-overlap-20260830
+
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Set up Python
+        run: uv python install 3.12
+      - name: Sync dependencies
+        run: uv sync --locked
+      - name: Restore authoritative production R2 database
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+          R2_REGION: ${{ vars.R2_REGION }}
+        run: |
+          set -euo pipefail
+          mkdir -p work
+          uv run rate-monitor storage restore --dest work/rate_monitor.sqlite3
+          test -s work/rate_monitor.sqlite3
+      - name: Audit exact identity overlap
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          import json, sqlite3
+          from pathlib import Path
+
+          db = Path('work/rate_monitor.sqlite3')
+          conn = sqlite3.connect(db)
+          conn.row_factory = sqlite3.Row
+          funding = conn.execute('''
+            SELECT DISTINCT f.institution_id, i.canonical_name, i.normalized_name
+            FROM institution_funding_observations f
+            JOIN institutions i ON i.id=f.institution_id
+            WHERE f.valid_to IS NULL
+              AND f.sector='nh_local'
+              AND f.source_effective_month='2025-12'
+              AND f.metric_code='deposit_liabilities_total'
+              AND f.institution_id IS NOT NULL
+              AND f.identity_status LIKE 'mapped_exact_%'
+          ''').fetchall()
+          rates = conn.execute('''
+            SELECT DISTINCT p.institution_id, i.canonical_name, i.normalized_name, i.sector
+            FROM products p
+            JOIN institutions i ON i.id=p.institution_id
+            JOIN product_variants v ON v.product_id=p.id
+            JOIN rate_observations o ON o.variant_id=v.id
+            WHERE p.product_type='term_deposit'
+              AND v.term_months=12
+              AND o.valid_to IS NULL
+              AND o.validation_status!='error'
+              AND o.max_rate IS NOT NULL
+          ''').fetchall()
+          funding_by_id={r['institution_id']:dict(r) for r in funding}
+          rate_by_id={r['institution_id']:dict(r) for r in rates}
+          fids=set(funding_by_id); rids=set(rate_by_id)
+          direct=fids & rids
+          nh_rate_ids={r['institution_id'] for r in rates if r['sector']=='nh_local'}
+
+          def key(row, field):
+              return str(row.get(field) or '').strip()
+          rate_norm={}
+          rate_canon={}
+          for r in map(dict, rates):
+              if key(r,'normalized_name'): rate_norm.setdefault(key(r,'normalized_name'), []).append(r)
+              if key(r,'canonical_name'): rate_canon.setdefault(key(r,'canonical_name'), []).append(r)
+          norm_matches=[]; canon_matches=[]
+          for fr in map(dict,funding):
+              for rr in rate_norm.get(key(fr,'normalized_name'),[]):
+                  if fr['institution_id'] != rr['institution_id']:
+                      norm_matches.append((fr,rr))
+              for rr in rate_canon.get(key(fr,'canonical_name'),[]):
+                  if fr['institution_id'] != rr['institution_id']:
+                      canon_matches.append((fr,rr))
+
+          links = conn.execute('''
+            SELECT l.source_id, l.entity_id, l.source_entity_key, l.source_name,
+                   i.canonical_name, i.normalized_name, i.sector
+            FROM source_entity_links l
+            LEFT JOIN institutions i ON i.id=l.entity_id
+            WHERE l.entity_type='institution' AND l.valid_to IS NULL
+              AND (i.sector='nh_local' OR lower(l.source_id) LIKE '%nh%')
+            ORDER BY l.source_id, l.source_name
+          ''').fetchall()
+          link_counts={}
+          for r in links:
+              link_counts[r['source_id']]=link_counts.get(r['source_id'],0)+1
+
+          evidence={
+            'funding_exact_ids': len(fids),
+            'current_rate_all_ids': len(rids),
+            'current_rate_nh_local_ids': len(nh_rate_ids),
+            'direct_id_overlap_all': len(direct),
+            'direct_id_overlap_nh_sector': len(fids & nh_rate_ids),
+            'exact_normalized_name_different_id_pairs': len(norm_matches),
+            'exact_canonical_name_different_id_pairs': len(canon_matches),
+            'rate_sector_counts': {},
+            'active_link_counts_by_source': link_counts,
+            'normalized_name_samples': norm_matches[:20],
+            'canonical_name_samples': canon_matches[:20],
+          }
+          for r in rates:
+              evidence['rate_sector_counts'][r['sector']]=evidence['rate_sector_counts'].get(r['sector'],0)+1
+          Path('work/nh-funding-rate-identity-overlap.json').write_text(
+              json.dumps(evidence,ensure_ascii=False,indent=2,default=str)+'\n', encoding='utf-8')
+          print(json.dumps(evidence,ensure_ascii=False,default=str))
+          conn.close()
+          PY
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nh-funding-rate-identity-overlap-${{ github.run_id }}
+          path: work/nh-funding-rate-identity-overlap.json
+          retention-days: 30
+          if-no-files-found: warn
