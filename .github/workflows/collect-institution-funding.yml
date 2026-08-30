@@ -225,6 +225,21 @@ jobs:
             --manifest publish/manifest.json
           uv run rate-monitor validate --db publish/rate_monitor.sqlite3
 
+      - name: Persist raw evidence to R2 long-term tier
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+          R2_REGION: ${{ vars.R2_REGION }}
+        run: |
+          set -euo pipefail
+          uv run python -m rate_monitor.services.evidence_lifecycle_service upload-raw \
+            --root data/raw \
+            --category institution-funding \
+            --run-id "${{ github.run_id }}"
+
       - name: Upload authoritative state to R2
         env:
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
@@ -258,22 +273,6 @@ jobs:
           assert n > 0
           print("R2 funding readback active rows:", n)
           PY
-
-      - name: Persist raw evidence to R2 long-term tier
-        if: always()
-        env:
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
-          R2_BUCKET: ${{ vars.R2_BUCKET }}
-          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
-          R2_REGION: ${{ vars.R2_REGION }}
-        run: |
-          set -euo pipefail
-          uv run python -m rate_monitor.services.evidence_lifecycle_service upload-raw \
-            --root data/raw \
-            --category institution-funding \
-            --run-id "${{ github.run_id }}"
 
       - name: Prune rebuildable R2 intermediates after 30 days
         if: always()
