@@ -8,7 +8,7 @@ from pathlib import Path
 from rate_monitor.services.institution_funding_direct_peer import (
     DirectPeerPoint,
     DirectPeerSelection,
-    select_direct_peers,
+    select_direct_peers_for_population,
 )
 from rate_monitor.services.institution_funding_read_model_db import (
     build_institution_funding_read_model_from_db,
@@ -80,12 +80,8 @@ def build_direct_peer_selections(
         )
         for row in rows
     ]
-    return {
-        point.institution_id: select_direct_peers(
-            points,
-            sector=sector,
-            institution_id=point.institution_id,
-            requested_count=count,
-        )
-        for point in points
-    }
+    return select_direct_peers_for_population(
+        points,
+        sector=sector,
+        requested_count=count,
+    )
