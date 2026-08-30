@@ -7,6 +7,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from rate_monitor.collectors.data_go_funding.aggregate_policy import (
+    AGRI_COOP_CENTRAL_POPULATION_SCOPE,
+    is_agri_coop_institution_key,
+)
 from rate_monitor.services.institution_funding_read_model_db import (
     FUNDING_METRIC_CODE,
     VERIFIED_IDENTITY_STATUSES,
@@ -21,10 +25,9 @@ SECTOR_LABELS = {
     "cu": "신협",
     "nh_local": "농·축협",
 }
-SOURCE_IDS = {
+DIRECTORY_SOURCE_IDS = {
     "savings_bank": "fsb",
     "cu": "cu",
-    "nh_local": "nh_local",
 }
 CADENCE_MONTHS = {
     "savings_bank": (3, 6, 9, 12),
@@ -68,9 +71,13 @@ def _latest_verified_month(conn: sqlite3.Connection, sector: str) -> str | None:
     return str(row[0]) if row and row[0] else None
 
 
-def _eligible_institutions(conn: sqlite3.Connection, sector: str) -> int | None:
-    """Use active official rate-directory identities as the coverage denominator."""
-    if not _table_exists(conn, "source_entity_links"):
+def _directory_eligible_institutions(
+    conn: sqlite3.Connection,
+    sector: str,
+) -> int | None:
+    """Use a verified same-grain official institution directory where available."""
+    source_id = DIRECTORY_SOURCE_IDS.get(sector)
+    if source_id is None or not _table_exists(conn, "source_entity_links"):
         return None
     row = conn.execute(
         """
@@ -80,10 +87,53 @@ def _eligible_institutions(conn: sqlite3.Connection, sector: str) -> int | None:
           AND entity_type = 'institution'
           AND valid_to IS NULL
         """,
-        (SOURCE_IDS[sector],),
+        (source_id,),
     ).fetchone()
     value = int(row[0] or 0) if row else 0
     return value or None
+
+
+def _nh_funding_eligible_institutions(
+    conn: sqlite3.Connection,
+    analysis_month: str,
+) -> int | None:
+    """Count real local-coop source keys in the exact NH funding analysis month.
+
+    The nh_local rate directory has a different entity grain from the Data.go
+    local-coop funding population, so its entity count must not be used here.
+    """
+    if not _table_exists(conn, "institution_funding_observations"):
+        return None
+    rows = conn.execute(
+        """
+        SELECT source_id, source_institution_key, population_scope
+        FROM institution_funding_observations
+        WHERE valid_to IS NULL
+          AND sector = 'nh_local'
+          AND source_effective_month = ?
+          AND metric_code = ?
+        """,
+        (analysis_month, FUNDING_METRIC_CODE),
+    ).fetchall()
+    eligible = {
+        (str(row[0] or ""), str(row[1] or ""))
+        for row in rows
+        if (
+            str(row[2] or "") != AGRI_COOP_CENTRAL_POPULATION_SCOPE
+            and is_agri_coop_institution_key(str(row[1] or ""))
+        )
+    }
+    return len(eligible) or None
+
+
+def _eligible_institutions(
+    conn: sqlite3.Connection,
+    sector: str,
+    analysis_month: str,
+) -> int | None:
+    if sector == "nh_local":
+        return _nh_funding_eligible_institutions(conn, analysis_month)
+    return _directory_eligible_institutions(conn, sector)
 
 
 def _institution_names(conn: sqlite3.Connection, ids: set[str]) -> dict[str, str]:
@@ -154,13 +204,15 @@ def build_institution_funding_positions(db_path: Path) -> dict[str, Any]:
     """Build latest exact-month position payloads for supported production sectors."""
     conn = sqlite3.connect(db_path)
     try:
-        metadata = {
-            sector: {
-                "month": _latest_verified_month(conn, sector),
-                "eligible": _eligible_institutions(conn, sector),
+        metadata: dict[str, dict[str, Any]] = {}
+        for sector in SECTORS:
+            month = _latest_verified_month(conn, sector)
+            metadata[sector] = {
+                "month": month,
+                "eligible": (
+                    _eligible_institutions(conn, sector, month) if month else None
+                ),
             }
-            for sector in SECTORS
-        }
     finally:
         conn.close()
 
@@ -201,7 +253,12 @@ def build_institution_funding_positions(db_path: Path) -> dict[str, Any]:
             "missing_history_is_zero": False,
             "nearest_month_interpolation": False,
             "aggregate_equals_ecos": False,
-            "coverage_denominator": "active official rate-directory identity population",
+            "coverage_denominator": "sector-specific eligible institution population",
+            "coverage_denominator_by_sector": {
+                "savings_bank": "active official same-grain institution directory",
+                "cu": "active official same-grain institution directory",
+                "nh_local": "same-month Data.go real local-coop source-key population",
+            },
             "coverage_quality_threshold": None,
         },
     }
