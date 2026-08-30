@@ -1,6 +1,6 @@
 """Pure direct-peer selection and calibration for institution funding metrics.
 
-The canonical funding read model remains the source of truth.  This module only
+The canonical funding read model remains the source of truth. This module only
 selects comparable peers from one exact sector/month population; it does not
 impute missing history, merge identities, or infer geography.
 """
@@ -8,9 +8,9 @@ impute missing history, merge identities, or infer geography.
 from __future__ import annotations
 
 from collections import Counter
+from collections.abc import Iterable
 from dataclasses import dataclass
-from decimal import Decimal
-from typing import Iterable
+from decimal import ROUND_CEILING, Decimal
 
 
 @dataclass(frozen=True)
@@ -71,9 +71,11 @@ def _nearest_rank(values: list[Decimal], percentile: Decimal) -> Decimal | None:
     if not values:
         return None
     ordered = sorted(values)
-    rank = int((percentile * Decimal(len(ordered)) / Decimal(100)).to_integral_value(
-        rounding="ROUND_CEILING"
-    ))
+    rank = int(
+        (percentile * Decimal(len(ordered)) / Decimal(100)).to_integral_value(
+            rounding=ROUND_CEILING
+        )
+    )
     return ordered[max(0, min(len(ordered) - 1, rank - 1))]
 
 
@@ -83,7 +85,9 @@ def _distance(left: Decimal, right: Decimal) -> Decimal:
     return abs(left.ln() - right.ln())
 
 
-def _eligible_points(points: Iterable[DirectPeerPoint], sector: str) -> list[DirectPeerPoint]:
+def _eligible_points(
+    points: Iterable[DirectPeerPoint], sector: str
+) -> list[DirectPeerPoint]:
     result: list[DirectPeerPoint] = []
     seen: set[str] = set()
     for point in points:
@@ -141,7 +145,7 @@ def select_direct_peers(
     """Select the nearest-size peers with deterministic geography fallback.
 
     The narrowest geographic tier is used only when it can supply the requested
-    peer count.  Otherwise selection falls back ``sigungu -> sido -> nationwide``.
+    peer count. Otherwise selection falls back ``sigungu -> sido -> nationwide``.
     Within the chosen tier, proximity is absolute log-balance distance.
     """
     if requested_count < 1:
@@ -167,9 +171,7 @@ def select_direct_peers(
     selected = ranked[:requested_count]
     distances = [_distance(target.balance, peer.balance) for peer in selected]
     growth_values = [
-        peer.growth_6m_pct
-        for peer in selected
-        if peer.growth_6m_pct is not None
+        peer.growth_6m_pct for peer in selected if peer.growth_6m_pct is not None
     ]
     peer_median = _median(growth_values)
     relative = (
