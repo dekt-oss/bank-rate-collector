@@ -74,6 +74,20 @@ def test_matrix_uses_only_exact_pairs_and_same_sector_medians(tmp_path: Path, mo
     assert {point["institution_id"] for point in result["points"]} == {"a", "b"}
 
 
+def test_representative_rate_applies_strategy_source_precedence_and_product_max(monkeypatch) -> None:
+    monkeypatch.setattr(matrix, "dedupe_sources", lambda: ("secondary",))
+    rows = [
+        {"institution_id": "a", "product_id": "a-primary-1", "source_id": "primary", "rate_value": 3.10},
+        {"institution_id": "a", "product_id": "a-primary-2", "source_id": "primary", "rate_value": 3.20},
+        {"institution_id": "a", "product_id": "a-secondary", "source_id": "secondary", "rate_value": 9.99},
+        {"institution_id": "b", "product_id": "b-secondary", "source_id": "secondary", "rate_value": 3.30},
+    ]
+
+    result = matrix._representative_rates(rows)
+
+    assert result == {"a": Decimal("3.2"), "b": Decimal("3.3")}
+
+
 def test_matrix_contract_prohibits_current_rate_carryback(tmp_path: Path, monkeypatch) -> None:
     db = tmp_path / "db.sqlite3"
     db.touch()
@@ -84,6 +98,9 @@ def test_matrix_contract_prohibits_current_rate_carryback(tmp_path: Path, monkey
     result = matrix.build_rate_funding_matrix(db, funding_positions=positions)
 
     assert result["available"] is False
+    assert result["contract"]["rate_field"] == "max_rate"
+    assert result["contract"]["rate_representative"] == "institution_product_representative_max"
+    assert result["contract"]["source_precedence"] == "presentation.db_only_sources"
     assert result["contract"]["current_rate_carryback"] is False
     assert result["contract"]["missing_rate_as_zero"] is False
     assert result["contract"]["nearest_month_interpolation"] is False
