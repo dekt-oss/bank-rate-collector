@@ -34,7 +34,10 @@ def _seed_contract_db(path: Path) -> None:
             );
             INSERT INTO institutions VALUES ('cu-a', '가나다신협');
             INSERT INTO institution_funding_observations VALUES
-                ('cu-a', 'cu', '2026-06', 'mapped_exact_cu_ingno', 'deposit_liabilities_total', NULL);
+                (
+                    'cu-a', 'cu', '2026-06', 'mapped_exact_cu_ingno',
+                    'deposit_liabilities_total', NULL
+                );
             INSERT INTO source_entity_links VALUES
                 ('cu', 'institution', 'cu-a', NULL),
                 ('cu', 'institution', 'cu-b', NULL);
