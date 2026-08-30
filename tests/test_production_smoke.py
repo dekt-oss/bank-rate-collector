@@ -97,7 +97,7 @@ def test_validate_health_requires_read_only_contract() -> None:
 
 def test_session_cookie_matches_middleware_contract() -> None:
     assert smoke._session_cookie("correct horse battery staple") == (
-        "__Host-rate_monitor_auth=pI4VHUrcSgsvEcb_iLq3FS33SEwUTdMILI_cAvtvH8w"
+        "__Host-rate_monitor_auth_v2=pI4VHUrcSgsvEcb_iLq3FS33SEwUTdMILI_cAvtvH8w"
     )
 
 
@@ -148,7 +148,7 @@ def test_run_once_checks_root_strategy_manifest_and_health(
     )
 
     assert cookies == [
-        "__Host-rate_monitor_auth=pI4VHUrcSgsvEcb_iLq3FS33SEwUTdMILI_cAvtvH8w"
+        "__Host-rate_monitor_auth_v2=pI4VHUrcSgsvEcb_iLq3FS33SEwUTdMILI_cAvtvH8w"
     ] * 4
 
 
