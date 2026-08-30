@@ -24,11 +24,15 @@ def test_matrix_fails_closed_when_historical_rate_is_missing(
         "build_institution_funding_read_model_from_db",
         lambda *_args, **_kwargs: [_funding_row("a", "0.05"), _funding_row("b", "0.02")],
     )
-    monkeypatch.setattr(matrix, "_historical_rates", lambda *_args, **_kwargs: {})
-    monkeypatch.setattr(matrix, "_institution_names", lambda *_args, **_kwargs: {})
     monkeypatch.setattr(
-        matrix, "_current_rate_institution_count", lambda *_args, **_kwargs: 2
+        matrix,
+        "_rate_snapshots",
+        lambda *_args, **_kwargs: (
+            {},
+            {"a": Decimal("3.20"), "b": Decimal("3.10")},
+        ),
     )
+    monkeypatch.setattr(matrix, "_institution_names", lambda *_args, **_kwargs: {})
 
     result = matrix._sector_matrix(db, sector="nh_local", analysis_month="2025-12")
 
@@ -56,20 +60,24 @@ def test_matrix_uses_only_exact_pairs_and_same_sector_medians(
     )
     monkeypatch.setattr(
         matrix,
-        "_historical_rates",
-        lambda *_args, **_kwargs: {
-            "a": Decimal("3.20"),
-            "b": Decimal("3.00"),
-            "missing-growth": Decimal("9.99"),
-        },
+        "_rate_snapshots",
+        lambda *_args, **_kwargs: (
+            {
+                "a": Decimal("3.20"),
+                "b": Decimal("3.00"),
+                "missing-growth": Decimal("9.99"),
+            },
+            {
+                "a": Decimal("3.20"),
+                "b": Decimal("3.00"),
+                "missing-growth": Decimal("9.99"),
+            },
+        ),
     )
     monkeypatch.setattr(
         matrix,
         "_institution_names",
         lambda *_args, **_kwargs: {"a": "A농협", "b": "B농협"},
-    )
-    monkeypatch.setattr(
-        matrix, "_current_rate_institution_count", lambda *_args, **_kwargs: 3
     )
 
     result = matrix._sector_matrix(db, sector="nh_local", analysis_month="2025-12")
