@@ -1,0 +1,128 @@
+name: probe — Rate × Funding temporal alignment temp
+
+on:
+  push:
+    branches: ["probe/rate-funding-temporal-20260830"]
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+      R2_BUCKET: ${{ vars.R2_BUCKET }}
+      R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+      R2_REGION: ${{ vars.R2_REGION }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv python install 3.12
+      - run: uv sync --locked
+      - name: Restore authoritative R2 DB read-only copy
+        run: |
+          set -euo pipefail
+          mkdir -p work publish
+          uv run rate-monitor storage restore --dest work/rate_monitor.sqlite3
+      - name: Probe exact historical rate coverage at funding month-end
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          import calendar, json, sqlite3
+          from pathlib import Path
+
+          db = Path('work/rate_monitor.sqlite3')
+          conn = sqlite3.connect(db)
+          conn.row_factory = sqlite3.Row
+          statuses = ('mapped_exact_fss_code','mapped_exact_nh_brc_name','mapped_exact_cu_ingno')
+          sectors = ('savings_bank','nh_local','cu')
+          out = {'contract': {
+              'funding_identity': 'verified exact only',
+              'rate_identity': 'same canonical institution_id only',
+              'product': 'term_deposit',
+              'term_months': 12,
+              'temporal_rule': 'rate valid_from <= funding month end < valid_to; no current-rate carryback',
+              'missing_rate_as_zero': False,
+          }, 'sectors': {}}
+          ph = ','.join('?' for _ in statuses)
+          for sector in sectors:
+              row = conn.execute(f'''SELECT MAX(source_effective_month) m
+                  FROM institution_funding_observations
+                  WHERE sector=? AND valid_to IS NULL AND institution_id IS NOT NULL
+                    AND identity_status IN ({ph}) AND metric_code='deposit_liabilities_total' ''',
+                  (sector,*statuses)).fetchone()
+              month = row['m'] if row else None
+              if not month:
+                  continue
+              y,m = map(int, month.split('-'))
+              day = calendar.monthrange(y,m)[1]
+              cutoff = f'{y:04d}-{m:02d}-{day:02d} 23:59:59'
+              funding_ids = conn.execute(f'''SELECT DISTINCT institution_id
+                  FROM institution_funding_observations
+                  WHERE sector=? AND source_effective_month=? AND valid_to IS NULL
+                    AND institution_id IS NOT NULL AND identity_status IN ({ph})
+                    AND metric_code='deposit_liabilities_total' ''',
+                  (sector,month,*statuses)).fetchall()
+              ids = [r[0] for r in funding_ids]
+              if not ids:
+                  continue
+              idph = ','.join('?' for _ in ids)
+              rate_rows = conn.execute(f'''
+                  SELECT p.institution_id,
+                         ro.base_rate, ro.max_rate, ro.source_effective_at,
+                         ro.valid_from, ro.valid_to
+                  FROM rate_observations ro
+                  JOIN product_variants pv ON pv.id=ro.variant_id
+                  JOIN products p ON p.id=pv.product_id
+                  WHERE p.institution_id IN ({idph})
+                    AND p.product_type='term_deposit'
+                    AND pv.term_months=12
+                    AND ro.validation_status!='error'
+                    AND datetime(ro.valid_from) <= datetime(?)
+                    AND (ro.valid_to IS NULL OR datetime(ro.valid_to) > datetime(?))
+              ''', (*ids, cutoff, cutoff)).fetchall()
+              inst_any=set(); inst_base=set(); inst_max=set(); inst_effective=set()
+              obs_base=obs_max=0
+              for r in rate_rows:
+                  iid=r['institution_id']; inst_any.add(iid)
+                  if r['base_rate'] is not None: inst_base.add(iid); obs_base+=1
+                  if r['max_rate'] is not None: inst_max.add(iid); obs_max+=1
+                  if r['source_effective_at'] is not None: inst_effective.add(iid)
+              # Current rows that would be incorrectly carried back if validity were ignored.
+              current = conn.execute(f'''
+                  SELECT COUNT(DISTINCT p.institution_id) n
+                  FROM rate_observations ro
+                  JOIN product_variants pv ON pv.id=ro.variant_id
+                  JOIN products p ON p.id=pv.product_id
+                  WHERE p.institution_id IN ({idph}) AND p.product_type='term_deposit'
+                    AND pv.term_months=12 AND ro.valid_to IS NULL
+                    AND ro.validation_status!='error'
+              ''', tuple(ids)).fetchone()['n']
+              out['sectors'][sector] = {
+                  'analysis_month': month,
+                  'funding_exact_institutions': len(ids),
+                  'historical_rate_institutions_any': len(inst_any),
+                  'historical_base_rate_institutions': len(inst_base),
+                  'historical_max_rate_institutions': len(inst_max),
+                  'historical_source_effective_at_institutions': len(inst_effective),
+                  'historical_rate_observations': len(rate_rows),
+                  'historical_base_observations': obs_base,
+                  'historical_max_observations': obs_max,
+                  'current_rate_institutions_if_wrongly_carried_back': int(current or 0),
+              }
+          Path('publish/rate-funding-temporal-probe.json').write_text(
+              json.dumps(out,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+          print(json.dumps(out,ensure_ascii=False))
+          conn.close()
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rate-funding-temporal-probe-${{ github.run_id }}
+          path: publish/rate-funding-temporal-probe.json
+          retention-days: 30
