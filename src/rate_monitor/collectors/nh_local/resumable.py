@@ -231,9 +231,7 @@ class NhResumableAdapter(NhLocalAdapter):
                         )
 
                 outlets = parser.outlets_in(
-                    parser.parse_outlet_list(
-                        list_artifact.content.decode("utf-8", "replace")
-                    ),
+                    parser.parse_outlet_list(list_artifact.content.decode("utf-8", "replace")),
                     prefixes,
                 )
                 if not outlets:
@@ -244,9 +242,7 @@ class NhResumableAdapter(NhLocalAdapter):
                 plan = self._build_plan(outlets, products)
                 manifest = service.set_plan(
                     manifest,
-                    work_plan_hash=canonical_fingerprint(
-                        [item["descriptor"] for item in plan]
-                    ),
+                    work_plan_hash=canonical_fingerprint([item["descriptor"] for item in plan]),
                     expected_work_count=1 + len(plan),
                 )
 

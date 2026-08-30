@@ -80,14 +80,14 @@ def test_resumable_v2_rebuilds_ejoy_metadata_for_same_brc_term_and_savings() -> 
         term.content.decode(),
         outlet=outlet,
         product_type=ProductType.TERM_DEPOSIT,
-        as_of=__import__('datetime').date(2026, 8, 30),
+        as_of=__import__("datetime").date(2026, 8, 30),
         ejoy_options=enriched[0].request_meta["ejoy_options"],
     )
     savings_rows, _ = parser.parse_detail(
         savings.content.decode(),
         outlet=outlet,
         product_type=ProductType.INSTALLMENT_SAVINGS,
-        as_of=__import__('datetime').date(2026, 8, 30),
+        as_of=__import__("datetime").date(2026, 8, 30),
         ejoy_options=enriched[1].request_meta["ejoy_options"],
     )
     assert any(row.max_rate == Decimal("3.2") for row in term_rows)

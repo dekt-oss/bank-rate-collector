@@ -73,9 +73,7 @@ def _finlife_source_missing(files: list[Path]) -> tuple[int, int]:
     return finlife_files, source_missing
 
 
-def _finlife_observation_nulls(
-    conn: sqlite3.Connection, run_ids: list[str]
-) -> tuple[int, int]:
+def _finlife_observation_nulls(conn: sqlite3.Connection, run_ids: list[str]) -> tuple[int, int]:
     """이번 finlife run이 마지막으로 확인한 현재 관측의 NULL을 센다.
 
     rate_observations는 change-only 이력이다. ``run_id``는 값을 처음 본 실행이고
@@ -207,9 +205,7 @@ def main() -> int:
         for run_id, source_id, status in workspace_runs
         if source_id.startswith("finlife") and status in confirmed_statuses
     )
-    current_finlife_files = [
-        p for p in workspace_files if p.parent.name in current_finlife_run_ids
-    ]
+    current_finlife_files = [p for p in workspace_files if p.parent.name in current_finlife_run_ids]
     finlife_files, source_missing = _finlife_source_missing(current_finlife_files)
     finlife_rows, finlife_null = _finlife_observation_nulls(conn, current_finlife_run_ids)
 
@@ -295,7 +291,8 @@ def main() -> int:
                 "   AND (v.join_channel <> 'internet'"
                 "     OR o.option_source_locator IS NULL OR o.option_source_locator = ''"
                 "     OR o.raw_preference_text <> ?"
-                "     OR p.name NOT IN ('정기예탁금','복리식정기예탁금','정기적금','자유적립적금','자유로부금')"
+                "     OR p.name NOT IN ('정기예탁금','복리식정기예탁금',"
+                "'정기적금','자유적립적금','자유로부금')"
                 "     OR json_extract(o.source_detail_json, '$.max_rate_method')"
                 "        <> 'base_plus_source_declared_ejoy_add_rate'"
                 "     OR json_extract(o.source_detail_json, '$.ejoy_add_rate') IS NULL)",

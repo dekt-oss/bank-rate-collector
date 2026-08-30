@@ -112,9 +112,10 @@ class NhRequestFailure(RuntimeError):
         self.cause = cause
         self.retry_count = retry_count
         self.failure_reasons = dict(failure_reasons or {})
-        reasons = ", ".join(
-            f"{reason} {count}" for reason, count in sorted(self.failure_reasons.items())
-        ) or "none"
+        reasons = (
+            ", ".join(f"{reason} {count}" for reason, count in sorted(self.failure_reasons.items()))
+            or "none"
+        )
         super().__init__(
             f"{code}: phase={phase} screen={screen} attempt={attempt}/{max_attempts} "
             f"retries={retry_count} failures={reasons} "
@@ -187,9 +188,7 @@ class NhLocalAdapter:
             "nh_local_default_scope", config["default_scope"]
         )
         if name not in scopes:
-            raise ValueError(
-                f"config에 없는 수집 범위: {name!r} (가능: {sorted(scopes)})"
-            )
+            raise ValueError(f"config에 없는 수집 범위: {name!r} (가능: {sorted(scopes)})")
         prefixes = scopes[name].get("nh_local_address_prefixes")
         return None if prefixes is None else tuple(prefixes)
 
@@ -434,9 +433,7 @@ class NhLocalAdapter:
                     await self._sleep(REQUEST_INTERVAL_SECONDS)
                     # 축은 화면이다. 점포는 바뀌고 화면은 고정인 흐름 안에서
                     # 봐야 "이 구간이 통째로 같은 답을 준다"가 보인다.
-                    guard.observe(
-                        body, where=f"brc={outlet.brc} screen={screen}", stream=screen
-                    )
+                    guard.observe(body, where=f"brc={outlet.brc} screen={screen}", stream=screen)
 
                     ejoy_warnings: list[str] = []
                     if product == ProductType.TERM_DEPOSIT:
