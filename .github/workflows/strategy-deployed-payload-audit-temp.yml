@@ -1,0 +1,58 @@
+name: Strategy deployed payload audit temp
+
+on:
+  push:
+    branches: [audit/strategy-responsive-runtime-20260830]
+
+permissions:
+  contents: read
+
+jobs:
+  audit-deployed:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check out currently deployed rate-data payload
+        uses: actions/checkout@v4
+        with:
+          ref: rate-data
+          path: published
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install Playwright runner
+        run: |
+          set -euo pipefail
+          npm install --no-save --package-lock=false @playwright/test@1.61.1
+          command -v google-chrome
+          node --check scripts/strategy_responsive_runtime_audit.js
+          node --check scripts/strategy_workspace_smoke.js
+      - name: Audit exact deployed Strategy payload
+        env:
+          PRODUCTION_URL: http://127.0.0.1:4173
+          AUDIT_SKIP_AUTH: "1"
+          STRATEGY_PREVIEW_BASE_URL: http://127.0.0.1:4173
+        run: |
+          set -euo pipefail
+          mkdir -p work/strategy-responsive-audit
+          test -s published/site-public/strategy.html
+          python -m http.server 4173 --directory published/site-public > work/strategy-responsive-audit/http-deployed.log 2>&1 &
+          SERVER_PID=$!
+          trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:4173/strategy.html >/dev/null; then break; fi
+            sleep 1
+          done
+          node scripts/strategy_responsive_runtime_audit.js | tee work/strategy-responsive-audit/summary-deployed.txt
+          node scripts/strategy_workspace_smoke.js | tee work/strategy-responsive-audit/workspace-smoke.txt
+      - name: Upload deployed UI evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: strategy-deployed-payload-audit-${{ github.run_id }}
+          path: |
+            work/strategy-responsive-audit/*
+            work/strategy-main-runtime-workspace-*.png
+          retention-days: 30
+          if-no-files-found: warn
