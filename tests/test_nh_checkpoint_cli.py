@@ -23,7 +23,7 @@ def test_prepare_context_with_explicit_cycle_is_machine_readable(capsys) -> None
     assert payload["source_id"] == "nh_local"
     assert payload["cycle_date_kst"] == "2026-08-11"
     assert len(payload["request_fingerprint"]) == 64
-    assert payload["acquisition_contract_version"] == 1
+    assert payload["acquisition_contract_version"] == 2
 
 
 def test_prepare_context_without_cycle_uses_exact_workflow_run_start(monkeypatch, capsys) -> None:
