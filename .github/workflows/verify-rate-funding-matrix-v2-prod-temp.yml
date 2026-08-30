@@ -1,0 +1,143 @@
+name: verify — Rate Funding Matrix v2 production temp
+
+on:
+  push:
+    branches:
+      - verify/rate-funding-matrix-v2-prod-20260830
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Sync dependencies
+        run: uv sync --locked
+
+      - name: Restore authoritative production R2 database
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+          R2_REGION: ${{ vars.R2_REGION }}
+        run: |
+          set -euo pipefail
+          mkdir -p work
+          uv run rate-monitor storage restore --dest work/rate_monitor.sqlite3
+          test -s work/rate_monitor.sqlite3
+          echo "restored bytes=$(stat -c%s work/rate_monitor.sqlite3)"
+
+      - name: Apply migrations to local verification copy
+        env:
+          RATE_MONITOR_DB_URL: sqlite+pysqlite:///${{ github.workspace }}/work/rate_monitor.sqlite3
+        run: uv run alembic upgrade head
+
+      - name: Measure production Matrix temporal contract
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+          from rate_monitor.services.institution_funding_position_service import build_institution_funding_positions
+          from rate_monitor.services.rate_funding_matrix_service import build_rate_funding_matrix
+
+          db = Path('work/rate_monitor.sqlite3')
+          positions = build_institution_funding_positions(db)
+          matrix = build_rate_funding_matrix(db, funding_positions=positions)
+          evidence = {
+              'contract': matrix['contract'],
+              'sectors': {
+                  key: {
+                      'analysis_month': item['analysis_month'],
+                      'funding_growth_6m_institutions': item['funding_growth_6m_institutions'],
+                      'historical_rate_institutions': item['historical_rate_institutions'],
+                      'paired_institutions': item['paired_institutions'],
+                      'current_rate_institutions_not_carried_back': item['current_rate_institutions_not_carried_back'],
+                      'available': item['available'],
+                      'status': item['status'],
+                  }
+                  for key, item in matrix['sectors'].items()
+              },
+          }
+          assert matrix['contract']['rate_field'] == 'max_rate'
+          assert matrix['contract']['source_precedence'] == 'presentation.db_only_sources'
+          assert matrix['contract']['current_rate_carryback'] is False
+          for sector in ('savings_bank', 'nh_local'):
+              item = matrix['sectors'][sector]
+              assert item['historical_rate_institutions'] == 0, (sector, item)
+              assert item['paired_institutions'] == 0, (sector, item)
+              assert item['current_rate_institutions_not_carried_back'] > 0, (sector, item)
+              assert item['available'] is False, (sector, item)
+              assert item['status'] == 'historical_rate_unavailable', (sector, item)
+          Path('work/rate-funding-matrix-production.json').write_text(
+              json.dumps(evidence, ensure_ascii=False, indent=2) + '\n',
+              encoding='utf-8',
+          )
+          print(json.dumps(evidence, ensure_ascii=False))
+          PY
+
+      - name: Build Strategy site from production data
+        env:
+          RATE_MONITOR_STRATEGY_DASHBOARD: "1"
+        run: |
+          set -euo pipefail
+          uv run rate-monitor build-site \
+            --db work/rate_monitor.sqlite3 \
+            --template web/templates/site.html \
+            --out work/site-public
+          test -s work/site-public/strategy.html
+          grep -q 'id="institution-funding-position-script"' work/site-public/strategy.html
+          grep -q 'id="rate-funding-matrix-script"' work/site-public/strategy.html
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install browser runner
+        run: |
+          set -euo pipefail
+          command -v google-chrome
+          google-chrome --version
+          npm install --no-save --package-lock=false @playwright/test@1.61.1
+          node --check scripts/rate_funding_matrix_runtime_smoke.js
+
+      - name: Run desktop and mobile Matrix Chrome smoke
+        env:
+          STRATEGY_PREVIEW_BASE_URL: http://127.0.0.1:4173
+        run: |
+          set -euo pipefail
+          python -m http.server 4173 --directory work/site-public > work/matrix-http.log 2>&1 &
+          SERVER_PID=$!
+          trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:4173/strategy.html >/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:4173/strategy.html >/dev/null
+          node scripts/rate_funding_matrix_runtime_smoke.js
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rate-funding-matrix-v2-prod-${{ github.run_id }}
+          path: |
+            work/rate-funding-matrix-production.json
+            work/rate-funding-matrix-*.png
+            work/matrix-http.log
+          retention-days: 30
+          if-no-files-found: warn
