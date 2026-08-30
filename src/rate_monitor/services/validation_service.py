@@ -22,6 +22,78 @@ def _one(conn: sqlite3.Connection, sql: str) -> int:
     return conn.execute(sql).fetchone()[0]
 
 
+def _nh_ejoy_current_run_checks(conn: sqlite3.Connection) -> list[Check]:
+    """NH resumable v2의 e-joy evidence가 최고금리 관측까지 이어졌는지 본다.
+
+    v1 raw artifact에는 ``ejoy_options`` key 자체가 없었다. 그래서 과거
+    production DB를 소급 실패시키지 않고, 그 key가 나타난 v2 confirmed run부터
+    fail-closed한다. 실패한 최신 attempt는 이전 정상값을 화면에 남기기 위해
+    여기서 대상으로 삼지 않는다.
+
+    ``rate_observations``는 change-only 이력이므로 current run 대조는 ``run_id``가
+    아니라 ``last_run_id``를 사용한다. 값이 이전과 같아 새 row가 생기지 않아도
+    이번 run에서 실제로 재확인됐다면 검사를 통과해야 한다.
+    """
+    latest = conn.execute(
+        "SELECT id, status FROM collection_runs"
+        " WHERE source_id = 'nh_local'"
+        "   AND status IN ('success', 'partial', 'no_change')"
+        " ORDER BY started_at DESC, id DESC LIMIT 1"
+    ).fetchone()
+    if latest is None:
+        return [
+            Check(
+                "[건너뜀] NH e-joy v2 current-run gate",
+                True,
+                "confirmed NH run이 없다",
+            )
+        ]
+
+    run_id, status = latest
+    rate_artifacts, v2_artifacts, evidence_artifacts = conn.execute(
+        "SELECT COUNT(*),"
+        " COALESCE(SUM(CASE"
+        "   WHEN json_type(request_meta_json, '$.ejoy_options') = 'array' THEN 1"
+        "   ELSE 0 END), 0),"
+        " COALESCE(SUM(CASE"
+        "   WHEN json_type(request_meta_json, '$.ejoy_options') = 'array'"
+        "    AND COALESCE(json_array_length(request_meta_json, '$.ejoy_options'), 0) > 0"
+        "   THEN 1 ELSE 0 END), 0)"
+        " FROM raw_artifacts"
+        " WHERE run_id = ?"
+        "   AND json_extract(request_meta_json, '$.kind') = 'rate'",
+        (run_id,),
+    ).fetchone()
+
+    if v2_artifacts == 0:
+        return [
+            Check(
+                "[건너뜀] NH e-joy v2 current-run gate",
+                True,
+                f"run {run_id} ({status})은 v1 metadata 계약",
+            )
+        ]
+
+    current_max = conn.execute(
+        "SELECT COUNT(*) FROM rate_observations"
+        " WHERE last_run_id = ? AND max_rate IS NOT NULL",
+        (run_id,),
+    ).fetchone()[0]
+
+    return [
+        Check(
+            "NH e-joy v2 raw metadata 완결성",
+            rate_artifacts > 0 and v2_artifacts == rate_artifacts,
+            f"run {run_id}: v2 metadata {v2_artifacts}/{rate_artifacts} rate artifacts",
+        ),
+        Check(
+            "NH e-joy evidence → current max_rate",
+            evidence_artifacts == 0 or current_max > 0,
+            f"run {run_id}: evidence artifacts {evidence_artifacts} / max_rate {current_max}건",
+        ),
+    ]
+
+
 def run_validations(db_path: Path) -> list[Check]:
     conn = sqlite3.connect(db_path)
     try:
@@ -63,6 +135,11 @@ def run_validations(db_path: Path) -> list[Check]:
         checks.append(
             Check("새마을금고 최고금리 비어 있음", kfcc_max == 0, f"{kfcc_max}건")
         )
+
+        # NH resumable v2는 TERM raw에서 공식 e-joy evidence를 복원해 같은 BRC의
+        # 예금/적금 internet variant에 최고금리를 만든다. evidence가 있는데
+        # current run의 max_rate가 0이면 #255 이전의 침묵 실패가 재발한 것이다.
+        checks.extend(_nh_ejoy_current_run_checks(conn))
 
         # 저축은행 금리는 원천이 스스로 본점 기준이라고 밝힌 값이다. 화면에
         # 지점 금리로 나가면 안 되므로 저장 단계에서 못박는다.
