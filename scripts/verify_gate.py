@@ -256,6 +256,7 @@ def main() -> int:
     # 하나 더할 때마다 이 파일을 고쳐야 하고, 잊으면 그 원천은 아무 검사도
     # 안 받은 채 발행된다. 이제 어댑터를 더하면 검사도 같이 는다.
     from rate_monitor.cli import ADAPTERS
+    from rate_monitor.collectors.nh_local import parser
 
     for source_id, adapter_cls in sorted(ADAPTERS.items()):
         total = conn.execute(
@@ -282,6 +283,34 @@ def main() -> int:
                 filled == 0,
                 f"max_rate NULL 규칙 — {source_id} (원천이 우대금리를 안 준다)",
                 f"관측 {total}건 중 채워진 값 {filled}건",
+            )
+
+        if source_id == "nh_local":
+            invalid_nh_max = conn.execute(
+                "SELECT COUNT(*) FROM rate_observations o"
+                "  JOIN collection_runs r  ON r.id = o.run_id"
+                "  JOIN product_variants v ON v.id = o.variant_id"
+                "  JOIN products p         ON p.id = v.product_id"
+                " WHERE r.source_id = ? AND o.max_rate IS NOT NULL"
+                "   AND (v.join_channel <> 'internet'"
+                "     OR o.option_source_locator IS NULL OR o.option_source_locator = ''"
+                "     OR o.raw_preference_text <> ?"
+                "     OR p.name NOT IN ('정기예탁금','복리식정기예탁금','정기적금','자유적립적금','자유로부금')"
+                "     OR json_extract(o.source_detail_json, '$.max_rate_method')"
+                "        <> 'base_plus_source_declared_ejoy_add_rate'"
+                "     OR json_extract(o.source_detail_json, '$.ejoy_add_rate') IS NULL)",
+                (source_id, parser.EJOY_APPLICABILITY_NOTE),
+            ).fetchone()[0]
+            filled_nh_max = conn.execute(
+                "SELECT COUNT(o.max_rate) FROM rate_observations o"
+                "  JOIN collection_runs r ON r.id = o.run_id"
+                " WHERE r.source_id = ?",
+                (source_id,),
+            ).fetchone()[0]
+            check(
+                invalid_nh_max == 0,
+                "NH e-joy max_rate provenance 계약",
+                f"채워진 값 {filled_nh_max}건 / 계약 위반 {invalid_nh_max}건",
             )
 
         # 업권이 섞이면 화면이 둘을 못 가른다.

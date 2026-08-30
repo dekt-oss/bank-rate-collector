@@ -15,7 +15,7 @@ from __future__ import annotations
 import time
 from collections import Counter
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -48,7 +48,7 @@ from rate_monitor.services.resumable_acquisition import (
 )
 from rate_monitor.services.storage_service import ObjectStore
 
-NH_ACQUISITION_CONTRACT_VERSION = 1
+NH_ACQUISITION_CONTRACT_VERSION = 2
 NH_CHECKPOINT_FLUSH_ITEMS = 200
 NH_CHECKPOINT_FLUSH_SECONDS = 5 * 60.0
 LIST_WORK_KEY = f"directory:{LIST_SCREEN}"
@@ -334,7 +334,7 @@ class NhResumableAdapter(NhLocalAdapter):
                 complete = service.mark_complete(manifest)
                 result = service.materialize(complete)
                 self._set_fetch_notes(guard)
-                return result
+                return self._attach_ejoy_metadata(result)
         except NhRequestFailure as exc:
             if buffer:
                 manifest = service.flush(
@@ -413,8 +413,13 @@ class NhResumableAdapter(NhLocalAdapter):
         products: tuple[ProductType, ...],
     ) -> list[dict[str, Any]]:
         plan: list[dict[str, Any]] = []
+        ordered_products = products
+        if ProductType.TERM_DEPOSIT in products:
+            ordered_products = (ProductType.TERM_DEPOSIT,) + tuple(
+                product for product in products if product != ProductType.TERM_DEPOSIT
+            )
         for outlet in outlets:
-            for product in products:
+            for product in ordered_products:
                 screen = parser.SCREEN_BY_PRODUCT[product]
                 work_key = f"detail:{outlet.brc}:{screen}"
                 plan.append(
@@ -465,6 +470,61 @@ class NhResumableAdapter(NhLocalAdapter):
                 stream=screen,
             )
 
+    @staticmethod
+    def _attach_ejoy_metadata(
+        artifacts: list[RawArtifactData],
+    ) -> list[RawArtifactData]:
+        """Rebuild same-BRC e-joy evidence from immutable TERM raw bytes.
+
+        Resumable v1 checkpointed detail artifacts before the G2 e-joy metadata
+        carrier existed.  The raw TERM response is still authoritative evidence, so
+        v2 derives the same metadata envelope used by ``NhLocalAdapter.fetch`` after
+        materialization.  Raw bytes, filenames and schema fingerprints are untouched.
+        If a BRC has no TERM artifact, max-rate derivation stays fail-closed.
+        """
+        term_screen = parser.SCREEN_BY_PRODUCT[ProductType.TERM_DEPOSIT]
+        options_by_brc: dict[str, list[dict[str, Any]]] = {}
+        warnings_by_brc: dict[str, list[str]] = {}
+
+        for artifact in artifacts:
+            meta = artifact.request_meta
+            if meta.get("kind") != "rate" or meta.get("screen") != term_screen:
+                continue
+            outlet = dict(meta.get("outlet") or {})
+            brc = str(outlet.get("brc") or "")
+            if not brc:
+                raise CheckpointIncompatibleError(
+                    "NH TERM artifact의 BRC metadata가 없어 e-joy evidence를 연결할 수 없다"
+                )
+            options, warnings = parser.extract_ejoy_options(
+                artifact.content.decode("utf-8", "replace"), brc=brc
+            )
+            options_by_brc[brc] = options
+            if warnings:
+                warnings_by_brc[brc] = warnings
+
+        enriched: list[RawArtifactData] = []
+        for artifact in artifacts:
+            meta = artifact.request_meta
+            if meta.get("kind") != "rate":
+                enriched.append(artifact)
+                continue
+            outlet = dict(meta.get("outlet") or {})
+            brc = str(outlet.get("brc") or "")
+            if not brc:
+                raise CheckpointIncompatibleError(
+                    "NH rate artifact의 BRC metadata가 없어 e-joy evidence를 연결할 수 없다"
+                )
+            request_meta = dict(meta)
+            request_meta["ejoy_options"] = options_by_brc.get(brc, [])
+            warnings = warnings_by_brc.get(brc)
+            if warnings:
+                request_meta["ejoy_warnings"] = warnings
+            else:
+                request_meta.pop("ejoy_warnings", None)
+            enriched.append(replace(artifact, request_meta=request_meta))
+        return enriched
+
     def _checkpoint_state(self) -> dict[str, Any]:
         state: dict[str, Any] = {
             "retry_count": self._retry_count,
@@ -497,4 +557,4 @@ class NhResumableAdapter(NhLocalAdapter):
         guard: RepeatGuard,
     ) -> list[RawArtifactData]:
         self._set_fetch_notes(guard)
-        return service.materialize(terminal)
+        return self._attach_ejoy_metadata(service.materialize(terminal))
