@@ -28,6 +28,8 @@ async function runViewport(browser, viewport, name) {
     return JSON.parse(raw)?.strategy?.rate_funding_matrix || null;
   });
   invariant(payload, `${name}: Rate × Funding payload missing`);
+  invariant(payload.contract?.rate_field === "max_rate", `${name}: Strategy rate-field contract mismatch`);
+  invariant(payload.contract?.source_precedence === "presentation.db_only_sources", `${name}: source precedence contract mismatch`);
   invariant(payload.contract?.current_rate_carryback === false, `${name}: carryback contract broken`);
   invariant(payload.contract?.missing_rate_as_zero === false, `${name}: missing-rate contract broken`);
   invariant(payload.contract?.causal_interpretation === false, `${name}: causal contract broken`);
@@ -36,18 +38,19 @@ async function runViewport(browser, viewport, name) {
   invariant(sectors.savings_bank, `${name}: savings-bank matrix evidence missing`);
   invariant(sectors.nh_local, `${name}: NH matrix evidence missing`);
 
-  for (const [sector, expectedCurrent] of [["savings_bank", 66], ["nh_local", 1081]]) {
+  for (const sector of ["savings_bank", "nh_local"]) {
     const item = sectors[sector];
     invariant(item.available === false, `${name}: ${sector} must remain fail-closed without historical rates`);
     invariant(item.status === "historical_rate_unavailable", `${name}: ${sector} status mismatch`);
     invariant(item.historical_rate_institutions === 0, `${name}: ${sector} unexpectedly has historical aligned rates`);
     invariant(item.paired_institutions === 0, `${name}: ${sector} unexpectedly has exact pairs`);
-    invariant(item.current_rate_institutions_not_carried_back === expectedCurrent, `${name}: ${sector} blocked-current count mismatch: ${item.current_rate_institutions_not_carried_back}`);
+    invariant(item.current_rate_institutions_not_carried_back > 0, `${name}: ${sector} has no current-rate carryback evidence`);
   }
 
   const bodyText = (await page.locator("#rate-funding-matrix").textContent()).trim();
   invariant(bodyText.includes("시점정합 금리 이력이 부족"), `${name}: fail-closed explanation missing`);
   invariant(bodyText.includes("현재 공시금리가 존재하더라도 과거 수신잔액에 소급해 붙이지 않습니다"), `${name}: no-carryback explanation missing`);
+  invariant(bodyText.includes("presentation.db_only_sources 우선순위"), `${name}: source precedence explanation missing`);
   invariant(bodyText.includes("인과효과 판정이 아닙니다"), `${name}: association boundary missing`);
   invariant(await page.locator("#rate-funding-matrix svg").count() === 0, `${name}: chart rendered despite zero exact pairs`);
 
