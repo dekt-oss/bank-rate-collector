@@ -1,7 +1,7 @@
 export const LOGIN_PATH = "/__login";
 export const LOGOUT_PATH = "/__logout";
 export const SESSION_COOKIE = "__Host-rate_monitor_auth";
-export const SESSION_MAX_AGE_SECONDS = 60 * 60 * 12;
+export const SESSION_MAX_AGE_SECONDS = 60 * 60 * 2;
 
 const textEncoder = new TextEncoder();
 
@@ -81,7 +81,7 @@ const loginPage = (returnTo, error = "") => `<!doctype html>
 <main class="card">
 <p class="eyebrow">PRIVATE ACCESS</p>
 <h1 class="title">금리 모니터</h1>
-<p class="desc">등록된 비밀번호를 입력하면 현재 브라우저에서 12시간 동안 접근할 수 있습니다.</p>
+<p class="desc">등록된 비밀번호를 입력하면 현재 브라우저에서 2시간 동안 접근할 수 있습니다.</p>
 ${error ? `<p class="error" role="alert">${escapeHtml(error)}</p>` : ""}
 <form method="post" action="${LOGIN_PATH}">
 <input type="hidden" name="returnTo" value="${escapeHtml(returnTo)}">
