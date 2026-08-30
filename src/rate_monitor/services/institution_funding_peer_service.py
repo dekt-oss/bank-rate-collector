@@ -88,9 +88,7 @@ def _in_scope(
 ) -> bool:
     if sido is not None and point.region_sido != sido:
         return False
-    if sigungu is not None and point.region_sigungu != sigungu:
-        return False
-    return True
+    return sigungu is None or point.region_sigungu == sigungu
 
 
 def _usable_same_sector(
