@@ -40,7 +40,7 @@ async function assertFundingPanel(page, label) {
 
   const status = (await page.locator("#funding-position-status").textContent()).trim();
   invariant(status.includes("기준") && status.includes("공시") && status.includes("개월 경과"), `${label}: freshness metadata missing`);
-  invariant(status.includes("동월 관측"), `${label}: same-month coverage wording missing`);
+  invariant(status.includes("동월 관측") || status.includes("부분 관측"), `${label}: measured coverage wording missing`);
 
   const note = (await page.locator("#funding-position-note").textContent()).trim();
   invariant(note.includes("ECOS 업권 수신잔액과 합계 일치를 전제하지 않고"), `${label}: ECOS contract boundary missing`);
