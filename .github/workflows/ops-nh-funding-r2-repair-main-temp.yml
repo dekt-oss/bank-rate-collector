@@ -1,0 +1,191 @@
+name: ops — NH funding canonical R2 repair latest-main temp
+
+on:
+  push:
+    branches: [ops/nh-funding-r2-repair-main-20260830]
+
+concurrency:
+  group: rate-data-writer
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  repair:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      EXPECTED_MAIN: 361803d1444abf054f5f90f720ccb483b82501d0
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+      R2_BUCKET: ${{ vars.R2_BUCKET }}
+      R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+      R2_REGION: ${{ vars.R2_REGION }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Assert business code parent is latest main
+        run: |
+          set -euo pipefail
+          PARENT=$(git rev-parse HEAD^)
+          test "$PARENT" = "$EXPECTED_MAIN"
+          echo "merged-main business code=$PARENT"
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Sync dependencies
+        run: uv sync --locked
+
+      - name: Restore authoritative R2 database
+        run: |
+          set -euo pipefail
+          mkdir -p work publish
+          uv run rate-monitor storage restore --dest work/rate_monitor.sqlite3
+          test -s work/rate_monitor.sqlite3
+
+      - name: Apply migrations
+        env:
+          RATE_MONITOR_DB_URL: sqlite+pysqlite:///${{ github.workspace }}/work/rate_monitor.sqlite3
+        run: uv run alembic upgrade head
+
+      - name: Capture pre-repair state
+        run: |
+          uv run python - <<'PY'
+          import json, sqlite3
+          from pathlib import Path
+          db = Path('work/rate_monitor.sqlite3')
+          c = sqlite3.connect(db)
+          payload = {
+              'active_nh': c.execute("SELECT COUNT(*) FROM institution_funding_observations WHERE source_id='data_go_agri_coop_funding' AND valid_to IS NULL").fetchone()[0],
+              'mapped_nh': c.execute("SELECT COUNT(*) FROM institution_funding_observations WHERE source_id='data_go_agri_coop_funding' AND valid_to IS NULL AND institution_id IS NOT NULL").fetchone()[0],
+              'mapped_institutions': c.execute("SELECT COUNT(DISTINCT institution_id) FROM institution_funding_observations WHERE source_id='data_go_agri_coop_funding' AND valid_to IS NULL AND institution_id IS NOT NULL").fetchone()[0],
+              'integrity_check': c.execute('PRAGMA integrity_check').fetchone()[0],
+              'foreign_key_violations': len(c.execute('PRAGMA foreign_key_check').fetchall()),
+          }
+          c.close()
+          Path('publish/nh-repair-before.json').write_text(json.dumps(payload, ensure_ascii=False, indent=2)+'\n', encoding='utf-8')
+          print(json.dumps(payload, ensure_ascii=False))
+          assert payload['integrity_check'] == 'ok'
+          assert payload['foreign_key_violations'] == 0
+          PY
+
+      - name: Reconcile NH funding identity exactly once
+        run: |
+          uv run python -m rate_monitor.collectors.data_go_funding.cli \
+            reconcile-nh-identity \
+            --db work/rate_monitor.sqlite3 \
+            --json publish/nh-reconcile.json
+
+      - name: Verify repaired canonical and Strategy payload
+        run: |
+          uv run python - <<'PY'
+          import json, sqlite3
+          from pathlib import Path
+          from rate_monitor.services.institution_funding_position_service import build_institution_funding_positions
+          db = Path('work/rate_monitor.sqlite3')
+          c = sqlite3.connect(db)
+          after = {
+              'active_nh': c.execute("SELECT COUNT(*) FROM institution_funding_observations WHERE source_id='data_go_agri_coop_funding' AND valid_to IS NULL").fetchone()[0],
+              'mapped_exact': c.execute("SELECT COUNT(*) FROM institution_funding_observations WHERE source_id='data_go_agri_coop_funding' AND valid_to IS NULL AND identity_status='mapped_exact_nh_brc_name'").fetchone()[0],
+              'mapped_institutions': c.execute("SELECT COUNT(DISTINCT institution_id) FROM institution_funding_observations WHERE source_id='data_go_agri_coop_funding' AND valid_to IS NULL AND institution_id IS NOT NULL").fetchone()[0],
+              'unmapped': c.execute("SELECT COUNT(*) FROM institution_funding_observations WHERE source_id='data_go_agri_coop_funding' AND valid_to IS NULL AND institution_id IS NULL").fetchone()[0],
+              'integrity_check': c.execute('PRAGMA integrity_check').fetchone()[0],
+              'foreign_key_violations': len(c.execute('PRAGMA foreign_key_check').fetchall()),
+          }
+          c.close()
+          nh = build_institution_funding_positions(db)['sectors']['nh_local']
+          after['strategy'] = {
+              'analysis_month': nh['analysis_month'],
+              'observed': nh['coverage']['observed_institutions'],
+              'eligible': nh['coverage']['eligible_institutions'],
+              'coverage_ratio': nh['coverage']['coverage_ratio'],
+              'growth_6m': nh['availability']['growth_6m_institutions'],
+              'growth_12m': nh['availability']['growth_12m_institutions'],
+          }
+          assert after['active_nh'] == 11273, after
+          assert after['mapped_exact'] == 10783, after
+          assert after['mapped_institutions'] == 1082, after
+          assert after['unmapped'] == 490, after
+          assert after['integrity_check'] == 'ok'
+          assert after['foreign_key_violations'] == 0
+          assert after['strategy']['analysis_month'] == '2025-12', after
+          assert after['strategy']['observed'] == 1082, after
+          assert after['strategy']['eligible'] == 1109, after
+          assert after['strategy']['growth_6m'] == 1082, after
+          assert after['strategy']['growth_12m'] == 1082, after
+          Path('publish/nh-repair-after.json').write_text(json.dumps(after, ensure_ascii=False, indent=2)+'\n', encoding='utf-8')
+          print(json.dumps(after, ensure_ascii=False))
+          PY
+
+      - name: Create publish snapshot
+        run: |
+          uv run rate-monitor snapshot \
+            --db work/rate_monitor.sqlite3 \
+            --publish-db publish/rate_monitor.sqlite3 \
+            --manifest publish/manifest.json
+          uv run rate-monitor validate --db publish/rate_monitor.sqlite3
+
+      - name: Re-check latest main before authoritative publish
+        run: |
+          set -euo pipefail
+          git fetch --force origin main --depth=1
+          CURRENT_MAIN=$(git rev-parse FETCH_HEAD)
+          echo "current main=$CURRENT_MAIN expected=$EXPECTED_MAIN"
+          test "$CURRENT_MAIN" = "$EXPECTED_MAIN"
+
+      - name: Publish repaired canonical snapshot to R2
+        run: uv run rate-monitor storage upload --db publish/rate_monitor.sqlite3
+
+      - name: Restore R2 and verify byte-for-byte plus payload
+        run: |
+          set -euo pipefail
+          uv run rate-monitor storage restore --dest work/from-r2.sqlite3
+          cmp -s publish/rate_monitor.sqlite3 work/from-r2.sqlite3
+          uv run python - <<'PY'
+          import json, sqlite3
+          from pathlib import Path
+          from rate_monitor.services.institution_funding_position_service import build_institution_funding_positions
+          db = Path('work/from-r2.sqlite3')
+          c = sqlite3.connect(db)
+          evidence = {
+              'integrity_check': c.execute('PRAGMA integrity_check').fetchone()[0],
+              'foreign_key_violations': len(c.execute('PRAGMA foreign_key_check').fetchall()),
+              'mapped_exact': c.execute("SELECT COUNT(*) FROM institution_funding_observations WHERE source_id='data_go_agri_coop_funding' AND valid_to IS NULL AND identity_status='mapped_exact_nh_brc_name'").fetchone()[0],
+          }
+          c.close()
+          nh = build_institution_funding_positions(db)['sectors']['nh_local']
+          evidence['strategy'] = {
+              'analysis_month': nh['analysis_month'],
+              'observed': nh['coverage']['observed_institutions'],
+              'eligible': nh['coverage']['eligible_institutions'],
+              'coverage_ratio': nh['coverage']['coverage_ratio'],
+          }
+          assert evidence['integrity_check'] == 'ok'
+          assert evidence['foreign_key_violations'] == 0
+          assert evidence['mapped_exact'] == 10783
+          assert evidence['strategy']['observed'] == 1082
+          assert evidence['strategy']['eligible'] == 1109
+          Path('publish/nh-repair-r2-readback.json').write_text(json.dumps(evidence, ensure_ascii=False, indent=2)+'\n', encoding='utf-8')
+          print(json.dumps(evidence, ensure_ascii=False))
+          PY
+
+      - name: Upload compact repair evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nh-funding-r2-repair-latest-${{ github.run_id }}
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            publish/nh-repair-before.json
+            publish/nh-reconcile.json
+            publish/nh-repair-after.json
+            publish/nh-repair-r2-readback.json
+            publish/manifest.json
