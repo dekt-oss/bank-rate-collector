@@ -127,6 +127,8 @@ def test_position_overview_uses_latest_month_and_official_cu_denominator(
     assert cu["coverage"]["eligible_institutions"] == 2
     assert cu["rows"][0]["institution"] == "가나다신협"
     assert cu["rows"][0]["growth_12m_pct"] is None
+    assert cu["direct_peer"]["enabled"] is False
+    assert cu["rows"][0]["relative_growth_6m_vs_direct_peer"] is None
     assert cu["freshness"]["cadence_label"] == "반기·정기공시"
     assert cu["freshness"]["next_reporting_month"] == "2026-12"
     contract = result["contract"]
@@ -134,6 +136,9 @@ def test_position_overview_uses_latest_month_and_official_cu_denominator(
     assert contract["coverage_quality_threshold"] is None
     assert contract["aggregate_equals_ecos"] is False
     assert contract["missing_history_is_zero"] is False
+    assert contract["direct_peer"]["enabled_sectors"] == ["nh_local"]
+    assert contract["direct_peer"]["nh_local_requested_count"] == 16
+    assert contract["direct_peer"]["quality_score"] is None
     assert contract["coverage_denominator"] == "sector-specific eligible institution population"
     assert contract["coverage_denominator_by_sector"]["cu"].startswith(
         "active official same-grain"
@@ -227,9 +232,11 @@ def test_position_presentation_is_strategy_only_and_idempotent() -> None:
     assert "부분 모집단" not in rendered
     assert "수신규모순" in rendered
     assert "6M 성장순" in rendered
-    assert "Peer 대비순" in rendered
+    assert "업권 중앙값 대비순" in rendered
+    assert "Direct Peer 16 대비순" in rendered
     assert "기관명 미확인" in rendered
     assert "백분위 · 상위" in rendered
-    assert "수집 성공률과 다른 개념" in rendered
+    assert "시군구→시도→전국" in rendered
+    assert "연관성 지표" in rendered
     assert "ECOS 업권 수신잔액과 합계 일치를 전제하지 않고" in rendered
     assert inject_institution_funding_position(rendered) == rendered
