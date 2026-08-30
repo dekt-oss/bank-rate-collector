@@ -19,6 +19,8 @@ jobs:
           python - <<'PY'
           from pathlib import Path
 
+          expr = "$" + "{{ secrets.SITE_ACCESS_PASSWORD || secrets.DASHBOARD_PASSWORD }}"
+
           js = Path('scripts/main_map_runtime_smoke.js')
           text = js.read_text(encoding='utf-8')
           text = text.replace(
@@ -46,22 +48,26 @@ jobs:
           new_return = '''  const result = {\n    national: { ...national, overlaps: nationalOverlaps, jejuTooltip },\n    busan: { ...busan, overlaps: busanOverlaps },\n  };\n  await context.close();\n  return result;\n}\n'''
           if old_return not in text:
               raise SystemExit('capture return anchor missing')
-          text = text.replace(old_return, new_return, 1)
-          js.write_text(text, encoding='utf-8')
+          js.write_text(text.replace(old_return, new_return, 1), encoding='utf-8')
 
           wf = Path('.github/workflows/strategy-main-runtime-e2e.yml')
           text = wf.read_text(encoding='utf-8')
           old = '''      - name: Run desktop and mobile Chrome smoke against local build and production\n        env:\n          STRATEGY_PREVIEW_BASE_URL: http://127.0.0.1:4173\n'''
-          new = '''      - name: Run desktop and mobile Chrome smoke against local build and production\n        env:\n          STRATEGY_PREVIEW_BASE_URL: http://127.0.0.1:4173\n          SITE_AUTH_PASSWORD: ${{ secrets.SITE_ACCESS_PASSWORD || secrets.DASHBOARD_PASSWORD }}\n'''
+          new = (
+              '      - name: Run desktop and mobile Chrome smoke against local build and production\n'
+              '        env:\n'
+              '          STRATEGY_PREVIEW_BASE_URL: http://127.0.0.1:4173\n'
+              f'          SITE_AUTH_PASSWORD: {expr}\n'
+          )
           if old not in text:
               raise SystemExit('runtime workflow env anchor missing')
-          text = text.replace(old, new, 1)
-          wf.write_text(text, encoding='utf-8')
+          wf.write_text(text.replace(old, new, 1), encoding='utf-8')
 
           prod = Path('.github/workflows/production-smoke.yml')
           text = prod.read_text(encoding='utf-8')
-          old = '          DASHBOARD_PASSWORD: ${{ secrets.DASHBOARD_PASSWORD }}\n'
-          new = '          DASHBOARD_PASSWORD: ${{ secrets.SITE_ACCESS_PASSWORD || secrets.DASHBOARD_PASSWORD }}\n'
+          old_expr = "$" + "{{ secrets.DASHBOARD_PASSWORD }}"
+          old = f'          DASHBOARD_PASSWORD: {old_expr}\n'
+          new = f'          DASHBOARD_PASSWORD: {expr}\n'
           if old not in text:
               raise SystemExit('production smoke secret anchor missing')
           prod.write_text(text.replace(old, new, 1), encoding='utf-8')
