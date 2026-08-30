@@ -39,9 +39,36 @@ def test_matrix_fails_closed_when_historical_rate_is_missing(
     assert result["available"] is False
     assert result["status"] == "historical_rate_unavailable"
     assert result["paired_institutions"] == 0
+    assert result["current_rate_institutions"] == 2
     assert result["current_rate_institutions_not_carried_back"] == 2
     assert result["median_rate_pct"] is None
     assert result["points"] == []
+
+
+def test_matrix_distinguishes_missing_rate_dataset_from_missing_history(
+    tmp_path: Path, monkeypatch
+) -> None:
+    db = tmp_path / "db.sqlite3"
+    db.touch()
+    monkeypatch.setattr(
+        matrix,
+        "build_institution_funding_read_model_from_db",
+        lambda *_args, **_kwargs: [_funding_row("a", "0.05")],
+    )
+    monkeypatch.setattr(
+        matrix,
+        "_rate_snapshots",
+        lambda *_args, **_kwargs: ({}, {}),
+    )
+    monkeypatch.setattr(matrix, "_institution_names", lambda *_args, **_kwargs: {})
+
+    result = matrix._sector_matrix(db, sector="nh_local", analysis_month="2025-12")
+
+    assert result["available"] is False
+    assert result["status"] == "rate_data_unavailable"
+    assert result["historical_rate_institutions"] == 0
+    assert result["current_rate_institutions"] == 0
+    assert result["paired_institutions"] == 0
 
 
 def test_matrix_uses_only_exact_pairs_and_same_sector_medians(
@@ -88,6 +115,17 @@ def test_matrix_uses_only_exact_pairs_and_same_sector_medians(
     assert result["median_rate_pct"] == "3.10"
     assert result["median_growth_6m_pct"] == "0.04"
     assert {point["institution_id"] for point in result["points"]} == {"a", "b"}
+
+
+def test_matrix_status_reports_insufficient_exact_pairs_when_rate_history_exists() -> None:
+    assert (
+        matrix._matrix_status(
+            paired=1,
+            historical_rate_count=3,
+            current_rate_count=3,
+        )
+        == "insufficient_exact_pairs"
+    )
 
 
 def test_representative_rate_applies_strategy_source_precedence_and_product_max(
