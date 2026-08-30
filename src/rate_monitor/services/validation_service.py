@@ -25,17 +25,22 @@ def _one(conn: sqlite3.Connection, sql: str) -> int:
 def _nh_ejoy_current_run_checks(conn: sqlite3.Connection) -> list[Check]:
     """NH resumable v2의 e-joy evidence가 최고금리 관측까지 이어졌는지 본다.
 
-    v1 raw artifact에는 ``ejoy_options`` key 자체가 없었다. 그래서 과거
-    production DB를 소급 실패시키지 않고, 그 key가 나타난 v2 confirmed run부터
-    fail-closed한다. 실패한 최신 attempt는 이전 정상값을 화면에 남기기 위해
-    여기서 대상으로 삼지 않는다.
+    v1은 run message에 계약 표식이 없다. resumable v2는 fetch 완료 시
+    ``nh_acquisition_contract=v2``를 남긴다. raw metadata 자체만으로 v2를
+    판별하면 #255 때처럼 ``ejoy_options``가 통째로 사라진 회귀를 v1로 오인할
+    수 있으므로, run 표식을 독립 기준으로 사용한다.
+
+    한 번이라도 v2 confirmed run이 생긴 뒤 최신 confirmed NH run이 표식을 잃으면
+    계약 회귀로 실패한다. 실패한 최신 attempt는 이전 정상값을 화면에 남기기 위해
+    confirmed run 선택에서 제외한다.
 
     ``rate_observations``는 change-only 이력이므로 current run 대조는 ``run_id``가
     아니라 ``last_run_id``를 사용한다. 값이 이전과 같아 새 row가 생기지 않아도
     이번 run에서 실제로 재확인됐다면 검사를 통과해야 한다.
     """
+    marker = "nh_acquisition_contract=v2"
     latest = conn.execute(
-        "SELECT id, status FROM collection_runs"
+        "SELECT id, status, COALESCE(message, '') FROM collection_runs"
         " WHERE source_id = 'nh_local'"
         "   AND status IN ('success', 'partial', 'no_change')"
         " ORDER BY started_at DESC, id DESC LIMIT 1"
@@ -49,7 +54,33 @@ def _nh_ejoy_current_run_checks(conn: sqlite3.Connection) -> list[Check]:
             )
         ]
 
-    run_id, status = latest
+    ever_v2 = conn.execute(
+        "SELECT COUNT(*) FROM collection_runs"
+        " WHERE source_id = 'nh_local'"
+        "   AND status IN ('success', 'partial', 'no_change')"
+        "   AND message LIKE ?",
+        (f"%{marker}%",),
+    ).fetchone()[0]
+
+    run_id, status, message = latest
+    latest_is_v2 = marker in message
+    if not latest_is_v2:
+        if ever_v2:
+            return [
+                Check(
+                    "NH e-joy v2 run contract 연속성",
+                    False,
+                    f"run {run_id} ({status})이 v2 전환 후 계약 표식을 잃었다",
+                )
+            ]
+        return [
+            Check(
+                "[건너뜀] NH e-joy v2 current-run gate",
+                True,
+                f"run {run_id} ({status})은 v1 baseline",
+            )
+        ]
+
     rate_artifacts, v2_artifacts, evidence_artifacts = conn.execute(
         "SELECT COUNT(*),"
         " COALESCE(SUM(CASE"
@@ -65,15 +96,6 @@ def _nh_ejoy_current_run_checks(conn: sqlite3.Connection) -> list[Check]:
         (run_id,),
     ).fetchone()
 
-    if v2_artifacts == 0:
-        return [
-            Check(
-                "[건너뜀] NH e-joy v2 current-run gate",
-                True,
-                f"run {run_id} ({status})은 v1 metadata 계약",
-            )
-        ]
-
     current_max = conn.execute(
         "SELECT COUNT(*) FROM rate_observations"
         " WHERE last_run_id = ? AND max_rate IS NOT NULL",
@@ -81,6 +103,11 @@ def _nh_ejoy_current_run_checks(conn: sqlite3.Connection) -> list[Check]:
     ).fetchone()[0]
 
     return [
+        Check(
+            "NH e-joy v2 run contract 표식",
+            True,
+            f"run {run_id} ({status})",
+        ),
         Check(
             "NH e-joy v2 raw metadata 완결성",
             rate_artifacts > 0 and v2_artifacts == rate_artifacts,
