@@ -95,6 +95,12 @@ def test_validate_health_requires_read_only_contract() -> None:
     assert "pipeline_steps" in exc.value.detail
 
 
+def test_session_cookie_matches_middleware_contract() -> None:
+    assert smoke._session_cookie("correct horse battery staple") == (
+        "__Host-rate_monitor_auth=pI4VHUrcSgsvEcb_iLq3FS33SEwUTdMILI_cAvtvH8w"
+    )
+
+
 def test_run_once_checks_root_strategy_manifest_and_health(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -126,10 +132,24 @@ def test_run_once_checks_root_strategy_manifest_and_health(
             "application/json",
         ),
     }
+    cookies: list[str] = []
 
-    monkeypatch.setattr(smoke, "_get", lambda url, timeout: responses[url])
+    def fake_get(url: str, *, timeout: float, cookie: str = ""):
+        cookies.append(cookie)
+        return responses[url]
 
-    smoke.run_once("https://example.test", EXPECTED_MANIFEST, timeout=1)
+    monkeypatch.setattr(smoke, "_get", fake_get)
+
+    smoke.run_once(
+        "https://example.test",
+        EXPECTED_MANIFEST,
+        timeout=1,
+        password="correct horse battery staple",
+    )
+
+    assert cookies == [
+        "__Host-rate_monitor_auth=pI4VHUrcSgsvEcb_iLq3FS33SEwUTdMILI_cAvtvH8w"
+    ] * 4
 
 
 def test_run_once_rejects_manifest_without_strategy_before_network(
@@ -139,7 +159,7 @@ def test_run_once_rejects_manifest_without_strategy_before_network(
     monkeypatch.setattr(
         smoke,
         "_get",
-        lambda url, timeout: pytest.fail(f"unexpected network call: {url}"),
+        lambda url, timeout, cookie="": pytest.fail(f"unexpected network call: {url}"),
     )
 
     with pytest.raises(smoke.SmokeFailure) as exc:
