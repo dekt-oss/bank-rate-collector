@@ -1,13 +1,17 @@
-"""DB adapter for the institution-funding L2 read model."""
+"""DB adapter for the institution-funding L2 read model.
+
+This module is used while building published Strategy artifacts. The published
+SQLite snapshot is an immutable deployment artifact: a read must not change its
+bytes after ``snapshot`` has written the manifest hash.
+"""
 
 from __future__ import annotations
 
+import sqlite3
+from contextlib import closing
+from decimal import Decimal
 from pathlib import Path
 
-from sqlalchemy import select
-
-from rate_monitor.db.institution_funding_models import InstitutionFundingObservation
-from rate_monitor.db.session import create_db_engine, make_session_factory, session_scope
 from rate_monitor.services.institution_funding_read_model import (
     FundingPoint,
     InstitutionFundingReadRow,
@@ -24,6 +28,21 @@ VERIFIED_IDENTITY_STATUSES = frozenset(
 )
 
 
+def _open_immutable_snapshot(db_path: Path) -> sqlite3.Connection:
+    """Open a deployment snapshot without journal/transaction side effects.
+
+    ``create_db_engine`` intentionally applies ``PRAGMA journal_mode=WAL`` for
+    mutable collector databases. That PRAGMA changes SQLite file bytes even for
+    a query-only caller, invalidating the manifest hash after ``snapshot``.
+    Strategy build reads a frozen snapshot, so use SQLite's immutable read-only
+    URI instead and never create a write-capable SQLAlchemy session here.
+    """
+    uri = db_path.resolve().as_uri() + "?mode=ro&immutable=1"
+    connection = sqlite3.connect(uri, uri=True)
+    connection.row_factory = sqlite3.Row
+    return connection
+
+
 def load_funding_points(
     db_path: Path,
     *,
@@ -37,6 +56,9 @@ def load_funding_points(
     ``exact`` state. Only one explicit canonical metric and the analysis month
     plus its exact 6M/12M priors are loaded; no nearest-month interpolation is
     allowed.
+
+    The query path is deliberately immutable/read-only because this function is
+    called after the publish snapshot hash has been sealed into ``manifest``.
     """
     year, month = (int(part) for part in analysis_month.split("-"))
 
@@ -45,31 +67,36 @@ def load_funding_points(
         shifted_year, shifted_month0 = divmod(absolute, 12)
         return f"{shifted_year:04d}-{shifted_month0 + 1:02d}"
 
-    months = {analysis_month, shift(-6), shift(-12)}
-    engine = create_db_engine(db_path)
-    factory = make_session_factory(engine)
-    with session_scope(factory) as session:
-        observations = list(
-            session.scalars(
-                select(InstitutionFundingObservation).where(
-                    InstitutionFundingObservation.sector == sector,
-                    InstitutionFundingObservation.metric_code == metric_code,
-                    InstitutionFundingObservation.valid_to.is_(None),
-                    InstitutionFundingObservation.institution_id.is_not(None),
-                    InstitutionFundingObservation.identity_status.in_(
-                        VERIFIED_IDENTITY_STATUSES
-                    ),
-                    InstitutionFundingObservation.source_effective_month.in_(months),
-                )
-            )
-        )
+    months = sorted({analysis_month, shift(-6), shift(-12)})
+    statuses = sorted(VERIFIED_IDENTITY_STATUSES)
+    status_placeholders = ",".join("?" for _ in statuses)
+    month_placeholders = ",".join("?" for _ in months)
+
+    with closing(_open_immutable_snapshot(db_path)) as connection:
+        observations = connection.execute(
+            f"""
+            SELECT institution_id,
+                   sector,
+                   source_effective_month,
+                   value
+            FROM institution_funding_observations
+            WHERE sector = ?
+              AND metric_code = ?
+              AND valid_to IS NULL
+              AND institution_id IS NOT NULL
+              AND identity_status IN ({status_placeholders})
+              AND source_effective_month IN ({month_placeholders})
+            ORDER BY institution_id, source_effective_month
+            """,
+            (sector, metric_code, *statuses, *months),
+        ).fetchall()
 
     return [
         FundingPoint(
-            institution_id=str(observation.institution_id),
-            sector=observation.sector,
-            month=observation.source_effective_month,
-            balance=observation.value,
+            institution_id=str(observation["institution_id"]),
+            sector=str(observation["sector"]),
+            month=str(observation["source_effective_month"]),
+            balance=Decimal(str(observation["value"])),
             identity_status="exact",
             quality_status="usable_exact",
         )
