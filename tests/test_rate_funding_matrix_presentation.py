@@ -13,7 +13,9 @@ def test_matrix_presentation_is_fail_closed_and_future_ready() -> None:
     assert SCRIPT_MARKER in rendered
     assert "Rate × Funding Matrix" in rendered
     assert "시점정합 금리 이력이 부족" in rendered
+    assert "이 업권의 12개월 공시금리 데이터가 없어" in rendered
     assert "현재 공시금리가 존재하더라도 과거 수신잔액에 소급해 붙이지 않습니다" in rendered
+    assert "이름 유사 매칭이나 다른 업권 금리를 대신 붙이지 않습니다" in rendered
     assert "12M 대표 공시 최고금리" in rendered
     assert "presentation.db_only_sources 우선순위" in rendered
     assert "6M 수신증가율" in rendered
