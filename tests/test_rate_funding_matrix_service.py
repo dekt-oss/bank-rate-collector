@@ -14,7 +14,9 @@ def _funding_row(institution_id: str, growth: str | None) -> SimpleNamespace:
     )
 
 
-def test_matrix_fails_closed_when_historical_rate_is_missing(tmp_path: Path, monkeypatch) -> None:
+def test_matrix_fails_closed_when_historical_rate_is_missing(
+    tmp_path: Path, monkeypatch
+) -> None:
     db = tmp_path / "db.sqlite3"
     db.touch()
     monkeypatch.setattr(
@@ -24,7 +26,9 @@ def test_matrix_fails_closed_when_historical_rate_is_missing(tmp_path: Path, mon
     )
     monkeypatch.setattr(matrix, "_historical_rates", lambda *_args, **_kwargs: {})
     monkeypatch.setattr(matrix, "_institution_names", lambda *_args, **_kwargs: {})
-    monkeypatch.setattr(matrix, "_current_rate_institution_count", lambda *_args, **_kwargs: 2)
+    monkeypatch.setattr(
+        matrix, "_current_rate_institution_count", lambda *_args, **_kwargs: 2
+    )
 
     result = matrix._sector_matrix(db, sector="nh_local", analysis_month="2025-12")
 
@@ -36,7 +40,9 @@ def test_matrix_fails_closed_when_historical_rate_is_missing(tmp_path: Path, mon
     assert result["points"] == []
 
 
-def test_matrix_uses_only_exact_pairs_and_same_sector_medians(tmp_path: Path, monkeypatch) -> None:
+def test_matrix_uses_only_exact_pairs_and_same_sector_medians(
+    tmp_path: Path, monkeypatch
+) -> None:
     db = tmp_path / "db.sqlite3"
     db.touch()
     monkeypatch.setattr(
@@ -62,7 +68,9 @@ def test_matrix_uses_only_exact_pairs_and_same_sector_medians(tmp_path: Path, mo
         "_institution_names",
         lambda *_args, **_kwargs: {"a": "A농협", "b": "B농협"},
     )
-    monkeypatch.setattr(matrix, "_current_rate_institution_count", lambda *_args, **_kwargs: 3)
+    monkeypatch.setattr(
+        matrix, "_current_rate_institution_count", lambda *_args, **_kwargs: 3
+    )
 
     result = matrix._sector_matrix(db, sector="nh_local", analysis_month="2025-12")
 
@@ -74,13 +82,35 @@ def test_matrix_uses_only_exact_pairs_and_same_sector_medians(tmp_path: Path, mo
     assert {point["institution_id"] for point in result["points"]} == {"a", "b"}
 
 
-def test_representative_rate_applies_strategy_source_precedence_and_product_max(monkeypatch) -> None:
+def test_representative_rate_applies_strategy_source_precedence_and_product_max(
+    monkeypatch,
+) -> None:
     monkeypatch.setattr(matrix, "dedupe_sources", lambda: ("secondary",))
     rows = [
-        {"institution_id": "a", "product_id": "a-primary-1", "source_id": "primary", "rate_value": 3.10},
-        {"institution_id": "a", "product_id": "a-primary-2", "source_id": "primary", "rate_value": 3.20},
-        {"institution_id": "a", "product_id": "a-secondary", "source_id": "secondary", "rate_value": 9.99},
-        {"institution_id": "b", "product_id": "b-secondary", "source_id": "secondary", "rate_value": 3.30},
+        {
+            "institution_id": "a",
+            "product_id": "a-primary-1",
+            "source_id": "primary",
+            "rate_value": 3.10,
+        },
+        {
+            "institution_id": "a",
+            "product_id": "a-primary-2",
+            "source_id": "primary",
+            "rate_value": 3.20,
+        },
+        {
+            "institution_id": "a",
+            "product_id": "a-secondary",
+            "source_id": "secondary",
+            "rate_value": 9.99,
+        },
+        {
+            "institution_id": "b",
+            "product_id": "b-secondary",
+            "source_id": "secondary",
+            "rate_value": 3.30,
+        },
     ]
 
     result = matrix._representative_rates(rows)
@@ -88,7 +118,9 @@ def test_representative_rate_applies_strategy_source_precedence_and_product_max(
     assert result == {"a": Decimal("3.2"), "b": Decimal("3.3")}
 
 
-def test_matrix_contract_prohibits_current_rate_carryback(tmp_path: Path, monkeypatch) -> None:
+def test_matrix_contract_prohibits_current_rate_carryback(
+    tmp_path: Path, monkeypatch
+) -> None:
     db = tmp_path / "db.sqlite3"
     db.touch()
     positions = {
@@ -99,7 +131,10 @@ def test_matrix_contract_prohibits_current_rate_carryback(tmp_path: Path, monkey
 
     assert result["available"] is False
     assert result["contract"]["rate_field"] == "max_rate"
-    assert result["contract"]["rate_representative"] == "institution_product_representative_max"
+    assert (
+        result["contract"]["rate_representative"]
+        == "institution_product_representative_max"
+    )
     assert result["contract"]["source_precedence"] == "presentation.db_only_sources"
     assert result["contract"]["current_rate_carryback"] is False
     assert result["contract"]["missing_rate_as_zero"] is False
