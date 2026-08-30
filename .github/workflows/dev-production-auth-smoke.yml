@@ -1,0 +1,71 @@
+name: Dev production auth smoke
+on:
+  push:
+    branches: [fix/strategy-sector-smoke-selector-20260830]
+permissions:
+  contents: read
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify production authentication boundary
+        env:
+          DASHBOARD_PASSWORD: ${{ secrets.DASHBOARD_PASSWORD }}
+          BASE_URL: https://bank-rate-collector.vercel.app
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$DASHBOARD_PASSWORD"
+          python - <<'PY'
+          import base64, hashlib, os, urllib.error, urllib.request
+
+          base = os.environ['BASE_URL'].rstrip('/')
+          password = os.environ['DASHBOARD_PASSWORD']
+          ns = 'bank-rate-collector:site-session:v1\0'
+          token = base64.urlsafe_b64encode(hashlib.sha256((ns + password).encode()).digest()).rstrip(b'=').decode()
+          cookie = f'__Host-rate_monitor_auth={token}'
+
+          class NoRedirect(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self, req, fp, code, msg, headers, newurl):
+                  return None
+          opener = urllib.request.build_opener(NoRedirect)
+
+          def get(path, *, auth=False, accept='text/html'):
+              headers = {'User-Agent': 'bank-rate-auth-smoke/1', 'Accept': accept}
+              if auth:
+                  headers['Cookie'] = cookie
+              req = urllib.request.Request(base + path, headers=headers)
+              try:
+                  with opener.open(req, timeout=20) as r:
+                      return r.status, dict(r.headers), r.read()
+              except urllib.error.HTTPError as e:
+                  return e.code, dict(e.headers), e.read()
+
+          status, headers, _ = get('/')
+          assert status == 302, ('unauth root', status)
+          assert '/__login' in headers.get('Location', ''), headers.get('Location')
+
+          status, _, body = get('/data/strategy-table.json', accept='application/json')
+          assert status == 401, ('unauth data', status, body[:200])
+
+          status, _, body = get('/api/health', accept='application/json')
+          assert status == 401, ('unauth health', status, body[:200])
+
+          status, _, body = get('/', auth=True)
+          assert status == 200 and b'<!' in body[:200].lower(), ('auth root', status, body[:200])
+
+          status, _, body = get('/strategy.html', auth=True)
+          assert status == 200 and len(body) > 1000, ('auth strategy', status, len(body))
+
+          status, _, body = get('/data/strategy-table.json', auth=True, accept='application/json')
+          assert status == 200 and body.lstrip().startswith((b'{', b'[')), ('auth data', status, body[:100])
+
+          status, _, body = get('/api/health', auth=True, accept='application/json')
+          assert status == 200 and b'"ok"' in body, ('auth health', status, body[:200])
+
+          print('production auth boundary PASS: root302 data401 health401 auth-root200 strategy200 data200 health200')
+          PY
