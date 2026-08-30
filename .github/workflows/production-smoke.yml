@@ -43,6 +43,46 @@ jobs:
           ref: rate-data
           path: published
 
+      - name: Verify anonymous site access is blocked
+        env:
+          PRODUCTION_URL: https://bank-rate-collector.vercel.app
+        run: |
+          set -euo pipefail
+          ROOT_HEADERS=$(mktemp)
+          ROOT_STATUS=$(curl -sS --max-time 20 \
+            -o /tmp/auth-root-body \
+            -D "$ROOT_HEADERS" \
+            -w '%{http_code}' \
+            -H 'Accept: text/html' \
+            "$PRODUCTION_URL/")
+          if [ "$ROOT_STATUS" != "302" ]; then
+            echo "::error::anonymous root must redirect to login; got HTTP $ROOT_STATUS"
+            cat /tmp/auth-root-body || true
+            exit 1
+          fi
+          if ! grep -qiE '^location: .*\/__login([?]|$)' "$ROOT_HEADERS"; then
+            echo "::error::anonymous root did not redirect to /__login"
+            cat "$ROOT_HEADERS"
+            exit 1
+          fi
+
+          HEALTH_STATUS=$(curl -sS --max-time 20 \
+            -o /tmp/auth-health-body \
+            -w '%{http_code}' \
+            -H 'Accept: application/json' \
+            "$PRODUCTION_URL/api/health")
+          if [ "$HEALTH_STATUS" != "401" ]; then
+            echo "::error::anonymous /api/health must be blocked; got HTTP $HEALTH_STATUS"
+            cat /tmp/auth-health-body || true
+            exit 1
+          fi
+
+          {
+            echo "anonymous auth boundary PASS"
+            echo "root_status=$ROOT_STATUS"
+            echo "health_status=$HEALTH_STATUS"
+          } > production-smoke.txt
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -60,7 +100,7 @@ jobs:
             --attempts 20 \
             --interval 15 \
             --timeout 20 \
-            2>&1 | tee production-smoke.txt
+            2>&1 | tee -a production-smoke.txt
 
       - name: Upload smoke evidence
         if: always()
