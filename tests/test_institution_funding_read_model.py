@@ -1,5 +1,7 @@
 from decimal import Decimal
 
+import pytest
+
 from rate_monitor.services.institution_funding_read_model import (
     FundingPoint,
     build_institution_funding_read_model,
@@ -85,3 +87,16 @@ def test_zero_prior_balance_fails_closed() -> None:
 
     assert rows[0].change_6m_pct is None
     assert rows[0].change_6m_amount is None
+
+
+def test_duplicate_usable_institution_month_fails_closed() -> None:
+    with pytest.raises(ValueError, match="duplicate usable exact funding point"):
+        build_institution_funding_read_model(
+            [
+                point("a", "2025-12", "100"),
+                point("a", "2026-06", "110"),
+                point("a", "2026-06", "111"),
+            ],
+            sector="credit_union",
+            analysis_month="2026-06",
+        )
