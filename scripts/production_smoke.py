@@ -10,7 +10,10 @@ API contract, or stale/mismatched content.
 from __future__ import annotations
 
 import argparse
+import base64
+import hashlib
 import json
+import os
 import sys
 import time
 from dataclasses import dataclass
@@ -37,6 +40,8 @@ HEALTH_KEYS = {
     "pipeline_steps",
 }
 MANIFEST_KEYS = ("generated_at", "rows", "data_bytes")
+SESSION_COOKIE = "__Host-rate_monitor_auth"
+SESSION_TOKEN_NAMESPACE = "bank-rate-collector:site-session:v1\0"
 
 
 @dataclass(frozen=True)
@@ -48,8 +53,24 @@ class SmokeFailure(RuntimeError):
         return f"{self.category}: {self.detail}"
 
 
-def _get(url: str, *, timeout: float = 20.0) -> tuple[int, bytes, str]:
-    request = Request(url, headers={"User-Agent": "bank-rate-collector-production-smoke/1"})
+def _session_cookie(password: str) -> str:
+    if not password:
+        return ""
+    digest = hashlib.sha256(f"{SESSION_TOKEN_NAMESPACE}{password}".encode()).digest()
+    token = base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
+    return f"{SESSION_COOKIE}={token}"
+
+
+def _get(
+    url: str,
+    *,
+    timeout: float = 20.0,
+    cookie: str = "",
+) -> tuple[int, bytes, str]:
+    headers = {"User-Agent": "bank-rate-collector-production-smoke/1"}
+    if cookie:
+        headers["Cookie"] = cookie
+    request = Request(url, headers=headers)
     try:
         with urlopen(request, timeout=timeout) as response:  # noqa: S310 - fixed operator URL
             return response.status, response.read(), response.headers.get("content-type", "")
@@ -148,30 +169,37 @@ def validate_health(payload: dict[str, Any]) -> None:
         raise SmokeFailure("endpoint", "/api/health pipeline_steps is not an object")
 
 
-def run_once(base_url: str, expected_manifest: dict[str, Any], *, timeout: float) -> None:
+def run_once(
+    base_url: str,
+    expected_manifest: dict[str, Any],
+    *,
+    timeout: float,
+    password: str = "",
+) -> None:
     base = base_url.rstrip("/") + "/"
     _require_strategy_file(expected_manifest, "expected")
+    cookie = _session_cookie(password)
 
     root_url = urljoin(base, "/")
-    status, body, _ = _get(root_url, timeout=timeout)
+    status, body, _ = _get(root_url, timeout=timeout, cookie=cookie)
     if status != 200:
         raise SmokeFailure("deployment", f"GET {root_url} -> HTTP {status}")
     validate_root(body.decode("utf-8", errors="replace"))
 
     strategy_url = urljoin(base, "strategy.html")
-    status, body, _ = _get(strategy_url, timeout=timeout)
+    status, body, _ = _get(strategy_url, timeout=timeout, cookie=cookie)
     if status != 200:
         raise SmokeFailure("deployment", f"GET {strategy_url} -> HTTP {status}")
     validate_strategy(body.decode("utf-8", errors="replace"))
 
     manifest_url = urljoin(base, "site-manifest.json")
-    status, body, _ = _get(manifest_url, timeout=timeout)
+    status, body, _ = _get(manifest_url, timeout=timeout, cookie=cookie)
     if status != 200:
         raise SmokeFailure("deployment", f"GET {manifest_url} -> HTTP {status}")
     validate_manifest(_json_body(manifest_url, body), expected_manifest)
 
     health_url = urljoin(base, "api/health")
-    status, body, _ = _get(health_url, timeout=timeout)
+    status, body, _ = _get(health_url, timeout=timeout, cookie=cookie)
     if status != 200:
         raise SmokeFailure("endpoint", f"GET {health_url} -> HTTP {status}")
     validate_health(_json_body(health_url, body))
@@ -196,10 +224,11 @@ def main(argv: list[str] | None = None) -> int:
     if not isinstance(expected, dict):
         raise SystemExit("expected manifest must contain a JSON object")
 
+    password = os.environ.get("DASHBOARD_PASSWORD", "")
     last: SmokeFailure | None = None
     for attempt in range(1, args.attempts + 1):
         try:
-            run_once(args.base_url, expected, timeout=args.timeout)
+            run_once(args.base_url, expected, timeout=args.timeout, password=password)
         except SmokeFailure as exc:
             last = exc
             print(f"attempt {attempt}/{args.attempts}: {exc}", file=sys.stderr)
