@@ -27,6 +27,17 @@ jobs:
       - name: Sync dependencies
         run: uv sync --locked
 
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Check website authentication runtime
+        run: |
+          node --check web/runtime/auth-core.mjs
+          node --check web/runtime/middleware.js
+          node --test tests/web_auth.test.mjs
+
       - name: Lint
         run: uv run ruff check src tests scripts
 
