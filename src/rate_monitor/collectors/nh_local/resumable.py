@@ -540,7 +540,10 @@ class NhResumableAdapter(NhLocalAdapter):
             self._retry_delay_seconds = float(state.get("retry_delay_seconds") or 0.0)
 
     def _set_fetch_notes(self, guard: RepeatGuard) -> None:
-        self.fetch_note = guard.summary()
+        self.fetch_note = (
+            f"nh_acquisition_contract=v{NH_ACQUISITION_CONTRACT_VERSION} · "
+            f"{guard.summary()}"
+        )
         retry_note = self._retry_note()
         if retry_note:
             self.fetch_note = f"{self.fetch_note} · {retry_note}"
