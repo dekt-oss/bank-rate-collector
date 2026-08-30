@@ -72,6 +72,26 @@ def _median(values: list[Decimal]) -> Decimal:
     return (ordered[middle - 1] + ordered[middle]) / Decimal(2)
 
 
+def _index_unique_points(points: list[FundingPoint]) -> dict[tuple[str, str], Decimal]:
+    """Index one usable point per institution/month or fail closed.
+
+    The canonical table currently prevents duplicate active natural keys, but
+    the read-model boundary must not silently choose one observation if a
+    future metric/source expansion accidentally sends multiple usable points
+    for the same institution and month.
+    """
+    indexed: dict[tuple[str, str], Decimal] = {}
+    for point in points:
+        key = (point.institution_id, point.month)
+        if key in indexed:
+            raise ValueError(
+                "duplicate usable exact funding point: "
+                f"institution_id={point.institution_id} month={point.month}"
+            )
+        indexed[key] = point.balance
+    return indexed
+
+
 def build_institution_funding_read_model(
     points: Iterable[FundingPoint], *, sector: str, analysis_month: str
 ) -> list[InstitutionFundingReadRow]:
@@ -79,6 +99,8 @@ def build_institution_funding_read_model(
 
     Only ``usable_exact`` / exact-identity observations enter the ranking
     population. Missing prior periods remain ``None`` and are not imputed.
+    Duplicate usable institution/month points fail closed rather than allowing
+    dictionary overwrite to decide the ranking population.
     """
     usable = [
         point
@@ -87,7 +109,7 @@ def build_institution_funding_read_model(
         and point.identity_status == "exact"
         and point.quality_status == "usable_exact"
     ]
-    by_key = {(point.institution_id, point.month): point.balance for point in usable}
+    by_key = _index_unique_points(usable)
     current = [point for point in usable if point.month == analysis_month]
     if not current:
         return []
