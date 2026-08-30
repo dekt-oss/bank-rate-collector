@@ -15,6 +15,11 @@ on:
       - "src/rate_monitor/services/public_structural_v2_forecast_provider.py"
       - "src/rate_monitor/services/public_structural_v2_forecast_provider_presentation.py"
       - "src/rate_monitor/services/public_structural_v2_surface_service.py"
+      - "src/rate_monitor/services/institution_funding_read_model.py"
+      - "src/rate_monitor/services/institution_funding_read_model_db.py"
+      - "src/rate_monitor/services/institution_funding_strategy_payload.py"
+      - "src/rate_monitor/services/institution_funding_position_service.py"
+      - "src/rate_monitor/services/institution_funding_position_presentation.py"
       - "tests/test_main_map_drilldown_refinement.py"
       - "tests/test_main_map_presentation.py"
       - "tests/test_preference_intelligence_service.py"
@@ -25,6 +30,9 @@ on:
       - "tests/test_public_structural_v2_factual_rate_finder_*.py"
       - "tests/test_public_structural_v2_forecast_provider*.py"
       - "tests/test_public_structural_v2_surface*.py"
+      - "tests/test_institution_funding_read_model.py"
+      - "tests/test_institution_funding_strategy_payload.py"
+      - "tests/test_institution_funding_position_ui.py"
       - "web/public-structural-v2/factual_rate_finder.js"
       - "web/public-structural-v2/forecast_provider.js"
       - "web/public-structural-v2/surface.js"
@@ -32,6 +40,7 @@ on:
       - "scripts/dashboard_usability_preference_v2_smoke.js"
       - "scripts/public_structural_v2_cockpit_runtime_smoke.js"
       - "scripts/public_structural_v2_provider_runtime_smoke.js"
+      - "scripts/institution_funding_position_runtime_smoke.js"
       - ".github/workflows/dashboard-usability-preference-v2.yml"
 
 permissions:
@@ -69,6 +78,10 @@ jobs:
             src/rate_monitor/services/public_structural_v2_forecast_provider.py \
             src/rate_monitor/services/public_structural_v2_forecast_provider_presentation.py \
             src/rate_monitor/services/public_structural_v2_surface_service.py \
+            src/rate_monitor/services/institution_funding_read_model.py \
+            src/rate_monitor/services/institution_funding_read_model_db.py \
+            src/rate_monitor/services/institution_funding_strategy_payload.py \
+            src/rate_monitor/services/institution_funding_position_service.py \
             tests/test_main_map_drilldown_refinement.py \
             tests/test_main_map_presentation.py \
             tests/test_preference_intelligence_service.py \
@@ -83,7 +96,10 @@ jobs:
             tests/test_public_structural_v2_forecast_provider_parity.py \
             tests/test_public_structural_v2_forecast_provider_presentation.py \
             tests/test_public_structural_v2_surface_service.py \
-            tests/test_public_structural_v2_surface_parity.py
+            tests/test_public_structural_v2_surface_parity.py \
+            tests/test_institution_funding_read_model.py \
+            tests/test_institution_funding_strategy_payload.py \
+            tests/test_institution_funding_position_ui.py
 
       - name: Targeted tests
         run: |
@@ -102,7 +118,10 @@ jobs:
             tests/test_public_structural_v2_forecast_provider_parity.py \
             tests/test_public_structural_v2_forecast_provider_presentation.py \
             tests/test_public_structural_v2_surface_service.py \
-            tests/test_public_structural_v2_surface_parity.py
+            tests/test_public_structural_v2_surface_parity.py \
+            tests/test_institution_funding_read_model.py \
+            tests/test_institution_funding_strategy_payload.py \
+            tests/test_institution_funding_position_ui.py
 
       - name: Browser smoke syntax
         run: |
@@ -110,6 +129,7 @@ jobs:
           node --check scripts/dashboard_usability_preference_v2_smoke.js
           node --check scripts/public_structural_v2_cockpit_runtime_smoke.js
           node --check scripts/public_structural_v2_provider_runtime_smoke.js
+          node --check scripts/institution_funding_position_runtime_smoke.js
           node --check web/public-structural-v2/factual_rate_finder.js
           node --check web/public-structural-v2/forecast_provider.js
           node --check web/public-structural-v2/surface.js
@@ -165,6 +185,73 @@ jobs:
           RATE_MONITOR_DB_URL: sqlite+pysqlite:///${{ github.workspace }}/work/rate_monitor.sqlite3
         run: uv run alembic upgrade head
 
+      - name: Measure production funding position payload
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          import json
+          import sqlite3
+          from pathlib import Path
+          from rate_monitor.services.institution_funding_position_service import (
+              build_institution_funding_positions,
+          )
+
+          db = Path("work/rate_monitor.sqlite3")
+          conn = sqlite3.connect(db)
+          rows = conn.execute(
+              """
+              SELECT sector,
+                     COUNT(*) AS active,
+                     SUM(institution_id IS NOT NULL) AS mapped,
+                     SUM(institution_id IS NULL) AS unmapped,
+                     COUNT(DISTINCT institution_id) AS mapped_institutions,
+                     MIN(source_effective_month),
+                     MAX(source_effective_month)
+              FROM institution_funding_observations
+              WHERE valid_to IS NULL
+                AND metric_code = 'deposit_liabilities_total'
+              GROUP BY sector ORDER BY sector
+              """
+          ).fetchall()
+          payload = build_institution_funding_positions(db)
+          evidence = {
+              "canonical": [
+                  {
+                      "sector": row[0],
+                      "active": row[1],
+                      "mapped": row[2],
+                      "unmapped": row[3],
+                      "mapped_institutions": row[4],
+                      "earliest_month": row[5],
+                      "latest_month": row[6],
+                  }
+                  for row in rows
+              ],
+              "position_sectors": {
+                  key: {
+                      "analysis_month": value["analysis_month"],
+                      "observed": value["coverage"]["observed_institutions"],
+                      "eligible": value["coverage"]["eligible_institutions"],
+                      "coverage_ratio": value["coverage"]["coverage_ratio"],
+                      "growth_6m": value["availability"]["growth_6m_institutions"],
+                      "growth_12m": value["availability"]["growth_12m_institutions"],
+                      "freshness": value["freshness"],
+                  }
+                  for key, value in payload["sectors"].items()
+              },
+              "display_order": payload["display_order"],
+          }
+          assert "savings_bank" in payload["sectors"]
+          assert "cu" not in payload["sectors"], (
+              "CU appeared even though the current production canonical DB has no CU funding"
+          )
+          Path("work/institution-funding-production.json").write_text(
+              json.dumps(evidence, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          print(json.dumps(evidence, ensure_ascii=False))
+          PY
+
       - name: Build isolated site from production data
         env:
           RATE_MONITOR_STRATEGY_DASHBOARD: "1"
@@ -187,6 +274,7 @@ jobs:
           grep -q 'id="public-structural-v2-forecast-provider-bridge"' work/site-public/strategy.html
           grep -q 'id="public-structural-v2-factual-rate-finder-engine"' work/site-public/strategy.html
           grep -q 'id="public-structural-v2-factual-rate-finder-script"' work/site-public/strategy.html
+          grep -q 'id="institution-funding-position-script"' work/site-public/strategy.html
 
       - name: Set up Node
         uses: actions/setup-node@v4
@@ -210,6 +298,7 @@ jobs:
           node --check scripts/strategy_preview_smoke.js
           node --check scripts/public_structural_v2_cockpit_runtime_smoke.js
           node --check scripts/public_structural_v2_provider_runtime_smoke.js
+          node --check scripts/institution_funding_position_runtime_smoke.js
           node --check web/public-structural-v2/factual_rate_finder.js
           node --check web/public-structural-v2/forecast_provider.js
           node --check web/public-structural-v2/surface.js
@@ -233,11 +322,11 @@ jobs:
           curl -fsS http://127.0.0.1:4173/strategy.html >/dev/null
           EXPECT_MAIN_MAP_CROP=1 MAIN_MAP_SMOKE_PREFIX=main-map-v2-local \
             node scripts/main_map_runtime_smoke.js
-          # Stage H provider bridge first, then Stage F/G Cockpit regression.
           node scripts/public_structural_v2_provider_runtime_smoke.js
           node scripts/public_structural_v2_cockpit_runtime_smoke.js
           node scripts/dashboard_usability_preference_v2_smoke.js
           node scripts/strategy_preview_smoke.js
+          node scripts/institution_funding_position_runtime_smoke.js
 
       - name: Upload runtime evidence
         if: always()
@@ -251,6 +340,8 @@ jobs:
             work/dashboard-usability-preference-v2-metrics.json
             work/strategy-smoke-*.png
             work/public-structural-v2-cockpit-*.png
+            work/institution-funding-*.png
+            work/institution-funding-production.json
             work/dashboard-v2-http.log
           retention-days: 30
           if-no-files-found: warn

@@ -14,6 +14,7 @@ from rate_monitor.services.institution_funding_read_model import (
     build_institution_funding_read_model,
 )
 
+FUNDING_METRIC_CODE = "deposit_liabilities_total"
 VERIFIED_IDENTITY_STATUSES = frozenset(
     {
         "mapped_exact_fss_code",
@@ -28,12 +29,14 @@ def load_funding_points(
     *,
     sector: str,
     analysis_month: str,
+    metric_code: str = FUNDING_METRIC_CODE,
 ) -> list[FundingPoint]:
     """Load active exact-identity observations needed for 6M/12M metrics.
 
     Source-specific exact identity states are normalized to the L2 internal
-    ``exact`` state. Only the analysis month and its exact 6M/12M priors are
-    loaded; no nearest-month interpolation is allowed.
+    ``exact`` state. Only one explicit canonical metric and the analysis month
+    plus its exact 6M/12M priors are loaded; no nearest-month interpolation is
+    allowed.
     """
     year, month = (int(part) for part in analysis_month.split("-"))
 
@@ -50,6 +53,7 @@ def load_funding_points(
             session.scalars(
                 select(InstitutionFundingObservation).where(
                     InstitutionFundingObservation.sector == sector,
+                    InstitutionFundingObservation.metric_code == metric_code,
                     InstitutionFundingObservation.valid_to.is_(None),
                     InstitutionFundingObservation.institution_id.is_not(None),
                     InstitutionFundingObservation.identity_status.in_(
@@ -78,8 +82,14 @@ def build_institution_funding_read_model_from_db(
     *,
     sector: str,
     analysis_month: str,
+    metric_code: str = FUNDING_METRIC_CODE,
 ) -> list[InstitutionFundingReadRow]:
-    points = load_funding_points(db_path, sector=sector, analysis_month=analysis_month)
+    points = load_funding_points(
+        db_path,
+        sector=sector,
+        analysis_month=analysis_month,
+        metric_code=metric_code,
+    )
     return build_institution_funding_read_model(
         points,
         sector=sector,
