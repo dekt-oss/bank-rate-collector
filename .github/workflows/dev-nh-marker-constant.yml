@@ -1,0 +1,88 @@
+name: Dev NH marker constant cleanup
+
+on:
+  push:
+    branches: [fix/nh-ejoy-current-run-gate-20260830]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: ${{ !contains(github.event.head_commit.message, '[nh-marker-constant]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/nh-ejoy-current-run-gate-20260830
+      - name: Share marker constant
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          r = Path('src/rate_monitor/collectors/nh_local/resumable.py')
+          text = r.read_text(encoding='utf-8')
+          old = 'NH_ACQUISITION_CONTRACT_VERSION = 2\nNH_CHECKPOINT_FLUSH_ITEMS = 200\n'
+          new = (
+              'NH_ACQUISITION_CONTRACT_VERSION = 2\n'
+              'NH_ACQUISITION_CONTRACT_MARKER = (\n'
+              '    f"nh_acquisition_contract=v{NH_ACQUISITION_CONTRACT_VERSION}"\n'
+              ')\n'
+              'NH_CHECKPOINT_FLUSH_ITEMS = 200\n'
+          )
+          if text.count(old) != 1:
+              raise SystemExit('resumable constant insertion point mismatch')
+          text = text.replace(old, new)
+          old_note = (
+              '        self.fetch_note = (\n'
+              '            f"nh_acquisition_contract=v{NH_ACQUISITION_CONTRACT_VERSION} · "\n'
+              '            f"{guard.summary()}"\n'
+              '        )\n'
+          )
+          new_note = (
+              '        self.fetch_note = f"{NH_ACQUISITION_CONTRACT_MARKER} · {guard.summary()}"\n'
+          )
+          if text.count(old_note) != 1:
+              raise SystemExit('resumable marker use mismatch')
+          r.write_text(text.replace(old_note, new_note), encoding='utf-8')
+
+          v = Path('src/rate_monitor/services/validation_service.py')
+          text = v.read_text(encoding='utf-8')
+          import_anchor = 'from pathlib import Path\n\n\n@dataclass'
+          import_repl = (
+              'from pathlib import Path\n\n'
+              'from rate_monitor.collectors.nh_local.resumable import NH_ACQUISITION_CONTRACT_MARKER\n\n\n@dataclass'
+          )
+          if text.count(import_anchor) != 1:
+              raise SystemExit('validation import anchor mismatch')
+          text = text.replace(import_anchor, import_repl)
+          text = text.replace('    marker = "nh_acquisition_contract=v2"\n', '')
+          text = text.replace('(f"%{marker}%",),', '(f"%{NH_ACQUISITION_CONTRACT_MARKER}%",),')
+          text = text.replace('latest_is_v2 = marker in message', 'latest_is_v2 = NH_ACQUISITION_CONTRACT_MARKER in message')
+          v.write_text(text, encoding='utf-8')
+
+          t = Path('tests/test_nh_ejoy_validation_gate.py')
+          text = t.read_text(encoding='utf-8')
+          old_import = 'from rate_monitor.services.validation_service import _nh_ejoy_current_run_checks\n\nMARKER = "nh_acquisition_contract=v2"\n'
+          new_import = (
+              'from rate_monitor.collectors.nh_local.resumable import NH_ACQUISITION_CONTRACT_MARKER\n'
+              'from rate_monitor.services.validation_service import _nh_ejoy_current_run_checks\n'
+          )
+          if text.count(old_import) != 1:
+              raise SystemExit('test marker import anchor mismatch')
+          text = text.replace(old_import, new_import)
+          text = text.replace('f"수집 완료 · {MARKER}"', 'f"수집 완료 · {NH_ACQUISITION_CONTRACT_MARKER}"')
+          t.write_text(text, encoding='utf-8')
+          PY
+          git diff --check
+      - name: Focused tests
+        run: |
+          python -m py_compile src/rate_monitor/collectors/nh_local/resumable.py src/rate_monitor/services/validation_service.py tests/test_nh_ejoy_validation_gate.py
+      - name: Commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/rate_monitor/collectors/nh_local/resumable.py src/rate_monitor/services/validation_service.py tests/test_nh_ejoy_validation_gate.py
+          git commit -m "refactor: share NH acquisition marker constant [nh-marker-constant]"
+          git push origin HEAD:fix/nh-ejoy-current-run-gate-20260830
