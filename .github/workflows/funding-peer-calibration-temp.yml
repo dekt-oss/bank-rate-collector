@@ -1,0 +1,63 @@
+name: verify — funding Direct Peer production calibration
+
+on:
+  push:
+    branches: [feat/strategy-funding-peer-matrix-20260830]
+
+permissions:
+  contents: read
+
+jobs:
+  calibrate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv python install 3.12
+      - run: uv sync --locked
+      - name: Restore authoritative production DB
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+          R2_REGION: ${{ vars.R2_REGION }}
+        run: |
+          set -euo pipefail
+          mkdir -p work publish
+          uv run rate-monitor storage restore --dest work/rate_monitor.sqlite3
+          uv run alembic upgrade head
+      - name: Lint and targeted tests
+        run: |
+          uv run ruff check \
+            src/rate_monitor/services/institution_funding_peer_service.py \
+            src/rate_monitor/services/institution_funding_peer_db.py \
+            scripts/institution_funding_peer_calibration.py \
+            tests/test_institution_funding_peer_service.py
+          uv run pytest -q tests/test_institution_funding_peer_service.py
+      - name: Calibrate on NH/agri-coop production population
+        run: |
+          set -euo pipefail
+          uv run python scripts/institution_funding_peer_calibration.py \
+            --db work/rate_monitor.sqlite3 \
+            --sector nh_local \
+            --minimum-peer-count 8 \
+            --out publish/nh-direct-peer-calibration.json
+      - name: Calibrate on savings-bank production population
+        run: |
+          set -euo pipefail
+          uv run python scripts/institution_funding_peer_calibration.py \
+            --db work/rate_monitor.sqlite3 \
+            --sector savings_bank \
+            --minimum-peer-count 8 \
+            --out publish/savings-bank-direct-peer-calibration.json
+      - name: Upload compact calibration evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: funding-direct-peer-calibration-${{ github.run_id }}
+          retention-days: 14
+          path: publish/*-direct-peer-calibration.json
