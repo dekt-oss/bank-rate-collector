@@ -1,0 +1,89 @@
+name: verify — Rate Funding Matrix production temp
+
+on:
+  push:
+    branches: ["verify/rate-funding-matrix-prod-20260830"]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+      R2_BUCKET: ${{ vars.R2_BUCKET }}
+      R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+      R2_REGION: ${{ vars.R2_REGION }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv python install 3.12
+      - run: uv sync --locked
+      - name: Restore production DB
+        run: |
+          set -euo pipefail
+          mkdir -p work
+          uv run rate-monitor storage restore --dest work/rate_monitor.sqlite3
+      - name: Apply migrations
+        env:
+          RATE_MONITOR_DB_URL: sqlite+pysqlite:///${{ github.workspace }}/work/rate_monitor.sqlite3
+        run: uv run alembic upgrade head
+      - name: Verify fail-closed production matrix payload
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+          from rate_monitor.services.strategy_service import build_strategy_summary
+          db=Path('work/rate_monitor.sqlite3')
+          matrix=build_strategy_summary(db)['rate_funding_matrix']
+          sb=matrix['sectors']['savings_bank']
+          nh=matrix['sectors']['nh_local']
+          assert matrix['contract']['current_rate_carryback'] is False
+          assert sb['historical_rate_institutions']==0 and sb['paired_institutions']==0
+          assert nh['historical_rate_institutions']==0 and nh['paired_institutions']==0
+          assert sb['current_rate_institutions_not_carried_back']==66, sb
+          assert nh['current_rate_institutions_not_carried_back']==1081, nh
+          Path('work/rate-funding-matrix-production.json').write_text(json.dumps(matrix,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+          print(json.dumps(matrix,ensure_ascii=False))
+          PY
+      - name: Build Strategy site
+        env:
+          RATE_MONITOR_STRATEGY_DASHBOARD: "1"
+        run: |
+          uv run rate-monitor build-site --db work/rate_monitor.sqlite3 --template web/templates/site.html --out work/site-public
+          grep -q 'id="rate-funding-matrix-script"' work/site-public/strategy.html
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install browser runner
+        run: |
+          command -v google-chrome
+          npm install --no-save --package-lock=false @playwright/test@1.61.1
+          node --check scripts/rate_funding_matrix_runtime_smoke.js
+      - name: Run desktop/mobile Chrome Matrix smoke
+        env:
+          STRATEGY_PREVIEW_BASE_URL: http://127.0.0.1:4173
+        run: |
+          set -euo pipefail
+          python -m http.server 4173 --directory work/site-public > work/rate-funding-http.log 2>&1 &
+          PID=$!
+          trap 'kill "$PID" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 30); do curl -fsS http://127.0.0.1:4173/strategy.html >/dev/null && break; sleep 1; done
+          node scripts/rate_funding_matrix_runtime_smoke.js
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rate-funding-matrix-production-${{ github.run_id }}
+          path: |
+            work/rate-funding-matrix-production.json
+            work/rate-funding-matrix-*.png
+            work/rate-funding-http.log
+          retention-days: 30
+          if-no-files-found: warn
