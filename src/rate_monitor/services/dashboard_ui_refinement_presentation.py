@@ -67,6 +67,7 @@ def inject_dashboard_ui_refinement(html: str) -> str:
     # decision cockpit이 먼저 합성된 실제 site build에서만 적용한다.
     if 'id="market-scope"' not in rendered or 'id="rate-response-cockpit-script"' in rendered:
         rendered = inject_dashboard_filter_decision_ux(rendered)
+    # Exact-source browser evidence trigger for final batch Direct Peer build.
     if 'id="market-scope"' in rendered:
         rendered = inject_institution_funding_position(rendered)
     rendered = repair_strategy_product_scope_runtime(rendered)
