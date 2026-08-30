@@ -45,7 +45,9 @@ def test_the_sources_without_a_max_rate_are_the_ones_we_measured() -> None:
     without = {
         name for name, cls in _adapters().items() if not cls.provides_max_rate
     }
-    assert without == {"kfcc", "nh_local"}
+    # NH G2는 공식 e-joy 가산행을 exact target base-rate와 연결한
+    # internet variant에만 source-derived max_rate를 제공한다.
+    assert without == {"kfcc"}
 
 
 def test_every_adapter_declares_its_sector() -> None:
