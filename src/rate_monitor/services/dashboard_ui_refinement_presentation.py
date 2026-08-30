@@ -33,6 +33,9 @@ from rate_monitor.services.dashboard_search_performance_presentation import (
 from rate_monitor.services.dashboard_strategy_decision_clarity_presentation import (
     inject_dashboard_strategy_decision_clarity,
 )
+from rate_monitor.services.institution_funding_position_presentation import (
+    inject_institution_funding_position,
+)
 from rate_monitor.services.main_map_drilldown_refinement import (
     inject_main_map_drilldown_refinement,
 )
@@ -64,5 +67,7 @@ def inject_dashboard_ui_refinement(html: str) -> str:
     # decision cockpit이 먼저 합성된 실제 site build에서만 적용한다.
     if 'id="market-scope"' not in rendered or 'id="rate-response-cockpit-script"' in rendered:
         rendered = inject_dashboard_filter_decision_ux(rendered)
+    if 'id="market-scope"' in rendered:
+        rendered = inject_institution_funding_position(rendered)
     rendered = repair_strategy_product_scope_runtime(rendered)
     return inject_collection_health_live_signal(rendered)
