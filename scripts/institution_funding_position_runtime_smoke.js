@@ -28,20 +28,23 @@ async function assertFundingPanel(page, label) {
   const data = await payload(page);
   invariant(data?.available === true, `${label}: institution funding payload unavailable`);
   invariant(data?.sectors?.savings_bank, `${label}: production savings-bank funding sector missing`);
-  invariant(!data?.sectors?.cu, `${label}: CU must not appear before canonical CU publication`);
+  invariant(data?.sectors?.nh_local, `${label}: production NH funding sector missing`);
+  invariant(data?.contract?.direct_peer?.nh_local_requested_count === 16, `${label}: calibrated NH Direct Peer N is not 16`);
+  invariant(Array.isArray(data?.contract?.direct_peer?.enabled_sectors) && data.contract.direct_peer.enabled_sectors.includes("nh_local"), `${label}: NH Direct Peer is not explicitly enabled`);
+  invariant(data?.sectors?.savings_bank?.direct_peer?.enabled === false, `${label}: savings-bank Direct Peer must stay disabled before sector-specific calibration`);
 
   const tabs = page.locator("#funding-position-tabs button");
-  invariant(await tabs.count() >= 1, `${label}: funding sector tabs missing`);
+  invariant(await tabs.count() >= 2, `${label}: funding sector tabs missing`);
   const activeText = (await page.locator("#funding-position-tabs button.active").textContent()).trim();
   invariant(activeText === "저축은행", `${label}: default funding tab is not 저축은행: ${activeText}`);
 
   const status = (await page.locator("#funding-position-status").textContent()).trim();
   invariant(status.includes("기준") && status.includes("공시") && status.includes("개월 경과"), `${label}: freshness metadata missing`);
-  invariant(status.includes("동월 관측"), `${label}: same-month coverage wording missing`);
+  invariant(status.includes("동월 관측") || status.includes("부분 관측"), `${label}: measured coverage wording missing`);
 
   const note = (await page.locator("#funding-position-note").textContent()).trim();
-  invariant(note.includes("수집 성공률과 다른 개념"), `${label}: coverage meaning boundary missing`);
   invariant(note.includes("ECOS 업권 수신잔액과 합계 일치를 전제하지 않고"), `${label}: ECOS contract boundary missing`);
+  invariant(note.includes("연관성 지표"), `${label}: association-not-causation boundary missing`);
 
   const countText = (await page.locator("#funding-position-count").textContent()).trim();
   invariant(countText.includes("총"), `${label}: table truncation disclosure missing`);
@@ -49,16 +52,35 @@ async function assertFundingPanel(page, label) {
 
   await page.locator('#funding-position-sort button[data-sort="growth6"]').click();
   invariant(await page.locator('#funding-position-sort button[data-sort="growth6"]').evaluate((node) => node.classList.contains("active")), `${label}: 6M sort did not activate`);
-  await page.locator('#funding-position-sort button[data-sort="peer"]').click();
-  invariant(await page.locator('#funding-position-sort button[data-sort="peer"]').evaluate((node) => node.classList.contains("active")), `${label}: peer sort did not activate`);
+  await page.locator('#funding-position-sort button[data-sort="sectorPeer"]').click();
+  invariant(await page.locator('#funding-position-sort button[data-sort="sectorPeer"]').evaluate((node) => node.classList.contains("active")), `${label}: sector-median sort did not activate`);
+  invariant(await page.locator('#funding-position-sort button[data-sort="directPeer"]').count() === 0, `${label}: disabled sector exposed Direct Peer sort`);
 
   const nhTab = page.locator('#funding-position-tabs button[data-sector="nh_local"]');
-  if (await nhTab.count()) {
-    await nhTab.click();
-    const nhStatus = (await page.locator("#funding-position-status").textContent()).trim();
-    invariant(nhStatus.includes("반기 공시"), `${label}: NH cadence label missing`);
-    invariant(await page.locator("#funding-position-table-body tbody tr").count() > 0, `${label}: NH funding table empty after tab switch`);
-  }
+  invariant(await nhTab.count() === 1, `${label}: NH funding tab missing`);
+  await nhTab.click();
+
+  const nh = (await payload(page)).sectors.nh_local;
+  invariant(nh.direct_peer?.enabled === true, `${label}: NH Direct Peer payload disabled`);
+  invariant(nh.direct_peer?.requested_count === 16, `${label}: NH Direct Peer payload N mismatch`);
+  invariant(Array.isArray(nh.rows) && nh.rows.length > 0, `${label}: NH payload rows empty`);
+  invariant(nh.rows.every((row) => row.direct_peer_count === 16), `${label}: NH row has Direct Peer shortfall or wrong count`);
+  invariant(nh.rows.every((row) => ["sigungu", "sido", "nationwide"].includes(row.direct_peer_scope)), `${label}: NH row has invalid Direct Peer scope`);
+
+  const nhStatus = (await page.locator("#funding-position-status").textContent()).trim();
+  invariant(nhStatus.includes("반기 공시"), `${label}: NH cadence label missing`);
+  invariant(nhStatus.includes("Direct Peer 16"), `${label}: NH Direct Peer status badge missing`);
+  invariant(await page.locator("#funding-position-table-body tbody tr").count() > 0, `${label}: NH funding table empty after tab switch`);
+  invariant(await page.locator('th:has-text("Direct Peer 16 대비")').count() === 1, `${label}: NH Direct Peer column missing`);
+
+  const directSort = page.locator('#funding-position-sort button[data-sort="directPeer"]');
+  invariant(await directSort.count() === 1, `${label}: NH Direct Peer sort missing`);
+  await directSort.click();
+  invariant(await directSort.evaluate((node) => node.classList.contains("active")), `${label}: NH Direct Peer sort did not activate`);
+
+  const nhNote = (await page.locator("#funding-position-note").textContent()).trim();
+  invariant(nhNote.includes("시군구→시도→전국"), `${label}: Direct Peer fallback contract missing`);
+  invariant(nhNote.includes("수신규모가 가까운 16개"), `${label}: Direct Peer size-neighbor contract missing`);
 }
 
 async function runViewport(browser, viewport, name) {
