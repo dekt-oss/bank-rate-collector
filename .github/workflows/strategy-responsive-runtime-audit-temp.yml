@@ -1,0 +1,43 @@
+name: Strategy responsive runtime audit temp
+
+on:
+  push:
+    branches: [audit/strategy-responsive-runtime-20260830]
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install Playwright runner
+        run: |
+          set -euo pipefail
+          command -v google-chrome
+          google-chrome --version
+          npm install --no-save --package-lock=false @playwright/test@1.61.1
+          node --check scripts/strategy_responsive_runtime_audit.js
+      - name: Audit production Strategy desktop and mobile runtime
+        env:
+          PRODUCTION_URL: https://bank-rate-collector.vercel.app
+          DASHBOARD_PASSWORD: ${{ secrets.DASHBOARD_PASSWORD }}
+        run: |
+          set -euo pipefail
+          node scripts/strategy_responsive_runtime_audit.js | tee work/strategy-responsive-audit/summary.txt
+      - name: Upload responsive audit evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: strategy-responsive-runtime-audit-${{ github.run_id }}
+          path: |
+            work/strategy-responsive-audit/report.json
+            work/strategy-responsive-audit/summary.txt
+            work/strategy-responsive-audit/*.png
+          retention-days: 30
+          if-no-files-found: warn
