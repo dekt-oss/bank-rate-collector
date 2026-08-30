@@ -49,6 +49,9 @@ from rate_monitor.services.resumable_acquisition import (
 from rate_monitor.services.storage_service import ObjectStore
 
 NH_ACQUISITION_CONTRACT_VERSION = 2
+NH_ACQUISITION_CONTRACT_MARKER = (
+    f"nh_acquisition_contract=v{NH_ACQUISITION_CONTRACT_VERSION}"
+)
 NH_CHECKPOINT_FLUSH_ITEMS = 200
 NH_CHECKPOINT_FLUSH_SECONDS = 5 * 60.0
 LIST_WORK_KEY = f"directory:{LIST_SCREEN}"
@@ -540,7 +543,7 @@ class NhResumableAdapter(NhLocalAdapter):
             self._retry_delay_seconds = float(state.get("retry_delay_seconds") or 0.0)
 
     def _set_fetch_notes(self, guard: RepeatGuard) -> None:
-        self.fetch_note = guard.summary()
+        self.fetch_note = f"{NH_ACQUISITION_CONTRACT_MARKER} · {guard.summary()}"
         retry_note = self._retry_note()
         if retry_note:
             self.fetch_note = f"{self.fetch_note} · {retry_note}"
