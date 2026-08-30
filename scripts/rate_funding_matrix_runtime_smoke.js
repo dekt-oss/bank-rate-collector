@@ -35,24 +35,36 @@ async function runViewport(browser, viewport, name) {
   invariant(payload.contract?.causal_interpretation === false, `${name}: causal contract broken`);
 
   const sectors = payload.sectors || {};
-  invariant(sectors.savings_bank, `${name}: savings-bank matrix evidence missing`);
-  invariant(sectors.nh_local, `${name}: NH matrix evidence missing`);
+  const savings = sectors.savings_bank;
+  const nh = sectors.nh_local;
+  invariant(savings, `${name}: savings-bank matrix evidence missing`);
+  invariant(nh, `${name}: NH matrix evidence missing`);
 
-  for (const sector of ["savings_bank", "nh_local"]) {
-    const item = sectors[sector];
-    invariant(item.available === false, `${name}: ${sector} must remain fail-closed without historical rates`);
-    invariant(item.status === "historical_rate_unavailable", `${name}: ${sector} status mismatch`);
-    invariant(item.historical_rate_institutions === 0, `${name}: ${sector} unexpectedly has historical aligned rates`);
-    invariant(item.paired_institutions === 0, `${name}: ${sector} unexpectedly has exact pairs`);
-    invariant(item.current_rate_institutions_not_carried_back > 0, `${name}: ${sector} has no current-rate carryback evidence`);
-  }
+  invariant(savings.available === false, `${name}: savings bank must remain fail-closed`);
+  invariant(savings.status === "historical_rate_unavailable", `${name}: savings status mismatch`);
+  invariant(savings.historical_rate_institutions === 0, `${name}: savings historical rate unexpectedly available`);
+  invariant(savings.paired_institutions === 0, `${name}: savings exact pair unexpectedly available`);
+  invariant(savings.current_rate_institutions > 0, `${name}: savings current-rate evidence missing`);
 
-  const bodyText = (await page.locator("#rate-funding-matrix").textContent()).trim();
-  invariant(bodyText.includes("시점정합 금리 이력이 부족"), `${name}: fail-closed explanation missing`);
+  invariant(nh.available === false, `${name}: NH must remain fail-closed`);
+  invariant(nh.status === "rate_data_unavailable", `${name}: NH rate-data status mismatch`);
+  invariant(nh.historical_rate_institutions === 0, `${name}: NH historical rate unexpectedly available`);
+  invariant(nh.paired_institutions === 0, `${name}: NH exact pair unexpectedly available`);
+  invariant(nh.current_rate_institutions === 0, `${name}: NH current rate should be absent in production evidence`);
+
+  let bodyText = (await page.locator("#rate-funding-matrix").textContent()).trim();
+  invariant(bodyText.includes("시점정합 금리 이력이 부족"), `${name}: savings fail-closed explanation missing`);
   invariant(bodyText.includes("현재 공시금리가 존재하더라도 과거 수신잔액에 소급해 붙이지 않습니다"), `${name}: no-carryback explanation missing`);
   invariant(bodyText.includes("presentation.db_only_sources 우선순위"), `${name}: source precedence explanation missing`);
   invariant(bodyText.includes("인과효과 판정이 아닙니다"), `${name}: association boundary missing`);
   invariant(await page.locator("#rate-funding-matrix svg").count() === 0, `${name}: chart rendered despite zero exact pairs`);
+
+  await page.locator('#rate-funding-matrix-tabs button[data-sector="nh_local"]').click();
+  bodyText = (await page.locator("#rate-funding-matrix").textContent()).trim();
+  invariant(bodyText.includes("금리 데이터 미수집"), `${name}: NH missing-rate badge missing`);
+  invariant(bodyText.includes("이 업권의 12개월 공시금리 데이터가 없어"), `${name}: NH missing-rate explanation missing`);
+  invariant(bodyText.includes("이름 유사 매칭이나 다른 업권 금리를 대신 붙이지 않습니다"), `${name}: NH exact-identity boundary missing`);
+  invariant(await page.locator("#rate-funding-matrix svg").count() === 0, `${name}: NH chart rendered without rate data`);
 
   await page.screenshot({ path: path.join(workDir, `rate-funding-matrix-${name}.png`), fullPage: true });
   invariant(runtimeErrors.length === 0, `${name} runtime errors:\n${runtimeErrors.join("\n")}`);
