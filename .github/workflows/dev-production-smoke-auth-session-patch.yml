@@ -1,0 +1,90 @@
+name: Dev production smoke auth-session patch
+on:
+  push:
+    branches: [fix/production-smoke-auth-session-20260830]
+permissions:
+  contents: write
+jobs:
+  patch:
+    if: ${{ !contains(github.event.head_commit.message, '[prod-smoke-auth-patched]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/production-smoke-auth-session-20260830
+      - name: Patch auth-aware production browser smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          js = Path('scripts/main_map_runtime_smoke.js')
+          text = js.read_text(encoding='utf-8')
+          text = text.replace(
+              'const path = require("node:path");\n',
+              'const path = require("node:path");\nconst crypto = require("node:crypto");\n',
+              1,
+          )
+          text = text.replace(
+              'const cropMode = process.env.EXPECT_MAIN_MAP_CROP;\n',
+              'const cropMode = process.env.EXPECT_MAIN_MAP_CROP;\nconst siteAuthPassword = process.env.SITE_AUTH_PASSWORD || "";\n',
+              1,
+          )
+          anchor = '''function invariant(condition, message) {\n  if (!condition) throw new Error(message);\n}\n'''
+          helper = anchor + '''\nfunction siteSessionToken(password) {\n  return crypto\n    .createHash("sha256")\n    .update(`bank-rate-collector:site-session:v1\\0${password}`)\n    .digest("base64url");\n}\n\nasync function newSmokePage(browser, viewport) {\n  const context = await browser.newContext({ viewport });\n  if (siteAuthPassword) {\n    const origin = new URL(baseUrl).origin;\n    await context.addCookies([{\n      name: "__Host-rate_monitor_auth",\n      value: siteSessionToken(siteAuthPassword),\n      url: origin,\n      httpOnly: true,\n      secure: origin.startsWith("https://"),\n      sameSite: "Strict",\n    }]);\n  }\n  return { context, page: await context.newPage() };\n}\n'''
+          if 'function siteSessionToken(password)' not in text:
+              if anchor not in text:
+                  raise SystemExit('invariant anchor missing')
+              text = text.replace(anchor, helper, 1)
+          old = '''async function captureScenario(browser, name, viewport) {\n  const page = await browser.newPage({ viewport });\n  await waitForMain(page);\n'''
+          new = '''async function captureScenario(browser, name, viewport) {\n  const { context, page } = await newSmokePage(browser, viewport);\n  await waitForMain(page);\n'''
+          if old not in text:
+              raise SystemExit('captureScenario anchor missing')
+          text = text.replace(old, new, 1)
+          old_return = '''  return {\n    national: { ...national, overlaps: nationalOverlaps, jejuTooltip },\n    busan: { ...busan, overlaps: busanOverlaps },\n  };\n}\n'''
+          new_return = '''  const result = {\n    national: { ...national, overlaps: nationalOverlaps, jejuTooltip },\n    busan: { ...busan, overlaps: busanOverlaps },\n  };\n  await context.close();\n  return result;\n}\n'''
+          if old_return not in text:
+              raise SystemExit('capture return anchor missing')
+          text = text.replace(old_return, new_return, 1)
+          js.write_text(text, encoding='utf-8')
+
+          wf = Path('.github/workflows/strategy-main-runtime-e2e.yml')
+          text = wf.read_text(encoding='utf-8')
+          old = '''      - name: Run desktop and mobile Chrome smoke against local build and production\n        env:\n          STRATEGY_PREVIEW_BASE_URL: http://127.0.0.1:4173\n'''
+          new = '''      - name: Run desktop and mobile Chrome smoke against local build and production\n        env:\n          STRATEGY_PREVIEW_BASE_URL: http://127.0.0.1:4173\n          SITE_AUTH_PASSWORD: ${{ secrets.SITE_ACCESS_PASSWORD || secrets.DASHBOARD_PASSWORD }}\n'''
+          if old not in text:
+              raise SystemExit('runtime workflow env anchor missing')
+          text = text.replace(old, new, 1)
+          wf.write_text(text, encoding='utf-8')
+
+          prod = Path('.github/workflows/production-smoke.yml')
+          text = prod.read_text(encoding='utf-8')
+          old = '          DASHBOARD_PASSWORD: ${{ secrets.DASHBOARD_PASSWORD }}\n'
+          new = '          DASHBOARD_PASSWORD: ${{ secrets.SITE_ACCESS_PASSWORD || secrets.DASHBOARD_PASSWORD }}\n'
+          if old not in text:
+              raise SystemExit('production smoke secret anchor missing')
+          prod.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          test = Path('tests/test_strategy_main_runtime_e2e_workflow_contract.py')
+          text = test.read_text(encoding='utf-8')
+          marker = '    assert "strategy_workspace_smoke.js" in text\n'
+          addition = marker + '    assert "SITE_ACCESS_PASSWORD || secrets.DASHBOARD_PASSWORD" in text\n'
+          if addition not in text:
+              if marker not in text:
+                  raise SystemExit('workflow contract test anchor missing')
+              text = text.replace(marker, addition, 1)
+          test.write_text(text, encoding='utf-8')
+          PY
+          node --check scripts/main_map_runtime_smoke.js
+          uv run ruff check tests/test_strategy_main_runtime_e2e_workflow_contract.py
+          uv run pytest -q tests/test_strategy_main_runtime_e2e_workflow_contract.py
+      - name: Commit patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add scripts/main_map_runtime_smoke.js .github/workflows/strategy-main-runtime-e2e.yml .github/workflows/production-smoke.yml tests/test_strategy_main_runtime_e2e_workflow_contract.py
+          git commit -m 'fix: auth-aware production runtime smoke [prod-smoke-auth-patched]'
+          git push origin HEAD:fix/production-smoke-auth-session-20260830
