@@ -161,15 +161,15 @@ def select_direct_peers(
 
     peers = [point for point in population if point.institution_id != institution_id]
     scope, candidates = _scope_candidates(target, peers, requested_count)
+    target_log = target.balance.ln()
+    distance_by_id = {
+        peer.institution_id: abs(target_log - peer.balance.ln()) for peer in candidates
+    }
     ranked = sorted(
         candidates,
-        key=lambda peer: (
-            _distance(target.balance, peer.balance),
-            peer.institution_id,
-        ),
+        key=lambda peer: (distance_by_id[peer.institution_id], peer.institution_id),
     )
     selected = ranked[:requested_count]
-    distances = [_distance(target.balance, peer.balance) for peer in selected]
     growth_values = [
         peer.growth_6m_pct for peer in selected if peer.growth_6m_pct is not None
     ]
@@ -186,12 +186,108 @@ def select_direct_peers(
         scope=scope,
         candidate_count=len(candidates),
         peer_ids=tuple(peer.institution_id for peer in selected),
-        max_log_balance_distance=max(distances) if distances else None,
+        max_log_balance_distance=(
+            max(distance_by_id[peer.institution_id] for peer in selected)
+            if selected
+            else None
+        ),
         peer_median_growth_6m=peer_median,
         target_growth_6m=target.growth_6m_pct,
         relative_growth_6m_vs_direct_peer=relative,
         shortfall=len(selected) < requested_count,
     )
+
+
+def calibrate_direct_peer_counts(
+    points: Iterable[DirectPeerPoint],
+    *,
+    sector: str,
+    requested_counts: Iterable[int],
+) -> dict[int, DirectPeerCalibration]:
+    """Measure several candidate N values with one distance ranking per target."""
+    counts = tuple(sorted(set(requested_counts)))
+    if not counts or any(count < 1 for count in counts):
+        raise ValueError("requested_counts must contain positive integers")
+
+    population = _eligible_points(points, sector)
+    logs = {point.institution_id: point.balance.ln() for point in population}
+    distances_by_count: dict[int, list[Decimal]] = {count: [] for count in counts}
+    scopes_by_count: dict[int, Counter[str]] = {count: Counter() for count in counts}
+    full_by_count = {count: 0 for count in counts}
+    growth_by_count = {count: 0 for count in counts}
+
+    for target in population:
+        peers = [point for point in population if point.institution_id != target.institution_id]
+        target_log = logs[target.institution_id]
+        distance_by_id = {
+            peer.institution_id: abs(target_log - logs[peer.institution_id]) for peer in peers
+        }
+        ranked_all = sorted(
+            peers,
+            key=lambda peer: (distance_by_id[peer.institution_id], peer.institution_id),
+        )
+        ranked_sido = (
+            [peer for peer in ranked_all if peer.region_sido == target.region_sido]
+            if target.region_sido
+            else []
+        )
+        ranked_sigungu = (
+            [
+                peer
+                for peer in ranked_sido
+                if peer.region_sigungu == target.region_sigungu
+            ]
+            if target.region_sido and target.region_sigungu
+            else []
+        )
+
+        for count in counts:
+            if len(ranked_sigungu) >= count:
+                scope = "sigungu"
+                candidates = ranked_sigungu
+            elif len(ranked_sido) >= count:
+                scope = "sido"
+                candidates = ranked_sido
+            else:
+                scope = "nationwide"
+                candidates = ranked_all
+
+            selected = candidates[:count]
+            scopes_by_count[count][scope] += 1
+            if len(selected) == count:
+                full_by_count[count] += 1
+            if selected:
+                distances_by_count[count].append(
+                    max(distance_by_id[peer.institution_id] for peer in selected)
+                )
+            peer_median = _median(
+                [
+                    peer.growth_6m_pct
+                    for peer in selected
+                    if peer.growth_6m_pct is not None
+                ]
+            )
+            if target.growth_6m_pct is not None and peer_median is not None:
+                growth_by_count[count] += 1
+
+    return {
+        count: DirectPeerCalibration(
+            sector=sector,
+            requested_count=count,
+            target_count=len(population),
+            full_count=full_by_count[count],
+            shortfall_count=len(population) - full_by_count[count],
+            scope_counts=dict(sorted(scopes_by_count[count].items())),
+            max_log_distance_p50=_nearest_rank(
+                distances_by_count[count], Decimal(50)
+            ),
+            max_log_distance_p90=_nearest_rank(
+                distances_by_count[count], Decimal(90)
+            ),
+            growth_comparison_count=growth_by_count[count],
+        )
+        for count in counts
+    }
 
 
 def calibrate_direct_peer_count(
@@ -201,33 +297,8 @@ def calibrate_direct_peer_count(
     requested_count: int,
 ) -> DirectPeerCalibration:
     """Measure one candidate N without assigning an arbitrary quality score."""
-    population = _eligible_points(points, sector)
-    selections = [
-        select_direct_peers(
-            population,
-            sector=sector,
-            institution_id=point.institution_id,
-            requested_count=requested_count,
-        )
-        for point in population
-    ]
-    distances = [
-        selection.max_log_balance_distance
-        for selection in selections
-        if selection.max_log_balance_distance is not None
-    ]
-    scope_counts = Counter(selection.scope for selection in selections)
-    return DirectPeerCalibration(
+    return calibrate_direct_peer_counts(
+        points,
         sector=sector,
-        requested_count=requested_count,
-        target_count=len(selections),
-        full_count=sum(not selection.shortfall for selection in selections),
-        shortfall_count=sum(selection.shortfall for selection in selections),
-        scope_counts=dict(sorted(scope_counts.items())),
-        max_log_distance_p50=_nearest_rank(distances, Decimal(50)),
-        max_log_distance_p90=_nearest_rank(distances, Decimal(90)),
-        growth_comparison_count=sum(
-            selection.relative_growth_6m_vs_direct_peer is not None
-            for selection in selections
-        ),
-    )
+        requested_counts=(requested_count,),
+    )[requested_count]
