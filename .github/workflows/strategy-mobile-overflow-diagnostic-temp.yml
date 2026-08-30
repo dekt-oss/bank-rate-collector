@@ -1,0 +1,29 @@
+name: Strategy mobile overflow diagnostic temp
+on:
+  push:
+    branches: [audit/strategy-responsive-runtime-20260830]
+permissions:
+  contents: read
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          ref: rate-data
+          path: published
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: npm install --no-save --package-lock=false @playwright/test@1.61.1
+      - name: Diagnose exact deployed payload
+        env:
+          STRATEGY_PREVIEW_BASE_URL: http://127.0.0.1:4173
+        run: |
+          set -euo pipefail
+          python -m http.server 4173 --directory published/site-public >/tmp/strategy-http.log 2>&1 &
+          P=$!; trap 'kill "$P" 2>/dev/null || true' EXIT
+          for i in $(seq 1 20); do curl -fsS http://127.0.0.1:4173/strategy.html >/dev/null && break || sleep 1; done
+          node scripts/strategy_mobile_overflow_diagnostic.js
