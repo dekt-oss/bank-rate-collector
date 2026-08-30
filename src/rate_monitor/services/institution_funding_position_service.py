@@ -168,6 +168,10 @@ def _freshness(sector: str, month: str) -> dict[str, Any]:
     }
 
 
+def _json_decimal(value: Any) -> str | None:
+    return str(value) if value is not None else None
+
+
 def _compact_rows(
     rows: list[dict[str, Any]],
     names: dict[str, str],
@@ -194,10 +198,12 @@ def _compact_rows(
                 "direct_peer_scope": direct.scope if direct else None,
                 "direct_peer_count": len(direct.peer_ids) if direct else None,
                 "direct_peer_median_growth_6m": (
-                    direct.peer_median_growth_6m if direct else None
+                    _json_decimal(direct.peer_median_growth_6m) if direct else None
                 ),
                 "relative_growth_6m_vs_direct_peer": (
-                    direct.relative_growth_6m_vs_direct_peer if direct else None
+                    _json_decimal(direct.relative_growth_6m_vs_direct_peer)
+                    if direct
+                    else None
                 ),
                 "direct_peer_shortfall": direct.shortfall if direct else None,
             }
