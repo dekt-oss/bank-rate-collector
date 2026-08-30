@@ -91,9 +91,9 @@ def _rate_rows(
     placeholders = ",".join("?" for _ in statuses)
     cutoff = _month_end(analysis_month)
     temporal_clause = (
-        "AND datetime(ro.valid_from) <= datetime(?) "
-        "AND (ro.valid_to IS NULL OR datetime(ro.valid_to) > datetime(?)) "
-        "AND (ro.source_effective_at IS NULL OR date(ro.source_effective_at) <= date(?))"
+        "AND ro.valid_from <= ? "
+        "AND (ro.valid_to IS NULL OR ro.valid_to > ?) "
+        "AND (ro.source_effective_at IS NULL OR ro.source_effective_at <= ?)"
         if historical
         else "AND ro.valid_to IS NULL"
     )
