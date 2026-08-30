@@ -12,6 +12,7 @@ from rate_monitor.services.institution_funding_position_service import (
 from rate_monitor.services.market_funding_strategy_service import (
     build_market_funding_strategy,
 )
+from rate_monitor.services.rate_funding_matrix_service import build_rate_funding_matrix
 from rate_monitor.services.strategy_product_history_service import build_product_history
 from rate_monitor.services.strategy_savings_trend_policy import (
     build_savings_trend_display_policy,
@@ -31,5 +32,10 @@ def build_strategy_summary(db_path: Path) -> dict[str, Any]:
     )
     summary["product_history"] = product_history
     summary["market_funding"] = build_market_funding_strategy(db_path)
-    summary["institution_funding_positions"] = build_institution_funding_positions(db_path)
+    funding_positions = build_institution_funding_positions(db_path)
+    summary["institution_funding_positions"] = funding_positions
+    summary["rate_funding_matrix"] = build_rate_funding_matrix(
+        db_path,
+        funding_positions=funding_positions,
+    )
     return summary

@@ -39,6 +39,9 @@ from rate_monitor.services.institution_funding_position_presentation import (
 from rate_monitor.services.main_map_drilldown_refinement import (
     inject_main_map_drilldown_refinement,
 )
+from rate_monitor.services.rate_funding_matrix_presentation import (
+    inject_rate_funding_matrix,
+)
 
 STYLE_MARKER = _base.STYLE_MARKER
 SCRIPT_MARKER = _base.SCRIPT_MARKER
@@ -69,5 +72,6 @@ def inject_dashboard_ui_refinement(html: str) -> str:
         rendered = inject_dashboard_filter_decision_ux(rendered)
     if 'id="market-scope"' in rendered:
         rendered = inject_institution_funding_position(rendered)
+        rendered = inject_rate_funding_matrix(rendered)
     rendered = repair_strategy_product_scope_runtime(rendered)
     return inject_collection_health_live_signal(rendered)
