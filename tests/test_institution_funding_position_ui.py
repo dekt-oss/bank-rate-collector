@@ -28,11 +28,20 @@ def _seed_contract_db(path: Path) -> None:
                 metric_code TEXT,
                 valid_to TEXT
             );
+            CREATE TABLE source_entity_links (
+                source_id TEXT,
+                entity_type TEXT,
+                entity_id TEXT,
+                valid_to TEXT
+            );
             CREATE TABLE institutions (
                 id TEXT PRIMARY KEY,
                 canonical_name TEXT
             );
             INSERT INTO institutions VALUES ('cu-a', '가나다신협');
+            INSERT INTO source_entity_links VALUES
+                ('cu', 'institution', 'cu-a', NULL),
+                ('cu', 'institution', 'cu-b', NULL);
             INSERT INTO institution_funding_observations VALUES
                 (
                     'cu-a', 'cu_disclosure', 'cu-a-key', 'credit_unions_source_reported',
@@ -61,7 +70,7 @@ def _seed_contract_db(path: Path) -> None:
         conn.close()
 
 
-def test_position_overview_uses_latest_month_and_funding_source_denominator(
+def test_position_overview_uses_latest_month_and_official_cu_denominator(
     tmp_path: Path, monkeypatch
 ) -> None:
     db = tmp_path / "rates.sqlite3"
@@ -120,39 +129,91 @@ def test_position_overview_uses_latest_month_and_funding_source_denominator(
     assert cu["rows"][0]["growth_12m_pct"] is None
     assert cu["freshness"]["cadence_label"] == "반기·정기공시"
     assert cu["freshness"]["next_reporting_month"] == "2026-12"
-    assert result["contract"]["metric_code"] == "deposit_liabilities_total"
-    assert result["contract"]["coverage_quality_threshold"] is None
-    assert result["contract"]["aggregate_equals_ecos"] is False
-    assert result["contract"]["missing_history_is_zero"] is False
-    assert result["contract"]["coverage_denominator"].startswith("same-month funding-source")
+    contract = result["contract"]
+    assert contract["metric_code"] == "deposit_liabilities_total"
+    assert contract["coverage_quality_threshold"] is None
+    assert contract["aggregate_equals_ecos"] is False
+    assert contract["missing_history_is_zero"] is False
+    assert contract["coverage_denominator"] == "sector-specific eligible institution population"
+    assert contract["coverage_denominator_by_sector"]["cu"].startswith(
+        "active official same-grain"
+    )
+    assert contract["coverage_denominator_by_sector"]["nh_local"].startswith(
+        "same-month Data.go"
+    )
 
 
-def test_funding_population_filter_excludes_verified_aggregate_shapes() -> None:
-    assert position_service._eligible_source_key(
-        "nh_local",
-        "0010027121020",
-        "agri_coops_local_units_source_reported",
-    )
-    assert not position_service._eligible_source_key(
-        "nh_local",
-        "030801S",
-        "agri_coops_local_units_source_reported",
-    )
-    assert not position_service._eligible_source_key(
-        "nh_local",
-        "0010027121020",
-        AGRI_COOP_CENTRAL_POPULATION_SCOPE,
-    )
-    assert not position_service._eligible_source_key(
-        "savings_bank",
-        "030350S",
-        "savings_banks_all_source_reported",
-    )
-    assert position_service._eligible_source_key(
-        "savings_bank",
-        "0010345",
-        "savings_banks_all_source_reported",
-    )
+def test_directory_denominator_counts_distinct_active_institutions(tmp_path: Path) -> None:
+    db = tmp_path / "directory.sqlite3"
+    conn = sqlite3.connect(db)
+    try:
+        conn.executescript(
+            """
+            CREATE TABLE source_entity_links (
+                source_id TEXT,
+                entity_type TEXT,
+                entity_id TEXT,
+                valid_to TEXT
+            );
+            INSERT INTO source_entity_links VALUES
+                ('cu', 'institution', 'cu-a', NULL),
+                ('cu', 'institution', 'cu-b', NULL),
+                ('cu', 'institution', 'cu-b', '2026-01-01'),
+                ('fsb', 'institution', 'sb-a', NULL),
+                ('other', 'institution', 'x', NULL);
+            """
+        )
+        assert position_service._directory_eligible_institutions(conn, "cu") == 2
+        assert position_service._directory_eligible_institutions(conn, "savings_bank") == 1
+        assert position_service._directory_eligible_institutions(conn, "nh_local") is None
+    finally:
+        conn.close()
+
+
+def test_nh_denominator_uses_same_month_real_local_coop_keys(tmp_path: Path) -> None:
+    db = tmp_path / "nh.sqlite3"
+    conn = sqlite3.connect(db)
+    try:
+        conn.executescript(
+            f"""
+            CREATE TABLE institution_funding_observations (
+                institution_id TEXT,
+                source_id TEXT,
+                source_institution_key TEXT,
+                population_scope TEXT,
+                sector TEXT,
+                source_effective_month TEXT,
+                identity_status TEXT,
+                metric_code TEXT,
+                valid_to TEXT
+            );
+            INSERT INTO institution_funding_observations VALUES
+                (NULL, 'data_go_agri_coop_funding', '0010027121020',
+                 'agri_coops_local_units_source_reported', 'nh_local', '2025-12',
+                 'unmapped_no_exact_cross_source_code', 'deposit_liabilities_total', NULL),
+                (NULL, 'data_go_agri_coop_funding', '0010027121021',
+                 'agri_coops_local_units_source_reported', 'nh_local', '2025-12',
+                 'unmapped_no_exact_cross_source_code', 'deposit_liabilities_total', NULL),
+                (NULL, 'data_go_agri_coop_funding', '0010027121022',
+                 '{AGRI_COOP_CENTRAL_POPULATION_SCOPE}', 'nh_local', '2025-12',
+                 'unmapped_no_exact_cross_source_code', 'deposit_liabilities_total', NULL),
+                (NULL, 'data_go_agri_coop_funding', '030801S',
+                 'agri_coops_local_units_source_reported', 'nh_local', '2025-12',
+                 'unmapped_no_exact_cross_source_code', 'deposit_liabilities_total', NULL),
+                (NULL, 'data_go_agri_coop_funding', '0321301S',
+                 'agri_coops_local_units_source_reported', 'nh_local', '2025-12',
+                 'unmapped_no_exact_cross_source_code', 'deposit_liabilities_total', NULL),
+                (NULL, 'data_go_agri_coop_funding', '0010027129999',
+                 'agri_coops_local_units_source_reported', 'nh_local', '2025-06',
+                 'unmapped_no_exact_cross_source_code', 'deposit_liabilities_total', NULL),
+                (NULL, 'data_go_agri_coop_funding', '0010027128888',
+                 'agri_coops_local_units_source_reported', 'nh_local', '2025-12',
+                 'unmapped_no_exact_cross_source_code', 'other_metric', NULL);
+            """
+        )
+        assert position_service._nh_funding_eligible_institutions(conn, "2025-12") == 2
+    finally:
+        conn.close()
 
 
 def test_position_presentation_is_strategy_only_and_idempotent() -> None:
