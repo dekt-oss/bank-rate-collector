@@ -23,6 +23,7 @@ def test_prepare_context_with_explicit_cycle_is_machine_readable(capsys) -> None
     assert payload["source_id"] == "nh_local"
     assert payload["cycle_date_kst"] == "2026-08-11"
     assert len(payload["request_fingerprint"]) == 64
+    # v2 separates checkpoints whose materialized rate artifacts carry e-joy evidence.
     assert payload["acquisition_contract_version"] == 2
 
 
