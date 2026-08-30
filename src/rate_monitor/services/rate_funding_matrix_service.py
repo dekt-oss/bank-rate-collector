@@ -200,7 +200,11 @@ def _sector_matrix(
     )
     paired = len(points)
     comparable_count = len(comparable)
-    status = "ready" if paired >= MIN_PAIRED_ROWS_FOR_QUADRANTS else "historical_rate_unavailable"
+    status = (
+        "ready"
+        if paired >= MIN_PAIRED_ROWS_FOR_QUADRANTS
+        else "historical_rate_unavailable"
+    )
     return {
         "sector": sector,
         "label": SECTOR_LABELS.get(sector, sector),
@@ -242,9 +246,14 @@ def build_rate_funding_matrix(
             sector=sector,
             analysis_month=str(data["analysis_month"]),
         )
+    display_order = [
+        sector
+        for sector in positions.get("display_order", [])
+        if sector in sectors
+    ]
     return {
         "available": any(item["available"] for item in sectors.values()),
-        "display_order": [sector for sector in positions.get("display_order", []) if sector in sectors],
+        "display_order": display_order,
         "sectors": sectors,
         "contract": {
             "x_axis": "12M representative advertised base rate",
