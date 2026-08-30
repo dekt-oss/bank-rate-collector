@@ -1,0 +1,78 @@
+name: verify — NH Direct Peer exact preview temp
+
+on:
+  push:
+    branches:
+      - feat/strategy-dashboard-nh-direct-peer-e2e-batch-20260830
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Fetch exact-source Strategy preview
+        env:
+          EXPECTED_SOURCE_SHA: c51b4983d683b5a6e54b8e52951a81cab99ec4bb
+        run: |
+          set -euo pipefail
+          mkdir -p work published
+          git fetch --force origin \
+            +preview/strategy-dashboard:refs/remotes/origin/preview/strategy-dashboard \
+            --depth=1
+          git show refs/remotes/origin/preview/strategy-dashboard:site-public/preview-source.json \
+            > work/preview-source.json
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          source = json.loads(Path('work/preview-source.json').read_text(encoding='utf-8')).get('source_sha')
+          expected = os.environ['EXPECTED_SOURCE_SHA']
+          assert source == expected, f'preview source mismatch: {source} != {expected}'
+          print(f'exact preview source={source}')
+          PY
+          git archive refs/remotes/origin/preview/strategy-dashboard site-public | tar -x -C published
+          test -s published/site-public/strategy.html
+
+      - name: Install Playwright runner
+        run: |
+          set -euo pipefail
+          command -v google-chrome
+          google-chrome --version
+          npm install --no-save --package-lock=false @playwright/test@1.61.1
+          node --check scripts/institution_funding_position_runtime_smoke.js
+
+      - name: Run Direct Peer desktop and mobile Chrome smoke
+        env:
+          STRATEGY_PREVIEW_BASE_URL: http://127.0.0.1:4173
+        run: |
+          set -euo pipefail
+          python -m http.server 4173 --directory published/site-public > work/http.log 2>&1 &
+          SERVER_PID=$!
+          trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:4173/strategy.html >/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:4173/strategy.html >/dev/null
+          node scripts/institution_funding_position_runtime_smoke.js
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nh-direct-peer-exact-preview-${{ github.run_id }}
+          path: |
+            work/institution-funding-*.png
+            work/preview-source.json
+            work/http.log
+          retention-days: 30
+          if-no-files-found: warn
