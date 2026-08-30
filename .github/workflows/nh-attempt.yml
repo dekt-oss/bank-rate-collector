@@ -374,6 +374,9 @@ jobs:
           cp -r site-public stage/site-public
           cp vercel.json stage/vercel.json
           cp -r web/api stage/api
+          cp web/runtime/middleware.js stage/middleware.js
+          cp web/runtime/auth-core.mjs stage/auth-core.mjs
+          cp web/runtime/package.json stage/package.json
 
       - name: Size gate
         if: ${{ steps.decision.outputs.publish == 'true' }}
@@ -428,11 +431,11 @@ jobs:
               -not -name .git -not -name work -not -name publish \
               -not -name stage -not -name data -not -name site \
               -not -name site-public -exec rm -rf {} +
-            rm -rf latest site site-public vercel.json api
+            rm -rf latest site site-public vercel.json api middleware.js auth-core.mjs package.json
             cp -r stage/latest stage/site-public stage/api .
-            cp stage/vercel.json .
+            cp stage/vercel.json stage/middleware.js stage/auth-core.mjs stage/package.json .
 
-            git add -f latest site-public vercel.json api
+            git add -f latest site-public vercel.json api middleware.js auth-core.mjs package.json
             git commit -q -m "data: NH 독립 수집 갱신 (run ${{ github.run_id }}, attempt ${{ inputs.attempt }})"
 
             if [ -n "$BEFORE" ]; then
