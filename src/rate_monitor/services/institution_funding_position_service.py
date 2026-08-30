@@ -85,9 +85,7 @@ def _eligible_source_key(sector: str, key: str, population_scope: str) -> bool:
         )
     if sector == "savings_bank":
         return key != SAVINGS_BANK_SECTOR_TOTAL_KEY
-    if sector == "cu":
-        return True
-    return False
+    return sector == "cu"
 
 
 def _eligible_institutions(
