@@ -5,6 +5,7 @@ on:
   pull_request:
     paths:
       - "vercel.json"
+      - "web/runtime/**"
       - "scripts/production_smoke.py"
       - "tests/test_production_smoke.py"
       - "tests/test_vercel_static_serving.py"
@@ -50,6 +51,7 @@ jobs:
       - name: Verify production root, strategy, freshness and health endpoint
         env:
           PRODUCTION_URL: https://bank-rate-collector.vercel.app
+          DASHBOARD_PASSWORD: ${{ secrets.DASHBOARD_PASSWORD }}
         run: |
           set -o pipefail
           python scripts/production_smoke.py \
