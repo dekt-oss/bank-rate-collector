@@ -37,6 +37,14 @@ def _seed_contract_db(path: Path) -> None:
                 (
                     'cu-a', 'cu', '2026-06', 'mapped_exact_cu_ingno',
                     'deposit_liabilities_total', NULL
+                ),
+                (
+                    'cu-a', 'cu', '2026-09', 'mapped_exact_future_status',
+                    'deposit_liabilities_total', NULL
+                ),
+                (
+                    'cu-a', 'cu', '2026-12', 'mapped_exact_cu_ingno',
+                    'other_future_metric', NULL
                 );
             INSERT INTO source_entity_links VALUES
                 ('cu', 'institution', 'cu-a', NULL),
@@ -100,10 +108,15 @@ def test_position_overview_uses_latest_month_and_active_identity_denominator(
     result = position_service.build_institution_funding_positions(db)
 
     assert result["available"] is True
+    assert result["display_order"] == ["cu"]
     cu = result["sectors"]["cu"]
     assert cu["coverage"]["eligible_institutions"] == 2
     assert cu["rows"][0]["institution"] == "가나다신협"
     assert cu["rows"][0]["growth_12m_pct"] is None
+    assert cu["freshness"]["cadence_label"] == "반기·정기공시"
+    assert cu["freshness"]["next_reporting_month"] == "2026-12"
+    assert result["contract"]["metric_code"] == "deposit_liabilities_total"
+    assert result["contract"]["coverage_quality_threshold"] is None
     assert result["contract"]["aggregate_equals_ecos"] is False
     assert result["contract"]["missing_history_is_zero"] is False
 
@@ -115,6 +128,13 @@ def test_position_presentation_is_strategy_only_and_idempotent() -> None:
     assert STYLE_MARKER in rendered
     assert SCRIPT_MARKER in rendered
     assert "기관 수신 포지션" in rendered
-    assert "부분 모집단" in rendered
-    assert "ECOS 업권 수신잔액과 합계 일치를 전제하지 않으며" in rendered
+    assert "부분 관측" in rendered
+    assert "부분 모집단" not in rendered
+    assert "수신규모순" in rendered
+    assert "6M 성장순" in rendered
+    assert "Peer 대비순" in rendered
+    assert "기관명 미확인" in rendered
+    assert "백분위 · 상위" in rendered
+    assert "수집 성공률과 다른 개념" in rendered
+    assert "ECOS 업권 수신잔액과 합계 일치를 전제하지 않고" in rendered
     assert inject_institution_funding_position(rendered) == rendered
