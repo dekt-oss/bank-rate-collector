@@ -78,16 +78,17 @@ production-copy에서 농·축협은:
 
 이 둘은 entity grain/population contract가 다르므로 `1,082 / 4,870 = 22.2%`는 funding 동월 관측률이 아니다.
 
-### 새 계약
+다만 이 문제를 이유로 모든 업권의 공식 directory 분모를 버리면 안 된다. 저축은행과 신협은 funding institution과 공식 directory가 같은 기관 grain이고, 특히 신협은 공식 대상 848개 대비 동월 관측 633개처럼 **미관측 기관까지 분모에 남기는 것**이 coverage의 의미다. source에서 실제 관측된 633개만 분모로 쓰면 잘못된 100%가 된다.
 
-coverage denominator는 **해당 funding analysis month에 해당 funding source가 보고한 실기관 source-key 모집단**으로 계산한다.
+### 새 업권별 계약
 
-- 저축은행: sector-total pseudo key `030350S` 제외
-- 농·축협: 검증된 local-coop institution key shape만 포함하고 central/aggregate row 제외
-- 신협: 현재 canonical source contract의 비어 있지 않은 institution source key 사용; 향후 aggregate shape가 도입되면 source-specific 검증 규칙을 먼저 추가
-- source/month/metric은 analysis row와 동일해야 함
-- missing exact identity는 observed에는 들어가지 않지만 eligible에는 들어가므로 identity coverage 손실이 그대로 드러남
-- 임의 품질 threshold는 만들지 않음
+- **저축은행**: active official same-grain institution directory를 denominator로 유지한다.
+- **신협**: active official same-grain institution directory를 denominator로 유지한다. 전국 candidate 실측의 `633/848` 의미를 보존한다.
+- **농·축협**: `nh_local` 금리 directory의 4,870개 entity는 funding local-coop population과 grain이 다르므로 사용하지 않는다. 해당 funding analysis month의 Data.go row 가운데 검증된 local-coop institution key shape만 distinct source-key로 센다.
+- 농·축협 central population row와 aggregate/지역합계 pseudo row는 denominator에서 제외한다.
+- analysis month와 metric은 position row와 동일해야 한다.
+- exact identity가 없는 실기관 funding source-key는 NH denominator에는 남고 observed에는 들어가지 않으므로 identity coverage 손실이 그대로 드러난다.
+- 임의 품질 threshold는 만들지 않는다.
 
 이 정의는 수집 성공률과도 별개다.
 
@@ -114,7 +115,7 @@ coverage denominator는 **해당 funding analysis month에 해당 funding source
 1. feature branch에서 production-copy restore
 2. standalone reconcile 실행
 3. mapping counts / mismatch counts 측정
-4. Strategy position coverage를 새 funding-source denominator로 재계산
+4. Strategy position coverage를 업권별 denominator 계약으로 재계산
 5. SQLite integrity / FK 검증
 6. 전체 CI 통과
 7. 코드 merge
