@@ -1,0 +1,47 @@
+name: Dev NH e-joy final cleanup
+on:
+  push:
+    branches: [fix/nh-resumable-ejoy-max-rate-20260830]
+permissions:
+  contents: write
+jobs:
+  finalize:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/nh-resumable-ejoy-max-rate-20260830
+      - name: Update stale contract tests and remove temporary workflows
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          p = Path('tests/test_gate_contract.py')
+          s = p.read_text(encoding='utf-8')
+          old = '    assert without == {"kfcc", "nh_local"}\n'
+          new = ('    # NH G2는 공식 e-joy 가산행을 exact target base-rate와 연결한\n'
+                 '    # internet variant에만 source-derived max_rate를 제공한다.\n'
+                 '    assert without == {"kfcc"}\n')
+          if s.count(old) != 1:
+              raise SystemExit(f'gate contract old expectation count={s.count(old)}')
+          p.write_text(s.replace(old, new, 1), encoding='utf-8')
+
+          p = Path('tests/test_nh_checkpoint_cli.py')
+          s = p.read_text(encoding='utf-8')
+          old = '    assert payload["acquisition_contract_version"] == 1\n'
+          new = '    assert payload["acquisition_contract_version"] == 2\n'
+          if s.count(old) != 1:
+              raise SystemExit(f'checkpoint version old expectation count={s.count(old)}')
+          p.write_text(s.replace(old, new, 1), encoding='utf-8')
+          PY
+          rm -f .github/workflows/dev-nh-ejoy-raw-replay.yml
+          rm -f .github/workflows/dev-nh-ejoy-finalize.yml
+      - name: Commit final branch state
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "test: align NH G2 checkpoint and max-rate contracts"
+          git push origin HEAD:fix/nh-resumable-ejoy-max-rate-20260830
