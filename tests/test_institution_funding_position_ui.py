@@ -1,6 +1,9 @@
 import sqlite3
 from pathlib import Path
 
+from rate_monitor.collectors.data_go_funding.aggregate_policy import (
+    AGRI_COOP_CENTRAL_POPULATION_SCOPE,
+)
 from rate_monitor.services import institution_funding_position_service as position_service
 from rate_monitor.services.institution_funding_position_presentation import (
     SCRIPT_MARKER,
@@ -16,16 +19,13 @@ def _seed_contract_db(path: Path) -> None:
             """
             CREATE TABLE institution_funding_observations (
                 institution_id TEXT,
+                source_id TEXT,
+                source_institution_key TEXT,
+                population_scope TEXT,
                 sector TEXT,
                 source_effective_month TEXT,
                 identity_status TEXT,
                 metric_code TEXT,
-                valid_to TEXT
-            );
-            CREATE TABLE source_entity_links (
-                source_id TEXT,
-                entity_type TEXT,
-                entity_id TEXT,
                 valid_to TEXT
             );
             CREATE TABLE institutions (
@@ -35,20 +35,25 @@ def _seed_contract_db(path: Path) -> None:
             INSERT INTO institutions VALUES ('cu-a', '가나다신협');
             INSERT INTO institution_funding_observations VALUES
                 (
-                    'cu-a', 'cu', '2026-06', 'mapped_exact_cu_ingno',
+                    'cu-a', 'cu_disclosure', 'cu-a-key', 'credit_unions_source_reported',
+                    'cu', '2026-06', 'mapped_exact_cu_ingno',
                     'deposit_liabilities_total', NULL
                 ),
                 (
-                    'cu-a', 'cu', '2026-09', 'mapped_exact_future_status',
+                    NULL, 'cu_disclosure', 'cu-b-key', 'credit_unions_source_reported',
+                    'cu', '2026-06', 'unmapped_no_exact_cross_source_code',
                     'deposit_liabilities_total', NULL
                 ),
                 (
-                    'cu-a', 'cu', '2026-12', 'mapped_exact_cu_ingno',
+                    'cu-a', 'cu_disclosure', 'cu-a-key', 'credit_unions_source_reported',
+                    'cu', '2026-09', 'mapped_exact_future_status',
+                    'deposit_liabilities_total', NULL
+                ),
+                (
+                    'cu-a', 'cu_disclosure', 'cu-a-key', 'credit_unions_source_reported',
+                    'cu', '2026-12', 'mapped_exact_cu_ingno',
                     'other_future_metric', NULL
                 );
-            INSERT INTO source_entity_links VALUES
-                ('cu', 'institution', 'cu-a', NULL),
-                ('cu', 'institution', 'cu-b', NULL);
             """
         )
         conn.commit()
@@ -56,7 +61,7 @@ def _seed_contract_db(path: Path) -> None:
         conn.close()
 
 
-def test_position_overview_uses_latest_month_and_active_identity_denominator(
+def test_position_overview_uses_latest_month_and_funding_source_denominator(
     tmp_path: Path, monkeypatch
 ) -> None:
     db = tmp_path / "rates.sqlite3"
@@ -119,6 +124,35 @@ def test_position_overview_uses_latest_month_and_active_identity_denominator(
     assert result["contract"]["coverage_quality_threshold"] is None
     assert result["contract"]["aggregate_equals_ecos"] is False
     assert result["contract"]["missing_history_is_zero"] is False
+    assert result["contract"]["coverage_denominator"].startswith("same-month funding-source")
+
+
+def test_funding_population_filter_excludes_verified_aggregate_shapes() -> None:
+    assert position_service._eligible_source_key(
+        "nh_local",
+        "0010027121020",
+        "agri_coops_local_units_source_reported",
+    )
+    assert not position_service._eligible_source_key(
+        "nh_local",
+        "030801S",
+        "agri_coops_local_units_source_reported",
+    )
+    assert not position_service._eligible_source_key(
+        "nh_local",
+        "0010027121020",
+        AGRI_COOP_CENTRAL_POPULATION_SCOPE,
+    )
+    assert not position_service._eligible_source_key(
+        "savings_bank",
+        "030350S",
+        "savings_banks_all_source_reported",
+    )
+    assert position_service._eligible_source_key(
+        "savings_bank",
+        "0010345",
+        "savings_banks_all_source_reported",
+    )
 
 
 def test_position_presentation_is_strategy_only_and_idempotent() -> None:
