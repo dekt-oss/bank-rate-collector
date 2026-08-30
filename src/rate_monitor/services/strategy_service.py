@@ -6,6 +6,9 @@ from pathlib import Path
 from typing import Any
 
 from rate_monitor.services import strategy_service_base as _base
+from rate_monitor.services.institution_funding_peer_matrix_service import (
+    build_institution_funding_peer_matrix,
+)
 from rate_monitor.services.institution_funding_position_service import (
     build_institution_funding_positions,
 )
@@ -32,4 +35,7 @@ def build_strategy_summary(db_path: Path) -> dict[str, Any]:
     summary["product_history"] = product_history
     summary["market_funding"] = build_market_funding_strategy(db_path)
     summary["institution_funding_positions"] = build_institution_funding_positions(db_path)
+    summary["institution_funding_peer_matrix"] = (
+        build_institution_funding_peer_matrix(db_path)
+    )
     return summary
