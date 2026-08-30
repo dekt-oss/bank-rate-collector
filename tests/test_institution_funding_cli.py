@@ -21,17 +21,16 @@ def _identity_payload(mapped: int) -> dict[str, object]:
     }
 
 
-def test_collect_reconciles_identity_before_and_after_collection(
+def test_collect_reconciles_historical_identity_before_collection(
     tmp_path: Path, monkeypatch
 ) -> None:
     db = tmp_path / "db.sqlite3"
     calls: list[str] = []
-    payloads = iter([_identity_payload(9), _identity_payload(0)])
 
     def fake_identity(db_path: Path) -> dict[str, object]:
         assert db_path == db
         calls.append("identity")
-        return next(payloads)
+        return _identity_payload(9)
 
     def fake_collect(**kwargs):
         assert kwargs["db_path"] == db
@@ -61,7 +60,7 @@ def test_collect_reconciles_identity_before_and_after_collection(
     )
 
     assert cli.main() == 0
-    assert calls == ["identity", "collect", "identity"]
+    assert calls == ["identity", "collect"]
 
 
 def test_standalone_identity_reconciliation_writes_evidence(
