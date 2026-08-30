@@ -1,0 +1,181 @@
+name: verify — NH funding identity production-copy
+
+on:
+  push:
+    branches: [fix/nh-funding-identity-reconciliation-20260830]
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv python install 3.12
+      - run: uv sync --locked
+
+      - name: Restore authoritative production DB into runner-local copy
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+          R2_REGION: ${{ vars.R2_REGION }}
+        run: |
+          set -euo pipefail
+          mkdir -p work publish
+          uv run rate-monitor storage restore --dest work/rate_monitor.sqlite3
+          RATE_MONITOR_DB_URL=sqlite+pysqlite:///${{ github.workspace }}/work/rate_monitor.sqlite3 \
+            uv run alembic upgrade head
+
+      - name: Measure exact-link eligibility and reconcile runner-local copy
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          import json
+          import sqlite3
+          from pathlib import Path
+
+          from rate_monitor.collectors.data_go_funding.identity_reconciliation import (
+              FUNDING_SOURCE_ID,
+              MAPPED_STATUS,
+              NH_RATE_SOURCE_ID,
+              reconcile_agri_funding_identity,
+          )
+          from rate_monitor.services.institution_funding_position_service import (
+              build_institution_funding_positions,
+          )
+
+          db = Path("work/rate_monitor.sqlite3")
+          conn = sqlite3.connect(db)
+          conn.row_factory = sqlite3.Row
+
+          def scalar(sql, params=()):
+              return conn.execute(sql, params).fetchone()[0]
+
+          before = {
+              "active_nh_observations": scalar(
+                  "SELECT COUNT(*) FROM institution_funding_observations "
+                  "WHERE source_id=? AND valid_to IS NULL",
+                  (FUNDING_SOURCE_ID,),
+              ),
+              "mapped_nh_observations": scalar(
+                  "SELECT COUNT(*) FROM institution_funding_observations "
+                  "WHERE source_id=? AND valid_to IS NULL AND institution_id IS NOT NULL",
+                  (FUNDING_SOURCE_ID,),
+              ),
+              "mapped_nh_institutions": scalar(
+                  "SELECT COUNT(DISTINCT institution_id) FROM institution_funding_observations "
+                  "WHERE source_id=? AND valid_to IS NULL AND institution_id IS NOT NULL",
+                  (FUNDING_SOURCE_ID,),
+              ),
+              "active_nh_rate_links": scalar(
+                  "SELECT COUNT(*) FROM source_entity_links "
+                  "WHERE source_id=? AND entity_type='institution' AND valid_to IS NULL",
+                  (NH_RATE_SOURCE_ID,),
+              ),
+              "active_nh_brc_links": scalar(
+                  "SELECT COUNT(*) FROM source_entity_links "
+                  "WHERE source_id=? AND entity_type='institution' AND valid_to IS NULL "
+                  "AND source_entity_key LIKE 'nh_local:%'",
+                  (NH_RATE_SOURCE_ID,),
+              ),
+              "nh_links_with_source_name": scalar(
+                  "SELECT COUNT(*) FROM source_entity_links "
+                  "WHERE source_id=? AND entity_type='institution' AND valid_to IS NULL "
+                  "AND source_entity_key LIKE 'nh_local:%' "
+                  "AND TRIM(COALESCE(source_name,'')) <> ''",
+                  (NH_RATE_SOURCE_ID,),
+              ),
+              "identity_status_counts": {
+                  str(row[0]): int(row[1])
+                  for row in conn.execute(
+                      "SELECT COALESCE(identity_status,'<null>'), COUNT(*) "
+                      "FROM institution_funding_observations "
+                      "WHERE source_id=? AND valid_to IS NULL GROUP BY identity_status",
+                      (FUNDING_SOURCE_ID,),
+                  )
+              },
+          }
+          conn.close()
+
+          result = reconcile_agri_funding_identity(db)
+
+          conn = sqlite3.connect(db)
+          conn.row_factory = sqlite3.Row
+          after = {
+              "mapped_nh_observations": conn.execute(
+                  "SELECT COUNT(*) FROM institution_funding_observations "
+                  "WHERE source_id=? AND valid_to IS NULL AND institution_id IS NOT NULL",
+                  (FUNDING_SOURCE_ID,),
+              ).fetchone()[0],
+              "mapped_exact_observations": conn.execute(
+                  "SELECT COUNT(*) FROM institution_funding_observations "
+                  "WHERE source_id=? AND valid_to IS NULL AND identity_status=?",
+                  (FUNDING_SOURCE_ID, MAPPED_STATUS),
+              ).fetchone()[0],
+              "mapped_nh_institutions": conn.execute(
+                  "SELECT COUNT(DISTINCT institution_id) FROM institution_funding_observations "
+                  "WHERE source_id=? AND valid_to IS NULL AND institution_id IS NOT NULL",
+                  (FUNDING_SOURCE_ID,),
+              ).fetchone()[0],
+              "identity_status_counts": {
+                  str(row[0]): int(row[1])
+                  for row in conn.execute(
+                      "SELECT COALESCE(identity_status,'<null>'), COUNT(*) "
+                      "FROM institution_funding_observations "
+                      "WHERE source_id=? AND valid_to IS NULL GROUP BY identity_status",
+                      (FUNDING_SOURCE_ID,),
+                  )
+              },
+              "integrity_check": conn.execute("PRAGMA integrity_check").fetchone()[0],
+              "foreign_key_violations": len(conn.execute("PRAGMA foreign_key_check").fetchall()),
+          }
+          conn.close()
+
+          positions = build_institution_funding_positions(db)
+          nh = positions.get("sectors", {}).get("nh_local")
+          payload = {
+              "before": before,
+              "reconciliation": {
+                  "scanned": result.scanned,
+                  "eligible": result.eligible,
+                  "mapped": result.mapped,
+                  "unchanged": result.unchanged,
+                  "no_brc_link": result.no_brc_link,
+                  "name_mismatch": result.name_mismatch,
+                  "invalid_link": result.invalid_link,
+              },
+              "after": after,
+              "nh_strategy_position": None if nh is None else {
+                  "analysis_month": nh["analysis_month"],
+                  "observed": nh["coverage"]["observed_institutions"],
+                  "eligible": nh["coverage"]["eligible_institutions"],
+                  "coverage_ratio": nh["coverage"]["coverage_ratio"],
+                  "growth_6m": nh["availability"]["growth_6m_institutions"],
+                  "growth_12m": nh["availability"]["growth_12m_institutions"],
+                  "freshness": nh["freshness"],
+              },
+          }
+          assert after["integrity_check"] == "ok"
+          assert after["foreign_key_violations"] == 0
+          Path("publish/nh-funding-identity-production-copy.json").write_text(
+              json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          print(json.dumps(payload, ensure_ascii=False))
+          PY
+
+      - name: Upload compact evidence only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nh-funding-identity-production-copy-${{ github.run_id }}
+          retention-days: 14
+          path: publish/nh-funding-identity-production-copy.json
