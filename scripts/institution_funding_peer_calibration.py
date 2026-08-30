@@ -11,7 +11,6 @@ from typing import Any
 
 from rate_monitor.services.institution_funding_peer_db import load_funding_peer_points
 from rate_monitor.services.institution_funding_peer_service import (
-    FundingPeerPoint,
     select_direct_funding_peers,
 )
 from rate_monitor.services.institution_funding_position_service import (
