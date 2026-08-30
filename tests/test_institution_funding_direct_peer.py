@@ -5,6 +5,7 @@ import pytest
 from rate_monitor.services.institution_funding_direct_peer import (
     DirectPeerPoint,
     calibrate_direct_peer_count,
+    calibrate_direct_peer_counts,
     select_direct_peers,
 )
 
@@ -132,3 +133,25 @@ def test_calibration_reports_scope_shortfall_distance_and_growth_without_score()
     assert result.max_log_distance_p90 is not None
     assert result.growth_comparison_count == 3
     assert not hasattr(result, "quality_score")
+
+
+def test_batched_calibration_matches_single_count_results() -> None:
+    points = [
+        _point("a", "100", growth="0.01"),
+        _point("b", "110", growth="0.02"),
+        _point("c", "120", growth="0.03", sigungu="서구"),
+        _point("d", "140", growth=None, sido="서울", sigungu="중구"),
+    ]
+
+    batched = calibrate_direct_peer_counts(
+        points,
+        sector="nh_local",
+        requested_counts=(1, 2, 3),
+    )
+
+    for count in (1, 2, 3):
+        assert batched[count] == calibrate_direct_peer_count(
+            points,
+            sector="nh_local",
+            requested_count=count,
+        )
