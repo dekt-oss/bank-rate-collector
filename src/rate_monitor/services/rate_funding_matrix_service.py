@@ -46,14 +46,7 @@ def _month_end(month: str) -> str:
 
 
 def _representative_rates(rows: list[sqlite3.Row | dict[str, Any]]) -> dict[str, Decimal]:
-    """Apply the Strategy source-precedence rule, then aggregate product→institution.
-
-    ``presentation.db_only_sources`` are retreating sources. Once a non-retreating
-    source covers an institution for this exact product-type/term scope, rows from
-    retreating sources are excluded for that institution. Each product contributes
-    its highest advertised ``max_rate`` and the institution representative is the
-    highest product representative, matching the existing Strategy convention.
-    """
+    """Apply Strategy source precedence, then aggregate product → institution."""
     retreating = set(dedupe_sources())
     covered = {
         str(row["institution_id"])
@@ -80,96 +73,134 @@ def _representative_rates(rows: list[sqlite3.Row | dict[str, Any]]) -> dict[str,
     return institution_rates
 
 
-def _rate_rows(
-    db_path: Path,
+def _funding_institution_ids(
+    conn: sqlite3.Connection,
     *,
     sector: str,
     analysis_month: str,
-    historical: bool,
-) -> list[sqlite3.Row]:
+) -> set[str]:
     statuses = sorted(VERIFIED_IDENTITY_STATUSES)
     placeholders = ",".join("?" for _ in statuses)
-    cutoff = _month_end(analysis_month)
-    temporal_clause = (
-        "AND ro.valid_from <= ? "
-        "AND (ro.valid_to IS NULL OR ro.valid_to > ?) "
-        "AND (ro.source_effective_at IS NULL OR ro.source_effective_at <= ?)"
-        if historical
-        else "AND ro.valid_to IS NULL"
-    )
-    temporal_params: tuple[Any, ...] = (cutoff, cutoff, cutoff) if historical else ()
-    with closing(_open_readonly(db_path)) as conn:
-        return conn.execute(
-            f"""
-            WITH funding_ids AS (
-                SELECT DISTINCT institution_id
-                FROM institution_funding_observations
-                WHERE sector = ?
-                  AND source_effective_month = ?
-                  AND metric_code = ?
-                  AND valid_to IS NULL
-                  AND institution_id IS NOT NULL
-                  AND identity_status IN ({placeholders})
-            )
-            SELECT p.institution_id,
-                   p.id AS product_id,
-                   cr.source_id,
-                   CAST(ro.max_rate AS REAL) AS rate_value
-            FROM funding_ids f
-            JOIN products p ON p.institution_id = f.institution_id
-            JOIN product_variants pv ON pv.product_id = p.id
-            JOIN rate_observations ro ON ro.variant_id = pv.id
-            JOIN collection_runs cr ON cr.id = ro.run_id
-            WHERE p.product_type = ?
-              AND pv.term_months = ?
-              AND ro.validation_status != 'error'
-              AND ro.max_rate IS NOT NULL
-              {temporal_clause}
-            """,
-            (
-                sector,
-                analysis_month,
-                FUNDING_METRIC_CODE,
-                *statuses,
-                RATE_PRODUCT_TYPE,
-                RATE_TERM_MONTHS,
-                *temporal_params,
-            ),
-        ).fetchall()
+    rows = conn.execute(
+        f"""
+        SELECT DISTINCT institution_id
+        FROM institution_funding_observations
+        WHERE sector = ?
+          AND source_effective_month = ?
+          AND metric_code = ?
+          AND valid_to IS NULL
+          AND institution_id IS NOT NULL
+          AND identity_status IN ({placeholders})
+        """,
+        (
+            sector,
+            analysis_month,
+            FUNDING_METRIC_CODE,
+            *statuses,
+        ),
+    ).fetchall()
+    return {str(row["institution_id"]) for row in rows}
 
 
-def _historical_rates(
+def _candidate_variants(
+    conn: sqlite3.Connection,
+    institution_ids: set[str],
+) -> list[tuple[str, str, str]]:
+    if not institution_ids:
+        return []
+    rows = conn.execute(
+        """
+        SELECT pv.id AS variant_id,
+               p.id AS product_id,
+               p.institution_id
+        FROM product_variants pv
+        JOIN products p ON p.id = pv.product_id
+        WHERE p.product_type = ?
+          AND pv.term_months = ?
+        """,
+        (RATE_PRODUCT_TYPE, RATE_TERM_MONTHS),
+    ).fetchall()
+    return [
+        (
+            str(row["variant_id"]),
+            str(row["product_id"]),
+            str(row["institution_id"]),
+        )
+        for row in rows
+        if str(row["institution_id"]) in institution_ids
+    ]
+
+
+def _rate_snapshots(
     db_path: Path,
     *,
     sector: str,
     analysis_month: str,
-) -> dict[str, Decimal]:
-    return _representative_rates(
-        _rate_rows(
-            db_path,
+) -> tuple[dict[str, Decimal], dict[str, Decimal]]:
+    """Return historical-cutoff and current representative rates in one history scan."""
+    cutoff = _month_end(analysis_month)
+    cutoff_date = cutoff[:10]
+    with closing(_open_readonly(db_path)) as conn:
+        institution_ids = _funding_institution_ids(
+            conn,
             sector=sector,
             analysis_month=analysis_month,
-            historical=True,
         )
-    )
+        variants = _candidate_variants(conn, institution_ids)
+        if not variants:
+            return {}, {}
 
-
-def _current_rate_institution_count(
-    db_path: Path,
-    *,
-    sector: str,
-    analysis_month: str,
-) -> int:
-    return len(
-        _representative_rates(
-            _rate_rows(
-                db_path,
-                sector=sector,
-                analysis_month=analysis_month,
-                historical=False,
+        conn.execute(
+            """
+            CREATE TEMP TABLE matrix_candidate_variants (
+                variant_id TEXT PRIMARY KEY,
+                product_id TEXT NOT NULL,
+                institution_id TEXT NOT NULL
             )
+            """
         )
-    )
+        conn.executemany(
+            """
+            INSERT INTO matrix_candidate_variants(
+                variant_id, product_id, institution_id
+            ) VALUES (?, ?, ?)
+            """,
+            variants,
+        )
+        rows = conn.execute(
+            """
+            SELECT cv.institution_id,
+                   cv.product_id,
+                   cr.source_id,
+                   CAST(ro.max_rate AS REAL) AS rate_value,
+                   ro.valid_from,
+                   ro.valid_to,
+                   ro.source_effective_at
+            FROM rate_observations ro
+            JOIN matrix_candidate_variants cv ON cv.variant_id = ro.variant_id
+            JOIN collection_runs cr ON cr.id = ro.run_id
+            WHERE ro.validation_status != 'error'
+              AND ro.max_rate IS NOT NULL
+              AND (
+                  ro.valid_to IS NULL
+                  OR (ro.valid_from <= ? AND ro.valid_to > ?)
+              )
+            """,
+            (cutoff, cutoff),
+        ).fetchall()
+
+    current_rows = [row for row in rows if row["valid_to"] is None]
+    historical_rows = [
+        row
+        for row in rows
+        if str(row["valid_from"]) <= cutoff
+        and (row["valid_to"] is None or str(row["valid_to"]) > cutoff)
+        and (
+            row["source_effective_at"] is None
+            or str(row["source_effective_at"]) <= cutoff_date
+        )
+    ]
+    return _representative_rates(historical_rows), _representative_rates(current_rows)
 
 
 def _institution_names(db_path: Path, ids: set[str]) -> dict[str, str]:
@@ -196,7 +227,7 @@ def _sector_matrix(
         analysis_month=analysis_month,
     )
     comparable = [row for row in funding_rows if row.change_6m_pct is not None]
-    rates = _historical_rates(
+    rates, current_rates = _rate_snapshots(
         db_path,
         sector=sector,
         analysis_month=analysis_month,
@@ -243,11 +274,7 @@ def _sector_matrix(
         "pair_coverage_ratio": (
             str(Decimal(paired) / Decimal(comparable_count)) if comparable_count else None
         ),
-        "current_rate_institutions_not_carried_back": _current_rate_institution_count(
-            db_path,
-            sector=sector,
-            analysis_month=analysis_month,
-        ),
+        "current_rate_institutions_not_carried_back": len(current_rates),
         "median_rate_pct": str(rate_median) if rate_median is not None else None,
         "median_growth_6m_pct": str(growth_median) if growth_median is not None else None,
         "points": points,
