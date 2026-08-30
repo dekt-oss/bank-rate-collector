@@ -215,6 +215,21 @@ def _institution_names(db_path: Path, ids: set[str]) -> dict[str, str]:
     return {str(row["id"]): str(row["canonical_name"] or "") for row in rows}
 
 
+def _matrix_status(
+    *,
+    paired: int,
+    historical_rate_count: int,
+    current_rate_count: int,
+) -> str:
+    if paired >= MIN_PAIRED_ROWS_FOR_QUADRANTS:
+        return "ready"
+    if historical_rate_count == 0 and current_rate_count == 0:
+        return "rate_data_unavailable"
+    if historical_rate_count == 0:
+        return "historical_rate_unavailable"
+    return "insufficient_exact_pairs"
+
+
 def _sector_matrix(
     db_path: Path,
     *,
@@ -256,10 +271,10 @@ def _sector_matrix(
     )
     paired = len(points)
     comparable_count = len(comparable)
-    status = (
-        "ready"
-        if paired >= MIN_PAIRED_ROWS_FOR_QUADRANTS
-        else "historical_rate_unavailable"
+    status = _matrix_status(
+        paired=paired,
+        historical_rate_count=len(rates),
+        current_rate_count=len(current_rates),
     )
     return {
         "sector": sector,
@@ -274,6 +289,7 @@ def _sector_matrix(
         "pair_coverage_ratio": (
             str(Decimal(paired) / Decimal(comparable_count)) if comparable_count else None
         ),
+        "current_rate_institutions": len(current_rates),
         "current_rate_institutions_not_carried_back": len(current_rates),
         "median_rate_pct": str(rate_median) if rate_median is not None else None,
         "median_growth_6m_pct": str(growth_median) if growth_median is not None else None,
