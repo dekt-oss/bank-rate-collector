@@ -1,8 +1,8 @@
 from decimal import Decimal
 from pathlib import Path
-from types import SimpleNamespace
 
 from rate_monitor.services import institution_funding_direct_peer_db as peer_db
+from rate_monitor.services.institution_funding_direct_peer import DirectPeerCalibration
 
 
 def test_calibration_report_uses_latest_position_month_without_choosing_n(
@@ -46,7 +46,7 @@ def test_calibration_report_uses_latest_position_month_without_choosing_n(
     monkeypatch.setattr(
         peer_db,
         "calibrate_direct_peer_count",
-        lambda _points, *, sector, requested_count: SimpleNamespace(
+        lambda _points, *, sector, requested_count: DirectPeerCalibration(
             sector=sector,
             requested_count=requested_count,
             target_count=2,
