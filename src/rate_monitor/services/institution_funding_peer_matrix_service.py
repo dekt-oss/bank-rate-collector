@@ -11,7 +11,7 @@ from __future__ import annotations
 import sqlite3
 from collections import defaultdict
 from dataclasses import dataclass
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 
@@ -73,7 +73,7 @@ def _decimal(value: object) -> Decimal | None:
         return None
     try:
         result = Decimal(str(value))
-    except Exception:  # pragma: no cover - sqlite values are scalar by contract
+    except (InvalidOperation, ValueError):
         return None
     return result if result.is_finite() else None
 
@@ -232,7 +232,6 @@ def _strategy_rates(rows: list[_RateRow]) -> list[_StrategyRate]:
             continue
         candidates.append(_StrategyRate(row=row, rate=rate, basis=basis))
 
-    # Match Strategy contract's product-level representative intent first.
     product_best: dict[tuple[object, ...], _StrategyRate] = {}
     for candidate in candidates:
         row = candidate.row
