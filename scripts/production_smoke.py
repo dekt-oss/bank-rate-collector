@@ -40,7 +40,7 @@ HEALTH_KEYS = {
     "pipeline_steps",
 }
 MANIFEST_KEYS = ("generated_at", "rows", "data_bytes")
-SESSION_COOKIE = "__Host-rate_monitor_auth"
+SESSION_COOKIE = "__Host-rate_monitor_auth_v2"
 SESSION_TOKEN_NAMESPACE = "bank-rate-collector:site-session:v1\0"
 
 

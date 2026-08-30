@@ -4,7 +4,9 @@ import test from "node:test";
 import { handleAuth, LOGIN_PATH, SESSION_COOKIE } from "../web/runtime/auth-core.mjs";
 
 const PASSWORD = "correct horse battery staple";
-const EXPECTED_COOKIE = "__Host-rate_monitor_auth=pI4VHUrcSgsvEcb_iLq3FS33SEwUTdMILI_cAvtvH8w";
+const TOKEN = "pI4VHUrcSgsvEcb_iLq3FS33SEwUTdMILI_cAvtvH8w";
+const EXPECTED_COOKIE = `__Host-rate_monitor_auth_v2=${TOKEN}`;
+const LEGACY_COOKIE = `__Host-rate_monitor_auth=${TOKEN}`;
 const next = () => new Response("NEXT", { status: 200 });
 const htmlRequest = (path = "/", cookie = "") => new Request(`https://rates.example${path}`, {
   headers: {
@@ -70,6 +72,14 @@ test("issues a secure HttpOnly session cookie after correct password", async () 
   assert.match(cookie, /HttpOnly/u);
   assert.match(cookie, /Secure/u);
   assert.match(cookie, /SameSite=Strict/u);
+});
+
+test("legacy 12-hour cookie is rejected after session policy rotation", async () => {
+  const response = await handleAuth(htmlRequest("/", LEGACY_COOKIE), {
+    password: PASSWORD,
+    next,
+  });
+  assert.equal(response.status, 302);
 });
 
 test("valid session reaches the existing static/function handler", async () => {

@@ -1,6 +1,6 @@
 export const LOGIN_PATH = "/__login";
 export const LOGOUT_PATH = "/__logout";
-export const SESSION_COOKIE = "__Host-rate_monitor_auth";
+export const SESSION_COOKIE = "__Host-rate_monitor_auth_v2";
 export const SESSION_MAX_AGE_SECONDS = 60 * 60 * 2;
 
 const textEncoder = new TextEncoder();
