@@ -200,8 +200,6 @@ jobs:
           DATA_GO_FUNDING_PREFLIGHT_TIMEOUT_SECONDS: "15"
         run: |
           set -euo pipefail
-          # Backfill 전체를 다시 받지 않는다. 최근 revision-watch 범위만 재수집해
-          # active observation count/revision drift가 없는지 검증한다.
           uv run python -m rate_monitor.collectors.data_go_funding.cli collect \
             --db work/rate_monitor.sqlite3 \
             --raw-root data/raw \
@@ -260,6 +258,36 @@ jobs:
           assert n > 0
           print("R2 funding readback active rows:", n)
           PY
+
+      - name: Persist raw evidence to R2 long-term tier
+        if: always()
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+          R2_REGION: ${{ vars.R2_REGION }}
+        run: |
+          set -euo pipefail
+          uv run python -m rate_monitor.services.evidence_lifecycle_service upload-raw \
+            --root data/raw \
+            --category institution-funding \
+            --run-id "${{ github.run_id }}"
+
+      - name: Prune rebuildable R2 intermediates after 30 days
+        if: always()
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+          R2_REGION: ${{ vars.R2_REGION }}
+        run: |
+          set -euo pipefail
+          uv run python -m rate_monitor.services.evidence_lifecycle_service \
+            cleanup-intermediate --retention-days 30 --apply
 
       - name: Upload funding evidence
         if: always()
