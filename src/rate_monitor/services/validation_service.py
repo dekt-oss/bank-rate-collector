@@ -10,6 +10,8 @@ import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
 
+from rate_monitor.collectors.nh_local.resumable import NH_ACQUISITION_CONTRACT_MARKER
+
 
 @dataclass(frozen=True)
 class Check:
@@ -38,7 +40,6 @@ def _nh_ejoy_current_run_checks(conn: sqlite3.Connection) -> list[Check]:
     아니라 ``last_run_id``를 사용한다. 값이 이전과 같아 새 row가 생기지 않아도
     이번 run에서 실제로 재확인됐다면 검사를 통과해야 한다.
     """
-    marker = "nh_acquisition_contract=v2"
     latest = conn.execute(
         "SELECT id, status, COALESCE(message, '') FROM collection_runs"
         " WHERE source_id = 'nh_local'"
@@ -59,11 +60,11 @@ def _nh_ejoy_current_run_checks(conn: sqlite3.Connection) -> list[Check]:
         " WHERE source_id = 'nh_local'"
         "   AND status IN ('success', 'partial', 'no_change')"
         "   AND message LIKE ?",
-        (f"%{marker}%",),
+        (f"%{NH_ACQUISITION_CONTRACT_MARKER}%",),
     ).fetchone()[0]
 
     run_id, status, message = latest
-    latest_is_v2 = marker in message
+    latest_is_v2 = NH_ACQUISITION_CONTRACT_MARKER in message
     if not latest_is_v2:
         if ever_v2:
             return [

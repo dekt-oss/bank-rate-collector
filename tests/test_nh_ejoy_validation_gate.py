@@ -3,9 +3,8 @@
 import json
 import sqlite3
 
+from rate_monitor.collectors.nh_local.resumable import NH_ACQUISITION_CONTRACT_MARKER
 from rate_monitor.services.validation_service import _nh_ejoy_current_run_checks
-
-MARKER = "nh_acquisition_contract=v2"
 
 
 def _conn() -> sqlite3.Connection:
@@ -40,7 +39,7 @@ def _run(
     started_at: str = "2026-08-30T00:00:00",
     v2: bool = False,
 ) -> None:
-    message = f"수집 완료 · {MARKER}" if v2 else "수집 완료"
+    message = f"수집 완료 · {NH_ACQUISITION_CONTRACT_MARKER}" if v2 else "수집 완료"
     conn.execute(
         "INSERT INTO collection_runs(id, source_id, status, started_at, message)"
         " VALUES (?, 'nh_local', ?, ?, ?)",
