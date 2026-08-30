@@ -10,7 +10,7 @@ from typing import Any
 
 from rate_monitor.services.institution_funding_direct_peer import (
     DirectPeerPoint,
-    calibrate_direct_peer_count,
+    calibrate_direct_peer_counts,
 )
 from rate_monitor.services.institution_funding_position_service import (
     build_institution_funding_positions,
@@ -111,22 +111,23 @@ def build_direct_peer_calibration_report(
             sector=sector,
             analysis_month=analysis_month,
         )
+        calibrations = calibrate_direct_peer_counts(
+            points,
+            sector=sector,
+            requested_counts=candidate_counts,
+        )
         sectors[sector] = {
             "analysis_month": analysis_month,
             "population_count": len(points),
-            "growth_6m_available": sum(point.growth_6m_pct is not None for point in points),
+            "growth_6m_available": sum(
+                point.growth_6m_pct is not None for point in points
+            ),
             "region_sido_known": sum(bool(point.region_sido) for point in points),
-            "region_sigungu_known": sum(bool(point.region_sigungu) for point in points),
+            "region_sigungu_known": sum(
+                bool(point.region_sigungu) for point in points
+            ),
             "candidates": {
-                str(count): _json_value(
-                    asdict(
-                        calibrate_direct_peer_count(
-                            points,
-                            sector=sector,
-                            requested_count=count,
-                        )
-                    )
-                )
+                str(count): _json_value(asdict(calibrations[count]))
                 for count in candidate_counts
             },
         }
