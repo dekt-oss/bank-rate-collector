@@ -14,6 +14,10 @@ function cleanNumber(value) {
   return Number(String(value || "").replaceAll(",", "").trim());
 }
 
+function sectorCheckbox(page, sector) {
+  return page.locator(`input[type="checkbox"][data-sector="${sector}"]`);
+}
+
 async function waitForDashboard(page) {
   await page.route("**/favicon.ico", (route) => route.fulfill({ status: 204, body: "" }));
   const response = await page.goto(`${baseUrl}/strategy.html`, { waitUntil: "networkidle" });
@@ -181,12 +185,12 @@ async function runDesktop(browser) {
   invariant(await page.locator('[data-market-mode="combined"]').evaluate((node) => node.classList.contains("active")), "기본 비교모드가 저축은행 + 상호금융이 아님");
   invariant((await page.locator("#scope-pill").textContent()).trim() === "저축은행 + 상호금융", "기본 scope label이 통합모드가 아님");
   invariant(cleanNumber(await page.locator("#count").textContent()) > 0, "통합 12M 비교군이 비어 있음");
-  invariant(!(await page.locator('[data-sector="cu"]').isDisabled()), "신협 selector가 비활성화됨");
-  invariant(!(await page.locator('[data-sector="kfcc"]').isDisabled()), "새마을금고 selector가 비활성화됨");
-  invariant(!(await page.locator('[data-sector="nh_local"]').isDisabled()), "농·축협 selector가 비활성화됨");
-  invariant(await page.locator('[data-sector="cu"]').isChecked(), "기본 통합모드에서 신협이 선택되지 않음");
-  invariant(await page.locator('[data-sector="kfcc"]').isChecked(), "기본 통합모드에서 새마을금고가 선택되지 않음");
-  invariant(await page.locator('[data-sector="nh_local"]').isChecked(), "기본 통합모드에서 농·축협이 선택되지 않음");
+  invariant(!(await sectorCheckbox(page, "cu").isDisabled()), "신협 selector가 비활성화됨");
+  invariant(!(await sectorCheckbox(page, "kfcc").isDisabled()), "새마을금고 selector가 비활성화됨");
+  invariant(!(await sectorCheckbox(page, "nh_local").isDisabled()), "농·축협 selector가 비활성화됨");
+  invariant(await sectorCheckbox(page, "cu").isChecked(), "기본 통합모드에서 신협이 선택되지 않음");
+  invariant(await sectorCheckbox(page, "kfcc").isChecked(), "기본 통합모드에서 새마을금고가 선택되지 않음");
+  invariant(await sectorCheckbox(page, "nh_local").isChecked(), "기본 통합모드에서 농·축협이 선택되지 않음");
   const kfccMeta = await strategySectorMeta(page, "kfcc");
   const nhMeta = await strategySectorMeta(page, "nh_local");
   invariant(kfccMeta?.strategy_rate_capability === true && kfccMeta?.selectable === true, "새마을금고 수집기준 최고금리 capability가 열리지 않음");
@@ -203,23 +207,23 @@ async function runDesktop(browser) {
   invariant(await page.locator("#sim-form").isHidden(), "상호금융 단독에서 고려저축은행 시뮬레이터가 열림");
   invariant(await page.locator("#market-intelligence").isVisible(), "상호금융 모드에서 C2 시장동향 패널이 숨겨짐");
 
-  await page.locator('[data-sector="cu"]').uncheck();
-  await page.locator('[data-sector="nh_local"]').uncheck();
+  await sectorCheckbox(page, "cu").uncheck();
+  await sectorCheckbox(page, "nh_local").uncheck();
   await waitForPositiveCount(page);
   invariant(await page.locator("#top5 tr").count() > 0, "새마을금고 단독 TOP5가 비어 있음");
 
-  await page.locator('[data-sector="kfcc"]').uncheck();
-  await page.locator('[data-sector="nh_local"]').check();
+  await sectorCheckbox(page, "kfcc").uncheck();
+  await sectorCheckbox(page, "nh_local").check();
   await waitForPositiveCount(page);
   invariant(await page.locator("#top5 tr").count() > 0, "농·축협 단독 TOP5가 비어 있음");
 
-  await page.locator('[data-sector="cu"]').check();
-  await page.locator('[data-sector="kfcc"]').check();
+  await sectorCheckbox(page, "cu").check();
+  await sectorCheckbox(page, "kfcc").check();
   await selectMode(page, "combined", "저축은행 + 상호금융");
   invariant(cleanNumber(await page.locator("#count").textContent()) > 0, "통합 12M 비교군이 비어 있음");
-  invariant(await page.locator('[data-sector="cu"]').isChecked(), "통합 복귀 후 신협 선택이 복원되지 않음");
-  invariant(await page.locator('[data-sector="kfcc"]').isChecked(), "통합 복귀 후 새마을금고 선택이 복원되지 않음");
-  invariant(await page.locator('[data-sector="nh_local"]').isChecked(), "통합 복귀 후 농·축협 선택이 복원되지 않음");
+  invariant(await sectorCheckbox(page, "cu").isChecked(), "통합 복귀 후 신협 선택이 복원되지 않음");
+  invariant(await sectorCheckbox(page, "kfcc").isChecked(), "통합 복귀 후 새마을금고 선택이 복원되지 않음");
+  invariant(await sectorCheckbox(page, "nh_local").isChecked(), "통합 복귀 후 농·축협 선택이 복원되지 않음");
   invariant(await page.locator("#top5 tr").count() > 0, "통합 TOP5가 비어 있음");
   await assertStrategyRoleSplit(page, "desktop combined");
 
@@ -243,12 +247,12 @@ async function runMobile(browser) {
   const nhMeta = await strategySectorMeta(page, "nh_local");
   invariant(kfccMeta?.strategy_rate_capability === true && kfccMeta?.selectable === true, "모바일 새마을금고 capability가 열리지 않음");
   invariant(nhMeta?.strategy_rate_capability === true && nhMeta?.selectable === true, "모바일 농·축협 capability가 열리지 않음");
-  invariant(!(await page.locator('[data-sector="kfcc"]').isDisabled()), "모바일 새마을금고 selector가 비활성화됨");
-  invariant(!(await page.locator('[data-sector="nh_local"]').isDisabled()), "모바일 농·축협 selector가 비활성화됨");
+  invariant(!(await sectorCheckbox(page, "kfcc").isDisabled()), "모바일 새마을금고 selector가 비활성화됨");
+  invariant(!(await sectorCheckbox(page, "nh_local").isDisabled()), "모바일 농·축협 selector가 비활성화됨");
   invariant(await page.locator('[data-market-mode="combined"]').evaluate((node) => node.classList.contains("active")), "모바일 기본 비교모드가 통합모드가 아님");
-  invariant(await page.locator('[data-sector="cu"]').isChecked(), "모바일 기본 통합모드에서 신협이 선택되지 않음");
-  invariant(await page.locator('[data-sector="kfcc"]').isChecked(), "모바일 기본 통합모드에서 새마을금고가 선택되지 않음");
-  invariant(await page.locator('[data-sector="nh_local"]').isChecked(), "모바일 기본 통합모드에서 농·축협이 선택되지 않음");
+  invariant(await sectorCheckbox(page, "cu").isChecked(), "모바일 기본 통합모드에서 신협이 선택되지 않음");
+  invariant(await sectorCheckbox(page, "kfcc").isChecked(), "모바일 기본 통합모드에서 새마을금고가 선택되지 않음");
+  invariant(await sectorCheckbox(page, "nh_local").isChecked(), "모바일 기본 통합모드에서 농·축협이 선택되지 않음");
   invariant(await page.locator("#market-intelligence").count() === 1, "모바일 C2 Market Intelligence panel이 없음");
   await assertStrategyRoleSplit(page, "mobile");
   await assertNoHorizontalOverflow(page, "mobile combined");
