@@ -90,6 +90,20 @@ production-copy에서 농·축협은:
 - exact identity가 없는 실기관 funding source-key는 NH denominator에는 남고 observed에는 들어가지 않으므로 identity coverage 손실이 그대로 드러난다.
 - 임의 품질 threshold는 만들지 않는다.
 
+### 새 계약 production-copy 재실측
+
+2025-12 농·축협 기준:
+
+- same-month real local-coop eligible source keys: **1,109**
+- exact observed canonical institutions: **1,082**
+- coverage ratio: **97.5654%**
+- exact 6M growth available: **1,082**
+- exact 12M growth available: **1,082**
+- cadence: 반기 공시
+- freshness: 8개월 경과
+
+따라서 기존 잘못된 `1,082 / 4,870 = 22.2%`는 폐기하고, Strategy에는 **1,082 / 1,109 = 97.57%**를 동월 기관관측 coverage로 표시한다.
+
 이 정의는 수집 성공률과도 별개다.
 
 ## 6. 구현
