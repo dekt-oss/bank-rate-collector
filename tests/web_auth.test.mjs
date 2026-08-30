@@ -4,6 +4,7 @@ import test from "node:test";
 import { handleAuth, LOGIN_PATH, SESSION_COOKIE } from "../web/runtime/auth-core.mjs";
 
 const PASSWORD = "correct horse battery staple";
+const EXPECTED_COOKIE = "__Host-rate_monitor_auth=pI4VHUrcSgsvEcb_iLq3FS33SEwUTdMILI_cAvtvH8w";
 const next = () => new Response("NEXT", { status: 200 });
 const htmlRequest = (path = "/", cookie = "") => new Request(`https://rates.example${path}`, {
   headers: {
@@ -57,6 +58,7 @@ test("issues a secure HttpOnly session cookie after correct password", async () 
   assert.equal(response.status, 303);
   assert.equal(response.headers.get("location"), "/strategy.html");
   const cookie = response.headers.get("set-cookie");
+  assert.equal(cookie.split(";", 1)[0], EXPECTED_COOKIE);
   assert.match(cookie, new RegExp(`^${SESSION_COOKIE}=`));
   assert.match(cookie, /HttpOnly/u);
   assert.match(cookie, /Secure/u);
