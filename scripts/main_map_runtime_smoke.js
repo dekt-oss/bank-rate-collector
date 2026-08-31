@@ -4,8 +4,11 @@ const { chromium } = require("@playwright/test");
 
 const baseUrl = process.env.STRATEGY_PREVIEW_BASE_URL || "http://127.0.0.1:4173";
 const prefix = process.env.MAIN_MAP_SMOKE_PREFIX || "main-map";
+const siteAccessPassword = process.env.SITE_ACCESS_PASSWORD || process.env.DASHBOARD_PASSWORD || "";
+const baseHostname = new URL(baseUrl).hostname;
+const localBase = baseHostname === "127.0.0.1" || baseHostname === "localhost";
 const cropMode = process.env.EXPECT_MAIN_MAP_CROP;
-const expectCrop = cropMode === "1" || (cropMode == null && /(?:127\.0\.0\.1|localhost)/.test(baseUrl));
+const expectCrop = cropMode === "1" || (cropMode == null && localBase);
 const workDir = path.resolve("work");
 fs.mkdirSync(workDir, { recursive: true });
 
@@ -26,8 +29,26 @@ function overlapPairs(boxes) {
   return out;
 }
 
+async function authenticateIfNeeded(page) {
+  if (localBase) return;
+  invariant(siteAccessPassword, "production main-map smoke requires SITE_ACCESS_PASSWORD");
+
+  const loginUrl = new URL("/__login?returnTo=%2F", baseUrl).toString();
+  const response = await page.goto(loginUrl, { waitUntil: "domcontentloaded" });
+  invariant(response && response.ok(), `login HTTP ${response ? response.status() : "no response"}`);
+
+  const passwordInput = page.locator('input[name="password"]');
+  invariant(await passwordInput.count() === 1, "site access login form missing password input");
+  await passwordInput.fill(siteAccessPassword);
+  await Promise.all([
+    page.waitForURL((url) => url.origin === new URL(baseUrl).origin && url.pathname === "/", { timeout: 10_000 }),
+    page.locator('button[type="submit"]').click(),
+  ]);
+}
+
 async function waitForMain(page) {
   await page.route("**/favicon.ico", (route) => route.fulfill({ status: 204, body: "" }));
+  await authenticateIfNeeded(page);
   const response = await page.goto(`${baseUrl}/`, { waitUntil: "networkidle" });
   invariant(response && response.ok(), `index.html HTTP ${response ? response.status() : "no response"}`);
   await page.waitForSelector("#reg .main-map-shell", { timeout: 30_000 });
