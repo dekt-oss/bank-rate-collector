@@ -1,3 +1,12 @@
+> **SUPERSEDED / 정정 (2026-08-31).** 이 문서는 v2로 대체되었으며 구현 근거로 사용하지 않는다.
+>
+> 아래 원문에는 현재 저장소 상태와 충돌하는 서술이 남아 있으므로 decision trail로만 보존한다.
+>
+> - `production_strategy_release_gate: unchanged_off` / `Production Strategy Release Gate OFF` → **오류**. 현재 Strategy는 canonical site-writer가 발행하는 production surface다. 현행 기준은 `docs/plans/20260831-relative-rate-goal-simulator-plan-v2.md`와 `AGENTS.md`다.
+> - R1 public 단계의 factual/forecast 경계는 v2가 우선한다. 목표수신 입력·예상수신·추천금리·필요금리 범위는 promoted private champion 전에는 렌더링하지 않는다.
+>
+> **현행 문서:** `docs/plans/20260831-relative-rate-goal-simulator-plan-v2.md`
+
 # 상대금리 기반 목표형 금리결정 시뮬레이터 — 기획안
 
 ```yaml
