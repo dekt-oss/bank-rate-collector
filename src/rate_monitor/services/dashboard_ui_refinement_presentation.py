@@ -78,4 +78,5 @@ def inject_dashboard_ui_refinement(html: str) -> str:
         rendered = inject_rate_funding_matrix(rendered)
     rendered = repair_strategy_product_scope_runtime(rendered)
     rendered = inject_collection_health_live_signal(rendered)
+    # 모든 Strategy injector 뒤에서 fixed-width 회귀를 최종 정리한다.
     return inject_strategy_mobile_responsive(rendered)
