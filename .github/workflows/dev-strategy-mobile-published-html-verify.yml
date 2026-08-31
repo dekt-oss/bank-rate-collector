@@ -1,0 +1,76 @@
+name: DEV Strategy published HTML mobile verify
+
+on:
+  push:
+    branches: ["feat/strategy-ux-mobile-responsive-20260831"]
+    paths:
+      - ".github/workflows/dev-strategy-mobile-published-html-verify.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv python install 3.12
+      - run: uv sync --locked
+
+      - name: Fetch currently published Strategy HTML
+        run: |
+          set -euo pipefail
+          mkdir -p work/site-public
+          git fetch --force origin +rate-data:refs/remotes/origin/rate-data --depth=1
+          git show refs/remotes/origin/rate-data:site-public/strategy.html > work/site-public/strategy.html
+          git show refs/remotes/origin/rate-data:site-public/index.html > work/site-public/index.html
+          test -s work/site-public/strategy.html
+
+      - name: Apply only the new final responsive layer
+        run: |
+          uv run python - <<'PY'
+          from pathlib import Path
+          from rate_monitor.services.strategy_mobile_responsive_presentation import (
+              inject_strategy_mobile_responsive,
+          )
+
+          path = Path("work/site-public/strategy.html")
+          before = path.read_text(encoding="utf-8")
+          after = inject_strategy_mobile_responsive(before)
+          assert after != before
+          assert 'id="strategy-mobile-responsive-style"' in after
+          path.write_text(after, encoding="utf-8")
+          PY
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Run 1440 430 390 Chrome audit
+        env:
+          STRATEGY_PREVIEW_BASE_URL: http://127.0.0.1:4173
+        run: |
+          set -euo pipefail
+          npm install --no-save --package-lock=false @playwright/test@1.61.1
+          node --check scripts/strategy_mobile_responsive_smoke.js
+          python -m http.server 4173 --directory work/site-public > work/mobile-published-http.log 2>&1 &
+          SERVER_PID=$!
+          trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 30); do
+            curl -fsS http://127.0.0.1:4173/strategy.html >/dev/null && break
+            sleep 1
+          done
+          node scripts/strategy_mobile_responsive_smoke.js
+
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: strategy-mobile-published-${{ github.run_id }}
+          path: |
+            work/strategy-mobile-responsive-*.png
+            work/mobile-published-http.log
+          retention-days: 30
+          if-no-files-found: warn
