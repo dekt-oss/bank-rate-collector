@@ -28,6 +28,7 @@ from rate_monitor.services.institution_funding_read_model_db import (
 
 RATE_PRODUCT_TYPE = "term_deposit"
 RATE_TERM_MONTHS = 12
+RATE_TERM_SCOPES = (6, 12, 24, 36)
 RATE_FIELD = "max_rate"
 RATE_REPRESENTATIVE = "institution_product_representative_max"
 MIN_PAIRED_ROWS_FOR_QUADRANTS = 2
@@ -102,42 +103,70 @@ def _funding_institution_ids(
     return {str(row["institution_id"]) for row in rows}
 
 
-def _candidate_variants(
+def _candidate_variants_for_terms(
     conn: sqlite3.Connection,
     institution_ids: set[str],
-) -> list[tuple[str, str, str]]:
-    if not institution_ids:
+    *,
+    terms: tuple[int, ...] = RATE_TERM_SCOPES,
+) -> list[tuple[str, str, str, int]]:
+    if not institution_ids or not terms:
         return []
+    term_placeholders = ",".join("?" for _ in terms)
     rows = conn.execute(
-        """
+        f"""
         SELECT pv.id AS variant_id,
                p.id AS product_id,
-               p.institution_id
+               p.institution_id,
+               pv.term_months
         FROM product_variants pv
         JOIN products p ON p.id = pv.product_id
         WHERE p.product_type = ?
-          AND pv.term_months = ?
+          AND pv.term_months IN ({term_placeholders})
         """,
-        (RATE_PRODUCT_TYPE, RATE_TERM_MONTHS),
+        (RATE_PRODUCT_TYPE, *terms),
     ).fetchall()
     return [
         (
             str(row["variant_id"]),
             str(row["product_id"]),
             str(row["institution_id"]),
+            int(row["term_months"]),
         )
         for row in rows
         if str(row["institution_id"]) in institution_ids
     ]
 
 
-def _rate_snapshots(
+def _candidate_variants(
+    conn: sqlite3.Connection,
+    institution_ids: set[str],
+    *,
+    term_months: int = RATE_TERM_MONTHS,
+) -> list[tuple[str, str, str]]:
+    """Backward-compatible single-term candidate helper."""
+    return [
+        (variant_id, product_id, institution_id)
+        for variant_id, product_id, institution_id, _term in _candidate_variants_for_terms(
+            conn,
+            institution_ids,
+            terms=(term_months,),
+        )
+    ]
+
+
+def _rate_snapshots_by_term(
     db_path: Path,
     *,
     sector: str,
     analysis_month: str,
-) -> tuple[dict[str, Decimal], dict[str, Decimal]]:
-    """Return historical-cutoff and current representative rates in one history scan."""
+    terms: tuple[int, ...] = RATE_TERM_SCOPES,
+) -> dict[int, tuple[dict[str, Decimal], dict[str, Decimal]]]:
+    """Return historical/current representative rates for all requested terms in one scan."""
+    normalized_terms = tuple(dict.fromkeys(int(term) for term in terms))
+    empty = {term: ({}, {}) for term in normalized_terms}
+    if not normalized_terms:
+        return empty
+
     cutoff = _month_end(analysis_month)
     cutoff_date = cutoff[:10]
     with closing(_open_readonly(db_path)) as conn:
@@ -146,24 +175,29 @@ def _rate_snapshots(
             sector=sector,
             analysis_month=analysis_month,
         )
-        variants = _candidate_variants(conn, institution_ids)
+        variants = _candidate_variants_for_terms(
+            conn,
+            institution_ids,
+            terms=normalized_terms,
+        )
         if not variants:
-            return {}, {}
+            return empty
 
         conn.execute(
             """
             CREATE TEMP TABLE matrix_candidate_variants (
                 variant_id TEXT PRIMARY KEY,
                 product_id TEXT NOT NULL,
-                institution_id TEXT NOT NULL
+                institution_id TEXT NOT NULL,
+                term_months INTEGER NOT NULL
             )
             """
         )
         conn.executemany(
             """
             INSERT INTO matrix_candidate_variants(
-                variant_id, product_id, institution_id
-            ) VALUES (?, ?, ?)
+                variant_id, product_id, institution_id, term_months
+            ) VALUES (?, ?, ?, ?)
             """,
             variants,
         )
@@ -171,6 +205,7 @@ def _rate_snapshots(
             """
             SELECT cv.institution_id,
                    cv.product_id,
+                   cv.term_months,
                    cr.source_id,
                    CAST(ro.max_rate AS REAL) AS rate_value,
                    ro.valid_from,
@@ -189,18 +224,41 @@ def _rate_snapshots(
             (cutoff, cutoff),
         ).fetchall()
 
-    current_rows = [row for row in rows if row["valid_to"] is None]
-    historical_rows = [
-        row
-        for row in rows
-        if str(row["valid_from"]) <= cutoff
-        and (row["valid_to"] is None or str(row["valid_to"]) > cutoff)
-        and (
-            row["source_effective_at"] is None
-            or str(row["source_effective_at"]) <= cutoff_date
+    result: dict[int, tuple[dict[str, Decimal], dict[str, Decimal]]] = {}
+    for term in normalized_terms:
+        term_rows = [row for row in rows if int(row["term_months"]) == term]
+        current_rows = [row for row in term_rows if row["valid_to"] is None]
+        historical_rows = [
+            row
+            for row in term_rows
+            if str(row["valid_from"]) <= cutoff
+            and (row["valid_to"] is None or str(row["valid_to"]) > cutoff)
+            and (
+                row["source_effective_at"] is None
+                or str(row["source_effective_at"]) <= cutoff_date
+            )
+        ]
+        result[term] = (
+            _representative_rates(historical_rows),
+            _representative_rates(current_rows),
         )
-    ]
-    return _representative_rates(historical_rows), _representative_rates(current_rows)
+    return result
+
+
+def _rate_snapshots(
+    db_path: Path,
+    *,
+    sector: str,
+    analysis_month: str,
+    term_months: int = RATE_TERM_MONTHS,
+) -> tuple[dict[str, Decimal], dict[str, Decimal]]:
+    """Backward-compatible single-term snapshot helper."""
+    return _rate_snapshots_by_term(
+        db_path,
+        sector=sector,
+        analysis_month=analysis_month,
+        terms=(term_months,),
+    )[term_months]
 
 
 def _institution_names(db_path: Path, ids: set[str]) -> dict[str, str]:
@@ -230,23 +288,17 @@ def _matrix_status(
     return "insufficient_exact_pairs"
 
 
-def _sector_matrix(
+def _sector_matrix_from_inputs(
     db_path: Path,
     *,
     sector: str,
     analysis_month: str,
+    term_months: int,
+    funding_rows: list[Any],
+    rates: dict[str, Decimal],
+    current_rates: dict[str, Decimal],
 ) -> dict[str, Any]:
-    funding_rows = build_institution_funding_read_model_from_db(
-        db_path,
-        sector=sector,
-        analysis_month=analysis_month,
-    )
     comparable = [row for row in funding_rows if row.change_6m_pct is not None]
-    rates, current_rates = _rate_snapshots(
-        db_path,
-        sector=sector,
-        analysis_month=analysis_month,
-    )
     names = _institution_names(db_path, {row.institution_id for row in comparable})
     points = [
         {
@@ -281,6 +333,7 @@ def _sector_matrix(
         "label": SECTOR_LABELS.get(sector, sector),
         "analysis_month": analysis_month,
         "rate_cutoff": _month_end(analysis_month)[:10],
+        "rate_term_months": term_months,
         "status": status,
         "available": status == "ready",
         "funding_growth_6m_institutions": comparable_count,
@@ -297,36 +350,108 @@ def _sector_matrix(
     }
 
 
+def _sector_matrix(
+    db_path: Path,
+    *,
+    sector: str,
+    analysis_month: str,
+    term_months: int = RATE_TERM_MONTHS,
+) -> dict[str, Any]:
+    funding_rows = build_institution_funding_read_model_from_db(
+        db_path,
+        sector=sector,
+        analysis_month=analysis_month,
+    )
+    rates, current_rates = _rate_snapshots(
+        db_path,
+        sector=sector,
+        analysis_month=analysis_month,
+        term_months=term_months,
+    )
+    return _sector_matrix_from_inputs(
+        db_path,
+        sector=sector,
+        analysis_month=analysis_month,
+        term_months=term_months,
+        funding_rows=funding_rows,
+        rates=rates,
+        current_rates=current_rates,
+    )
+
+
+def _sector_term_scopes(
+    db_path: Path,
+    *,
+    sector: str,
+    analysis_month: str,
+) -> dict[str, dict[str, Any]]:
+    """Build all deposit-term matrices while scanning rate history once per sector."""
+    funding_rows = build_institution_funding_read_model_from_db(
+        db_path,
+        sector=sector,
+        analysis_month=analysis_month,
+    )
+    snapshots = _rate_snapshots_by_term(
+        db_path,
+        sector=sector,
+        analysis_month=analysis_month,
+        terms=RATE_TERM_SCOPES,
+    )
+    return {
+        str(term): _sector_matrix_from_inputs(
+            db_path,
+            sector=sector,
+            analysis_month=analysis_month,
+            term_months=term,
+            funding_rows=funding_rows,
+            rates=snapshots[term][0],
+            current_rates=snapshots[term][1],
+        )
+        for term in RATE_TERM_SCOPES
+    }
+
+
 def build_rate_funding_matrix(
     db_path: Path,
     *,
     funding_positions: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Build a future-ready matrix while refusing temporal misalignment."""
+    """Build future-ready deposit-term matrices while refusing temporal misalignment."""
     positions = funding_positions or build_institution_funding_positions(db_path)
-    sectors: dict[str, Any] = {}
+    scopes: dict[str, dict[str, Any]] = {
+        str(term): {"available": False, "display_order": [], "sectors": {}}
+        for term in RATE_TERM_SCOPES
+    }
     for sector in positions.get("display_order", []):
         data = positions["sectors"].get(sector)
         if not data:
             continue
-        sectors[sector] = _sector_matrix(
+        sector_scopes = _sector_term_scopes(
             db_path,
             sector=sector,
             analysis_month=str(data["analysis_month"]),
         )
-    display_order = [
-        sector
-        for sector in positions.get("display_order", [])
-        if sector in sectors
-    ]
+        for term in RATE_TERM_SCOPES:
+            key = str(term)
+            item = sector_scopes[key]
+            scopes[key]["sectors"][sector] = item
+            scopes[key]["display_order"].append(sector)
+            scopes[key]["available"] = scopes[key]["available"] or item["available"]
+
+    default_scope = scopes[str(RATE_TERM_MONTHS)]
     return {
-        "available": any(item["available"] for item in sectors.values()),
-        "display_order": display_order,
-        "sectors": sectors,
+        # Backward-compatible 12M surface for existing consumers.
+        "available": default_scope["available"],
+        "display_order": default_scope["display_order"],
+        "sectors": default_scope["sectors"],
+        "default_term_months": RATE_TERM_MONTHS,
+        "supported_term_months": list(RATE_TERM_SCOPES),
+        "scopes": scopes,
         "contract": {
-            "x_axis": "12M representative advertised maximum rate",
+            "x_axis": "selected-term representative advertised maximum rate",
             "rate_product_type": RATE_PRODUCT_TYPE,
             "rate_term_months": RATE_TERM_MONTHS,
+            "rate_term_scopes": list(RATE_TERM_SCOPES),
             "rate_field": RATE_FIELD,
             "rate_representative": RATE_REPRESENTATIVE,
             "source_precedence": "presentation.db_only_sources",
@@ -340,5 +465,7 @@ def build_rate_funding_matrix(
             "quadrant_boundary": "paired same-sector medians",
             "causal_interpretation": False,
             "coverage_quality_threshold": None,
+            "product_scope": "term_deposit_only",
+            "savings_matrix_supported": False,
         },
     }
