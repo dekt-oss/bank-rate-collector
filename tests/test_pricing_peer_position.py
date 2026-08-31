@@ -1,3 +1,4 @@
+from datetime import date
 from decimal import Decimal
 
 import pytest
@@ -16,7 +17,12 @@ def _peer(institution_id: str, rate: str) -> PricingPeerCandidate:
         join_channel="online",
         availability_scope="nationwide",
         rate_pct=Decimal(rate),
-        rate_as_of=None,
+        rate_as_of=date(2026, 8, 31),
+        rate_source_id="fsb",
+        rate_policy_id="relative-pricing-institution-rate",
+        rate_policy_version="1",
+        source_precedence_policy="presentation.db_only_sources",
+        precedence_applied=True,
     )
 
 
