@@ -1,0 +1,80 @@
+name: DEV patch Strategy mobile runtime contract
+
+on:
+  push:
+    branches: ["feat/strategy-ux-mobile-responsive-20260831"]
+    paths:
+      - ".github/workflows/dev-patch-strategy-mobile-runtime-contract.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/strategy-ux-mobile-responsive-20260831
+      - name: Patch permanent runtime E2E contract
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          workflow = Path('.github/workflows/strategy-main-runtime-e2e.yml')
+          text = workflow.read_text(encoding='utf-8')
+          replacements = [
+              (
+                  '      - "src/rate_monitor/services/strategy_ux_refinement_presentation.py"\n',
+                  '      - "src/rate_monitor/services/strategy_ux_refinement_presentation.py"\n'
+                  '      - "src/rate_monitor/services/strategy_mobile_responsive_presentation.py"\n',
+              ),
+              (
+                  '      - "scripts/strategy_workspace_smoke.js"\n',
+                  '      - "scripts/strategy_workspace_smoke.js"\n'
+                  '      - "scripts/strategy_mobile_responsive_smoke.js"\n',
+              ),
+              (
+                  '          node --check scripts/strategy_workspace_smoke.js\n',
+                  '          node --check scripts/strategy_workspace_smoke.js\n'
+                  '          node --check scripts/strategy_mobile_responsive_smoke.js\n',
+              ),
+              (
+                  '          node scripts/strategy_workspace_smoke.js\n',
+                  '          node scripts/strategy_workspace_smoke.js\n'
+                  '          node scripts/strategy_mobile_responsive_smoke.js\n',
+              ),
+              (
+                  '            work/strategy-smoke-*.png\n',
+                  '            work/strategy-smoke-*.png\n'
+                  '            work/strategy-mobile-responsive-*.png\n',
+              ),
+          ]
+          for old, new in replacements:
+              assert text.count(old) == 1, old
+              text = text.replace(old, new, 1)
+          workflow.write_text(text, encoding='utf-8')
+
+          contract = Path('tests/test_strategy_main_runtime_e2e_workflow_contract.py')
+          text = contract.read_text(encoding='utf-8')
+          old = '    assert "strategy_workspace_smoke.js" in text\n'
+          new = (
+              old
+              + '    assert "strategy_mobile_responsive_smoke.js" in text\n'
+              + '    assert "strategy_mobile_responsive_presentation.py" in text\n'
+              + '    assert "work/strategy-mobile-responsive-*.png" in text\n'
+          )
+          assert text.count(old) == 1
+          text = text.replace(old, new, 1)
+          contract.write_text(text, encoding='utf-8')
+          PY
+
+          git diff --check
+          git diff -- .github/workflows/strategy-main-runtime-e2e.yml tests/test_strategy_main_runtime_e2e_workflow_contract.py
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add .github/workflows/strategy-main-runtime-e2e.yml tests/test_strategy_main_runtime_e2e_workflow_contract.py
+          git commit -m "test: Strategy 모바일 회귀를 production E2E에 고정"
+          git push origin HEAD:feat/strategy-ux-mobile-responsive-20260831
