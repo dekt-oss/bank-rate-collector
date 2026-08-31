@@ -5,6 +5,8 @@ on:
     branches: ["feat/strategy-ux-mobile-responsive-20260831"]
     paths:
       - ".github/workflows/dev-strategy-mobile-published-html-verify.yml"
+      - "src/rate_monitor/services/strategy_mobile_responsive_presentation.py"
+      - "scripts/strategy_mobile_responsive_smoke.js"
   workflow_dispatch:
 
 permissions:
