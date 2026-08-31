@@ -76,12 +76,13 @@ _JS = r"""
 <script id="strategy-mobile-responsive-script">
 (()=>{
   "use strict";
-  const install=()=>{
+  const collapseEvidence=()=>{
     const evidence=document.querySelector("details.decision-model-evidence");
     if(evidence)evidence.removeAttribute("open");
-    document.documentElement.dataset.strategyMobileResponsive="v1";
   };
-  if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",install,{once:true});else install();
+  document.documentElement.dataset.strategyMobileResponsive="v1";
+  if(document.readyState==="complete")setTimeout(collapseEvidence,0);
+  else window.addEventListener("load",collapseEvidence,{once:true});
 })();
 </script>
 """
