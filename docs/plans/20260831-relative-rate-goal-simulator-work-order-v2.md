@@ -1,3 +1,15 @@
+> **재리뷰 반영 우선규칙 (2026-08-31).** 아래 항목은 본문의 기존 문구보다 우선하며, Claude v2 재리뷰의 신규 P0/P1을 해소하기 위한 구현 전 계약이다.
+>
+> 1. **대표금리 정책은 당장 공통화하지 않고 병존한다.** 기존 `rate_funding_matrix_service._representative_rates()`의 production 계약 `institution_product_representative_max`는 변경하지 않는다. 신규 pricing peer용 대표금리는 별도 `pricing_representative_rate_policy_id/version`으로 계산한다. 같은 institution·기준시점에서 Matrix 대표금리와 pricing 대표금리가 다르면 payload에 두 policy id, 두 금리, 차이 bp를 함께 남기고 UI에서 서로 다른 라벨 없이 나란히 표시하지 않는다. 이 차이가 설명되지 않으면 R1은 fail-closed한다.
+> 2. **Institution rate reduction은 source precedence 적용을 자체 계약으로 증명한다.** 반환값에 `source_id`, `source_precedence_policy_id`, `precedence_applied: true`를 포함한다. 우선 source가 존재할 때 후퇴 source가 대표금리를 덮는 결과는 테스트 실패다.
+> 3. **Pricing peer funding enrichment는 시점을 함께 보존한다.** 각 row에 `funding_as_of`를 필수 nullable field로 두고 `rate_as_of != funding_as_of`이면 화면 헤더/행에서 두 시점을 명시한다. 업권 전체 funding이 미확인이면 aggregate funding scalar는 `null`이고 렌더링하지 않는다.
+> 4. **Availability scope는 실측 전 silent fallback 금지.** R0-A2 전에 업권별 `availability_scope` 채움률과 source provenance를 실측한다. scope가 결측이면 자동 nationwide로 간주하지 않고 `scope_unavailable` 또는 정책상 명시된 fallback을 사용한다.
+> 5. **Pricing peer는 N 제한을 기본 전제로 두지 않는다.** same sector + product/term + compatible availability scope를 만족하는 institution 전수를 기본 모집단으로 하며, N cap은 실제 분포/evidence와 업무상 필요가 있을 때만 별도 정책으로 도입한다. NH funding peer N=16과 무관하다.
+> 6. **비용 입력 라벨은 목표수신과 혼동되지 않아야 한다.** R1의 optional notional input 라벨은 `비용 계산 기준금액(수신 목표 아님)` 또는 동등하게 자기설명적인 문자열을 사용하고 DOM 테스트로 고정한다.
+> 7. `docs/specs/CURRENT.md`는 v2를 현행 리뷰 대상으로 가리키고, v1 plan/work-order는 superseded 정정 절을 맨 앞에 둔다. 이 조건이 충족되어야 R0-0을 완료로 본다.
+>
+> 위 정책 중 1번은 **기존 production Matrix 계약을 변경하지 않는 최소범위 선택**이다. 향후 두 대표금리를 공통화하려면 별도 계약변경 PR과 Matrix 회귀/E2E가 필요하다.
+
 # 상대금리 기반 목표형 금리결정 시뮬레이터 — 작업지시서 v2
 
 ```yaml
