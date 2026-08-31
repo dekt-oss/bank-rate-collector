@@ -101,7 +101,56 @@ def test_session_cookie_matches_middleware_contract() -> None:
     )
 
 
-def test_run_once_checks_root_strategy_manifest_and_health(
+def test_same_origin_login_target_requires_exact_login_path() -> None:
+    base = "https://example.test"
+    assert smoke._same_origin_login_target(base, "/__login?returnTo=%2F") is True
+    assert smoke._same_origin_login_target(base, "https://example.test/__login") is True
+    assert smoke._same_origin_login_target(base, "/foo/__login") is False
+    assert smoke._same_origin_login_target(base, "https://evil.test/__login") is False
+
+
+def test_validate_anonymous_boundary_requires_root_redirect_and_health_401(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    responses = {
+        "https://example.test/": (302, b"", "text/html", "/__login?returnTo=%2F"),
+        "https://example.test/api/health": (
+            401,
+            b'{"ok":false}',
+            "application/json",
+            "",
+        ),
+    }
+
+    def fake_get_no_redirect(url: str, *, timeout: float, accept: str):
+        return responses[url]
+
+    monkeypatch.setattr(smoke, "_get_no_redirect", fake_get_no_redirect)
+    smoke.validate_anonymous_boundary("https://example.test", timeout=1)
+
+
+def test_validate_anonymous_boundary_rejects_cross_origin_login_redirect(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        smoke,
+        "_get_no_redirect",
+        lambda url, timeout, accept: (
+            302,
+            b"",
+            "text/html",
+            "https://evil.test/__login",
+        ),
+    )
+
+    with pytest.raises(smoke.SmokeFailure) as exc:
+        smoke.validate_anonymous_boundary("https://example.test", timeout=1)
+
+    assert exc.value.category == "auth-boundary"
+    assert "redirect target invalid" in exc.value.detail
+
+
+def test_run_once_checks_anonymous_and_authenticated_surfaces(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     health = {
@@ -132,13 +181,26 @@ def test_run_once_checks_root_strategy_manifest_and_health(
             "application/json",
         ),
     }
+    anonymous = {
+        "https://example.test/": (302, b"", "text/html", "/__login?returnTo=%2F"),
+        "https://example.test/api/health": (
+            401,
+            b'{"ok":false}',
+            "application/json",
+            "",
+        ),
+    }
     cookies: list[str] = []
 
     def fake_get(url: str, *, timeout: float, cookie: str = ""):
         cookies.append(cookie)
         return responses[url]
 
+    def fake_get_no_redirect(url: str, *, timeout: float, accept: str):
+        return anonymous[url]
+
     monkeypatch.setattr(smoke, "_get", fake_get)
+    monkeypatch.setattr(smoke, "_get_no_redirect", fake_get_no_redirect)
 
     smoke.run_once(
         "https://example.test",
@@ -160,6 +222,11 @@ def test_run_once_rejects_manifest_without_strategy_before_network(
         smoke,
         "_get",
         lambda url, timeout, cookie="": pytest.fail(f"unexpected network call: {url}"),
+    )
+    monkeypatch.setattr(
+        smoke,
+        "_get_no_redirect",
+        lambda url, timeout, accept: pytest.fail(f"unexpected network call: {url}"),
     )
 
     with pytest.raises(smoke.SmokeFailure) as exc:
