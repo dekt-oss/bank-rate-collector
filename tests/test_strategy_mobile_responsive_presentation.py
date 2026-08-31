@@ -28,13 +28,15 @@ def test_strategy_mobile_layer_is_strategy_only_and_idempotent() -> None:
 def test_strategy_mobile_layer_removes_known_fixed_width_regressions() -> None:
     rendered = inject_strategy_mobile_responsive(_strategy_html())
 
-    assert '#trend-chart{display:block;width:100%!important' in rendered
+    assert '#market-flow .chartwrap #trend-chart{display:block;width:100%!important' in rendered
     assert '.pref-intel-table{width:100%!important;min-width:0!important' in rendered
     assert '.funding-position-table{width:100%!important;min-width:0!important' in rendered
-    assert '.workspace-decision .simform>*{min-width:0;max-width:100%}' in rendered
+    assert '.workspace-decision .simform>*{box-sizing:border-box;min-width:0;max-width:100%;width:100%}' in rendered
+    assert '.workspace-decision input[type="range"]{box-sizing:border-box;min-width:0;width:100%;margin:0}' in rendered
     assert '.workspace-decision .simrow{grid-template-columns:1fr}' in rendered
 
 
 def test_model_evidence_defaults_to_collapsed() -> None:
     rendered = inject_strategy_mobile_responsive(_strategy_html())
     assert 'evidence.removeAttribute("open")' in rendered
+    assert 'window.addEventListener("load",collapseEvidence,{once:true})' in rendered
