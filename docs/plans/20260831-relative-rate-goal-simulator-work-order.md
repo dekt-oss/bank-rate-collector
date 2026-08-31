@@ -1,3 +1,13 @@
+> **SUPERSEDED / 정정 (2026-08-31).** 이 문서는 v2로 대체되었으며 구현 근거로 사용하지 않는다.
+>
+> 아래 원문에는 현재 저장소 상태와 충돌하는 지시가 남아 있으므로 decision trail로만 보존한다.
+>
+> - `production_strategy_release_gate: unchanged_off` → **오류**. Strategy는 현재 canonical site-writer가 발행하는 production surface다.
+> - `simple_surface_interest_total_delta` 재사용 지시 → **R1 factual cost에 사용 금지**. 해당 값은 uncalibrated `predicted_total`에 의존한다. v2는 고정 notional 순수 산술 계약으로 분리한다.
+> - funding Direct Peer를 pricing peer로 사용하는 지시와 product/institution 키 혼용은 v2에서 폐기했다.
+>
+> **현행 문서:** `docs/plans/20260831-relative-rate-goal-simulator-work-order-v2.md`
+
 # 상대금리 기반 목표형 금리결정 시뮬레이터 — 작업지시서
 
 ```yaml
