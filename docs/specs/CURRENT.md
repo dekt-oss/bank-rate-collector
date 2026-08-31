@@ -45,24 +45,29 @@ warning 관측성, source freshness, 업권 용어를 안정화하는 작업 범
 
 ## 다음 설계 리뷰 — 상대금리 기반 목표형 시뮬레이터
 
-아래 문서는 **구현 완료 문서가 아니라 `draft_for_review`**다. 기존 Public Structural v2와
-private calibration 계약을 대체하지 않으며, Claude 설계 리뷰와 사용자 승인 전에는
-새 구현 기준으로 승격하지 않는다.
+현행 리뷰 대상은 **v2**다. v1은 decision trail로만 보존하며 구현 근거로 사용하지 않는다.
 
-- 기획: [`../plans/20260831-relative-rate-goal-simulator-plan.md`](../plans/20260831-relative-rate-goal-simulator-plan.md)
-- 작업지시서: [`../plans/20260831-relative-rate-goal-simulator-work-order.md`](../plans/20260831-relative-rate-goal-simulator-work-order.md)
-- Claude 리뷰 프롬프트: [`../reviews/20260831-relative-rate-goal-simulator-claude-review-prompt.md`](../reviews/20260831-relative-rate-goal-simulator-claude-review-prompt.md)
+- 기획 v2: [`../plans/20260831-relative-rate-goal-simulator-plan-v2.md`](../plans/20260831-relative-rate-goal-simulator-plan-v2.md)
+- 작업지시서 v2: [`../plans/20260831-relative-rate-goal-simulator-work-order-v2.md`](../plans/20260831-relative-rate-goal-simulator-work-order-v2.md)
+- 1차 리뷰 수용기록: [`../reviews/20260831-relative-rate-goal-simulator-claude-review-response.md`](../reviews/20260831-relative-rate-goal-simulator-claude-review-response.md)
+- 저축은행 identity evidence: [`../evidence/20260831-savings-bank-funding-identity-coverage.md`](../evidence/20260831-savings-bank-funding-identity-coverage.md)
+- v2 재리뷰 프롬프트: [`../reviews/20260831-relative-rate-goal-simulator-claude-rereview-prompt.md`](../reviews/20260831-relative-rate-goal-simulator-claude-rereview-prompt.md)
 
-핵심 경계는 다음과 같다.
+superseded / decision trail only:
+
+- [`../plans/20260831-relative-rate-goal-simulator-plan.md`](../plans/20260831-relative-rate-goal-simulator-plan.md)
+- [`../plans/20260831-relative-rate-goal-simulator-work-order.md`](../plans/20260831-relative-rate-goal-simulator-work-order.md)
+- [`../reviews/20260831-relative-rate-goal-simulator-claude-review-prompt.md`](../reviews/20260831-relative-rate-goal-simulator-claude-review-prompt.md)
+
+핵심 경계:
 
 ```text
-현재 / 내부자료 미보정
-= factual Relative Market Simulator
-= 목표 수신 기반 권장금리 출력 금지
-
-향후 / private calibrated champion 승인 후
-= Goal-based inverse simulator
-= 목표 수신 → 검증된 필요금리 범위 + What-if
+production Strategy = on_canonical_site_writer
+public mode = factual only
+public mode target input UI = 없음
+goal inverse = promoted private champion 이후만 활성화
+funding peer != pricing peer
+product market position != institution pricing peer position
 ```
 
 ---
