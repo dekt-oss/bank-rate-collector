@@ -2,6 +2,8 @@
 
 Pricing peers are institutions with a valid representative rate in the matched
 pricing scope. Funding is optional enrichment and never determines eligibility.
+Rate provenance and funding as-of metadata stay attached to each peer so later
+presentation cannot make different-time observations look simultaneous.
 """
 
 from __future__ import annotations
@@ -29,6 +31,11 @@ class PricingPeerCandidate:
     availability_scope: str
     rate_pct: Decimal
     rate_as_of: date | datetime | None
+    rate_source_id: str
+    rate_policy_id: str
+    rate_policy_version: str
+    source_precedence_policy: str
+    precedence_applied: bool
     funding_balance: Decimal | None = None
     funding_change_6m_pct: Decimal | None = None
     funding_as_of: str | None = None
@@ -70,11 +77,21 @@ def _normalized_candidate(candidate: PricingPeerCandidate) -> PricingPeerCandida
         if candidate.funding_balance is not None
         else None
     )
+    if funding_balance is not None and (not funding_balance.is_finite() or funding_balance < 0):
+        raise ValueError("funding_balance must be finite and non-negative")
     funding_change = (
         Decimal(str(candidate.funding_change_6m_pct))
         if candidate.funding_change_6m_pct is not None
         else None
     )
+    if funding_change is not None and not funding_change.is_finite():
+        raise ValueError("funding_change_6m_pct must be finite")
+    funding_as_of = str(candidate.funding_as_of or "").strip() or None
+    if funding_balance is not None and funding_as_of is None:
+        raise ValueError("funding_as_of is required when funding_balance is known")
+    if funding_change is not None and funding_balance is None:
+        raise ValueError("funding_balance is required when funding_change_6m_pct is known")
+
     return PricingPeerCandidate(
         institution_id=_required_text(candidate.institution_id, field="institution_id"),
         representative_product_id=_required_text(
@@ -91,9 +108,20 @@ def _normalized_candidate(candidate: PricingPeerCandidate) -> PricingPeerCandida
         ).lower(),
         rate_pct=normalize_rate(candidate.rate_pct),
         rate_as_of=candidate.rate_as_of,
+        rate_source_id=_required_text(candidate.rate_source_id, field="rate_source_id"),
+        rate_policy_id=_required_text(candidate.rate_policy_id, field="rate_policy_id"),
+        rate_policy_version=_required_text(
+            candidate.rate_policy_version,
+            field="rate_policy_version",
+        ),
+        source_precedence_policy=_required_text(
+            candidate.source_precedence_policy,
+            field="source_precedence_policy",
+        ),
+        precedence_applied=bool(candidate.precedence_applied),
         funding_balance=funding_balance,
         funding_change_6m_pct=funding_change,
-        funding_as_of=str(candidate.funding_as_of).strip() if candidate.funding_as_of else None,
+        funding_as_of=funding_as_of,
     )
 
 
@@ -110,7 +138,8 @@ def select_pricing_peers(
     """Select the full eligible institution population for pricing comparison.
 
     No arbitrary ``N`` is applied. Unknown availability scope fails closed
-    instead of silently widening to a nationwide peer universe.
+    instead of silently widening to a nationwide peer universe. Funding remains
+    optional, but any known balance must carry its own as-of period.
     """
 
     anchor_id = _required_text(anchor_institution_id, field="anchor_institution_id")
