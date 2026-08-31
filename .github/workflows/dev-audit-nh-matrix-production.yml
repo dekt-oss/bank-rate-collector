@@ -7,6 +7,10 @@ on:
       - ".github/workflows/dev-audit-nh-matrix-production.yml"
   workflow_dispatch:
 
+concurrency:
+  group: dev-audit-nh-matrix-production
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
@@ -41,10 +45,9 @@ jobs:
           uv run python - <<'PY'
           import json
           from pathlib import Path
-          from rate_monitor.services.strategy_service import build_strategy_summary
+          from rate_monitor.services.rate_funding_matrix_service import build_rate_funding_matrix
 
-          summary = build_strategy_summary(Path("work/rate_monitor.sqlite3"))
-          matrix = summary["rate_funding_matrix"]
+          matrix = build_rate_funding_matrix(Path("work/rate_monitor.sqlite3"))
           sector = matrix["sectors"]["nh_local"]
           keys = (
               "label",
