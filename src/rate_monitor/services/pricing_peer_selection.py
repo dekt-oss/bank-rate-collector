@@ -4,6 +4,9 @@ Pricing peers are institutions with a valid representative rate in the matched
 pricing scope. Funding is optional enrichment and never determines eligibility.
 Rate provenance and funding as-of metadata stay attached to each peer so later
 presentation cannot make different-time observations look simultaneous.
+
+Raw availability labels are not sufficient peer keys. ``availability_match_key``
+must be resolved from evidence before this module is called.
 """
 
 from __future__ import annotations
@@ -17,7 +20,7 @@ from rate_monitor.services.public_structural_v2_market_position_service import n
 
 PRICING_PEER_POLICY_ID = "relative-pricing-peer"
 PRICING_PEER_POLICY_VERSION = "1"
-UNKNOWN_SCOPES = frozenset({"", "unknown", "none", "unavailable"})
+UNKNOWN_SCOPE_KEYS = frozenset({"", "unknown", "none", "unavailable", "미상", "자료없음"})
 
 
 @dataclass(frozen=True)
@@ -29,6 +32,7 @@ class PricingPeerCandidate:
     term_months: int
     join_channel: str
     availability_scope: str
+    availability_match_key: str
     rate_pct: Decimal
     rate_as_of: date | datetime | None
     rate_source_id: str
@@ -54,7 +58,7 @@ class PricingPeerSelection:
     policy_id: str
     policy_version: str
     population_rule: str
-    availability_scope: str
+    availability_match_key: str
 
 
 def _required_text(value: object, *, field: str) -> str:
@@ -64,11 +68,11 @@ def _required_text(value: object, *, field: str) -> str:
     return text
 
 
-def _required_scope(value: object) -> str:
-    scope = _required_text(value, field="availability_scope").lower()
-    if scope in UNKNOWN_SCOPES:
-        raise ValueError("availability_scope must be evidence-backed, not unknown")
-    return scope
+def _required_match_key(value: object) -> str:
+    key = _required_text(value, field="availability_match_key").lower()
+    if key in UNKNOWN_SCOPE_KEYS:
+        raise ValueError("availability_match_key must be evidence-backed, not unknown")
+    return key
 
 
 def _normalized_candidate(candidate: PricingPeerCandidate) -> PricingPeerCandidate:
@@ -105,7 +109,8 @@ def _normalized_candidate(candidate: PricingPeerCandidate) -> PricingPeerCandida
         availability_scope=_required_text(
             candidate.availability_scope,
             field="candidate availability_scope",
-        ).lower(),
+        ),
+        availability_match_key=_required_match_key(candidate.availability_match_key),
         rate_pct=normalize_rate(candidate.rate_pct),
         rate_as_of=candidate.rate_as_of,
         rate_source_id=_required_text(candidate.rate_source_id, field="rate_source_id"),
@@ -132,12 +137,12 @@ def select_pricing_peers(
     sector: str,
     product_type: str,
     term_months: int,
-    availability_scope: str,
+    availability_match_key: str,
     join_channel: str | None = None,
 ) -> PricingPeerSelection:
     """Select the full eligible institution population for pricing comparison.
 
-    No arbitrary ``N`` is applied. Unknown availability scope fails closed
+    No arbitrary ``N`` is applied. Unresolved availability scope fails closed
     instead of silently widening to a nationwide peer universe. Funding remains
     optional, but any known balance must carry its own as-of period.
     """
@@ -145,7 +150,7 @@ def select_pricing_peers(
     anchor_id = _required_text(anchor_institution_id, field="anchor_institution_id")
     target_sector = _required_text(sector, field="sector")
     target_product_type = _required_text(product_type, field="product_type")
-    target_scope = _required_scope(availability_scope)
+    target_match_key = _required_match_key(availability_match_key)
     target_term = int(term_months)
     if target_term <= 0:
         raise ValueError("term_months must be positive")
@@ -158,7 +163,7 @@ def select_pricing_peers(
         if row.sector == target_sector
         and row.product_type == target_product_type
         and row.term_months == target_term
-        and row.availability_scope == target_scope
+        and row.availability_match_key == target_match_key
         and (target_channel is None or row.join_channel == target_channel)
     ]
 
@@ -199,5 +204,5 @@ def select_pricing_peers(
         policy_id=PRICING_PEER_POLICY_ID,
         policy_version=PRICING_PEER_POLICY_VERSION,
         population_rule="all_eligible_institutions",
-        availability_scope=target_scope,
+        availability_match_key=target_match_key,
     )
