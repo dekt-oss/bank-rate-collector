@@ -43,6 +43,30 @@ warning 관측성, source freshness, 업권 용어를 안정화하는 작업 범
 
 ---
 
+## 다음 설계 리뷰 — 상대금리 기반 목표형 시뮬레이터
+
+아래 문서는 **구현 완료 문서가 아니라 `draft_for_review`**다. 기존 Public Structural v2와
+private calibration 계약을 대체하지 않으며, Claude 설계 리뷰와 사용자 승인 전에는
+새 구현 기준으로 승격하지 않는다.
+
+- 기획: [`../plans/20260831-relative-rate-goal-simulator-plan.md`](../plans/20260831-relative-rate-goal-simulator-plan.md)
+- 작업지시서: [`../plans/20260831-relative-rate-goal-simulator-work-order.md`](../plans/20260831-relative-rate-goal-simulator-work-order.md)
+- Claude 리뷰 프롬프트: [`../reviews/20260831-relative-rate-goal-simulator-claude-review-prompt.md`](../reviews/20260831-relative-rate-goal-simulator-claude-review-prompt.md)
+
+핵심 경계는 다음과 같다.
+
+```text
+현재 / 내부자료 미보정
+= factual Relative Market Simulator
+= 목표 수신 기반 권장금리 출력 금지
+
+향후 / private calibrated champion 승인 후
+= Goal-based inverse simulator
+= 목표 수신 → 검증된 필요금리 범위 + What-if
+```
+
+---
+
 ## 문서 목록
 
 | 문서 | 상태 | 비고 |
