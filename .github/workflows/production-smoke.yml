@@ -51,7 +51,9 @@ jobs:
       - name: Verify production root, strategy, freshness and health endpoint
         env:
           PRODUCTION_URL: https://bank-rate-collector.vercel.app
-          DASHBOARD_PASSWORD: ${{ secrets.DASHBOARD_PASSWORD }}
+          # 사이트 접근용 secret을 수집 관리자 비밀번호와 분리한다.
+          # 기존 설치는 DASHBOARD_PASSWORD fallback으로 계속 동작한다.
+          DASHBOARD_PASSWORD: ${{ secrets.SITE_ACCESS_PASSWORD || secrets.DASHBOARD_PASSWORD }}
         run: |
           set -o pipefail
           python scripts/production_smoke.py \
