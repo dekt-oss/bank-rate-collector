@@ -45,10 +45,13 @@ jobs:
           uv run python - <<'PY'
           import json
           from pathlib import Path
-          from rate_monitor.services.rate_funding_matrix_service import build_rate_funding_matrix
+          from rate_monitor.services import rate_funding_matrix_service as matrix
 
-          matrix = build_rate_funding_matrix(Path("work/rate_monitor.sqlite3"))
-          sector = matrix["sectors"]["nh_local"]
+          sector = matrix._sector_matrix(
+              Path("work/rate_monitor.sqlite3"),
+              sector="nh_local",
+              analysis_month="2025-12",
+          )
           keys = (
               "label",
               "analysis_month",
