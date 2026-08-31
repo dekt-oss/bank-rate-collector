@@ -2,8 +2,14 @@
 
 This module is deliberately separate from Rate × Funding's existing representative
 rate semantics. It builds one deterministic pricing representative per institution
-for a matched product/term/availability scope and applies the same presentation
+for a matched product/term/availability key and applies the same presentation
 source-retreat rule before choosing the rate.
+
+``availability_scope`` is a source/display label such as ``전국`` or ``지역금고``.
+It is not by itself a safe peer key. ``availability_match_key`` is the separately
+resolved, evidence-backed comparison key (for example ``nationwide`` or a future
+validated local common-bond key). Raw ambiguous labels must never be treated as
+matching geography by accident.
 """
 
 from __future__ import annotations
@@ -19,7 +25,7 @@ from rate_monitor.services.public_structural_v2_market_position_service import n
 INSTITUTION_RATE_REDUCTION_POLICY_ID = "relative-pricing-institution-rate"
 INSTITUTION_RATE_REDUCTION_POLICY_VERSION = "1"
 SOURCE_PRECEDENCE_POLICY = "presentation.db_only_sources"
-UNKNOWN_SCOPES = frozenset({"", "unknown", "none", "unavailable"})
+UNKNOWN_SCOPE_KEYS = frozenset({"", "unknown", "none", "unavailable", "미상", "자료없음"})
 
 
 @dataclass(frozen=True)
@@ -32,6 +38,7 @@ class InstitutionRateCandidate:
     term_months: int
     join_channel: str
     availability_scope: str
+    availability_match_key: str
     special_offer_flag: bool
     rate_pct: Decimal
     rate_as_of: date | datetime | None = None
@@ -47,6 +54,7 @@ class InstitutionRepresentativeRate:
     term_months: int
     join_channel: str
     availability_scope: str
+    availability_match_key: str
     special_offer_flag: bool
     rate_pct: Decimal
     rate_as_of: date | datetime | None
@@ -64,11 +72,11 @@ def _required_text(value: object, *, field: str) -> str:
     return text
 
 
-def _required_scope(value: object) -> str:
-    scope = _required_text(value, field="availability_scope").lower()
-    if scope in UNKNOWN_SCOPES:
-        raise ValueError("availability_scope must be evidence-backed, not unknown")
-    return scope
+def _required_match_key(value: object) -> str:
+    key = _required_text(value, field="availability_match_key").lower()
+    if key in UNKNOWN_SCOPE_KEYS:
+        raise ValueError("availability_match_key must be evidence-backed, not unknown")
+    return key
 
 
 def _normalized_candidate(candidate: InstitutionRateCandidate) -> InstitutionRateCandidate:
@@ -83,7 +91,8 @@ def _normalized_candidate(candidate: InstitutionRateCandidate) -> InstitutionRat
         availability_scope=_required_text(
             candidate.availability_scope,
             field="candidate availability_scope",
-        ).lower(),
+        ),
+        availability_match_key=_required_match_key(candidate.availability_match_key),
         special_offer_flag=bool(candidate.special_offer_flag),
         rate_pct=normalize_rate(candidate.rate_pct),
         rate_as_of=candidate.rate_as_of,
@@ -96,24 +105,26 @@ def reduce_institution_rates(
     sector: str,
     product_type: str,
     term_months: int,
-    availability_scope: str,
+    availability_match_key: str,
     join_channel: str | None = None,
     include_special_offer: bool = False,
     retreating_sources: Iterable[str] | None = None,
 ) -> list[InstitutionRepresentativeRate]:
     """Return one deterministic representative rate per institution.
 
-    ``availability_scope`` is required and must not be unknown. The function
-    does not silently widen an unknown scope to nationwide.
+    ``availability_match_key`` is required and must already be evidence-backed.
+    The function does not infer a key from raw source labels and does not silently
+    widen an unresolved scope to nationwide.
 
-    Source precedence mirrors the existing Strategy presentation rule: a source
-    listed in ``db_only_sources`` retreats when the same institution has at
-    least one eligible non-retreating source row.
+    Source precedence mirrors the existing Strategy Matrix representative-rate
+    behavior: a source listed in ``db_only_sources`` retreats when the same
+    institution has at least one eligible non-retreating source row. Reconciliation
+    to product-level dedupe semantics is a separate evidence task, not hidden here.
     """
 
     target_sector = _required_text(sector, field="sector")
     target_product_type = _required_text(product_type, field="product_type")
-    target_scope = _required_scope(availability_scope)
+    target_match_key = _required_match_key(availability_match_key)
     target_term = int(term_months)
     if target_term <= 0:
         raise ValueError("term_months must be positive")
@@ -126,7 +137,7 @@ def reduce_institution_rates(
         if row.sector == target_sector
         and row.product_type == target_product_type
         and row.term_months == target_term
-        and row.availability_scope == target_scope
+        and row.availability_match_key == target_match_key
         and (target_channel is None or row.join_channel == target_channel)
         and (include_special_offer or not row.special_offer_flag)
     ]
@@ -162,6 +173,7 @@ def reduce_institution_rates(
                 term_months=selected.term_months,
                 join_channel=selected.join_channel,
                 availability_scope=selected.availability_scope,
+                availability_match_key=selected.availability_match_key,
                 special_offer_flag=selected.special_offer_flag,
                 rate_pct=selected.rate_pct,
                 rate_as_of=selected.rate_as_of,
