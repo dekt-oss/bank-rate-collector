@@ -25,7 +25,7 @@ _CSS = r"""
   .workspace-decision .simform>*{box-sizing:border-box;min-width:0;max-width:100%;width:100%}
   .workspace-decision .simrow{box-sizing:border-box;grid-template-columns:minmax(0,82px) minmax(0,72px) minmax(0,1fr)}
   .workspace-decision .simrow>*{box-sizing:border-box;min-width:0;max-width:100%}
-  .workspace-decision input[type="range"]{box-sizing:border-box;min-width:0;width:100%}
+  .workspace-decision input[type="range"]{box-sizing:border-box;min-width:0;width:100%;margin:0}
   .workspace-decision table{min-width:0!important;max-width:100%}
 
   .market-flow .chartcard,.market-flow .chartwrap{min-width:0;max-width:100%}
