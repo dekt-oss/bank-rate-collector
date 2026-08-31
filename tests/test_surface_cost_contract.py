@@ -16,7 +16,7 @@ def test_standard_100eok_notional_10bp_for_12_months_is_10m_krw() -> None:
         term_months=12,
     )
 
-    assert STANDARD_NOTIONAL_KRW == Decimal("10000000000")
+    assert Decimal("10000000000") == STANDARD_NOTIONAL_KRW
     assert result == Decimal("10000000.0000")
 
 
