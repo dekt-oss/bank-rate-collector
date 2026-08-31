@@ -43,6 +43,30 @@ async function inspect(browser, label, viewport) {
         height: rect.height,
       };
     };
+    const overflowers = (selector) => {
+      const root = document.querySelector(selector);
+      if (!root) return [];
+      const rootRect = root.getBoundingClientRect();
+      return [...root.querySelectorAll("*")]
+        .map((node) => {
+          const rect = node.getBoundingClientRect();
+          const style = getComputedStyle(node);
+          return {
+            tag: node.tagName,
+            id: node.id || "",
+            cls: typeof node.className === "string" ? node.className : node.className?.baseVal || "",
+            width: rect.width,
+            right: rect.right - rootRect.left,
+            minWidth: style.minWidth,
+            widthCss: style.width,
+            marginLeft: style.marginLeft,
+            marginRight: style.marginRight,
+          };
+        })
+        .filter((item) => item.width > rootRect.width + 1 || item.right > rootRect.width + 1)
+        .sort((a, b) => Math.max(b.width, b.right) - Math.max(a.width, a.right))
+        .slice(0, 12);
+    };
     const visibleGraphics = [...document.querySelectorAll("svg,canvas")]
       .filter((node) => {
         const style = getComputedStyle(node);
@@ -68,6 +92,8 @@ async function inspect(browser, label, viewport) {
       trendChart: dims("#trend-chart"),
       preference: dims("#preference-intelligence .pref-intel-main"),
       funding: dims("#institution-funding-position .funding-position-table-wrap"),
+      simformOverflowers: overflowers("#planning-zone .simform"),
+      chartOverflowers: overflowers("#market-flow .chartwrap"),
       visibleGraphics,
       zeroGraphics,
       trendPaths,
@@ -93,7 +119,8 @@ async function inspect(browser, label, viewport) {
       funding: result.funding,
     })) {
       if (!box) continue;
-      invariant(box.scrollWidth <= box.clientWidth + 1, `${label}: ${name} overflow ${JSON.stringify(box)}`);
+      const details = name === "simform" ? result.simformOverflowers : name === "chartWrap" ? result.chartOverflowers : [];
+      invariant(box.scrollWidth <= box.clientWidth + 1, `${label}: ${name} overflow ${JSON.stringify({ box, details })}`);
     }
     if (result.chartWrap && result.trendChart) {
       invariant(result.trendChart.width <= result.chartWrap.width + 1, `${label}: trend SVG가 chartwrap보다 큼 ${JSON.stringify({ chartWrap: result.chartWrap, trendChart: result.trendChart })}`);
