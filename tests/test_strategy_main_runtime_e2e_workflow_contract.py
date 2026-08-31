@@ -5,6 +5,7 @@ WORKFLOW = ROOT / ".github" / "workflows" / "strategy-main-runtime-e2e.yml"
 SMOKE = ROOT / "scripts" / "strategy_main_runtime_external_context_smoke.js"
 PREVIEW_SMOKE = ROOT / "scripts" / "strategy_preview_smoke.js"
 WORKSPACE_SMOKE = ROOT / "scripts" / "strategy_workspace_smoke.js"
+MAIN_MAP_SMOKE = ROOT / "scripts" / "main_map_runtime_smoke.js"
 BRAND_SPEC = ROOT / "docs" / "specs" / "20260819-strategy-brand-visual-system-v3.md"
 
 
@@ -37,6 +38,9 @@ def test_strategy_main_runtime_e2e_is_isolated_and_observable() -> None:
     assert "source_contract_mismatch" not in text
     assert "schema_unavailable" not in text
     assert "invalid_previous_balance" not in text
+    assert "secrets.SITE_ACCESS_PASSWORD || secrets.DASHBOARD_PASSWORD" in text
+    assert "https://bank-rate-collector.vercel.app" in text
+    assert "bank-rate-collector-dekt-oss-projects.vercel.app" not in text
 
     for release_path in (
         ".github/workflows/collect.yml",
@@ -54,6 +58,17 @@ def test_strategy_main_runtime_e2e_is_isolated_and_observable() -> None:
     assert "vercel --prod" not in lower
     assert "deploy_to_vercel" not in lower
     assert "rate-data writer" not in lower
+
+
+def test_main_map_runtime_smoke_authenticates_production_without_affecting_local() -> None:
+    text = MAIN_MAP_SMOKE.read_text(encoding="utf-8")
+
+    assert "SITE_ACCESS_PASSWORD" in text
+    assert "DASHBOARD_PASSWORD" in text
+    assert 'new URL("/__login?returnTo=%2F", baseUrl)' in text
+    assert "if (localBase) return;" in text
+    assert "page.waitForURL" in text
+    assert 'input[name="password"]' in text
 
 
 def test_strategy_main_runtime_smoke_accepts_fail_closed_external_context() -> None:
