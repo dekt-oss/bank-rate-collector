@@ -1,3 +1,4 @@
+from datetime import date
 from decimal import Decimal
 
 import pytest
@@ -14,6 +15,7 @@ def _peer(
     rate: str,
     *,
     funding: str | None = None,
+    funding_as_of: str | None = None,
     scope: str = "nationwide",
     channel: str = "online",
 ) -> PricingPeerCandidate:
@@ -26,10 +28,15 @@ def _peer(
         join_channel=channel,
         availability_scope=scope,
         rate_pct=Decimal(rate),
-        rate_as_of=None,
+        rate_as_of=date(2026, 8, 31),
+        rate_source_id="fsb",
+        rate_policy_id="relative-pricing-institution-rate",
+        rate_policy_version="1",
+        source_precedence_policy="presentation.db_only_sources",
+        precedence_applied=True,
         funding_balance=Decimal(funding) if funding is not None else None,
         funding_change_6m_pct=None,
-        funding_as_of="2026-03" if funding is not None else None,
+        funding_as_of=(funding_as_of or "2026-03") if funding is not None else None,
     )
 
 
@@ -73,6 +80,24 @@ def test_missing_funding_does_not_remove_pricing_peer() -> None:
     assert result.funding_unjoined_count == 1
     assert result.funding_join_ratio == Decimal("0.5")
     assert result.peers[1].funding_balance is None
+
+
+def test_rate_provenance_and_different_funding_as_of_are_preserved() -> None:
+    result = _select(
+        [
+            _peer("anchor", "3.50"),
+            _peer("peer", "3.60", funding="900", funding_as_of="2026-03"),
+        ]
+    )
+
+    peer = result.peers[0]
+    assert peer.rate_as_of == date(2026, 8, 31)
+    assert peer.rate_source_id == "fsb"
+    assert peer.rate_policy_id == "relative-pricing-institution-rate"
+    assert peer.rate_policy_version == "1"
+    assert peer.source_precedence_policy == "presentation.db_only_sources"
+    assert peer.precedence_applied is True
+    assert peer.funding_as_of == "2026-03"
 
 
 def test_duplicate_institution_after_reduction_fails_closed() -> None:
@@ -122,3 +147,30 @@ def test_zero_peer_population_is_explicitly_insufficient() -> None:
     assert result.status == "insufficient_peer_coverage"
     assert result.pricing_peer_count == 0
     assert result.funding_join_ratio is None
+
+
+def test_known_funding_without_as_of_fails_closed() -> None:
+    row = _peer("anchor", "3.50", funding=None)
+    bad = PricingPeerCandidate(
+        **{
+            **row.__dict__,
+            "funding_balance": Decimal("1000"),
+            "funding_as_of": None,
+        }
+    )
+
+    with pytest.raises(ValueError, match="funding_as_of"):
+        _select([bad])
+
+
+def test_funding_change_without_balance_fails_closed() -> None:
+    row = _peer("anchor", "3.50", funding=None)
+    bad = PricingPeerCandidate(
+        **{
+            **row.__dict__,
+            "funding_change_6m_pct": Decimal("0.05"),
+        }
+    )
+
+    with pytest.raises(ValueError, match="funding_balance"):
+        _select([bad])
