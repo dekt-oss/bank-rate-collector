@@ -40,10 +40,10 @@ test("redirects unauthenticated page navigation to login and preserves return pa
   assert.equal(location.searchParams.get("returnTo"), "/strategy.html?scope=busan");
 });
 
-test("login page describes the 2-hour session window", async () => {
+test("login page describes the 6-hour session window", async () => {
   const response = await handleAuth(htmlRequest(LOGIN_PATH), { password: PASSWORD, next });
   assert.equal(response.status, 200);
-  assert.match(await response.text(), /2시간 동안 접근/u);
+  assert.match(await response.text(), /6시간 동안 접근/u);
 });
 
 test("blocks direct JSON/data access instead of leaking content", async () => {
@@ -68,7 +68,7 @@ test("issues a secure HttpOnly session cookie after correct password", async () 
   const cookie = response.headers.get("set-cookie");
   assert.equal(cookie.split(";", 1)[0], EXPECTED_COOKIE);
   assert.match(cookie, new RegExp(`^${SESSION_COOKIE}=`));
-  assert.match(cookie, /Max-Age=7200/u);
+  assert.match(cookie, /Max-Age=21600/u);
   assert.match(cookie, /HttpOnly/u);
   assert.match(cookie, /Secure/u);
   assert.match(cookie, /SameSite=Strict/u);
