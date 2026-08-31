@@ -20,14 +20,14 @@ jobs:
       - run: uv python install 3.12
       - run: uv sync --locked
 
-      - name: Fetch currently published Strategy HTML
+      - name: Fetch currently published Strategy site
         run: |
           set -euo pipefail
-          mkdir -p work/site-public
+          mkdir -p work
           git fetch --force origin +rate-data:refs/remotes/origin/rate-data --depth=1
-          git show refs/remotes/origin/rate-data:site-public/strategy.html > work/site-public/strategy.html
-          git show refs/remotes/origin/rate-data:site-public/index.html > work/site-public/index.html
+          git archive refs/remotes/origin/rate-data site-public | tar -x -C work
           test -s work/site-public/strategy.html
+          test -s work/site-public/index.html
 
       - name: Apply only the new final responsive layer
         run: |
