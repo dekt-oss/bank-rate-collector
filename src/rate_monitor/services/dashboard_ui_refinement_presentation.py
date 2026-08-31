@@ -42,6 +42,9 @@ from rate_monitor.services.main_map_drilldown_refinement import (
 from rate_monitor.services.rate_funding_matrix_presentation import (
     inject_rate_funding_matrix,
 )
+from rate_monitor.services.strategy_mobile_responsive_presentation import (
+    inject_strategy_mobile_responsive,
+)
 
 STYLE_MARKER = _base.STYLE_MARKER
 SCRIPT_MARKER = _base.SCRIPT_MARKER
@@ -74,4 +77,6 @@ def inject_dashboard_ui_refinement(html: str) -> str:
         rendered = inject_institution_funding_position(rendered)
         rendered = inject_rate_funding_matrix(rendered)
     rendered = repair_strategy_product_scope_runtime(rendered)
-    return inject_collection_health_live_signal(rendered)
+    rendered = inject_collection_health_live_signal(rendered)
+    # 모든 Strategy injector 뒤에서 fixed-width 회귀를 최종 정리한다.
+    return inject_strategy_mobile_responsive(rendered)
