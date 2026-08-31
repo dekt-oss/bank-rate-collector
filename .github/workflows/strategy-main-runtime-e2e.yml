@@ -248,6 +248,7 @@ jobs:
       - name: Run desktop and mobile Chrome smoke against local build and production
         env:
           STRATEGY_PREVIEW_BASE_URL: http://127.0.0.1:4173
+          SITE_ACCESS_PASSWORD: ${{ secrets.SITE_ACCESS_PASSWORD || secrets.DASHBOARD_PASSWORD }}
         run: |
           set -euo pipefail
           python -m http.server 4173 --directory work/site-public \
@@ -264,7 +265,7 @@ jobs:
           curl -fsS http://127.0.0.1:4173/strategy.html >/dev/null
           curl -fsS http://127.0.0.1:4173/ >/dev/null
           MAIN_MAP_SMOKE_PREFIX=main-map-local node scripts/main_map_runtime_smoke.js
-          STRATEGY_PREVIEW_BASE_URL=https://bank-rate-collector-dekt-oss-projects.vercel.app \
+          STRATEGY_PREVIEW_BASE_URL=https://bank-rate-collector.vercel.app \
             MAIN_MAP_SMOKE_PREFIX=main-map-production \
             node scripts/main_map_runtime_smoke.js
           node scripts/strategy_preview_smoke.js
