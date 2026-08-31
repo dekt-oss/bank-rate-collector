@@ -21,10 +21,11 @@ _CSS = r"""
   .workspace-decision .decision-sensitivity-grid,.workspace-decision .predict-inputs,
   .workspace-decision .prediction-results,.workspace-decision .rate-response-wrap,
   .workspace-decision .tablewrap{min-width:0;max-width:100%}
-  .workspace-decision .simform>*{min-width:0;max-width:100%}
-  .workspace-decision .simrow{grid-template-columns:minmax(0,82px) minmax(0,72px) minmax(0,1fr)}
-  .workspace-decision .simrow>*{min-width:0;max-width:100%}
-  .workspace-decision input[type="range"]{min-width:0;width:100%}
+  .workspace-decision .simform{box-sizing:border-box;width:100%}
+  .workspace-decision .simform>*{box-sizing:border-box;min-width:0;max-width:100%;width:100%}
+  .workspace-decision .simrow{box-sizing:border-box;grid-template-columns:minmax(0,82px) minmax(0,72px) minmax(0,1fr)}
+  .workspace-decision .simrow>*{box-sizing:border-box;min-width:0;max-width:100%}
+  .workspace-decision input[type="range"]{box-sizing:border-box;min-width:0;width:100%}
   .workspace-decision table{min-width:0!important;max-width:100%}
 
   .market-flow .chartcard,.market-flow .chartwrap{min-width:0;max-width:100%}
