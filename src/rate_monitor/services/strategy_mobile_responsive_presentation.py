@@ -30,7 +30,7 @@ _CSS = r"""
 
   .market-flow .chartcard,.market-flow .chartwrap{min-width:0;max-width:100%}
   .market-flow .chartwrap{overflow:hidden}
-  #trend-chart{display:block;width:100%!important;max-width:100%!important;min-width:0!important;height:100%!important}
+  html[data-strategy-mobile-responsive="v1"] #market-flow .chartwrap #trend-chart{display:block;width:100%!important;max-width:100%!important;min-width:0!important;height:100%!important}
 
   .pref-intel-main{min-width:0;max-width:100%;overflow:hidden!important}
   .pref-intel-table{width:100%!important;min-width:0!important;max-width:100%;display:block}
