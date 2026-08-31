@@ -21,8 +21,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError, URLError
-from urllib.parse import urljoin
-from urllib.request import Request, urlopen
+from urllib.parse import urljoin, urlparse
+from urllib.request import HTTPRedirectHandler, Request, build_opener, urlopen
 
 DEFAULT_BASE_URL = "https://bank-rate-collector.vercel.app/"
 ROOT_MARKERS = ("업권", "수집 상태")
@@ -53,6 +53,11 @@ class SmokeFailure(RuntimeError):
         return f"{self.category}: {self.detail}"
 
 
+class _NoRedirect(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: ANN001, ANN201
+        return None
+
+
 def _session_cookie(password: str) -> str:
     if not password:
         return ""
@@ -79,6 +84,83 @@ def _get(
         raise SmokeFailure("deployment", f"GET {url} -> HTTP {exc.code}: {body}") from exc
     except (URLError, TimeoutError, OSError) as exc:
         raise SmokeFailure("deployment", f"GET {url} failed: {exc}") from exc
+
+
+def _get_no_redirect(
+    url: str,
+    *,
+    timeout: float,
+    accept: str,
+) -> tuple[int, bytes, str, str]:
+    request = Request(
+        url,
+        headers={
+            "User-Agent": "bank-rate-collector-production-smoke/1",
+            "Accept": accept,
+        },
+    )
+    opener = build_opener(_NoRedirect)
+    try:
+        with opener.open(request, timeout=timeout) as response:  # noqa: S310
+            return (
+                response.status,
+                response.read(),
+                response.headers.get("content-type", ""),
+                response.headers.get("location", ""),
+            )
+    except HTTPError as exc:
+        return (
+            exc.code,
+            exc.read(),
+            exc.headers.get("content-type", ""),
+            exc.headers.get("location", ""),
+        )
+    except (URLError, TimeoutError, OSError) as exc:
+        raise SmokeFailure("deployment", f"GET {url} failed: {exc}") from exc
+
+
+def _same_origin_login_target(base_url: str, location: str) -> bool:
+    if not location:
+        return False
+    base = urlparse(base_url.rstrip("/") + "/")
+    target = urlparse(urljoin(base_url.rstrip("/") + "/", location))
+    return (
+        target.scheme == base.scheme
+        and target.netloc == base.netloc
+        and target.path == "/__login"
+    )
+
+
+def validate_anonymous_boundary(base_url: str, *, timeout: float) -> None:
+    base = base_url.rstrip("/") + "/"
+    root_url = urljoin(base, "/")
+    status, _, _, location = _get_no_redirect(
+        root_url,
+        timeout=timeout,
+        accept="text/html",
+    )
+    if status != 302:
+        raise SmokeFailure(
+            "auth-boundary",
+            f"anonymous root expected HTTP 302, got {status}",
+        )
+    if not _same_origin_login_target(base_url, location):
+        raise SmokeFailure(
+            "auth-boundary",
+            f"anonymous root redirect target invalid: {location!r}",
+        )
+
+    health_url = urljoin(base, "api/health")
+    status, _, _, _ = _get_no_redirect(
+        health_url,
+        timeout=timeout,
+        accept="application/json",
+    )
+    if status != 401:
+        raise SmokeFailure(
+            "auth-boundary",
+            f"anonymous /api/health expected HTTP 401, got {status}",
+        )
 
 
 def _json_body(url: str, body: bytes) -> dict[str, Any]:
@@ -143,8 +225,6 @@ def validate_manifest(actual: dict[str, Any], expected: dict[str, Any]) -> None:
             f"expected>={expected['generated_at']!r} actual={actual['generated_at']!r}",
         )
 
-    # A second successful writer may publish while this smoke is already running.
-    # Treat a newer production generation as fresh rather than a false failure.
     if actual_time > expected_time:
         return
 
@@ -178,8 +258,11 @@ def run_once(
 ) -> None:
     base = base_url.rstrip("/") + "/"
     _require_strategy_file(expected_manifest, "expected")
-    cookie = _session_cookie(password)
 
+    # 최신 manifest를 만족하는 동일 retry에서 익명 경계도 같이 확인한다.
+    validate_anonymous_boundary(base_url, timeout=timeout)
+
+    cookie = _session_cookie(password)
     root_url = urljoin(base, "/")
     status, body, _ = _get(root_url, timeout=timeout, cookie=cookie)
     if status != 200:
