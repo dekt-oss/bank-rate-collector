@@ -31,8 +31,16 @@ def test_strategy_mobile_layer_removes_known_fixed_width_regressions() -> None:
     assert '#market-flow .chartwrap #trend-chart{display:block;width:100%!important' in rendered
     assert '.pref-intel-table{width:100%!important;min-width:0!important' in rendered
     assert '.funding-position-table{width:100%!important;min-width:0!important' in rendered
-    assert '.workspace-decision .simform>*{box-sizing:border-box;min-width:0;max-width:100%;width:100%}' in rendered
-    assert '.workspace-decision input[type="range"]{box-sizing:border-box;min-width:0;width:100%;margin:0}' in rendered
+    simform_contract = (
+        '.workspace-decision .simform>*{box-sizing:border-box;'
+        'min-width:0;max-width:100%;width:100%}'
+    )
+    range_contract = (
+        '.workspace-decision input[type="range"]{box-sizing:border-box;'
+        'min-width:0;width:100%;margin:0}'
+    )
+    assert simform_contract in rendered
+    assert range_contract in rendered
     assert '.workspace-decision .simrow{grid-template-columns:1fr}' in rendered
 
 
