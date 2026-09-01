@@ -64,6 +64,15 @@ def _funding_db(tmp_path):
                 "000000000120.000000",
             ),
             (
+                "b",
+                "savings_bank",
+                "deposit_liabilities_total",
+                None,
+                "mapped_dual_source",
+                "2026-06",
+                "000000000060.000000",
+            ),
+            (
                 "ignored",
                 "savings_bank",
                 "deposit_liabilities_total",
@@ -92,14 +101,17 @@ def test_funding_db_adapter_preserves_snapshot_bytes(tmp_path) -> None:
     assert _sha256(db) == before
     assert not (tmp_path / "publish.sqlite3-wal").exists()
     assert not (tmp_path / "publish.sqlite3-shm").exists()
-    assert [(point.month, point.balance) for point in points] == [
-        ("2025-06", Decimal("80.000000")),
-        ("2025-12", Decimal("100.000000")),
-        ("2026-06", Decimal("120.000000")),
+    assert [(point.institution_id, point.month, point.balance) for point in points] == [
+        ("a", "2025-06", Decimal("80.000000")),
+        ("a", "2025-12", Decimal("100.000000")),
+        ("a", "2026-06", Decimal("120.000000")),
+        ("b", "2026-06", Decimal("60.000000")),
     ]
 
 
-def test_read_model_remains_functionally_equivalent_on_immutable_snapshot(tmp_path) -> None:
+def test_read_model_accepts_dual_source_identity_without_imputing_history(
+    tmp_path,
+) -> None:
     db = _funding_db(tmp_path)
     before = _sha256(db)
 
@@ -110,8 +122,15 @@ def test_read_model_remains_functionally_equivalent_on_immutable_snapshot(tmp_pa
     )
 
     assert _sha256(db) == before
-    assert len(rows) == 1
-    assert rows[0].institution_id == "a"
-    assert rows[0].balance == Decimal("120.000000")
-    assert rows[0].change_6m_pct == Decimal("0.2")
-    assert rows[0].change_12m_pct == Decimal("0.5")
+    assert [row.institution_id for row in rows] == ["a", "b"]
+
+    exact_row, dual_source_row = rows
+    assert exact_row.balance == Decimal("120.000000")
+    assert exact_row.change_6m_pct == Decimal("0.2")
+    assert exact_row.change_12m_pct == Decimal("0.5")
+
+    assert dual_source_row.balance == Decimal("60.000000")
+    assert dual_source_row.balance_6m_ago is None
+    assert dual_source_row.balance_12m_ago is None
+    assert dual_source_row.change_6m_pct is None
+    assert dual_source_row.change_12m_pct is None

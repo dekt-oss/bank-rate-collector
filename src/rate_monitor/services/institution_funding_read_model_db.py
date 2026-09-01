@@ -24,6 +24,7 @@ VERIFIED_IDENTITY_STATUSES = frozenset(
         "mapped_exact_fss_code",
         "mapped_exact_nh_brc_name",
         "mapped_exact_cu_ingno",
+        "mapped_dual_source",
     }
 )
 
