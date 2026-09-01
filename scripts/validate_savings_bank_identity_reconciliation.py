@@ -61,10 +61,7 @@ def _rows(conn: sqlite3.Connection, month: str) -> list[dict[str, Any]]:
         """,
         (SOURCE_ID, SECTOR, month, AGGREGATE_KEY),
     ).fetchall()
-    return [
-        {key: row[key] for key in row.keys()}
-        for row in result
-    ]
+    return [{key: row[key] for key in row} for row in result]
 
 
 def _aggregate_count(conn: sqlite3.Connection) -> int:
@@ -95,7 +92,7 @@ def _funding_links(conn: sqlite3.Connection) -> list[dict[str, Any]]:
         """,
         (SOURCE_ID,),
     ).fetchall()
-    return [{key: row[key] for key in row.keys()} for row in rows]
+    return [{key: row[key] for key in row} for row in rows]
 
 
 def _stable_value(value: Any) -> Any:
@@ -247,6 +244,10 @@ def validate(
 
 
 def render_markdown(result: dict[str, Any]) -> str:
+    links_unchanged = str(result["persistent_funding_links_unchanged"]).lower()
+    write_back = str(result["production_write_back_performed"]).lower()
+    aggregate_before = result["aggregate_active_before"]
+    aggregate_after = result["aggregate_active_after"]
     lines = [
         "# Savings-bank funding identity remediation — production-copy validation",
         "",
@@ -259,8 +260,8 @@ def render_markdown(result: dict[str, Any]) -> str:
         f"after_unmapped: {result['after_unmapped']}",
         f"non_identity_changes: {result['non_identity_changes']}",
         f"existing_mapped_identity_changes: {result['existing_mapped_identity_changes']}",
-        f"persistent_funding_links_unchanged: {str(result['persistent_funding_links_unchanged']).lower()}",
-        f"production_write_back_performed: {str(result['production_write_back_performed']).lower()}",
+        f"persistent_funding_links_unchanged: {links_unchanged}",
+        f"production_write_back_performed: {write_back}",
         "```",
         "",
         "## Newly mapped observations",
@@ -282,7 +283,7 @@ def render_markdown(result: dict[str, Any]) -> str:
             f"- non-identity fingerprint after: `{result['non_identity_fingerprint_after']}`",
             f"- funding-link fingerprint before: `{result['funding_links_fingerprint_before']}`",
             f"- funding-link fingerprint after: `{result['funding_links_fingerprint_after']}`",
-            f"- aggregate active before/after: {result['aggregate_active_before']} / {result['aggregate_active_after']}",
+            f"- aggregate active before/after: {aggregate_before} / {aggregate_after}",
             f"- second reconciliation mapped: {result['second_reconciliation']['mapped']}",
             "",
         ]
