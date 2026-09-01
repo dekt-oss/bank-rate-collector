@@ -6,11 +6,12 @@ from rate_monitor.services.institution_funding_read_model import InstitutionFund
 from rate_monitor.services.institution_funding_read_model_db import VERIFIED_IDENTITY_STATUSES
 
 
-def test_verified_identity_statuses_cover_current_exact_sources() -> None:
+def test_verified_identity_statuses_cover_current_verified_sources() -> None:
     assert {
         "mapped_exact_fss_code",
         "mapped_exact_nh_brc_name",
         "mapped_exact_cu_ingno",
+        "mapped_dual_source",
     } == VERIFIED_IDENTITY_STATUSES
 
 
