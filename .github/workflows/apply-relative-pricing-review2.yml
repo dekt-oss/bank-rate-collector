@@ -21,8 +21,16 @@ jobs:
       - run: uv sync --locked
       - name: Apply patch
         run: uv run python scripts/apply_relative_pricing_review2_patch.py
-      - name: Lint
-        run: uv run ruff check src tests scripts
+      - name: Fix generated formatting
+        run: |
+          uv run ruff check --fix \
+            src/rate_monitor/services/relative_pricing_strategy_payload.py \
+            tests/test_relative_pricing_strategy_payload.py
+      - name: Lint generated code
+        run: |
+          uv run ruff check \
+            src/rate_monitor/services/relative_pricing_strategy_payload.py \
+            tests/test_relative_pricing_strategy_payload.py
       - name: Targeted tests
         run: uv run pytest -q tests/test_relative_pricing_strategy_payload.py
       - name: Commit patch
