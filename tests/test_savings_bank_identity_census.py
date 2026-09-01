@@ -173,3 +173,7 @@ def test_markdown_never_calls_candidates_automatic_mappings(tmp_path: Path) -> N
     assert "not automatic writes" in text
     assert "unresolved_name_only_hint" in text
     assert "write_back_performed: false" in text
+
+
+def test_copycheck_targets_expected_remediation_branch() -> None:
+    assert census.FEATURE_BRANCH == "fix/savings-bank-funding-identity-13-20260901"
