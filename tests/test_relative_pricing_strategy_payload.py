@@ -1,3 +1,4 @@
+from datetime import date
 from decimal import Decimal
 
 import pytest
@@ -31,6 +32,7 @@ def _rate(
         availability_match_key=match_key,
         special_offer_flag=special_offer,
         rate_pct=Decimal(rate),
+        rate_as_of=date(2026, 9, 1),
     )
 
 
@@ -61,6 +63,17 @@ def _funding(
     )
 
 
+def _matrix(**rates: str) -> dict[str, dict[str, str]]:
+    return {
+        institution_id: {
+            "rate_pct": rate,
+            "policy_id": "institution_product_representative_max",
+            "rate_as_of": "2026-09-01",
+        }
+        for institution_id, rate in rates.items()
+    }
+
+
 def _build(**kwargs):
     return build_relative_pricing_strategy_payload(
         [
@@ -79,9 +92,7 @@ def _build(**kwargs):
             _funding("high", "60", change_6m_pct="0.02"),
         ],
         institution_names={"high": "상위은행", "low": "하위은행"},
-        matrix_representative_rate_pct="3.50",
-        matrix_representative_policy_id="institution_product_representative_max",
-        matrix_representative_rate_as_of="2026-09-01",
+        matrix_representatives=_matrix(our="3.50", high="3.60", low="3.40"),
         as_of="2026-09-01",
         retreating_sources=set(),
         **kwargs,
@@ -95,7 +106,7 @@ def test_r1_payload_composes_pricing_peers_funding_and_factual_cost() -> None:
     )
 
     assert payload["status"] == "ready"
-    assert RELATIVE_PRICING_CONTRACT_VERSION == "2"
+    assert RELATIVE_PRICING_CONTRACT_VERSION == "3"
     assert payload["policies"]["contract_version"] == RELATIVE_PRICING_CONTRACT_VERSION
     assert payload["market_position"] == {
         "status": "existing_product_market_contract"
@@ -105,9 +116,9 @@ def test_r1_payload_composes_pricing_peers_funding_and_factual_cost() -> None:
         "pricing_policy_id": "relative-pricing-institution-rate",
         "pricing_policy_version": "1",
         "pricing_rate_pct": "3.5000",
-        "pricing_rate_as_of": None,
+        "pricing_rate_as_of": "2026-09-01",
         "matrix_policy_id": "institution_product_representative_max",
-        "matrix_rate_pct": "3.50",
+        "matrix_rate_pct": "3.5000",
         "matrix_rate_as_of": "2026-09-01",
         "gap_bp": "0.00",
         "difference_reason": None,
@@ -172,8 +183,7 @@ def test_higher_peer_without_any_funding_is_unknown_not_zero() -> None:
         availability_match_key="nationwide",
         join_channel="online",
         funding_rows=[],
-        matrix_representative_rate_pct="3.50",
-        matrix_representative_policy_id="institution_product_representative_max",
+        matrix_representatives=_matrix(our="3.50", high="3.60"),
         retreating_sources=set(),
     )
 
@@ -197,8 +207,7 @@ def test_no_higher_peers_has_measured_zero_higher_peer_funding_total() -> None:
         term_months=12,
         availability_match_key="nationwide",
         funding_rows=[],
-        matrix_representative_rate_pct="3.60",
-        matrix_representative_policy_id="institution_product_representative_max",
+        matrix_representatives=_matrix(our="3.60", low="3.40"),
         retreating_sources=set(),
     )
 
@@ -280,8 +289,7 @@ def test_duplicate_funding_enrichment_fails_closed() -> None:
             term_months=12,
             availability_match_key="nationwide",
             funding_rows=[_funding("peer", "10"), _funding("peer", "20")],
-            matrix_representative_rate_pct="3.50",
-            matrix_representative_policy_id="institution_product_representative_max",
+            matrix_representatives=_matrix(our="3.50", peer="3.60"),
             retreating_sources=set(),
         )
 
@@ -299,8 +307,7 @@ def test_mixed_funding_vintages_fail_closed_before_aggregation() -> None:
                 _funding("our", "10", analysis_month="2026-03"),
                 _funding("peer", "20", analysis_month="2025-12"),
             ],
-            matrix_representative_rate_pct="3.50",
-            matrix_representative_policy_id="institution_product_representative_max",
+            matrix_representatives=_matrix(our="3.50", peer="3.60"),
             retreating_sources=set(),
         )
 
@@ -331,8 +338,7 @@ def test_unexplained_matrix_pricing_rate_mismatch_fails_closed() -> None:
         product_type="term_deposit",
         term_months=12,
         availability_match_key="nationwide",
-        matrix_representative_rate_pct="3.45",
-        matrix_representative_policy_id="institution_product_representative_max",
+        matrix_representatives=_matrix(our="3.45", peer="3.60"),
         retreating_sources=set(),
     )
 
@@ -341,7 +347,7 @@ def test_unexplained_matrix_pricing_rate_mismatch_fails_closed() -> None:
     reconciliation = payload["representative_rate_reconciliation"]
     assert reconciliation["status"] == "unexplained"
     assert reconciliation["pricing_rate_pct"] == "3.5000"
-    assert reconciliation["matrix_rate_pct"] == "3.45"
+    assert reconciliation["matrix_rate_pct"] == "3.4500"
     assert reconciliation["gap_bp"] == "5.00"
 
 
@@ -353,8 +359,7 @@ def test_explained_matrix_pricing_rate_mismatch_preserves_both_policies() -> Non
         product_type="term_deposit",
         term_months=12,
         availability_match_key="nationwide",
-        matrix_representative_rate_pct="3.45",
-        matrix_representative_policy_id="institution_product_representative_max",
+        matrix_representatives=_matrix(our="3.45", peer="3.60"),
         representative_rate_difference_reason="pricing scope excludes unmatched channel",
         retreating_sources=set(),
     )
@@ -370,42 +375,90 @@ def test_explained_matrix_pricing_rate_mismatch_preserves_both_policies() -> Non
     )
 
 
-def test_special_offer_is_radar_only_and_never_replaces_core_peer() -> None:
+def test_unapproved_special_offer_policy_fails_closed() -> None:
+    with pytest.raises(ValueError, match="special-offer core/radar policy is not approved"):
+        build_relative_pricing_strategy_payload(
+            [
+                _rate("our", "p-our", "3.50"),
+                _rate("peer", "p-peer-core", "3.60"),
+                _rate("peer", "p-peer-special", "4.50", special_offer=True),
+            ],
+            anchor_institution_id="our",
+            sector="savings_bank",
+            product_type="term_deposit",
+            term_months=12,
+            availability_match_key="nationwide",
+            include_special_offer=True,
+            retreating_sources=set(),
+        )
+
+
+def test_matrix_policy_must_be_canonical_for_every_displayed_institution() -> None:
+    matrix = _matrix(our="3.50", peer="3.60")
+    matrix["peer"]["policy_id"] = "typo-policy"
     payload = build_relative_pricing_strategy_payload(
-        [
-            _rate("our", "p-our", "3.50"),
-            _rate("peer", "p-peer-core", "3.60"),
-            _rate("peer", "p-peer-special", "4.50", special_offer=True),
-        ],
+        [_rate("our", "p-our", "3.50"), _rate("peer", "p-peer", "3.60")],
         anchor_institution_id="our",
         sector="savings_bank",
         product_type="term_deposit",
         term_months=12,
         availability_match_key="nationwide",
-        include_special_offer=True,
-        matrix_representative_rate_pct="3.50",
-        matrix_representative_policy_id="institution_product_representative_max",
-        institution_names={"peer": "경쟁은행"},
+        matrix_representatives=matrix,
         retreating_sources=set(),
     )
+    assert payload["status"] == "insufficient_data"
+    assert payload["reason"] == "matrix_representative_policy_noncanonical"
+    assert payload["representative_rate_reconciliations"]["peer"]["status"] == "policy_mismatch"
 
-    assert payload["status"] == "ready"
-    assert payload["scope"]["include_special_offer_in_core"] is False
-    assert payload["scope"]["special_offer_radar_included"] is True
-    assert payload["pricing_peer_position"]["peer_median_rate_pct"] == "3.6000"
-    assert payload["peers"][0]["representative_product_id"] == "p-peer-core"
-    assert payload["peers"][0]["rate_pct"] == "3.6000"
-    assert payload["special_offer_radar"] == [
-        {
-            "institution_id": "peer",
-            "institution": "경쟁은행",
-            "representative_product_id": "p-peer-special",
-            "rate_pct": "4.5000",
-            "rate_as_of": None,
-            "rate_source_id": "fsb",
-            "special_offer_flag": True,
-        }
-    ]
+
+def test_matrix_dates_must_match_pricing_observation_dates() -> None:
+    matrix = _matrix(our="3.50", peer="3.60")
+    matrix["peer"]["rate_as_of"] = "2026-08-31"
+    payload = build_relative_pricing_strategy_payload(
+        [_rate("our", "p-our", "3.50"), _rate("peer", "p-peer", "3.60")],
+        anchor_institution_id="our",
+        sector="savings_bank",
+        product_type="term_deposit",
+        term_months=12,
+        availability_match_key="nationwide",
+        matrix_representatives=matrix,
+        retreating_sources=set(),
+    )
+    assert payload["status"] == "insufficient_data"
+    assert payload["reason"] == "matrix_representative_rate_temporal_mismatch"
+
+
+def test_missing_peer_matrix_evidence_fails_closed() -> None:
+    payload = build_relative_pricing_strategy_payload(
+        [_rate("our", "p-our", "3.50"), _rate("peer", "p-peer", "3.60")],
+        anchor_institution_id="our",
+        sector="savings_bank",
+        product_type="term_deposit",
+        term_months=12,
+        availability_match_key="nationwide",
+        matrix_representatives=_matrix(our="3.50"),
+        retreating_sources=set(),
+    )
+    assert payload["status"] == "insufficient_data"
+    assert payload["reason"] == "matrix_representative_rate_unresolved"
+    assert payload["representative_rate_reconciliations"]["peer"]["status"] == "unresolved"
+
+
+def test_invalid_matrix_rate_fails_closed_before_gap_calculation() -> None:
+    matrix = _matrix(our="3.50", peer="3.60")
+    matrix["peer"]["rate_pct"] = "-1"
+    payload = build_relative_pricing_strategy_payload(
+        [_rate("our", "p-our", "3.50"), _rate("peer", "p-peer", "3.60")],
+        anchor_institution_id="our",
+        sector="savings_bank",
+        product_type="term_deposit",
+        term_months=12,
+        availability_match_key="nationwide",
+        matrix_representatives=matrix,
+        retreating_sources=set(),
+    )
+    assert payload["status"] == "insufficient_data"
+    assert payload["reason"] == "matrix_representative_rate_invalid"
 
 
 def test_unavailable_payload_keeps_policy_versions_visible() -> None:
@@ -417,8 +470,9 @@ def test_unavailable_payload_keeps_policy_versions_visible() -> None:
     assert payload["status"] == "insufficient_data"
     assert payload["pricing_peer_position"] is None
     assert payload["representative_rate_reconciliation"] is None
+    assert payload["representative_rate_reconciliations"] == {}
     assert payload["special_offer_radar"] == []
     assert payload["factual_cost"] is None
-    assert payload["policies"]["contract_version"] == "2"
+    assert payload["policies"]["contract_version"] == "3"
     assert payload["policies"]["pricing_peer"]["policy_version"] == "1"
     assert payload["policies"]["surface_cost"]["contract_version"] == "1"

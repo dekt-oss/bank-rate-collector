@@ -39,13 +39,15 @@ from rate_monitor.services.pricing_peer_selection import (
     PricingPeerCandidate,
     select_pricing_peers,
 )
+from rate_monitor.services.public_structural_v2_market_position_service import normalize_rate
+from rate_monitor.services.rate_funding_matrix_service import RATE_REPRESENTATIVE
 from rate_monitor.services.surface_cost_contract import (
     STANDARD_NOTIONAL_KRW,
     SURFACE_COST_CONTRACT_VERSION,
     standardized_surface_interest_delta,
 )
 
-RELATIVE_PRICING_CONTRACT_VERSION = "2"
+RELATIVE_PRICING_CONTRACT_VERSION = "3"
 PRICING_PEER_POSITION_POLICY_ID = "relative-pricing-peer-position"
 MILLION_KRW_TO_KRW = Decimal("1000000")
 
@@ -97,6 +99,7 @@ def build_relative_pricing_unavailable_payload(
         "policies": _policies(),
         "market_position": None,
         "representative_rate_reconciliation": None,
+        "representative_rate_reconciliations": {},
         "pricing_peer_position": None,
         "peers": [],
         "special_offer_radar": [],
@@ -191,6 +194,22 @@ def _special_offer_representatives(
     )
 
 
+def _observation_date(value: date | datetime | str | None) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.date().isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        return date.fromisoformat(text[:10]).isoformat()
+    except ValueError:
+        return None
+
+
 def _representative_rate_reconciliation(
     *,
     pricing_representative: InstitutionRepresentativeRate,
@@ -200,21 +219,33 @@ def _representative_rate_reconciliation(
     difference_reason: str | None,
 ) -> dict[str, Any]:
     matrix_policy = str(matrix_representative_policy_id or "").strip()
+    pricing_date = _observation_date(pricing_representative.rate_as_of)
+    matrix_date = _observation_date(matrix_representative_rate_as_of)
+    base = {
+        "pricing_policy_id": pricing_representative.policy_id,
+        "pricing_policy_version": pricing_representative.policy_version,
+        "pricing_rate_pct": pricing_representative.rate_pct,
+        "pricing_rate_as_of": pricing_date,
+        "matrix_policy_id": matrix_policy or None,
+        "matrix_rate_pct": None,
+        "matrix_rate_as_of": matrix_date,
+        "gap_bp": None,
+        "difference_reason": None,
+    }
     if matrix_representative_rate_pct is None or not matrix_policy:
-        return {
-            "status": "unresolved",
-            "pricing_policy_id": pricing_representative.policy_id,
-            "pricing_policy_version": pricing_representative.policy_version,
-            "pricing_rate_pct": pricing_representative.rate_pct,
-            "pricing_rate_as_of": pricing_representative.rate_as_of,
-            "matrix_policy_id": matrix_policy or None,
-            "matrix_rate_pct": None,
-            "matrix_rate_as_of": matrix_representative_rate_as_of,
-            "gap_bp": None,
-            "difference_reason": None,
-        }
+        return {"status": "unresolved", **base}
+    if matrix_policy != RATE_REPRESENTATIVE:
+        return {"status": "policy_mismatch", **base}
+    try:
+        matrix_rate = normalize_rate(matrix_representative_rate_pct)
+    except (ValueError, ArithmeticError):
+        return {"status": "invalid", **base}
+    base["matrix_rate_pct"] = matrix_rate
+    if pricing_date is None or matrix_date is None:
+        return {"status": "temporal_unresolved", **base}
+    if pricing_date != matrix_date:
+        return {"status": "temporal_mismatch", **base}
 
-    matrix_rate = Decimal(str(matrix_representative_rate_pct))
     gap_bp = _peer_gap_bp(pricing_representative.rate_pct, matrix_rate)
     normalized_reason = str(difference_reason or "").strip() or None
     if gap_bp == 0:
@@ -226,17 +257,10 @@ def _representative_rate_reconciliation(
         status = "unexplained"
     return {
         "status": status,
-        "pricing_policy_id": pricing_representative.policy_id,
-        "pricing_policy_version": pricing_representative.policy_version,
-        "pricing_rate_pct": pricing_representative.rate_pct,
-        "pricing_rate_as_of": pricing_representative.rate_as_of,
-        "matrix_policy_id": matrix_policy,
-        "matrix_rate_pct": matrix_rate,
-        "matrix_rate_as_of": matrix_representative_rate_as_of,
+        **base,
         "gap_bp": gap_bp,
         "difference_reason": normalized_reason,
     }
-
 
 def _radar_rows(
     representatives: Iterable[InstitutionRepresentativeRate],
@@ -272,6 +296,8 @@ def build_relative_pricing_strategy_payload(
     include_special_offer: bool = False,
     retreating_sources: Iterable[str] | None = None,
     market_position: Mapping[str, Any] | None = None,
+    matrix_representatives: Mapping[str, Mapping[str, Any]] | None = None,
+    representative_rate_difference_reasons: Mapping[str, str] | None = None,
     matrix_representative_rate_pct: Decimal | float | str | None = None,
     matrix_representative_policy_id: str | None = None,
     matrix_representative_rate_as_of: date | datetime | str | None = None,
@@ -284,27 +310,21 @@ def build_relative_pricing_strategy_payload(
     reducers/selectors. This function never derives it from display labels or
     geography. Missing funding stays nullable and never changes peer eligibility.
 
-    Core pricing peers always exclude special offers. ``include_special_offer``
-    only opts into a separately labeled radar population. A Matrix representative
-    must also be supplied; if it disagrees with the pricing representative, the
-    difference requires an explicit factual explanation before the payload can be
-    marked ready.
+    Special-offer core/radar behavior is not silently inferred. Until the
+    repository contract is explicitly promoted, ``include_special_offer=True``
+    fails closed. Matrix evidence must be supplied for every displayed canonical
+    institution, with the canonical Matrix policy and the same observation date.
     """
     rate_rows = list(rate_candidates)
     names = institution_names or {}
-    radar_representatives = _special_offer_representatives(
-        rate_rows,
-        sector=sector,
-        product_type=product_type,
-        term_months=term_months,
-        availability_match_key=availability_match_key,
-        join_channel=join_channel,
-        retreating_sources=retreating_sources,
-        enabled=include_special_offer,
-    )
-    radar = _radar_rows(radar_representatives, names=names)
+    if include_special_offer:
+        raise ValueError(
+            "special-offer core/radar policy is not approved; "
+            "include_special_offer must remain False"
+        )
+    radar: list[dict[str, Any]] = []
 
-    # Core pricing ranking never includes a promotional product.
+    # Core pricing ranking remains the existing non-promotional population.
     representatives = reduce_institution_rates(
         rate_rows,
         sector=sector,
@@ -330,21 +350,60 @@ def build_relative_pricing_strategy_payload(
         payload["special_offer_radar"] = _json_value(radar)
         return payload
 
-    reconciliation = _representative_rate_reconciliation(
-        pricing_representative=anchor,
-        matrix_representative_rate_pct=matrix_representative_rate_pct,
-        matrix_representative_policy_id=matrix_representative_policy_id,
-        matrix_representative_rate_as_of=matrix_representative_rate_as_of,
-        difference_reason=representative_rate_difference_reason,
-    )
-    if reconciliation["status"] in {"unresolved", "unexplained"}:
-        reason = (
-            "matrix_representative_rate_unresolved"
-            if reconciliation["status"] == "unresolved"
-            else "representative_rate_policy_mismatch_unexplained"
+    matrix_by_id: dict[str, Mapping[str, Any]] = dict(matrix_representatives or {})
+    if anchor_id not in matrix_by_id and (
+        matrix_representative_rate_pct is not None
+        or matrix_representative_policy_id is not None
+        or matrix_representative_rate_as_of is not None
+    ):
+        matrix_by_id[anchor_id] = {
+            "rate_pct": matrix_representative_rate_pct,
+            "policy_id": matrix_representative_policy_id,
+            "rate_as_of": matrix_representative_rate_as_of,
+        }
+    reasons = dict(representative_rate_difference_reasons or {})
+    if representative_rate_difference_reason and anchor_id not in reasons:
+        reasons[anchor_id] = representative_rate_difference_reason
+
+    reconciliations: dict[str, dict[str, Any]] = {}
+    for representative in representatives:
+        evidence = matrix_by_id.get(representative.institution_id, {})
+        if not isinstance(evidence, Mapping):
+            raise ValueError(
+                "matrix representative evidence must be a mapping for institution "
+                + representative.institution_id
+            )
+        reconciliations[representative.institution_id] = (
+            _representative_rate_reconciliation(
+                pricing_representative=representative,
+                matrix_representative_rate_pct=evidence.get("rate_pct"),
+                matrix_representative_policy_id=evidence.get("policy_id"),
+                matrix_representative_rate_as_of=evidence.get("rate_as_of"),
+                difference_reason=reasons.get(representative.institution_id),
+            )
         )
+
+    blocked_statuses = {
+        item["status"] for item in reconciliations.values()
+        if item["status"] not in {"matched", "explained"}
+    }
+    reconciliation = reconciliations[anchor_id]
+    if blocked_statuses:
+        if "temporal_mismatch" in blocked_statuses:
+            reason = "matrix_representative_rate_temporal_mismatch"
+        elif "temporal_unresolved" in blocked_statuses:
+            reason = "matrix_representative_rate_temporal_unresolved"
+        elif "invalid" in blocked_statuses:
+            reason = "matrix_representative_rate_invalid"
+        elif "policy_mismatch" in blocked_statuses:
+            reason = "matrix_representative_policy_noncanonical"
+        elif "unresolved" in blocked_statuses:
+            reason = "matrix_representative_rate_unresolved"
+        else:
+            reason = "representative_rate_policy_mismatch_unexplained"
         payload = build_relative_pricing_unavailable_payload(reason=reason, as_of=as_of)
         payload["representative_rate_reconciliation"] = _json_value(reconciliation)
+        payload["representative_rate_reconciliations"] = _json_value(reconciliations)
         payload["special_offer_radar"] = _json_value(radar)
         return payload
 
@@ -437,11 +496,12 @@ def build_relative_pricing_strategy_payload(
             "availability_match_key": selection.availability_match_key,
             "availability_scope": anchor.availability_scope,
             "include_special_offer_in_core": False,
-            "special_offer_radar_included": bool(include_special_offer),
+            "special_offer_radar_included": False,
         },
         "policies": _policies(),
         "market_position": dict(market_position) if market_position is not None else None,
         "representative_rate_reconciliation": reconciliation,
+        "representative_rate_reconciliations": reconciliations,
         "pricing_peer_position": {
             "policy_id": PRICING_PEER_POSITION_POLICY_ID,
             "policy_version": position.version,
