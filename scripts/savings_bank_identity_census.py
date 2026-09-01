@@ -70,15 +70,11 @@ def _load_links(conn: sqlite3.Connection) -> list[dict[str, Any]]:
                 "source_entity_key": str(row["source_entity_key"]),
                 "entity_id": str(row["entity_id"]),
                 "source_name": (
-                    str(row["source_name"])
-                    if row["source_name"] is not None
-                    else None
+                    str(row["source_name"]) if row["source_name"] is not None else None
                 ),
                 "source_crno": str(payload.get("crno") or "").strip() or None,
                 "canonical_name": (
-                    str(row["canonical_name"])
-                    if row["canonical_name"] is not None
-                    else None
+                    str(row["canonical_name"]) if row["canonical_name"] is not None else None
                 ),
                 "institution_sector": (
                     str(row["institution_sector"])
@@ -86,15 +82,9 @@ def _load_links(conn: sqlite3.Connection) -> list[dict[str, Any]]:
                     else None
                 ),
                 "match_method": (
-                    str(row["match_method"])
-                    if row["match_method"] is not None
-                    else None
+                    str(row["match_method"]) if row["match_method"] is not None else None
                 ),
-                "confidence": (
-                    float(row["confidence"])
-                    if row["confidence"] is not None
-                    else None
-                ),
+                "confidence": (float(row["confidence"]) if row["confidence"] is not None else None),
             }
         )
     return links
@@ -107,8 +97,7 @@ def _unique_entities(links: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
 def _normalized_match(link: dict[str, Any], source_name: str) -> bool:
     canonical = str(link.get("canonical_name") or "")
     return bool(canonical) and (
-        normalize_institution_name(canonical)
-        == normalize_institution_name(source_name)
+        normalize_institution_name(canonical) == normalize_institution_name(source_name)
     )
 
 
@@ -153,14 +142,11 @@ def _classify(
             str(own["entity_id"]),
         )
 
-    cross_source = [
-        link for link in same_key_links if link["source_id"] != SOURCE_ID
-    ]
+    cross_source = [link for link in same_key_links if link["source_id"] != SOURCE_ID]
     exact_name = [
         link
         for link in cross_source
-        if link["institution_sector"] == SECTOR
-        and _normalized_match(link, source_name)
+        if link["institution_sector"] == SECTOR and _normalized_match(link, source_name)
     ]
     exact_entities = _unique_entities(exact_name)
     if len(exact_entities) == 1:
@@ -183,9 +169,7 @@ def _classify(
             None,
         )
 
-    crno_sector = [
-        link for link in crno_links if link["institution_sector"] == SECTOR
-    ]
+    crno_sector = [link for link in crno_links if link["institution_sector"] == SECTOR]
     crno_entities = _unique_entities(crno_sector)
     if source_crno and len(crno_entities) == 1:
         candidate = next(iter(crno_entities.values()))
@@ -201,9 +185,7 @@ def _classify(
             None,
         )
 
-    name_sector = [
-        link for link in name_links if link["institution_sector"] == SECTOR
-    ]
+    name_sector = [link for link in name_links if link["institution_sector"] == SECTOR]
     if _unique_entities(name_sector):
         return (
             "unresolved_name_only_hint",
@@ -261,8 +243,7 @@ def build_census(db_path: Path) -> dict[str, Any]:
             "institutions",
         }
         tables = {
-            str(row[0])
-            for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
+            str(row[0]) for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
         }
         missing = required - tables
         if missing:
@@ -321,15 +302,9 @@ def build_census(db_path: Path) -> dict[str, Any]:
                 "classification": classification,
                 "candidate_institution_id": candidate_id,
                 "reason": reason,
-                "same_key_links": [
-                    _public_link(link, source_name) for link in same_key
-                ],
-                "crno_links": [
-                    _public_link(link, source_name) for link in crno_links
-                ],
-                "name_only_links": [
-                    _public_link(link, source_name) for link in name_links
-                ],
+                "same_key_links": [_public_link(link, source_name) for link in same_key],
+                "crno_links": [_public_link(link, source_name) for link in crno_links],
+                "name_only_links": [_public_link(link, source_name) for link in name_links],
             }
         )
 
@@ -475,7 +450,8 @@ def render_markdown(census: dict[str, Any]) -> str:
                 f"- after mapped: {copycheck['after_mapped']}/{copycheck['source_population']}",
                 f"- newly mapped: {len(copycheck['newly_mapped'])}",
                 f"- non-identity changes: {copycheck['non_identity_changes']}",
-                f"- existing mapped identity changes: {copycheck['existing_mapped_identity_changes']}",
+                "- existing mapped identity changes: "
+                f"{copycheck['existing_mapped_identity_changes']}",
                 f"- second reconciliation mapped: {copycheck['second_reconciliation']['mapped']}",
                 f"- production write-back: {copycheck['production_write_back_performed']}",
                 "",
