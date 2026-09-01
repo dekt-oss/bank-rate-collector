@@ -16,7 +16,8 @@ def _peer(
     *,
     funding: str | None = None,
     funding_as_of: str | None = None,
-    scope: str = "nationwide",
+    scope: str = "전국",
+    match_key: str = "nationwide",
     channel: str = "online",
 ) -> PricingPeerCandidate:
     return PricingPeerCandidate(
@@ -27,6 +28,7 @@ def _peer(
         term_months=12,
         join_channel=channel,
         availability_scope=scope,
+        availability_match_key=match_key,
         rate_pct=Decimal(rate),
         rate_as_of=date(2026, 8, 31),
         rate_source_id="fsb",
@@ -40,14 +42,14 @@ def _peer(
     )
 
 
-def _select(rows):
+def _select(rows, *, match_key: str = "nationwide"):
     return select_pricing_peers(
         rows,
         anchor_institution_id="anchor",
         sector="savings_bank",
         product_type="term_deposit",
         term_months=12,
-        availability_scope="nationwide",
+        availability_match_key=match_key,
         join_channel="online",
     )
 
@@ -63,6 +65,7 @@ def test_pricing_peer_uses_full_eligible_population_without_arbitrary_n() -> Non
     assert len(result.peer_ids) == 25
     assert result.policy_id == PRICING_PEER_POLICY_ID
     assert result.population_rule == "all_eligible_institutions"
+    assert result.availability_match_key == "nationwide"
 
 
 def test_missing_funding_does_not_remove_pricing_peer() -> None:
@@ -116,24 +119,36 @@ def test_anchor_must_exist_in_matched_population() -> None:
         _select([_peer("other", "3.60")])
 
 
-def test_unknown_scope_fails_closed_instead_of_widening_to_nationwide() -> None:
-    with pytest.raises(ValueError, match="availability_scope"):
+def test_unknown_match_key_fails_closed_instead_of_widening_to_nationwide() -> None:
+    with pytest.raises(ValueError, match="availability_match_key"):
         select_pricing_peers(
             [_peer("anchor", "3.50")],
             anchor_institution_id="anchor",
             sector="savings_bank",
             product_type="term_deposit",
             term_months=12,
-            availability_scope="unknown",
+            availability_match_key="미상",
         )
 
 
-def test_mismatched_scope_and_channel_are_not_peers() -> None:
+def test_same_raw_local_label_is_not_enough_to_make_peers() -> None:
+    result = _select(
+        [
+            _peer("anchor", "3.50", scope="지역금고", match_key="local:busan"),
+            _peer("same", "3.55", scope="지역금고", match_key="local:busan"),
+            _peer("seoul", "3.70", scope="지역금고", match_key="local:seoul"),
+        ],
+        match_key="local:busan",
+    )
+
+    assert result.peer_ids == ("same",)
+
+
+def test_mismatched_channel_is_not_a_peer() -> None:
     result = _select(
         [
             _peer("anchor", "3.50"),
             _peer("same", "3.55"),
-            _peer("local", "3.70", scope="local"),
             _peer("branch", "3.80", channel="branch"),
         ]
     )
