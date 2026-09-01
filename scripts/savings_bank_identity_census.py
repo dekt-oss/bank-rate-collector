@@ -4,7 +4,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import shutil
 import sqlite3
+import subprocess
+import sys
+import tempfile
 from collections import Counter, defaultdict
 from datetime import UTC, datetime
 from pathlib import Path
@@ -16,6 +21,7 @@ from rate_monitor.domain.normalization import normalize_institution_name
 SOURCE_ID = "data_go_savings_bank_funding"
 SECTOR = "savings_bank"
 ENTITY_TYPE = "institution"
+FEATURE_BRANCH = "fix/savings-bank-funding-identity-13-20260901"
 
 
 def _open_readonly(db_path: Path) -> sqlite3.Connection:
@@ -341,6 +347,69 @@ def build_census(db_path: Path) -> dict[str, Any]:
     }
 
 
+def run_feature_copycheck(db_path: Path) -> dict[str, Any]:
+    """Run the feature branch validator on a second runner-local DB copy."""
+    work_dir = db_path.parent
+    copy_path = work_dir / "rate_monitor.savings-bank-identity-copy.sqlite3"
+    out_json = work_dir / "savings-bank-identity-remediation-copycheck.json"
+    out_md = work_dir / "savings-bank-identity-remediation-copycheck.md"
+    shutil.copy2(db_path, copy_path)
+
+    temp_root = Path(tempfile.mkdtemp(prefix="savings-bank-identity-feature-"))
+    feature_repo = temp_root / "repo"
+    remote_ref = f"refs/remotes/origin/{FEATURE_BRANCH}"
+    try:
+        subprocess.run(
+            [
+                "git",
+                "fetch",
+                "--force",
+                "--depth=1",
+                "origin",
+                f"{FEATURE_BRANCH}:{remote_ref}",
+            ],
+            check=True,
+        )
+        subprocess.run(
+            ["git", "worktree", "add", "--detach", str(feature_repo), remote_ref],
+            check=True,
+        )
+        env = os.environ.copy()
+        env["PYTHONPATH"] = str(feature_repo / "src")
+        subprocess.run(
+            [
+                sys.executable,
+                str(feature_repo / "scripts/validate_savings_bank_identity_reconciliation.py"),
+                "--db",
+                str(copy_path.resolve()),
+                "--expected-population",
+                "79",
+                "--expected-before-mapped",
+                "66",
+                "--expected-new-mapped",
+                "13",
+                "--out-json",
+                str(out_json.resolve()),
+                "--out-md",
+                str(out_md.resolve()),
+            ],
+            cwd=feature_repo,
+            env=env,
+            check=True,
+        )
+        return json.loads(out_json.read_text(encoding="utf-8"))
+    finally:
+        if feature_repo.exists():
+            subprocess.run(
+                ["git", "worktree", "remove", "--force", str(feature_repo)],
+                check=False,
+            )
+        shutil.rmtree(temp_root, ignore_errors=True)
+        copy_path.unlink(missing_ok=True)
+        Path(str(copy_path) + "-wal").unlink(missing_ok=True)
+        Path(str(copy_path) + "-shm").unlink(missing_ok=True)
+
+
 def render_markdown(census: dict[str, Any]) -> str:
     lines = [
         "# Savings Bank Identity Census — read-only production evidence",
@@ -395,6 +464,23 @@ def render_markdown(census: dict[str, Any]) -> str:
             "",
         ]
     )
+    copycheck = census.get("remediation_copycheck")
+    if isinstance(copycheck, dict):
+        lines.extend(
+            [
+                "## Feature remediation on second runner-local copy",
+                "",
+                f"- branch: `{FEATURE_BRANCH}`",
+                f"- before mapped: {copycheck['before_mapped']}/{copycheck['source_population']}",
+                f"- after mapped: {copycheck['after_mapped']}/{copycheck['source_population']}",
+                f"- newly mapped: {len(copycheck['newly_mapped'])}",
+                f"- non-identity changes: {copycheck['non_identity_changes']}",
+                f"- existing mapped identity changes: {copycheck['existing_mapped_identity_changes']}",
+                f"- second reconciliation mapped: {copycheck['second_reconciliation']['mapped']}",
+                f"- production write-back: {copycheck['production_write_back_performed']}",
+                "",
+            ]
+        )
     return "\n".join(lines)
 
 
@@ -406,6 +492,7 @@ def main() -> int:
     args = parser.parse_args()
 
     census = build_census(args.db)
+    census["remediation_copycheck"] = run_feature_copycheck(args.db)
     args.out_json.parent.mkdir(parents=True, exist_ok=True)
     args.out_md.parent.mkdir(parents=True, exist_ok=True)
     args.out_json.write_text(
@@ -420,6 +507,7 @@ def main() -> int:
         f"mapped={census['observation_mapped_count']}",
         f"unmapped={census['observation_unmapped_count']}",
         f"classifications={census['classification_counts']}",
+        f"copycheck_after={census['remediation_copycheck']['after_mapped']}",
     )
     return 0
 
