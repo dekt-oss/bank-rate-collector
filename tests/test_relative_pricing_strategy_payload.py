@@ -1,0 +1,219 @@
+from decimal import Decimal
+
+import pytest
+
+from rate_monitor.services.institution_funding_read_model import InstitutionFundingReadRow
+from rate_monitor.services.institution_rate_reduction import InstitutionRateCandidate
+from rate_monitor.services.relative_pricing_strategy_payload import (
+    RELATIVE_PRICING_CONTRACT_VERSION,
+    build_relative_pricing_strategy_payload,
+    build_relative_pricing_unavailable_payload,
+)
+
+
+def _rate(
+    institution_id: str,
+    product_id: str,
+    rate: str,
+    *,
+    match_key: str = "nationwide",
+) -> InstitutionRateCandidate:
+    return InstitutionRateCandidate(
+        institution_id=institution_id,
+        product_id=product_id,
+        source_id="fsb",
+        sector="savings_bank",
+        product_type="term_deposit",
+        term_months=12,
+        join_channel="online",
+        availability_scope="전국",
+        availability_match_key=match_key,
+        special_offer_flag=False,
+        rate_pct=Decimal(rate),
+    )
+
+
+def _funding(
+    institution_id: str,
+    balance: str,
+    *,
+    change_6m_pct: str | None = None,
+) -> InstitutionFundingReadRow:
+    change = Decimal(change_6m_pct) if change_6m_pct is not None else None
+    return InstitutionFundingReadRow(
+        institution_id=institution_id,
+        sector="savings_bank",
+        analysis_month="2026-03",
+        balance=Decimal(balance),
+        balance_6m_ago=None,
+        balance_12m_ago=None,
+        change_6m_amount=None,
+        change_6m_pct=change,
+        change_12m_amount=None,
+        change_12m_pct=None,
+        sector_balance_percentile=Decimal("50"),
+        sector_growth_6m_percentile=None,
+        sector_growth_12m_percentile=None,
+        sector_median_growth_6m=None,
+        relative_growth_6m_vs_peer_median=None,
+    )
+
+
+def _build(**kwargs):
+    return build_relative_pricing_strategy_payload(
+        [
+            _rate("our", "p-our", "3.50"),
+            _rate("high", "p-high", "3.60"),
+            _rate("low", "p-low", "3.40"),
+        ],
+        anchor_institution_id="our",
+        sector="savings_bank",
+        product_type="term_deposit",
+        term_months=12,
+        availability_match_key="nationwide",
+        join_channel="online",
+        funding_rows=[_funding("our", "80"), _funding("high", "60", change_6m_pct="0.02")],
+        institution_names={"high": "상위은행", "low": "하위은행"},
+        as_of="2026-09-01",
+        retreating_sources=set(),
+        **kwargs,
+    )
+
+
+def test_r1_payload_composes_pricing_peers_funding_and_factual_cost() -> None:
+    payload = _build(
+        proposal_rate_pct="3.55",
+        market_position={"status": "existing_product_market_contract"},
+    )
+
+    assert payload["status"] == "ready"
+    assert payload["policies"]["contract_version"] == RELATIVE_PRICING_CONTRACT_VERSION
+    assert payload["market_position"] == {
+        "status": "existing_product_market_contract"
+    }
+
+    position = payload["pricing_peer_position"]
+    assert position["current_rate_pct"] == "3.5000"
+    assert position["evaluated_rate_pct"] == "3.5500"
+    assert position["evaluation_basis"] == "proposal"
+    assert position["pricing_peer_count"] == 2
+    assert position["peer_median_rate_pct"] == "3.5000"
+    assert position["peer_gap_bp"] == "5.00"
+    assert position["peer_rank_best"] == 2
+    assert position["peer_rank_worst"] == 2
+    assert position["higher_rate_peer_count"] == 1
+    assert position["funding_join_count"] == 1
+    assert position["funding_unjoined_count"] == 1
+    assert position["funding_join_ratio"] == "0.5"
+    assert position["higher_rate_peer_funding_known_count"] == 1
+    assert position["higher_rate_peer_funding_total"] == "60"
+
+    peers = {row["institution_id"]: row for row in payload["peers"]}
+    assert peers["high"]["institution"] == "상위은행"
+    assert peers["high"]["funding_status"] == "known"
+    assert peers["high"]["funding_balance"] == "60"
+    assert peers["high"]["gap_vs_own_bp"] == "5.00"
+    assert peers["low"]["funding_status"] == "unavailable"
+    assert peers["low"]["funding_balance"] is None
+    assert peers["low"]["gap_vs_own_bp"] == "-15.00"
+
+    cost = payload["factual_cost"]
+    assert cost["standardized_notional_krw"] == "10000000000"
+    assert cost["standardized_surface_interest_delta_krw"] == "5000000.0000"
+
+
+def test_missing_funding_never_removes_pricing_peer() -> None:
+    payload = _build()
+
+    assert payload["status"] == "ready"
+    assert len(payload["peers"]) == 2
+    assert payload["pricing_peer_position"]["funding_join_count"] == 1
+    assert payload["pricing_peer_position"]["funding_unjoined_count"] == 1
+    assert payload["factual_cost"]["evaluation_basis"] == "current_baseline"
+    assert payload["factual_cost"]["standardized_surface_interest_delta_krw"] == "0.0000"
+
+
+def test_payload_contains_no_r1_forbidden_prediction_or_target_fields() -> None:
+    payload = _build(proposal_rate_pct="3.60")
+
+    keys: set[str] = set()
+
+    def walk(value) -> None:
+        if isinstance(value, dict):
+            keys.update(value)
+            for item in value.values():
+                walk(item)
+        elif isinstance(value, list):
+            for item in value:
+                walk(item)
+
+    walk(payload)
+    assert keys.isdisjoint(
+        {
+            "predicted_total",
+            "predicted_new_money",
+            "predicted_rollover",
+            "predicted_inflow",
+            "target_balance",
+            "target_net_inflow",
+            "target_horizon",
+            "recommended_rate",
+            "required_rate",
+        }
+    )
+
+
+def test_unknown_match_key_fails_closed_instead_of_inferencing_from_scope() -> None:
+    with pytest.raises(ValueError, match="availability_match_key"):
+        build_relative_pricing_strategy_payload(
+            [_rate("our", "p", "3.50", match_key="미상")],
+            anchor_institution_id="our",
+            sector="savings_bank",
+            product_type="term_deposit",
+            term_months=12,
+            availability_match_key="미상",
+            retreating_sources=set(),
+        )
+
+
+def test_anchor_outside_pricing_population_returns_insufficient_data() -> None:
+    payload = build_relative_pricing_strategy_payload(
+        [_rate("other", "p", "3.50")],
+        anchor_institution_id="our",
+        sector="savings_bank",
+        product_type="term_deposit",
+        term_months=12,
+        availability_match_key="nationwide",
+        retreating_sources=set(),
+    )
+
+    assert payload["status"] == "insufficient_data"
+    assert payload["reason"] == "anchor_not_in_evidence_backed_pricing_population"
+    assert payload["peers"] == []
+
+
+def test_duplicate_funding_enrichment_fails_closed() -> None:
+    with pytest.raises(ValueError, match="duplicate funding row"):
+        build_relative_pricing_strategy_payload(
+            [_rate("our", "p-our", "3.50"), _rate("peer", "p-peer", "3.60")],
+            anchor_institution_id="our",
+            sector="savings_bank",
+            product_type="term_deposit",
+            term_months=12,
+            availability_match_key="nationwide",
+            funding_rows=[_funding("peer", "10"), _funding("peer", "20")],
+            retreating_sources=set(),
+        )
+
+
+def test_unavailable_payload_keeps_policy_versions_visible() -> None:
+    payload = build_relative_pricing_unavailable_payload(
+        reason="availability_match_key_unresolved",
+        as_of="2026-09-01",
+    )
+
+    assert payload["status"] == "insufficient_data"
+    assert payload["pricing_peer_position"] is None
+    assert payload["factual_cost"] is None
+    assert payload["policies"]["pricing_peer"]["policy_version"] == "1"
+    assert payload["policies"]["surface_cost"]["contract_version"] == "1"
