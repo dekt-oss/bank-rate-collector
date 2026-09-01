@@ -1,0 +1,36 @@
+name: Format savings bank census copycheck
+
+on:
+  push:
+    branches:
+      - "chore/savings-bank-identity-census-20260901"
+    paths:
+      - ".github/workflows/format-savings-bank-census.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: chore/savings-bank-identity-census-20260901
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v5
+      - run: uv python install 3.12
+      - run: uv sync --locked
+      - name: Format and commit
+        run: |
+          set -euo pipefail
+          uv run ruff format scripts/savings_bank_identity_census.py
+          uv run ruff check --fix scripts/savings_bank_identity_census.py
+          uv run ruff check scripts/savings_bank_identity_census.py
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add scripts/savings_bank_identity_census.py
+          git diff --cached --check
+          git commit -m "style: format savings bank copycheck evidence"
+          git push origin HEAD:chore/savings-bank-identity-census-20260901
