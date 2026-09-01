@@ -22,15 +22,31 @@ jobs:
       - uses: astral-sh/setup-uv@v5
       - run: uv python install 3.12
       - run: uv sync --locked
-      - name: Format and commit
+      - name: Patch, format, and commit
         run: |
           set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("scripts/savings_bank_identity_census.py")
+          text = path.read_text(encoding="utf-8")
+          old = (
+              '                f"- existing mapped identity changes: '
+              '{copycheck[\'existing_mapped_identity_changes\']}",\n'
+          )
+          new = (
+              '                "- existing mapped identity changes: "\n'
+              '                f"{copycheck[\'existing_mapped_identity_changes\']}",\n'
+          )
+          if text.count(old) != 1:
+              raise RuntimeError("expected one existing-mapped summary line")
+          path.write_text(text.replace(old, new, 1), encoding="utf-8")
+          PY
           uv run ruff format scripts/savings_bank_identity_census.py
-          uv run ruff check --fix scripts/savings_bank_identity_census.py
           uv run ruff check scripts/savings_bank_identity_census.py
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add scripts/savings_bank_identity_census.py
           git diff --cached --check
-          git commit -m "style: format savings bank copycheck evidence"
+          git commit -m "style: fix savings bank copycheck evidence lint"
           git push origin HEAD:chore/savings-bank-identity-census-20260901
