@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import sqlite3
+import sys
 from pathlib import Path
 
 
@@ -10,6 +11,7 @@ SCRIPT = ROOT / "scripts" / "savings_bank_identity_census.py"
 SPEC = importlib.util.spec_from_file_location("savings_bank_identity_census", SCRIPT)
 assert SPEC is not None and SPEC.loader is not None
 MODULE = importlib.util.module_from_spec(SPEC)
+sys.modules[SPEC.name] = MODULE
 SPEC.loader.exec_module(MODULE)
 
 
@@ -162,7 +164,7 @@ def _database(path: Path) -> None:
     conn.close()
 
 
-def test_census_separates_exact_identifier_evidence_from_name_only_hints(tmp_path: Path) -> None:
+def test_census_separates_exact_evidence_from_name_hints(tmp_path: Path) -> None:
     db_path = tmp_path / "census.sqlite3"
     _database(db_path)
 
@@ -210,7 +212,7 @@ def test_census_does_not_mutate_links_or_observations(tmp_path: Path) -> None:
     assert after_counts == before_counts
 
 
-def test_markdown_calls_candidates_candidates_not_automatic_mappings(tmp_path: Path) -> None:
+def test_markdown_never_calls_candidates_automatic_mappings(tmp_path: Path) -> None:
     db_path = tmp_path / "census.sqlite3"
     _database(db_path)
 
