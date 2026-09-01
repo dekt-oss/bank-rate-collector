@@ -214,10 +214,18 @@ def build_relative_pricing_strategy_payload(
         term_months=term_months,
     )
 
-    higher_peers = [peer for peer in selection.peers if peer.rate_pct > position.proposal_rate_pct]
+    higher_peers = [
+        peer
+        for peer in selection.peers
+        if peer.rate_pct > position.proposal_rate_pct
+    ]
     higher_known = [peer for peer in higher_peers if peer.funding_balance is not None]
     higher_funding_total = sum(
-        (peer.funding_balance for peer in higher_known if peer.funding_balance is not None),
+        (
+            peer.funding_balance
+            for peer in higher_known
+            if peer.funding_balance is not None
+        ),
         Decimal("0"),
     )
     names = institution_names or {}
@@ -240,7 +248,11 @@ def build_relative_pricing_strategy_payload(
         for peer in selection.peers
     ]
 
-    payload_status = "ready" if selection.status == "ready" and position.status == "ready" else "insufficient_data"
+    payload_status = (
+        "ready"
+        if selection.status == "ready" and position.status == "ready"
+        else "insufficient_data"
+    )
     payload = {
         "status": payload_status,
         "reason": None if payload_status == "ready" else selection.status,
