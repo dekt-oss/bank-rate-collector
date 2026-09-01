@@ -16,7 +16,8 @@ def _row(
     *,
     source_id: str = "fsb",
     special: bool = False,
-    scope: str = "nationwide",
+    scope: str = "전국",
+    match_key: str = "nationwide",
     channel: str = "online",
 ) -> InstitutionRateCandidate:
     return InstitutionRateCandidate(
@@ -28,6 +29,7 @@ def _row(
         term_months=12,
         join_channel=channel,
         availability_scope=scope,
+        availability_match_key=match_key,
         special_offer_flag=special,
         rate_pct=Decimal(rate),
     )
@@ -39,7 +41,7 @@ def _reduce(rows, **kwargs):
         sector="savings_bank",
         product_type="term_deposit",
         term_months=12,
-        availability_scope="nationwide",
+        availability_match_key="nationwide",
         join_channel="online",
         retreating_sources={"finlife_savings_bank"},
         **kwargs,
@@ -59,6 +61,8 @@ def test_reduction_returns_one_institution_row_and_excludes_special_offer_by_def
     assert [row.institution_id for row in result] == ["a", "b"]
     assert result[0].representative_product_id == "p-core"
     assert result[0].rate_pct == Decimal("3.6000")
+    assert result[0].availability_scope == "전국"
+    assert result[0].availability_match_key == "nationwide"
     assert result[0].special_offer_flag is False
     assert result[0].policy_id == INSTITUTION_RATE_REDUCTION_POLICY_ID
     assert result[0].precedence_applied is True
@@ -122,24 +126,40 @@ def test_tie_break_is_stable_product_id_ascending() -> None:
     assert result[0].representative_product_id == "p-a"
 
 
-def test_unknown_availability_scope_fails_closed() -> None:
-    with pytest.raises(ValueError, match="availability_scope"):
+def test_unknown_availability_match_key_fails_closed() -> None:
+    with pytest.raises(ValueError, match="availability_match_key"):
         reduce_institution_rates(
             [_row("a", "p", "3.50")],
             sector="savings_bank",
             product_type="term_deposit",
             term_months=12,
-            availability_scope="unknown",
+            availability_match_key="미상",
             retreating_sources=set(),
         )
 
 
-def test_scope_and_join_channel_are_hard_filters() -> None:
+def test_same_raw_local_label_does_not_merge_different_match_keys() -> None:
+    result = reduce_institution_rates(
+        [
+            _row("busan", "p-busan", "3.50", scope="지역금고", match_key="local:busan"),
+            _row("seoul", "p-seoul", "4.60", scope="지역금고", match_key="local:seoul"),
+        ],
+        sector="savings_bank",
+        product_type="term_deposit",
+        term_months=12,
+        availability_match_key="local:busan",
+        join_channel="online",
+        retreating_sources=set(),
+    )
+
+    assert [row.institution_id for row in result] == ["busan"]
+
+
+def test_join_channel_is_a_hard_filter() -> None:
     result = _reduce(
         [
             _row("a", "online-national", "3.50"),
             _row("b", "branch-national", "4.50", channel="branch"),
-            _row("c", "online-local", "4.60", scope="local"),
         ]
     )
 
