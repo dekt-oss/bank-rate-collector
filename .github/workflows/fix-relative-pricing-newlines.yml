@@ -1,0 +1,41 @@
+name: Fix relative pricing newlines
+
+on:
+  push:
+    branches:
+      - fix/relative-pricing-postmerge-review-20260901
+    paths:
+      - .github/workflows/fix-relative-pricing-newlines.yml
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Add trailing newlines
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          paths = [
+              Path('src/rate_monitor/services/relative_pricing_strategy_payload.py'),
+              Path('tests/test_relative_pricing_strategy_payload.py'),
+          ]
+          for path in paths:
+              data = path.read_bytes()
+              if not data.endswith(b'\n'):
+                  path.write_bytes(data + b'\n')
+          PY
+      - name: Commit
+        run: |
+          if git diff --quiet; then
+            echo 'No newline changes needed'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/rate_monitor/services/relative_pricing_strategy_payload.py tests/test_relative_pricing_strategy_payload.py
+          git commit -m 'style(strategy): add trailing newlines'
+          git push origin HEAD:fix/relative-pricing-postmerge-review-20260901
