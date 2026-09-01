@@ -40,6 +40,9 @@ from rate_monitor.collectors.data_go_funding.resilient import (
     collect_source_resilient,
     required_failures,
 )
+from rate_monitor.collectors.data_go_funding.savings_bank_identity_reconciliation import (
+    reconcile_latest_savings_bank_funding_identity,
+)
 from rate_monitor.collectors.data_go_funding.transport import (
     ACCOUNT_FILTERS,
     PAGE_SIZE,
@@ -144,8 +147,7 @@ def _transport_preflight(contract: SourceContract) -> tuple[bool, str]:
 
     return (
         False,
-        f"transport preflight retry exhausted attempts={PREFLIGHT_ATTEMPTS} "
-        f"last={last_error}",
+        f"transport preflight retry exhausted attempts={PREFLIGHT_ATTEMPTS} last={last_error}",
     )
 
 
@@ -229,6 +231,17 @@ def collect_operational(
                 "funding aggregate guard "
                 f"source={contract.source_id} checked_months={guard.checked_months} "
                 f"retired={guard.retired_observations}",
+                flush=True,
+            )
+        if contract.sector == "savings_bank" and result.status == "success":
+            identity = reconcile_latest_savings_bank_funding_identity(db_path)
+            print(
+                "funding identity reconciliation "
+                f"source={contract.source_id} latest_month={identity.latest_month} "
+                f"scanned={identity.scanned} eligible_unmapped={identity.eligible_unmapped} "
+                f"mapped={identity.mapped} unchanged_mapped={identity.unchanged_mapped} "
+                f"no_consensus={identity.no_consensus} "
+                f"excluded_aggregate={identity.excluded_aggregate}",
                 flush=True,
             )
         if contract.sector == "nh_local" and result.status == "success":

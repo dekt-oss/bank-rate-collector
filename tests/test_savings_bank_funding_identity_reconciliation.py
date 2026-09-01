@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import calendar
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from pathlib import Path
@@ -43,7 +44,9 @@ def _source(source_id: str, sector: str = "savings_bank") -> m.Source:
     )
 
 
-def _institution(name: str = "BNK저축은행", *, active: bool = True, sector: str = "savings_bank") -> m.Institution:
+def _institution(
+    name: str = "BNK저축은행", *, active: bool = True, sector: str = "savings_bank"
+) -> m.Institution:
     return m.Institution(
         sector=sector,
         canonical_name=name,
@@ -138,7 +141,7 @@ def _add_observation(
     source_key: str = "0013002",
 ) -> InstitutionFundingObservation:
     year, mon = (int(part) for part in month.split("-"))
-    period_end = date(year, mon, 31 if mon in {1, 3, 5, 7, 8, 10, 12} else 30)
+    period_end = date(year, mon, calendar.monthrange(year, mon)[1])
     observation = InstitutionFundingObservation(
         institution_id=institution_id,
         source_id=FUNDING,
@@ -178,10 +181,12 @@ def test_dual_source_consensus_maps_only_same_exact_code_entity(tmp_path: Path) 
         institution = _institution()
         session.add(institution)
         session.flush()
-        session.add_all([
-            _link("fsb", institution.id),
-            _link("finlife_savings_bank", institution.id),
-        ])
+        session.add_all(
+            [
+                _link("fsb", institution.id),
+                _link("finlife_savings_bank", institution.id),
+            ]
+        )
         session.flush()
 
         result = resolve_savings_bank_dual_source_consensus(
@@ -195,7 +200,9 @@ def test_dual_source_consensus_maps_only_same_exact_code_entity(tmp_path: Path) 
         assert result.reason == "fsb_finlife_exact_code_consensus"
 
 
-def test_dual_source_consensus_fails_closed_on_missing_or_divergent_reference(tmp_path: Path) -> None:
+def test_dual_source_consensus_fails_closed_on_missing_or_divergent_reference(
+    tmp_path: Path,
+) -> None:
     factory, _raw_id = _prepare_db(tmp_path / "test.sqlite3")
     with session_scope(factory) as session:
         first = _institution("BNK저축은행")
@@ -226,7 +233,9 @@ def test_dual_source_consensus_fails_closed_on_missing_or_divergent_reference(tm
         assert divergent.reason == "reference_entity_conflict"
 
 
-def test_dual_source_consensus_rejects_non_exact_inactive_wrong_sector_crno_and_aggregate(tmp_path: Path) -> None:
+def test_dual_source_consensus_rejects_non_exact_inactive_wrong_sector_crno_and_aggregate(
+    tmp_path: Path,
+) -> None:
     for case in ("non_exact", "inactive", "wrong_sector", "crno"):
         db_path = tmp_path / f"{case}.sqlite3"
         factory, _raw_id = _prepare_db(db_path)
@@ -237,15 +246,17 @@ def test_dual_source_consensus_rejects_non_exact_inactive_wrong_sector_crno_and_
             )
             session.add(institution)
             session.flush()
-            session.add_all([
-                _link(
-                    "fsb",
-                    institution.id,
-                    match_method="manual" if case == "non_exact" else "exact_code",
-                    crno="9999999999999" if case == "crno" else None,
-                ),
-                _link("finlife_savings_bank", institution.id),
-            ])
+            session.add_all(
+                [
+                    _link(
+                        "fsb",
+                        institution.id,
+                        match_method="manual" if case == "non_exact" else "exact_code",
+                        crno="9999999999999" if case == "crno" else None,
+                    ),
+                    _link("finlife_savings_bank", institution.id),
+                ]
+            )
             session.flush()
             result = resolve_savings_bank_dual_source_consensus(
                 session,
@@ -267,17 +278,21 @@ def test_dual_source_consensus_rejects_non_exact_inactive_wrong_sector_crno_and_
         assert aggregate.reason == "sector_total_excluded"
 
 
-def test_reconciliation_maps_latest_unmapped_only_and_preserves_financial_provenance(tmp_path: Path) -> None:
+def test_reconciliation_maps_latest_unmapped_only_and_preserves_financial_provenance(
+    tmp_path: Path,
+) -> None:
     db_path = tmp_path / "test.sqlite3"
     factory, raw_id = _prepare_db(db_path)
     with session_scope(factory) as session:
         institution = _institution()
         session.add(institution)
         session.flush()
-        session.add_all([
-            _link("fsb", institution.id),
-            _link("finlife_savings_bank", institution.id),
-        ])
+        session.add_all(
+            [
+                _link("fsb", institution.id),
+                _link("finlife_savings_bank", institution.id),
+            ]
+        )
         older = _add_observation(session, raw_id=raw_id, month="2026-02")
         latest = _add_observation(session, raw_id=raw_id, month="2026-03")
         session.flush()

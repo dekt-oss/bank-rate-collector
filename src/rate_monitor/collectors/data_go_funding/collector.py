@@ -34,6 +34,10 @@ from rate_monitor.collectors.data_go_funding.aggregate_policy import (
     AggregateValidationError,
     partition_validated_agri_coop_rows,
 )
+from rate_monitor.collectors.data_go_funding.savings_bank_identity import (
+    MAPPED_DUAL_SOURCE_STATUS,
+    resolve_savings_bank_dual_source_consensus,
+)
 from rate_monitor.db import models as m
 from rate_monitor.db.institution_funding_models import InstitutionFundingObservation
 from rate_monitor.db.session import create_db_engine, make_session_factory, session_scope
@@ -108,9 +112,7 @@ CONTRACTS = (
         sector="savings_bank",
         dataset_id="15061316",
         key_env="DATA_GO_KR_SERVICE_KEY_SB",
-        finance_endpoint=(
-            f"{DATA_GO_BASE}/GetMutuSaviBankInfoService/getMutuSaviBankFinaInfo"
-        ),
+        finance_endpoint=(f"{DATA_GO_BASE}/GetMutuSaviBankInfoService/getMutuSaviBankFinaInfo"),
         account_schemas=(
             AccountSchema("dpsdbtDcd", "dpsdbtDcdNm", "dpsdbtClsfAmt", "A11"),
             AccountSchema(
@@ -199,7 +201,9 @@ def _service_key(contract: SourceContract) -> str:
     return urllib.parse.unquote(raw)
 
 
-def candidate_months(contract: SourceContract, periods: int, today: date | None = None) -> list[str]:
+def candidate_months(
+    contract: SourceContract, periods: int, today: date | None = None
+) -> list[str]:
     if periods < 1:
         raise ValueError("periods는 1 이상이어야 한다")
     cursor = today or datetime.now(UTC).date()
@@ -294,9 +298,7 @@ def _request_json(
             if _unknown_operation(payload, text, response.status_code):
                 raise FundingSourceUnavailable(f"unknown operation: {endpoint}")
             if response.status_code >= 500:
-                raise FundingTransportError(
-                    f"Data.go 서버 오류 {response.status_code}: {endpoint}"
-                )
+                raise FundingTransportError(f"Data.go 서버 오류 {response.status_code}: {endpoint}")
             if not _accepted(payload, text):
                 raise FundingContractError(
                     f"Data.go 정상응답 계약 불일치 status={response.status_code}: {endpoint}"
@@ -317,9 +319,7 @@ def _discover_credit_union_endpoint(client: httpx.Client, key: str, bas_ym: str)
     transport_errors: list[str] = []
     for endpoint in CU_CANDIDATES:
         try:
-            payload, _ = _request_json(
-                client, endpoint=endpoint, key=key, bas_ym=bas_ym, page_no=1
-            )
+            payload, _ = _request_json(client, endpoint=endpoint, key=key, bas_ym=bas_ym, page_no=1)
         except FundingSourceUnavailable:
             continue
         except FundingTransportError as exc:
@@ -390,9 +390,7 @@ def _parse_source_amount(raw: object) -> tuple[str, Decimal]:
     if not krw.is_finite() or krw < 0:
         raise FundingContractError(f"예수부채 금액은 비음수여야 한다: {raw!r}")
     if krw != krw.to_integral_value():
-        raise FundingContractError(
-            f"Data.go source_unit=KRW 계약에서 소수 금액을 받았다: {raw!r}"
-        )
+        raise FundingContractError(f"Data.go source_unit=KRW 계약에서 소수 금액을 받았다: {raw!r}")
     normalized = quantize_quantity(krw / MILLION)
     return format(krw, "f"), normalized
 
@@ -680,6 +678,15 @@ def _resolve_identity(
         ):
             candidates.append(institution)
     unique = {institution.id: institution for institution in candidates}
+    if len(unique) == 0 and point.sector == "savings_bank":
+        consensus = resolve_savings_bank_dual_source_consensus(
+            session,
+            source_institution_key=point.source_institution_key,
+            source_institution_name=point.source_institution_name,
+            source_crno=point.source_crno,
+        )
+        if consensus.institution_id is not None:
+            return consensus.institution_id, MAPPED_DUAL_SOURCE_STATUS
     if len(unique) != 1:
         return None, "unmapped_no_exact_cross_source_code"
 
@@ -724,11 +731,9 @@ def _upsert_point(
         select(InstitutionFundingObservation)
         .where(
             InstitutionFundingObservation.source_id == point.source_id,
-            InstitutionFundingObservation.source_institution_key
-            == point.source_institution_key,
+            InstitutionFundingObservation.source_institution_key == point.source_institution_key,
             InstitutionFundingObservation.metric_code == TOTAL_METRIC_CODE,
-            InstitutionFundingObservation.source_effective_month
-            == point.source_effective_month,
+            InstitutionFundingObservation.source_effective_month == point.source_effective_month,
             InstitutionFundingObservation.valid_to.is_(None),
         )
         .order_by(InstitutionFundingObservation.revision.desc())
@@ -788,9 +793,7 @@ def _artifact(
     return RawArtifactData(
         artifact_type="json",
         content=raw,
-        filename=(
-            f"{contract.source_id}-{bas_ym}-p{page_no:03d}-{digest[:12]}.json"
-        ),
+        filename=(f"{contract.source_id}-{bas_ym}-p{page_no:03d}-{digest[:12]}.json"),
         request_meta={
             "dataset_id": contract.dataset_id,
             "endpoint": endpoint,
@@ -842,9 +845,7 @@ def _fetch_month(
         seen_page_hashes.add(digest)
 
         counts = [
-            int(str(value))
-            for value in _metadata(payload, "totalCount")
-            if str(value).isdigit()
+            int(str(value)) for value in _metadata(payload, "totalCount") if str(value).isdigit()
         ]
         if counts and max(counts) <= page_no * PAGE_SIZE:
             break
@@ -924,12 +925,16 @@ def collect_source(
                 artifact_by_month.setdefault(bas_ym, record.id)
 
             for bas_ym, rows in month_rows:
-                points = parse_points(
-                    contract,
-                    rows,
-                    endpoint=endpoint,
-                    account_schemas=schemas,
-                ) if rows else []
+                points = (
+                    parse_points(
+                        contract,
+                        rows,
+                        endpoint=endpoint,
+                        account_schemas=schemas,
+                    )
+                    if rows
+                    else []
+                )
                 parsed_points += len(points)
                 raw_id = artifact_by_month.get(bas_ym)
                 if points and raw_id is None:
@@ -1016,9 +1021,7 @@ def collect_all(
                 db_path=db_path,
                 raw_root=raw_root,
                 periods=periods,
-                allow_unavailable=(
-                    allow_unavailable_credit_union and contract.sector == "cu"
-                ),
+                allow_unavailable=(allow_unavailable_credit_union and contract.sector == "cu"),
             )
         )
     return results

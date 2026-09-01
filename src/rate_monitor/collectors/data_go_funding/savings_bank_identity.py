@@ -90,11 +90,7 @@ def resolve_savings_bank_dual_source_consensus(
         return SavingsBankIdentityConsensus(None, "reference_entity_conflict")
 
     institution = session.get(m.Institution, fsb_link.entity_id)
-    if (
-        institution is None
-        or institution.sector != SAVINGS_BANK_SECTOR
-        or not institution.active
-    ):
+    if institution is None or institution.sector != SAVINGS_BANK_SECTOR or not institution.active:
         return SavingsBankIdentityConsensus(None, "invalid_canonical_institution")
 
     normalized_source_crno = str(source_crno or "").strip() or None
