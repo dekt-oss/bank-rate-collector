@@ -61,7 +61,7 @@ def _rows(conn: sqlite3.Connection, month: str) -> list[dict[str, Any]]:
         """,
         (SOURCE_ID, SECTOR, month, AGGREGATE_KEY),
     ).fetchall()
-    return [{key: row[key] for key in row} for row in result]
+    return [dict(row) for row in result]
 
 
 def _aggregate_count(conn: sqlite3.Connection) -> int:
@@ -92,7 +92,7 @@ def _funding_links(conn: sqlite3.Connection) -> list[dict[str, Any]]:
         """,
         (SOURCE_ID,),
     ).fetchall()
-    return [{key: row[key] for key in row} for row in rows]
+    return [dict(row) for row in rows]
 
 
 def _stable_value(value: Any) -> Any:
