@@ -3,6 +3,15 @@
 This module composes the R0 pricing-domain services without changing their
 meaning. Pricing-peer eligibility remains independent from funding availability,
 and raw availability labels are never promoted into comparison keys here.
+
+The payload is deliberately fail-closed around three evidence boundaries:
+
+* funding balances are canonical ``million_krw`` values and are never exposed
+  under an unqualified/ambiguous amount name;
+* Rate x Funding Matrix and pricing representatives must be reconciled before a
+  factual block can become ready;
+* special offers are radar evidence only and never replace the core pricing-peer
+  representative.
 """
 
 from __future__ import annotations
@@ -17,6 +26,7 @@ from rate_monitor.services.institution_rate_reduction import (
     INSTITUTION_RATE_REDUCTION_POLICY_ID,
     INSTITUTION_RATE_REDUCTION_POLICY_VERSION,
     InstitutionRateCandidate,
+    InstitutionRepresentativeRate,
     reduce_institution_rates,
 )
 from rate_monitor.services.pricing_peer_position import (
@@ -35,8 +45,9 @@ from rate_monitor.services.surface_cost_contract import (
     standardized_surface_interest_delta,
 )
 
-RELATIVE_PRICING_CONTRACT_VERSION = "1"
+RELATIVE_PRICING_CONTRACT_VERSION = "2"
 PRICING_PEER_POSITION_POLICY_ID = "relative-pricing-peer-position"
+MILLION_KRW_TO_KRW = Decimal("1000000")
 
 
 def _json_value(value: Any) -> Any:
@@ -85,30 +96,46 @@ def build_relative_pricing_unavailable_payload(
         "as_of": as_of,
         "policies": _policies(),
         "market_position": None,
+        "representative_rate_reconciliation": None,
         "pricing_peer_position": None,
         "peers": [],
+        "special_offer_radar": [],
         "factual_cost": None,
     }
 
 
 def _funding_index(
     rows: Iterable[InstitutionFundingReadRow], *, sector: str
-) -> dict[str, InstitutionFundingReadRow]:
+) -> tuple[dict[str, InstitutionFundingReadRow], str | None]:
+    """Index one coherent funding vintage for optional pricing enrichment.
+
+    The canonical funding ``balance`` is normalized to ``million_krw``. Mixed
+    analysis months are not aggregated: point-in-time factual totals must come
+    from one reporting vintage.
+    """
+    sector_rows = [row for row in rows if row.sector == sector]
+    analysis_months = {row.analysis_month for row in sector_rows}
+    if len(analysis_months) > 1:
+        raise ValueError(
+            "mixed funding analysis months for pricing enrichment: "
+            + ", ".join(sorted(analysis_months))
+        )
+
     indexed: dict[str, InstitutionFundingReadRow] = {}
-    for row in rows:
-        if row.sector != sector:
-            continue
+    for row in sector_rows:
         if row.institution_id in indexed:
             raise ValueError(
                 "duplicate funding row for pricing enrichment: " + row.institution_id
             )
         indexed[row.institution_id] = row
-    return indexed
+    analysis_month = next(iter(analysis_months), None)
+    return indexed, analysis_month
 
 
 def _pricing_candidate(
-    representative: Any,
-    *, funding: InstitutionFundingReadRow | None,
+    representative: InstitutionRepresentativeRate,
+    *,
+    funding: InstitutionFundingReadRow | None,
 ) -> PricingPeerCandidate:
     return PricingPeerCandidate(
         institution_id=representative.institution_id,
@@ -136,6 +163,100 @@ def _peer_gap_bp(peer_rate: Decimal, own_rate: Decimal) -> Decimal:
     return ((peer_rate - own_rate) * Decimal("100")).quantize(Decimal("0.01"))
 
 
+def _special_offer_representatives(
+    rows: list[InstitutionRateCandidate],
+    *,
+    sector: str,
+    product_type: str,
+    term_months: int,
+    availability_match_key: str,
+    join_channel: str | None,
+    retreating_sources: Iterable[str] | None,
+    enabled: bool,
+) -> list[InstitutionRepresentativeRate]:
+    if not enabled:
+        return []
+    special_rows = [row for row in rows if row.special_offer_flag]
+    if not special_rows:
+        return []
+    return reduce_institution_rates(
+        special_rows,
+        sector=sector,
+        product_type=product_type,
+        term_months=term_months,
+        availability_match_key=availability_match_key,
+        join_channel=join_channel,
+        include_special_offer=True,
+        retreating_sources=retreating_sources,
+    )
+
+
+def _representative_rate_reconciliation(
+    *,
+    pricing_representative: InstitutionRepresentativeRate,
+    matrix_representative_rate_pct: Decimal | float | str | None,
+    matrix_representative_policy_id: str | None,
+    matrix_representative_rate_as_of: date | datetime | str | None,
+    difference_reason: str | None,
+) -> dict[str, Any]:
+    matrix_policy = str(matrix_representative_policy_id or "").strip()
+    if matrix_representative_rate_pct is None or not matrix_policy:
+        return {
+            "status": "unresolved",
+            "pricing_policy_id": pricing_representative.policy_id,
+            "pricing_policy_version": pricing_representative.policy_version,
+            "pricing_rate_pct": pricing_representative.rate_pct,
+            "pricing_rate_as_of": pricing_representative.rate_as_of,
+            "matrix_policy_id": matrix_policy or None,
+            "matrix_rate_pct": None,
+            "matrix_rate_as_of": matrix_representative_rate_as_of,
+            "gap_bp": None,
+            "difference_reason": None,
+        }
+
+    matrix_rate = Decimal(str(matrix_representative_rate_pct))
+    gap_bp = _peer_gap_bp(pricing_representative.rate_pct, matrix_rate)
+    normalized_reason = str(difference_reason or "").strip() or None
+    if gap_bp == 0:
+        status = "matched"
+        normalized_reason = None
+    elif normalized_reason:
+        status = "explained"
+    else:
+        status = "unexplained"
+    return {
+        "status": status,
+        "pricing_policy_id": pricing_representative.policy_id,
+        "pricing_policy_version": pricing_representative.policy_version,
+        "pricing_rate_pct": pricing_representative.rate_pct,
+        "pricing_rate_as_of": pricing_representative.rate_as_of,
+        "matrix_policy_id": matrix_policy,
+        "matrix_rate_pct": matrix_rate,
+        "matrix_rate_as_of": matrix_representative_rate_as_of,
+        "gap_bp": gap_bp,
+        "difference_reason": normalized_reason,
+    }
+
+
+def _radar_rows(
+    representatives: Iterable[InstitutionRepresentativeRate],
+    *,
+    names: Mapping[str, str],
+) -> list[dict[str, Any]]:
+    return [
+        {
+            "institution_id": row.institution_id,
+            "institution": names.get(row.institution_id),
+            "representative_product_id": row.representative_product_id,
+            "rate_pct": row.rate_pct,
+            "rate_as_of": row.rate_as_of,
+            "rate_source_id": row.source_id,
+            "special_offer_flag": True,
+        }
+        for row in representatives
+    ]
+
+
 def build_relative_pricing_strategy_payload(
     rate_candidates: Iterable[InstitutionRateCandidate],
     *,
@@ -151,6 +272,10 @@ def build_relative_pricing_strategy_payload(
     include_special_offer: bool = False,
     retreating_sources: Iterable[str] | None = None,
     market_position: Mapping[str, Any] | None = None,
+    matrix_representative_rate_pct: Decimal | float | str | None = None,
+    matrix_representative_policy_id: str | None = None,
+    matrix_representative_rate_as_of: date | datetime | str | None = None,
+    representative_rate_difference_reason: str | None = None,
     as_of: str | None = None,
 ) -> dict[str, Any]:
     """Compose the factual R1 block from evidence-backed pricing inputs.
@@ -158,17 +283,36 @@ def build_relative_pricing_strategy_payload(
     ``availability_match_key`` is mandatory and is passed unchanged to the R0
     reducers/selectors. This function never derives it from display labels or
     geography. Missing funding stays nullable and never changes peer eligibility.
-    ``proposal_rate_pct`` is optional; when absent, the current anchor rate is used
-    only as a zero-delta baseline, not as a recommendation.
+
+    Core pricing peers always exclude special offers. ``include_special_offer``
+    only opts into a separately labeled radar population. A Matrix representative
+    must also be supplied; if it disagrees with the pricing representative, the
+    difference requires an explicit factual explanation before the payload can be
+    marked ready.
     """
-    representatives = reduce_institution_rates(
-        rate_candidates,
+    rate_rows = list(rate_candidates)
+    names = institution_names or {}
+    radar_representatives = _special_offer_representatives(
+        rate_rows,
         sector=sector,
         product_type=product_type,
         term_months=term_months,
         availability_match_key=availability_match_key,
         join_channel=join_channel,
-        include_special_offer=include_special_offer,
+        retreating_sources=retreating_sources,
+        enabled=include_special_offer,
+    )
+    radar = _radar_rows(radar_representatives, names=names)
+
+    # Core pricing ranking never includes a promotional product.
+    representatives = reduce_institution_rates(
+        rate_rows,
+        sector=sector,
+        product_type=product_type,
+        term_months=term_months,
+        availability_match_key=availability_match_key,
+        join_channel=join_channel,
+        include_special_offer=False,
         retreating_sources=retreating_sources,
     )
     anchor_id = str(anchor_institution_id or "").strip()
@@ -179,12 +323,32 @@ def build_relative_pricing_strategy_payload(
         None,
     )
     if anchor is None:
-        return build_relative_pricing_unavailable_payload(
+        payload = build_relative_pricing_unavailable_payload(
             reason="anchor_not_in_evidence_backed_pricing_population",
             as_of=as_of,
         )
+        payload["special_offer_radar"] = _json_value(radar)
+        return payload
 
-    funding_by_id = _funding_index(funding_rows, sector=sector)
+    reconciliation = _representative_rate_reconciliation(
+        pricing_representative=anchor,
+        matrix_representative_rate_pct=matrix_representative_rate_pct,
+        matrix_representative_policy_id=matrix_representative_policy_id,
+        matrix_representative_rate_as_of=matrix_representative_rate_as_of,
+        difference_reason=representative_rate_difference_reason,
+    )
+    if reconciliation["status"] in {"unresolved", "unexplained"}:
+        reason = (
+            "matrix_representative_rate_unresolved"
+            if reconciliation["status"] == "unresolved"
+            else "representative_rate_policy_mismatch_unexplained"
+        )
+        payload = build_relative_pricing_unavailable_payload(reason=reason, as_of=as_of)
+        payload["representative_rate_reconciliation"] = _json_value(reconciliation)
+        payload["special_offer_radar"] = _json_value(radar)
+        return payload
+
+    funding_by_id, funding_analysis_month = _funding_index(funding_rows, sector=sector)
     candidates = [
         _pricing_candidate(row, funding=funding_by_id.get(row.institution_id))
         for row in representatives
@@ -215,20 +379,28 @@ def build_relative_pricing_strategy_payload(
     )
 
     higher_peers = [
-        peer
-        for peer in selection.peers
-        if peer.rate_pct > position.proposal_rate_pct
+        peer for peer in selection.peers if peer.rate_pct > position.proposal_rate_pct
     ]
     higher_known = [peer for peer in higher_peers if peer.funding_balance is not None]
-    higher_funding_total = sum(
-        (
-            peer.funding_balance
-            for peer in higher_known
-            if peer.funding_balance is not None
-        ),
-        Decimal("0"),
-    )
-    names = institution_names or {}
+    if not higher_peers:
+        higher_funding_total_krw: Decimal | None = Decimal("0")
+    elif not higher_known:
+        # Higher-rate peers exist, but none has a funding observation. Missing is
+        # not a measured zero.
+        higher_funding_total_krw = None
+    else:
+        higher_funding_total_million_krw = sum(
+            (
+                peer.funding_balance
+                for peer in higher_known
+                if peer.funding_balance is not None
+            ),
+            Decimal("0"),
+        )
+        higher_funding_total_krw = (
+            higher_funding_total_million_krw * MILLION_KRW_TO_KRW
+        )
+
     peer_rows = [
         {
             "institution_id": peer.institution_id,
@@ -238,7 +410,7 @@ def build_relative_pricing_strategy_payload(
             "gap_vs_own_bp": _peer_gap_bp(peer.rate_pct, position.proposal_rate_pct),
             "rate_as_of": peer.rate_as_of,
             "rate_source_id": peer.rate_source_id,
-            "funding_balance": peer.funding_balance,
+            "funding_balance_million_krw": peer.funding_balance,
             "funding_change_6m_pct": peer.funding_change_6m_pct,
             "funding_as_of": peer.funding_as_of,
             "funding_status": (
@@ -264,10 +436,12 @@ def build_relative_pricing_strategy_payload(
             "join_channel": join_channel,
             "availability_match_key": selection.availability_match_key,
             "availability_scope": anchor.availability_scope,
-            "include_special_offer": bool(include_special_offer),
+            "include_special_offer_in_core": False,
+            "special_offer_radar_included": bool(include_special_offer),
         },
         "policies": _policies(),
         "market_position": dict(market_position) if market_position is not None else None,
+        "representative_rate_reconciliation": reconciliation,
         "pricing_peer_position": {
             "policy_id": PRICING_PEER_POSITION_POLICY_ID,
             "policy_version": position.version,
@@ -286,11 +460,12 @@ def build_relative_pricing_strategy_payload(
             "peer_within_10bp_count": position.within_10bp_count,
             "higher_rate_peer_count": position.higher_rate_peer_count,
             "lower_rate_peer_count": position.lower_rate_peer_count,
+            "funding_analysis_month": funding_analysis_month,
             "funding_join_count": selection.funding_join_count,
             "funding_unjoined_count": selection.funding_unjoined_count,
             "funding_join_ratio": selection.funding_join_ratio,
             "higher_rate_peer_funding_known_count": len(higher_known),
-            "higher_rate_peer_funding_total": higher_funding_total,
+            "higher_rate_peer_funding_total_krw": higher_funding_total_krw,
             "proposal_transition": {
                 "newly_outpriced_count": position.newly_outpriced_count,
                 "newly_tied_count": position.newly_tied_count,
@@ -299,6 +474,7 @@ def build_relative_pricing_strategy_payload(
             },
         },
         "peers": peer_rows,
+        "special_offer_radar": radar,
         "factual_cost": {
             "contract_version": SURFACE_COST_CONTRACT_VERSION,
             "standardized_notional_krw": STANDARD_NOTIONAL_KRW,
