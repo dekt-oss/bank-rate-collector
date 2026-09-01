@@ -1,0 +1,60 @@
+name: Apply savings bank identity 13 patch
+
+on:
+  push:
+    branches:
+      - "fix/savings-bank-funding-identity-13-20260901"
+    paths:
+      - "scripts/apply_savings_bank_identity_13_patch.py"
+      - ".github/workflows/apply-savings-bank-identity-13-patch.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/savings-bank-funding-identity-13-20260901
+          fetch-depth: 0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Sync dependencies
+        run: uv sync --locked
+
+      - name: Apply assertion-guarded patch
+        run: uv run python scripts/apply_savings_bank_identity_13_patch.py
+
+      - name: Validate patched identity code
+        run: |
+          set -euo pipefail
+          uv run ruff check \
+            src/rate_monitor/collectors/data_go_funding/collector.py \
+            src/rate_monitor/collectors/data_go_funding/operations.py \
+            src/rate_monitor/collectors/data_go_funding/savings_bank_identity.py \
+            src/rate_monitor/collectors/data_go_funding/savings_bank_identity_reconciliation.py \
+            tests/test_savings_bank_funding_identity_reconciliation.py
+          uv run pytest -q tests/test_savings_bank_funding_identity_reconciliation.py
+
+      - name: Commit patched files
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            src/rate_monitor/collectors/data_go_funding/collector.py \
+            src/rate_monitor/collectors/data_go_funding/operations.py \
+            tests/test_savings_bank_funding_identity_reconciliation.py
+          git diff --cached --check
+          git commit -m "fix: reconcile savings bank funding identity"
+          git push origin HEAD:fix/savings-bank-funding-identity-13-20260901
