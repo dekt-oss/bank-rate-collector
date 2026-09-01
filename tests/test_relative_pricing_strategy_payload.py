@@ -17,6 +17,7 @@ def _rate(
     rate: str,
     *,
     match_key: str = "nationwide",
+    special_offer: bool = False,
 ) -> InstitutionRateCandidate:
     return InstitutionRateCandidate(
         institution_id=institution_id,
@@ -28,7 +29,7 @@ def _rate(
         join_channel="online",
         availability_scope="전국",
         availability_match_key=match_key,
-        special_offer_flag=False,
+        special_offer_flag=special_offer,
         rate_pct=Decimal(rate),
     )
 
@@ -38,12 +39,13 @@ def _funding(
     balance: str,
     *,
     change_6m_pct: str | None = None,
+    analysis_month: str = "2026-03",
 ) -> InstitutionFundingReadRow:
     change = Decimal(change_6m_pct) if change_6m_pct is not None else None
     return InstitutionFundingReadRow(
         institution_id=institution_id,
         sector="savings_bank",
-        analysis_month="2026-03",
+        analysis_month=analysis_month,
         balance=Decimal(balance),
         balance_6m_ago=None,
         balance_12m_ago=None,
@@ -72,8 +74,14 @@ def _build(**kwargs):
         term_months=12,
         availability_match_key="nationwide",
         join_channel="online",
-        funding_rows=[_funding("our", "80"), _funding("high", "60", change_6m_pct="0.02")],
+        funding_rows=[
+            _funding("our", "80"),
+            _funding("high", "60", change_6m_pct="0.02"),
+        ],
         institution_names={"high": "상위은행", "low": "하위은행"},
+        matrix_representative_rate_pct="3.50",
+        matrix_representative_policy_id="institution_product_representative_max",
+        matrix_representative_rate_as_of="2026-09-01",
         as_of="2026-09-01",
         retreating_sources=set(),
         **kwargs,
@@ -87,9 +95,22 @@ def test_r1_payload_composes_pricing_peers_funding_and_factual_cost() -> None:
     )
 
     assert payload["status"] == "ready"
+    assert RELATIVE_PRICING_CONTRACT_VERSION == "2"
     assert payload["policies"]["contract_version"] == RELATIVE_PRICING_CONTRACT_VERSION
     assert payload["market_position"] == {
         "status": "existing_product_market_contract"
+    }
+    assert payload["representative_rate_reconciliation"] == {
+        "status": "matched",
+        "pricing_policy_id": "relative-pricing-institution-rate",
+        "pricing_policy_version": "1",
+        "pricing_rate_pct": "3.5000",
+        "pricing_rate_as_of": None,
+        "matrix_policy_id": "institution_product_representative_max",
+        "matrix_rate_pct": "3.50",
+        "matrix_rate_as_of": "2026-09-01",
+        "gap_bp": "0.00",
+        "difference_reason": None,
     }
 
     position = payload["pricing_peer_position"]
@@ -102,20 +123,25 @@ def test_r1_payload_composes_pricing_peers_funding_and_factual_cost() -> None:
     assert position["peer_rank_best"] == 2
     assert position["peer_rank_worst"] == 2
     assert position["higher_rate_peer_count"] == 1
+    assert position["funding_analysis_month"] == "2026-03"
     assert position["funding_join_count"] == 1
     assert position["funding_unjoined_count"] == 1
     assert position["funding_join_ratio"] == "0.5"
     assert position["higher_rate_peer_funding_known_count"] == 1
-    assert position["higher_rate_peer_funding_total"] == "60"
+    assert position["higher_rate_peer_funding_total_krw"] == "60000000"
 
     peers = {row["institution_id"]: row for row in payload["peers"]}
     assert peers["high"]["institution"] == "상위은행"
     assert peers["high"]["funding_status"] == "known"
-    assert peers["high"]["funding_balance"] == "60"
+    assert peers["high"]["funding_balance_million_krw"] == "60"
     assert peers["high"]["gap_vs_own_bp"] == "5.00"
     assert peers["low"]["funding_status"] == "unavailable"
-    assert peers["low"]["funding_balance"] is None
+    assert peers["low"]["funding_balance_million_krw"] is None
     assert peers["low"]["gap_vs_own_bp"] == "-15.00"
+
+    assert payload["scope"]["include_special_offer_in_core"] is False
+    assert payload["scope"]["special_offer_radar_included"] is False
+    assert payload["special_offer_radar"] == []
 
     cost = payload["factual_cost"]
     assert cost["standardized_notional_krw"] == "10000000000"
@@ -131,6 +157,54 @@ def test_missing_funding_never_removes_pricing_peer() -> None:
     assert payload["pricing_peer_position"]["funding_unjoined_count"] == 1
     assert payload["factual_cost"]["evaluation_basis"] == "current_baseline"
     assert payload["factual_cost"]["standardized_surface_interest_delta_krw"] == "0.0000"
+
+
+def test_higher_peer_without_any_funding_is_unknown_not_zero() -> None:
+    payload = build_relative_pricing_strategy_payload(
+        [
+            _rate("our", "p-our", "3.50"),
+            _rate("high", "p-high", "3.60"),
+        ],
+        anchor_institution_id="our",
+        sector="savings_bank",
+        product_type="term_deposit",
+        term_months=12,
+        availability_match_key="nationwide",
+        join_channel="online",
+        funding_rows=[],
+        matrix_representative_rate_pct="3.50",
+        matrix_representative_policy_id="institution_product_representative_max",
+        retreating_sources=set(),
+    )
+
+    position = payload["pricing_peer_position"]
+    assert payload["status"] == "ready"
+    assert position["higher_rate_peer_count"] == 1
+    assert position["higher_rate_peer_funding_known_count"] == 0
+    assert position["higher_rate_peer_funding_total_krw"] is None
+    assert position["funding_analysis_month"] is None
+
+
+def test_no_higher_peers_has_measured_zero_higher_peer_funding_total() -> None:
+    payload = build_relative_pricing_strategy_payload(
+        [
+            _rate("our", "p-our", "3.60"),
+            _rate("low", "p-low", "3.40"),
+        ],
+        anchor_institution_id="our",
+        sector="savings_bank",
+        product_type="term_deposit",
+        term_months=12,
+        availability_match_key="nationwide",
+        funding_rows=[],
+        matrix_representative_rate_pct="3.60",
+        matrix_representative_policy_id="institution_product_representative_max",
+        retreating_sources=set(),
+    )
+
+    position = payload["pricing_peer_position"]
+    assert position["higher_rate_peer_count"] == 0
+    assert position["higher_rate_peer_funding_total_krw"] == "0"
 
 
 def test_payload_contains_no_r1_forbidden_prediction_or_target_fields() -> None:
@@ -172,6 +246,8 @@ def test_unknown_match_key_fails_closed_instead_of_inferencing_from_scope() -> N
             product_type="term_deposit",
             term_months=12,
             availability_match_key="미상",
+            matrix_representative_rate_pct="3.50",
+            matrix_representative_policy_id="institution_product_representative_max",
             retreating_sources=set(),
         )
 
@@ -184,6 +260,8 @@ def test_anchor_outside_pricing_population_returns_insufficient_data() -> None:
         product_type="term_deposit",
         term_months=12,
         availability_match_key="nationwide",
+        matrix_representative_rate_pct="3.50",
+        matrix_representative_policy_id="institution_product_representative_max",
         retreating_sources=set(),
     )
 
@@ -202,8 +280,132 @@ def test_duplicate_funding_enrichment_fails_closed() -> None:
             term_months=12,
             availability_match_key="nationwide",
             funding_rows=[_funding("peer", "10"), _funding("peer", "20")],
+            matrix_representative_rate_pct="3.50",
+            matrix_representative_policy_id="institution_product_representative_max",
             retreating_sources=set(),
         )
+
+
+def test_mixed_funding_vintages_fail_closed_before_aggregation() -> None:
+    with pytest.raises(ValueError, match="mixed funding analysis months"):
+        build_relative_pricing_strategy_payload(
+            [_rate("our", "p-our", "3.50"), _rate("peer", "p-peer", "3.60")],
+            anchor_institution_id="our",
+            sector="savings_bank",
+            product_type="term_deposit",
+            term_months=12,
+            availability_match_key="nationwide",
+            funding_rows=[
+                _funding("our", "10", analysis_month="2026-03"),
+                _funding("peer", "20", analysis_month="2025-12"),
+            ],
+            matrix_representative_rate_pct="3.50",
+            matrix_representative_policy_id="institution_product_representative_max",
+            retreating_sources=set(),
+        )
+
+
+def test_matrix_representative_is_required_for_ready_payload() -> None:
+    payload = build_relative_pricing_strategy_payload(
+        [_rate("our", "p-our", "3.50"), _rate("peer", "p-peer", "3.60")],
+        anchor_institution_id="our",
+        sector="savings_bank",
+        product_type="term_deposit",
+        term_months=12,
+        availability_match_key="nationwide",
+        retreating_sources=set(),
+    )
+
+    assert payload["status"] == "insufficient_data"
+    assert payload["reason"] == "matrix_representative_rate_unresolved"
+    reconciliation = payload["representative_rate_reconciliation"]
+    assert reconciliation["status"] == "unresolved"
+    assert reconciliation["pricing_rate_pct"] == "3.5000"
+
+
+def test_unexplained_matrix_pricing_rate_mismatch_fails_closed() -> None:
+    payload = build_relative_pricing_strategy_payload(
+        [_rate("our", "p-our", "3.50"), _rate("peer", "p-peer", "3.60")],
+        anchor_institution_id="our",
+        sector="savings_bank",
+        product_type="term_deposit",
+        term_months=12,
+        availability_match_key="nationwide",
+        matrix_representative_rate_pct="3.45",
+        matrix_representative_policy_id="institution_product_representative_max",
+        retreating_sources=set(),
+    )
+
+    assert payload["status"] == "insufficient_data"
+    assert payload["reason"] == "representative_rate_policy_mismatch_unexplained"
+    reconciliation = payload["representative_rate_reconciliation"]
+    assert reconciliation["status"] == "unexplained"
+    assert reconciliation["pricing_rate_pct"] == "3.5000"
+    assert reconciliation["matrix_rate_pct"] == "3.45"
+    assert reconciliation["gap_bp"] == "5.00"
+
+
+def test_explained_matrix_pricing_rate_mismatch_preserves_both_policies() -> None:
+    payload = build_relative_pricing_strategy_payload(
+        [_rate("our", "p-our", "3.50"), _rate("peer", "p-peer", "3.60")],
+        anchor_institution_id="our",
+        sector="savings_bank",
+        product_type="term_deposit",
+        term_months=12,
+        availability_match_key="nationwide",
+        matrix_representative_rate_pct="3.45",
+        matrix_representative_policy_id="institution_product_representative_max",
+        representative_rate_difference_reason="pricing scope excludes unmatched channel",
+        retreating_sources=set(),
+    )
+
+    assert payload["status"] == "ready"
+    reconciliation = payload["representative_rate_reconciliation"]
+    assert reconciliation["status"] == "explained"
+    assert reconciliation["pricing_policy_id"] == "relative-pricing-institution-rate"
+    assert reconciliation["matrix_policy_id"] == "institution_product_representative_max"
+    assert reconciliation["gap_bp"] == "5.00"
+    assert reconciliation["difference_reason"] == (
+        "pricing scope excludes unmatched channel"
+    )
+
+
+def test_special_offer_is_radar_only_and_never_replaces_core_peer() -> None:
+    payload = build_relative_pricing_strategy_payload(
+        [
+            _rate("our", "p-our", "3.50"),
+            _rate("peer", "p-peer-core", "3.60"),
+            _rate("peer", "p-peer-special", "4.50", special_offer=True),
+        ],
+        anchor_institution_id="our",
+        sector="savings_bank",
+        product_type="term_deposit",
+        term_months=12,
+        availability_match_key="nationwide",
+        include_special_offer=True,
+        matrix_representative_rate_pct="3.50",
+        matrix_representative_policy_id="institution_product_representative_max",
+        institution_names={"peer": "경쟁은행"},
+        retreating_sources=set(),
+    )
+
+    assert payload["status"] == "ready"
+    assert payload["scope"]["include_special_offer_in_core"] is False
+    assert payload["scope"]["special_offer_radar_included"] is True
+    assert payload["pricing_peer_position"]["peer_median_rate_pct"] == "3.6000"
+    assert payload["peers"][0]["representative_product_id"] == "p-peer-core"
+    assert payload["peers"][0]["rate_pct"] == "3.6000"
+    assert payload["special_offer_radar"] == [
+        {
+            "institution_id": "peer",
+            "institution": "경쟁은행",
+            "representative_product_id": "p-peer-special",
+            "rate_pct": "4.5000",
+            "rate_as_of": None,
+            "rate_source_id": "fsb",
+            "special_offer_flag": True,
+        }
+    ]
 
 
 def test_unavailable_payload_keeps_policy_versions_visible() -> None:
@@ -214,6 +416,9 @@ def test_unavailable_payload_keeps_policy_versions_visible() -> None:
 
     assert payload["status"] == "insufficient_data"
     assert payload["pricing_peer_position"] is None
+    assert payload["representative_rate_reconciliation"] is None
+    assert payload["special_offer_radar"] == []
     assert payload["factual_cost"] is None
+    assert payload["policies"]["contract_version"] == "2"
     assert payload["policies"]["pricing_peer"]["policy_version"] == "1"
     assert payload["policies"]["surface_cost"]["contract_version"] == "1"
