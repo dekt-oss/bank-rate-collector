@@ -1,0 +1,32 @@
+name: FSB availability evidence
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feat/fsb-availability-match-key-evidence-20260901
+    paths:
+      - scripts/probe_fsb_availability_areas.py
+      - .github/workflows/fsb-availability-evidence.yml
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv python install 3.12
+      - run: uv sync --locked
+      - name: Probe official FSB AREA membership read-only
+        run: uv run python scripts/probe_fsb_availability_areas.py --output fsb-availability-probe.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fsb-availability-evidence-${{ github.run_id }}
+          path: fsb-availability-probe.json
+          if-no-files-found: error
