@@ -3,6 +3,9 @@ from pathlib import Path
 from rate_monitor.services.dashboard_search_performance_presentation import (
     inject_dashboard_search_performance,
 )
+from rate_monitor.services.dashboard_ui_refinement_presentation import (
+    inject_dashboard_ui_refinement,
+)
 from rate_monitor.services.strategy_unfinished_collapse_presentation import (
     inject_strategy_unfinished_collapse,
 )
@@ -21,6 +24,16 @@ def test_search_boot_prefers_existing_gzip_and_keeps_plain_fallback() -> None:
     assert 'return loadPlainTable();' in rendered
     assert 'loadTable()\n    .then((table) => {' in rendered
     assert 'loadTable()\n    .then((res) => {' not in rendered
+
+
+def test_search_boot_composes_through_actual_ui_refinement_pipeline() -> None:
+    html = Path("web/templates/site.html").read_text(encoding="utf-8")
+
+    rendered = inject_dashboard_ui_refinement(html)
+
+    assert "search-pref-tags-lazy-v2" in rendered
+    assert 'loadTable()\n    .then((table) => {' in rendered
+    assert "PREF_TAG_CODES = [...new Set(prefTagLookup.flatMap(prefTagValues))];" in rendered
 
 
 def test_search_boot_does_not_scan_every_row_to_build_preference_code_census() -> None:
