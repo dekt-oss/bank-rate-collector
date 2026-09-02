@@ -1,0 +1,189 @@
+name: Relative Pricing Strategy runtime E2E
+
+on:
+  push:
+    branches:
+      - "feat/strategy-dashboard-relative-pricing-r1d-*"
+    paths:
+      - ".github/workflows/relative-pricing-strategy-runtime-e2e.yml"
+      - "scripts/relative_pricing_strategy_runtime_smoke.js"
+      - "scripts/sync_fsb_availability.py"
+      - "src/rate_monitor/services/relative_pricing_*.py"
+      - "src/rate_monitor/services/dashboard_ui_refinement_presentation.py"
+      - "src/rate_monitor/services/strategy_service.py"
+      - "src/rate_monitor/services/site_service.py"
+      - "src/rate_monitor/services/institution_funding_*.py"
+      - "src/rate_monitor/services/institution_rate_reduction.py"
+      - "src/rate_monitor/services/pricing_peer_*.py"
+      - "web/templates/strategy.html"
+      - "pyproject.toml"
+  workflow_dispatch:
+
+# Evidence-only workflow. Production storage is restored to a runner-local copy.
+# FSB availability sync and migrations mutate only that local copy. Nothing is
+# published to R2, rate-data, preview branches, or production hosting.
+permissions:
+  contents: read
+
+concurrency:
+  group: relative-pricing-strategy-runtime-e2e
+  cancel-in-progress: true
+
+jobs:
+  runtime-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Sync dependencies
+        run: uv sync --locked
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Restore production database into runner-local copy
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+          R2_REGION: ${{ vars.R2_REGION }}
+        run: |
+          set -euo pipefail
+          mkdir -p work
+          BACKEND=$(uv run python -c "
+          from pathlib import Path
+          from rate_monitor.services.storage_service import load_backend
+          print(load_backend(Path('config/storage.yaml')).backend.value)
+          ")
+          echo "runtime evidence source backend=$BACKEND"
+          if [ "$BACKEND" = "r2" ]; then
+            uv run rate-monitor storage restore --dest work/rate_monitor.sqlite3
+          else
+            git fetch --force origin +rate-data:refs/remotes/origin/rate-data --depth=1
+            git show refs/remotes/origin/rate-data:latest/rate_monitor.sqlite3.gz > work/rate_monitor.sqlite3.gz
+            gunzip work/rate_monitor.sqlite3.gz
+          fi
+          test -s work/rate_monitor.sqlite3
+          echo "restored bytes=$(stat -c%s work/rate_monitor.sqlite3)"
+
+      - name: Apply migrations to runner-local copy
+        env:
+          RATE_MONITOR_DB_URL: sqlite+pysqlite:///${{ github.workspace }}/work/rate_monitor.sqlite3
+        run: uv run alembic upgrade head
+
+      - name: Sync official FSB availability into runner-local copy only
+        run: |
+          set -euo pipefail
+          uv run python scripts/sync_fsb_availability.py --db work/rate_monitor.sqlite3 \
+            2>&1 | tee work/fsb-availability-sync.log
+
+      - name: Build exact-source Strategy site
+        env:
+          RATE_MONITOR_STRATEGY_DASHBOARD: "1"
+        run: |
+          set -euo pipefail
+          uv run rate-monitor build-site \
+            --db work/rate_monitor.sqlite3 \
+            --template web/templates/site.html \
+            --out site-public
+          test -s site-public/index.html
+          test -s site-public/strategy.html
+          test -s site-public/data/strategy-table.json
+          grep -q 'id="relative-pricing-r1"' site-public/strategy.html
+          ! grep -q 'id="relative-pricing-r1"' site-public/index.html
+
+      - name: Verify embedded R1 production-format payload
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+
+          html = Path("site-public/strategy.html").read_text(encoding="utf-8")
+          marker = '<script id="rate-monitor-data" type="application/json">'
+          start = html.index(marker) + len(marker)
+          end = html.index("</script>", start)
+          payload = json.loads(html[start:end].replace("<\\/", "</"))
+          rp = payload["strategy"]["relative_pricing"]
+          assert rp["status"] == "ready", rp
+          assert rp["reason"] is None
+          assert rp["scope"]["availability_match_key"] == "fsb:term_deposit:area:YN_Busan"
+          peers = rp["peers"]
+          position = rp["pricing_peer_position"]
+          assert len(peers) == 13, len(peers)
+          assert position["pricing_peer_count"] == 13
+          assert position["funding_join_count"] == 13
+          assert position["funding_unjoined_count"] == 0
+          assert float(position["funding_join_ratio"]) == 1.0
+          assert position["funding_analysis_month"] == "2026-03"
+          assert all(peer["funding_status"] == "known" for peer in peers)
+          assert all(peer["funding_balance_million_krw"] is not None for peer in peers)
+          assert all(peer["rate_as_of"] for peer in peers)
+          assert all(peer["funding_as_of"] == "2026-03" for peer in peers)
+          encoded = json.dumps(rp, ensure_ascii=False)
+          for forbidden in (
+              "predicted_inflow",
+              "recommended_rate",
+              "target_balance",
+              "target_net_inflow",
+              "target_horizon",
+          ):
+              assert forbidden not in encoded, forbidden
+          print(
+              "R1 payload ready",
+              "peers=13",
+              "funding=13/13",
+              f"current={position['current_rate_pct']}",
+              f"funding_month={position['funding_analysis_month']}",
+          )
+          PY
+
+      - name: Install Playwright runner
+        run: |
+          set -euo pipefail
+          command -v google-chrome
+          google-chrome --version
+          npm install --no-save --package-lock=false @playwright/test@1.61.1
+          node --check scripts/relative_pricing_strategy_runtime_smoke.js
+
+      - name: Run desktop and mobile R1 browser smoke
+        env:
+          STRATEGY_PREVIEW_BASE_URL: http://127.0.0.1:4173
+        run: |
+          set -euo pipefail
+          python -m http.server 4173 --directory site-public > work/r1-http.log 2>&1 &
+          SERVER_PID=$!
+          trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:4173/strategy.html >/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:4173/strategy.html >/dev/null
+          node scripts/relative_pricing_strategy_runtime_smoke.js
+
+      - name: Upload R1 browser evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: relative-pricing-strategy-runtime-${{ github.run_id }}
+          path: |
+            work/relative-pricing-r1-*.png
+            work/r1-http.log
+            work/fsb-availability-sync.log
+          retention-days: 30
+          if-no-files-found: warn
