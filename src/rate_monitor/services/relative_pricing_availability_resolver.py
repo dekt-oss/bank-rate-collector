@@ -72,7 +72,9 @@ def _normalized_as_of(value: date | datetime | str | None) -> str | None:
         try:
             parsed_date = date.fromisoformat(text[:10])
         except ValueError as exc:
-            raise ValueError("relative pricing availability as_of must be ISO date/datetime") from exc
+            raise ValueError(
+                "relative pricing availability as_of must be ISO date/datetime"
+            ) from exc
         return f"{parsed_date.isoformat()} 23:59:59"
     return parsed.isoformat(sep=" ")
 
