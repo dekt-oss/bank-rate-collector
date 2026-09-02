@@ -14,11 +14,13 @@ def test_search_boot_prefers_existing_gzip_and_keeps_plain_fallback() -> None:
     rendered = inject_dashboard_search_performance(html)
 
     assert "search-pref-tags-lazy-v2" in rendered
-    assert 'fetch(data.table_gzip_url)' in rendered
+    assert 'const tableGzipUrl = `${tableUrl}.gz`;' in rendered
+    assert "fetch(tableGzipUrl)" in rendered
     assert 'new DecompressionStream("gzip")' in rendered
+    assert "fetch(tableUrl)" in rendered
     assert 'return loadPlainTable();' in rendered
-    assert 'loadTable()\n    .then((res)' in rendered
-    assert "cache: 'no-store'" not in rendered
+    assert 'loadTable()\n    .then((table) => {' in rendered
+    assert 'loadTable()\n    .then((res) => {' not in rendered
 
 
 def test_search_boot_does_not_scan_every_row_to_build_preference_code_census() -> None:
@@ -46,7 +48,8 @@ def test_strategy_unfinished_sections_get_progressive_disclosure_runtime() -> No
 
     assert 'id="strategy-unfinished-collapse-style"' in rendered
     assert 'id="strategy-unfinished-collapse-script"' in rendered
-    assert 'EMPTY_SELECTOR=".empty,.funding-empty"' in rendered
+    assert ".rate-funding-matrix-blocked,.axistext" in rendered
+    assert "기간별 이력 데이터가 없습니다" in rendered
     assert 'POPULATED_SELECTOR="tbody tr,.change,.pref,.busan-rate-item' in rendered
     assert 'card.dataset.collapsed="true"' in rendered
     assert 'button.querySelector("span").textContent="펼치기"' in rendered
