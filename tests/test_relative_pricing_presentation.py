@@ -36,11 +36,17 @@ def test_relative_pricing_injector_adds_exactly_one_r1_surface() -> None:
 def test_r1_surface_keeps_review_rate_and_cost_inputs_factual() -> None:
     rendered = inject_relative_pricing_presentation(_strategy_html())
 
-    assert 'id="rp-review-slider" type="range" min="1.50" max="6.00" step="0.01"' in rendered
+    assert (
+        'id="rp-review-slider" type="range" min="1.50" max="6.00" step="0.01"'
+        in rendered
+    )
     assert "기존 Strategy 제안금리 slider 계약 · 1bp" in rendered
     assert "비용 계산 기준금액(수신 목표 아님)" in rendered
     assert 'id="rp-cost-notional" type="number" min="0"' in rendered
     assert "고정 원금 · 단리 표면이자 차이" in rendered
+    assert 'id="rp-cost-contract"' in rendered
+    assert "factualCost.standardized_notional_krw" in rendered
+    assert "factual_cost:rp.factual_cost" in rendered
 
     # R1 must not introduce goal/recommendation inputs or prediction outputs.
     forbidden_ids = (
@@ -59,6 +65,7 @@ def test_r1_competitor_table_keeps_rate_and_funding_dates_separate() -> None:
     assert "금리 기준일" in rendered
     assert "수신 기준월" in rendered
     assert "funding 상태" in rendered
+    assert "금리 기준일과 수신 기준월은 별도 시점입니다." in rendered
     assert "자료없음은 0이 아닙니다." in rendered
     assert "funding_balance_million_krw" in rendered
     assert "funding_as_of" in rendered
