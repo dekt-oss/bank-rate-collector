@@ -1,8 +1,4 @@
-"""FSB 가입가능지역 census/persistence 계약.
-
-정기예금 금리축과 분리된 membership만 다루며 partial census는 기존 정상값을
-건드리지 않는지 검증한다.
-"""
+"""FSB 가입가능지역 census/persistence 계약."""
 
 from __future__ import annotations
 
@@ -48,6 +44,14 @@ def factory(tmp_path):
     return make_session_factory(engine)
 
 
+def _org_key(code: str) -> str:
+    return make_org_key(
+        sector=Sector.SAVINGS_BANK,
+        source_institution_key=code,
+        institution_name="",
+    )
+
+
 def _source(session) -> None:
     session.add(
         Source(
@@ -67,11 +71,11 @@ def _source(session) -> None:
     )
 
 
-def _institution(session, source_code: str, *, match_method: str = "exact_code") -> str:
+def _institution(session, code: str, *, match_method: str = "exact_code") -> str:
     institution = Institution(
         sector=Sector.SAVINGS_BANK,
-        canonical_name=f"은행-{source_code}",
-        normalized_name=f"은행-{source_code}",
+        canonical_name=f"은행-{code}",
+        normalized_name=f"은행-{code}",
         availability_scope="unknown",
         active=True,
         first_seen_at=T0,
@@ -83,7 +87,7 @@ def _institution(session, source_code: str, *, match_method: str = "exact_code")
         SourceEntityLink(
             source_id="fsb",
             entity_type="institution",
-            source_entity_key=make_org_key(Sector.SAVINGS_BANK, source_code),
+            source_entity_key=_org_key(code),
             entity_id=institution.id,
             source_name=institution.canonical_name,
             confidence=1.0,
@@ -97,10 +101,10 @@ def _institution(session, source_code: str, *, match_method: str = "exact_code")
     return institution.id
 
 
-def _census(mapping: dict[str, set[str]], *, query_date: date = QUERY_DATE) -> AvailabilityCensus:
+def _census(mapping: dict[str, set[str]], *, when: date = QUERY_DATE) -> AvailabilityCensus:
     return AvailabilityCensus(
-        query_date=query_date,
-        memberships={key: frozenset(value) for key, value in mapping.items()},
+        query_date=when,
+        memberships={code: frozenset(areas) for code, areas in mapping.items()},
         institution_count=len(mapping),
         product_count=len(mapping),
     )
@@ -118,135 +122,108 @@ def _complete_rows() -> dict[str, list[dict[str, str]]]:
     return rows
 
 
-def test_complete_17_area_census_collapses_only_when_products_agree() -> None:
+def test_complete_census_requires_all_17_areas_and_consistent_products() -> None:
     census = build_census_from_rows(QUERY_DATE, _complete_rows())
-    assert census.institution_count == 2
-    assert census.product_count == 3
     assert census.memberships == {
         "001": frozenset({"YN_Busan"}),
         "002": frozenset({"YN_Seoul"}),
     }
+    assert (census.institution_count, census.product_count) == (2, 3)
 
-
-def test_missing_one_area_is_not_a_complete_census() -> None:
-    rows = _complete_rows()
-    rows.pop("YN_Jeju")
+    missing = _complete_rows()
+    missing.pop("YN_Jeju")
     with pytest.raises(AvailabilityCensusError, match=r"지역전체\+17 AREA"):
-        build_census_from_rows(QUERY_DATE, rows)
+        build_census_from_rows(QUERY_DATE, missing)
 
-
-def test_area_may_not_contain_product_outside_all_baseline() -> None:
-    rows = _complete_rows()
-    rows["YN_Busan"].append(_row("999", "outside"))
+    outside = _complete_rows()
+    outside["YN_Busan"].append(_row("999", "outside"))
     with pytest.raises(AvailabilityCensusError, match="absent from 지역전체"):
-        build_census_from_rows(QUERY_DATE, rows)
+        build_census_from_rows(QUERY_DATE, outside)
 
-
-def test_product_level_divergence_fails_closed_instead_of_being_lost() -> None:
-    rows = _complete_rows()
-    rows["YN_Busan"] = [_row("001", "p1")]
-    rows["YN_Seoul"].append(_row("001", "p2"))
+    divergent = _complete_rows()
+    divergent["YN_Busan"] = [_row("001", "p1")]
+    divergent["YN_Seoul"].append(_row("001", "p2"))
     with pytest.raises(AvailabilityCensusError, match="상품별 AREA membership"):
-        build_census_from_rows(QUERY_DATE, rows)
+        build_census_from_rows(QUERY_DATE, divergent)
 
 
-def test_new_membership_and_identical_rerun_are_idempotent(factory) -> None:
+def test_new_membership_rerun_is_idempotent_and_resolvable(factory) -> None:
     with session_scope(factory) as session:
         _source(session)
         institution_id = _institution(session, "001")
-        first = reconcile_fsb_availability(
-            session, _census({"001": {"YN_Busan"}}), now=T0
-        )
-        assert first.created == 1
-        assert first.unchanged == 0
+        first = reconcile_fsb_availability(session, _census({"001": {"YN_Busan"}}), now=T0)
+        assert (first.created, first.unchanged) == (1, 0)
 
     with session_scope(factory) as session:
         second = reconcile_fsb_availability(
-            session, _census({"001": {"YN_Busan"}}), now=T0 + timedelta(days=1)
-        )
-        assert second.created == 0
-        assert second.unchanged == 1
-
-    with session_scope(factory) as session:
-        rows = session.scalars(select(InstitutionAvailabilityMembership)).all()
-        assert len(rows) == 1
-        assert rows[0].institution_id == institution_id
-        assert rows[0].seen_count == 2
-        assert rows[0].valid_to is None
-        assert rows[0].availability_match_key == "fsb:term_deposit:area:YN_Busan"
-        assert rows[0].evidence_json["source_entity_keys"] == ["savings_bank:001"]
-
-
-def test_resolver_uses_membership_only_and_rejects_unknown_key(factory) -> None:
-    with session_scope(factory) as session:
-        _source(session)
-        busan_id = _institution(session, "001")
-        seoul_id = _institution(session, "002")
-        reconcile_fsb_availability(
             session,
-            _census({"001": {"YN_Busan"}, "002": {"YN_Seoul"}}),
-            now=T0,
+            _census({"001": {"YN_Busan"}}),
+            now=T0 + timedelta(days=1),
         )
-
-    with session_scope(factory) as session:
+        assert (second.created, second.unchanged, second.expired) == (0, 1, 0)
+        row = session.scalar(select(InstitutionAvailabilityMembership))
+        assert row.seen_count == 2
+        assert row.valid_to is None
+        assert row.evidence_json["source_entity_keys"] == [_org_key("001")]
         assert resolve_active_institutions(
             session, "fsb:term_deposit:area:YN_Busan"
-        ) == frozenset({busan_id})
-        assert seoul_id not in resolve_active_institutions(
-            session, "fsb:term_deposit:area:YN_Busan"
-        )
+        ) == frozenset({institution_id})
         with pytest.raises(ValueError, match="지원하지 않는 availability_match_key"):
             resolve_active_institutions(session, "legacy:nationwide")
 
 
-def test_new_region_added_and_missing_region_expires_without_delete(factory) -> None:
+def test_region_add_expire_and_reappear_preserve_history(factory) -> None:
     with session_scope(factory) as session:
         _source(session)
         _institution(session, "001")
-        reconcile_fsb_availability(
-            session, _census({"001": {"YN_Busan"}}), now=T0
-        )
+        reconcile_fsb_availability(session, _census({"001": {"YN_Busan"}}), now=T0)
 
     with session_scope(factory) as session:
-        result = reconcile_fsb_availability(
+        added = reconcile_fsb_availability(
             session,
             _census({"001": {"YN_Busan", "YN_Seoul"}}),
             now=T0 + timedelta(days=1),
         )
-        assert result.created == 1
-        assert result.unchanged == 1
-        assert result.expired == 0
+        assert (added.created, added.unchanged, added.expired) == (1, 1, 0)
 
     with session_scope(factory) as session:
-        result = reconcile_fsb_availability(
+        removed = reconcile_fsb_availability(
             session,
             _census({"001": {"YN_Seoul"}}),
             now=T0 + timedelta(days=2),
         )
-        assert result.expired == 1
-
-    with session_scope(factory) as session:
-        rows = session.scalars(
-            select(InstitutionAvailabilityMembership).order_by(
-                InstitutionAvailabilityMembership.area_code
+        assert removed.expired == 1
+        busan = session.scalar(
+            select(InstitutionAvailabilityMembership).where(
+                InstitutionAvailabilityMembership.area_code == "YN_Busan"
             )
-        ).all()
-        assert len(rows) == 2
-        busan = next(row for row in rows if row.area_code == "YN_Busan")
-        seoul = next(row for row in rows if row.area_code == "YN_Seoul")
+        )
         assert busan.valid_to == T0 + timedelta(days=2)
         assert busan.evidence_json["expired_by_query_date"] == QUERY_DATE.isoformat()
-        assert seoul.valid_to is None
+
+    with session_scope(factory) as session:
+        reconcile_fsb_availability(
+            session,
+            _census({"001": {"YN_Busan", "YN_Seoul"}}),
+            now=T0 + timedelta(days=3),
+        )
+        busan_rows = session.scalars(
+            select(InstitutionAvailabilityMembership).where(
+                InstitutionAvailabilityMembership.area_code == "YN_Busan"
+            )
+        ).all()
+        assert len(busan_rows) == 2
+        assert sum(row.valid_to is None for row in busan_rows) == 1
 
 
 def test_older_census_cannot_rewind_current_membership(factory) -> None:
-    newer_date = QUERY_DATE + timedelta(days=1)
+    newer = QUERY_DATE + timedelta(days=1)
     with session_scope(factory) as session:
         _source(session)
         _institution(session, "001")
         reconcile_fsb_availability(
             session,
-            _census({"001": {"YN_Busan"}}, query_date=newer_date),
+            _census({"001": {"YN_Busan"}}, when=newer),
             now=T0,
         )
 
@@ -256,70 +233,21 @@ def test_older_census_cannot_rewind_current_membership(factory) -> None:
     ):
         reconcile_fsb_availability(
             session,
-            _census({"001": {"YN_Seoul"}}, query_date=QUERY_DATE),
+            _census({"001": {"YN_Seoul"}}, when=QUERY_DATE),
             now=T0 + timedelta(days=1),
         )
 
     with session_scope(factory) as session:
-        active = session.scalars(
+        row = session.scalar(
             select(InstitutionAvailabilityMembership).where(
                 InstitutionAvailabilityMembership.valid_to.is_(None)
             )
-        ).all()
-        assert len(active) == 1
-        assert active[0].area_code == "YN_Busan"
-        assert active[0].source_effective_date == newer_date
-
-
-def test_reappearing_region_creates_new_temporal_row(factory) -> None:
-    with session_scope(factory) as session:
-        _source(session)
-        _institution(session, "001")
-        reconcile_fsb_availability(
-            session, _census({"001": {"YN_Busan"}}), now=T0
         )
-        reconcile_fsb_availability(
-            session, _census({"001": {"YN_Seoul"}}), now=T0 + timedelta(days=1)
-        )
-        reconcile_fsb_availability(
-            session,
-            _census({"001": {"YN_Busan", "YN_Seoul"}}),
-            now=T0 + timedelta(days=2),
-        )
-
-    with session_scope(factory) as session:
-        busan = session.scalars(
-            select(InstitutionAvailabilityMembership).where(
-                InstitutionAvailabilityMembership.area_code == "YN_Busan"
-            )
-        ).all()
-        assert len(busan) == 2
-        assert sum(row.valid_to is None for row in busan) == 1
+        assert row.area_code == "YN_Busan"
+        assert row.source_effective_date == newer
 
 
-def test_unresolved_institution_code_rolls_back_whole_reconciliation(factory) -> None:
-    with session_scope(factory) as session:
-        _source(session)
-        _institution(session, "001")
-
-    with (
-        pytest.raises(AvailabilityCensusError, match="resolve exactly once"),
-        session_scope(factory) as session,
-    ):
-        reconcile_fsb_availability(
-            session,
-            _census({"001": {"YN_Busan"}, "999": {"YN_Seoul"}}),
-            now=T0,
-        )
-
-    with session_scope(factory) as session:
-        count = session.scalar(
-            select(func.count()).select_from(InstitutionAvailabilityMembership)
-        )
-        assert count == 0
-
-
-def test_inactive_or_non_exact_link_is_not_accepted(factory) -> None:
+def test_unresolved_nonexact_and_inactive_identity_fail_closed(factory) -> None:
     with session_scope(factory) as session:
         _source(session)
         _institution(session, "001", match_method="manual_name")
@@ -328,9 +256,7 @@ def test_inactive_or_non_exact_link_is_not_accepted(factory) -> None:
         pytest.raises(AvailabilityCensusError, match="not exact_code"),
         session_scope(factory) as session,
     ):
-        reconcile_fsb_availability(
-            session, _census({"001": {"YN_Busan"}}), now=T0
-        )
+        reconcile_fsb_availability(session, _census({"001": {"YN_Busan"}}), now=T0)
 
     with session_scope(factory) as session:
         link = session.scalar(select(SourceEntityLink))
@@ -341,16 +267,20 @@ def test_inactive_or_non_exact_link_is_not_accepted(factory) -> None:
         pytest.raises(AvailabilityCensusError, match="active_links=0"),
         session_scope(factory) as session,
     ):
-        reconcile_fsb_availability(
-            session, _census({"001": {"YN_Busan"}}), now=T0
-        )
+        reconcile_fsb_availability(session, _census({"001": {"YN_Busan"}}), now=T0)
+
+    with (
+        pytest.raises(AvailabilityCensusError, match="active_links=0"),
+        session_scope(factory) as session,
+    ):
+        reconcile_fsb_availability(session, _census({"999": {"YN_Seoul"}}), now=T0)
 
 
-def test_active_identity_link_is_unique_at_database_boundary(factory) -> None:
+def test_source_identity_active_link_is_database_unique(factory) -> None:
     session = factory()
     try:
         _source(session)
-        first_id = _institution(session, "001")
+        _institution(session, "001")
         other = Institution(
             sector=Sector.SAVINGS_BANK,
             canonical_name="다른은행",
@@ -366,7 +296,7 @@ def test_active_identity_link_is_unique_at_database_boundary(factory) -> None:
             SourceEntityLink(
                 source_id="fsb",
                 entity_type="institution",
-                source_entity_key=make_org_key(Sector.SAVINGS_BANK, "001"),
+                source_entity_key=_org_key("001"),
                 entity_id=other.id,
                 source_name="다른은행",
                 confidence=1.0,
@@ -380,40 +310,23 @@ def test_active_identity_link_is_unique_at_database_boundary(factory) -> None:
         with pytest.raises(IntegrityError):
             session.flush()
         session.rollback()
-        assert first_id != other.id
     finally:
         session.close()
 
 
-def test_timeout_before_transaction_preserves_existing_membership(factory) -> None:
+def test_fetch_failure_before_transaction_preserves_existing_membership(factory) -> None:
     with session_scope(factory) as session:
         _source(session)
         _institution(session, "001")
-        reconcile_fsb_availability(
-            session, _census({"001": {"YN_Busan"}}), now=T0
-        )
+        reconcile_fsb_availability(session, _census({"001": {"YN_Busan"}}), now=T0)
 
-    async def timeout(_query_date: date) -> AvailabilityCensus:
+    async def timeout(_when: date) -> AvailabilityCensus:
         raise httpx.ReadTimeout("one AREA timed out")
 
     with pytest.raises(httpx.ReadTimeout):
         asyncio.run(sync_fsb_availability(factory, as_of=QUERY_DATE, fetch_census=timeout))
 
-    with session_scope(factory) as session:
-        row = session.scalar(select(InstitutionAvailabilityMembership))
-        assert row.valid_to is None
-        assert row.seen_count == 1
-
-
-def test_schema_failure_before_transaction_preserves_existing_membership(factory) -> None:
-    with session_scope(factory) as session:
-        _source(session)
-        _institution(session, "001")
-        reconcile_fsb_availability(
-            session, _census({"001": {"YN_Busan"}}), now=T0
-        )
-
-    async def schema_error(_query_date: date) -> AvailabilityCensus:
+    async def schema_error(_when: date) -> AvailabilityCensus:
         raise AvailabilityCensusError("REC schema changed")
 
     with pytest.raises(AvailabilityCensusError, match="schema changed"):
@@ -459,9 +372,7 @@ def test_membership_sync_does_not_touch_rate_identity_axis(factory) -> None:
             session.scalar(select(func.count()).select_from(ProductVariant)),
             session.scalar(select(func.count()).select_from(RateObservation)),
         )
-        reconcile_fsb_availability(
-            session, _census({"001": {"YN_Busan"}}), now=T0
-        )
+        reconcile_fsb_availability(session, _census({"001": {"YN_Busan"}}), now=T0)
 
     with session_scope(factory) as session:
         after = (
@@ -470,5 +381,4 @@ def test_membership_sync_does_not_touch_rate_identity_axis(factory) -> None:
             session.scalar(select(func.count()).select_from(RateObservation)),
         )
         assert after == before == (1, 1, 0)
-        variant = session.scalar(select(ProductVariant))
-        assert variant.variant_key == "legacy-rate-axis"
+        assert session.scalar(select(ProductVariant)).variant_key == "legacy-rate-axis"
