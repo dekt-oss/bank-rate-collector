@@ -51,7 +51,13 @@ def _rate_as_of(row: sqlite3.Row) -> date | None:
     raw = row["source_effective_at"] or row["as_of"]
     if raw is None:
         return None
-    return date.fromisoformat(str(raw)[:10])
+    try:
+        return date.fromisoformat(str(raw)[:10])
+    except ValueError:
+        # Persisted malformed source dates are evidence gaps, not dates to guess.
+        # Downstream representative-rate reconciliation will fail closed as
+        # temporal_unresolved rather than crashing the entire Strategy build.
+        return None
 
 
 def build_current_relative_pricing_rate_candidates(
