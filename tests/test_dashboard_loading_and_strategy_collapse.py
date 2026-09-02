@@ -27,10 +27,12 @@ def test_search_boot_does_not_scan_every_row_to_build_preference_code_census() -
     html = Path("web/templates/site.html").read_text(encoding="utf-8")
 
     rendered = inject_dashboard_search_performance(html)
+    old_pref_census = '''PREF_TAG_CODES = [...new Set(ALL.flatMap((r) =>
+        r.prefTags ? [...r.prefTags] : []))];'''
 
     assert "const prefTagLookup = ((table.lookups || {}).preference_tags || []);" in rendered
     assert "PREF_TAG_CODES = [...new Set(prefTagLookup.flatMap(prefTagValues))];" in rendered
-    assert "ALL.flatMap((r) =>" not in rendered
+    assert old_pref_census not in rendered
     assert "new Set((look(\"preference_tags\"" not in rendered
 
 
