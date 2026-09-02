@@ -1,3 +1,4 @@
+# ruff: noqa: E501
 """Strategy의 실질 데이터가 없는 카드만 기본 접힘으로 표시한다.
 
 계산/데이터 계약은 건드리지 않는다. 기존 renderer가 만든 explicit empty-state를
@@ -26,9 +27,9 @@ _SCRIPT = r'''
 <script id="strategy-unfinished-collapse-script">
 (()=>{
   "use strict";
-  const EMPTY_SELECTOR=".empty,.funding-empty";
-  const EMPTY_SIGNAL=/(기간별 이력 데이터가 없습니다|데이터가 아직 없습니다|아직 없습니다|준비 중|미구현|현재 비교 데이터 없음|관측 부족|분류 가능한 우대조건이 없습니다)/;
-  const POPULATED_SELECTOR="tbody tr,.change,.pref,.busan-rate-item,.funding-market-card,.funding-point,.trenddot,[data-own-position=row]";
+  const EMPTY_SELECTOR=".empty,.funding-empty,.funding-position-empty,.rate-funding-matrix-blocked,.axistext";
+  const EMPTY_SIGNAL=/(기간별 이력 데이터가 없습니다|데이터가 아직 없습니다|동일 기준월 verified 기관 데이터가 없습니다|아직 없습니다|준비 중|미구현|현재 비교 데이터 없음|관측 부족|분류 가능한 우대조건이 없습니다|Matrix를 열지 않습니다|연결하지 않았습니다)/;
+  const POPULATED_SELECTOR="tbody tr,.change,.pref,.busan-rate-item,.funding-market-card,.funding-point,.trenddot,[data-own-position=\"row\"]";
   let scheduled=false;
   const titleOf=card=>String(card.querySelector("h2,h3,.head strong")?.textContent||"미구현 섹션").trim();
   const isIncomplete=card=>{
