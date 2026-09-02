@@ -133,7 +133,7 @@ def _difference_reasons(
         pricing_rate = pricing_rates.get(institution_id)
         if pricing_rate is None or item.pricing_core_difference_reason is None:
             continue
-        if str(pricing_rate) != str(item.rate_pct):
+        if pricing_rate != item.rate_pct:
             reasons[institution_id] = item.pricing_core_difference_reason
     return reasons
 
