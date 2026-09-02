@@ -76,3 +76,9 @@ class InstitutionFundingObservation(Base):
     valid_from: Mapped[datetime] = mapped_column(DateTime)
     valid_to: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime)
+
+
+# `verify_gate.py`와 일부 schema 검사기는 이 모듈을 extension registry hook으로
+# import해 왔다. 새 extension 모델도 같은 hook에서 등록해 실제 DB와 metadata가
+# 다르게 보이지 않게 한다. 별도 registry refactor는 이번 고위험 변경 범위 밖이다.
+from rate_monitor.db import availability_models as _availability_models  # noqa: E402, F401
