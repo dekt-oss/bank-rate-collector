@@ -1,0 +1,194 @@
+name: Relative Pricing direct production evidence
+
+on:
+  push:
+    branches:
+      - "feat/relative-pricing-production-evidence-direct-*"
+    paths:
+      - ".github/workflows/relative-pricing-production-evidence-direct.yml"
+      - "src/rate_monitor/services/relative_pricing_*.py"
+      - "src/rate_monitor/services/institution_rate_reduction.py"
+      - "src/rate_monitor/services/pricing_peer_*.py"
+      - "src/rate_monitor/services/strategy_service.py"
+      - "scripts/sync_fsb_availability.py"
+  workflow_dispatch:
+
+# Evidence-only workflow. The production snapshot is restored to runner-local storage,
+# migrated and mutated there. Nothing is published back to R2 or rate-data.
+permissions:
+  contents: read
+
+jobs:
+  evidence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Sync dependencies
+        run: uv sync --locked
+
+      - name: Restore current production database into runner-local copy
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+          R2_REGION: ${{ vars.R2_REGION }}
+        run: |
+          set -euo pipefail
+          mkdir -p work
+          BACKEND=$(uv run python -c "
+          from pathlib import Path
+          from rate_monitor.services.storage_service import load_backend
+          print(load_backend(Path('config/storage.yaml')).backend.value)
+          ")
+          echo "evidence source backend=$BACKEND"
+          if [ "$BACKEND" = "r2" ]; then
+            uv run rate-monitor storage restore --dest work/rate_monitor.sqlite3
+          else
+            git fetch --force origin \
+              +rate-data:refs/remotes/origin/rate-data --depth=1
+            git show refs/remotes/origin/rate-data:latest/rate_monitor.sqlite3.gz \
+              > work/rate_monitor.sqlite3.gz
+            gunzip work/rate_monitor.sqlite3.gz
+          fi
+          test -s work/rate_monitor.sqlite3
+          echo "restored bytes=$(stat -c%s work/rate_monitor.sqlite3)"
+
+      - name: Apply migrations to runner-local copy
+        env:
+          RATE_MONITOR_DB_URL: sqlite+pysqlite:///${{ github.workspace }}/work/rate_monitor.sqlite3
+        run: uv run alembic upgrade head
+
+      - name: Sync official FSB availability into runner-local copy only
+        run: |
+          set -euo pipefail
+          uv run python scripts/sync_fsb_availability.py \
+            --db work/rate_monitor.sqlite3 \
+            2>&1 | tee work/fsb-availability-sync.log
+
+      - name: Resolve anchor and build direct Relative Pricing evidence
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          import json
+          import sqlite3
+          from pathlib import Path
+
+          from rate_monitor.services.relative_pricing_availability_resolver import (
+              RESOLUTION_RESOLVED,
+              resolve_fsb_relative_pricing_availability,
+          )
+          from rate_monitor.services.relative_pricing_live_service import (
+              build_relative_pricing_live,
+          )
+          from rate_monitor.services.strategy_service import _our_canonical_institution_id
+
+          db = Path("work/rate_monitor.sqlite3")
+          output = Path("work/relative-pricing-direct-evidence.json")
+
+          # Ensure any local-write WAL state is visible before read-only immutable readers.
+          conn = sqlite3.connect(db)
+          try:
+              conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+              quick_check = conn.execute("PRAGMA quick_check").fetchone()[0]
+          finally:
+              conn.close()
+
+          anchor_id = _our_canonical_institution_id(db)
+          evidence = {
+              "source_sha": "${{ github.sha }}",
+              "db_quick_check": quick_check,
+              "anchor_institution_id": anchor_id,
+              "funding_enrichment_loaded": False,
+          }
+          if anchor_id is None:
+              evidence["status"] = "anchor_institution_id_unresolved"
+              output.write_text(
+                  json.dumps(evidence, ensure_ascii=False, indent=2, default=str) + "\n",
+                  encoding="utf-8",
+              )
+              raise SystemExit("anchor institution id unresolved")
+
+          conn = sqlite3.connect(db)
+          conn.row_factory = sqlite3.Row
+          try:
+              rows = conn.execute(
+                  """
+                  SELECT area_code, availability_match_key, source_effective_date,
+                         valid_from, valid_to
+                  FROM institution_availability_memberships
+                  WHERE source_id='fsb'
+                    AND product_type='term_deposit'
+                    AND institution_id=?
+                    AND valid_to IS NULL
+                  ORDER BY area_code
+                  """,
+                  (anchor_id,),
+              ).fetchall()
+          finally:
+              conn.close()
+          evidence["active_memberships"] = [dict(row) for row in rows]
+          evidence["active_membership_count"] = len(rows)
+
+          availability = resolve_fsb_relative_pricing_availability(
+              db,
+              anchor_institution_id=anchor_id,
+          )
+          evidence["availability"] = availability.as_payload()
+
+          if availability.status == RESOLUTION_RESOLVED:
+              try:
+                  live = build_relative_pricing_live(db, availability=availability)
+              except Exception as exc:
+                  evidence["live_error"] = {
+                      "type": type(exc).__name__,
+                      "message": str(exc),
+                  }
+                  output.write_text(
+                      json.dumps(evidence, ensure_ascii=False, indent=2, default=str) + "\n",
+                      encoding="utf-8",
+                  )
+                  raise
+              evidence["live_diagnostics"] = live.diagnostics()
+              evidence["relative_pricing"] = live.payload
+          else:
+              evidence["relative_pricing"] = {
+                  "status": "insufficient_data",
+                  "reason": availability.reason,
+              }
+
+          output.write_text(
+              json.dumps(evidence, ensure_ascii=False, indent=2, default=str) + "\n",
+              encoding="utf-8",
+          )
+          print("anchor_institution_id=", anchor_id)
+          print("active_membership_count=", len(rows))
+          print("availability_status=", availability.status)
+          print("availability_keys=", list(availability.active_match_keys))
+          if availability.status == RESOLUTION_RESOLVED:
+              print("relative_pricing_status=", live.payload.get("status"))
+              print("relative_pricing_reason=", live.payload.get("reason"))
+              print("candidate_institutions=", len(live.rate_candidates.candidate_institution_ids))
+          PY
+
+      - name: Upload evidence only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: relative-pricing-direct-evidence-${{ github.run_id }}
+          path: |
+            work/fsb-availability-sync.log
+            work/relative-pricing-direct-evidence.json
+          retention-days: 30
+          if-no-files-found: warn
