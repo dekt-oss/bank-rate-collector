@@ -1,5 +1,6 @@
 import sqlite3
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -117,6 +118,21 @@ def _stub_strategy_dependencies(monkeypatch: pytest.MonkeyPatch) -> None:
         strategy_service,
         "build_rate_funding_matrix",
         lambda _path, funding_positions: {"available": False, "sectors": {}},
+    )
+    monkeypatch.setattr(
+        strategy_service,
+        "build_relative_pricing_live",
+        lambda _path, *, availability, funding_positions: SimpleNamespace(
+            payload={
+                "status": "insufficient_data",
+                "reason": "matrix_representative_rate_unresolved",
+            },
+            diagnostics=lambda: {
+                "status": "ready",
+                "availability_match_key": availability.availability_match_key,
+                "funding_analysis_month": None,
+            },
+        ),
     )
 
 
@@ -253,7 +269,7 @@ def test_corrupted_persisted_match_key_is_rejected(tmp_path: Path) -> None:
         )
 
 
-def test_strategy_consumes_resolved_official_membership_without_opening_r1(
+def test_strategy_hands_resolved_official_membership_to_live_r1(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -270,11 +286,13 @@ def test_strategy_consumes_resolved_official_membership_without_opening_r1(
     assert availability["status"] == RESOLUTION_RESOLVED
     assert availability["availability_match_key"] == availability_match_key("YN_Busan")
     assert availability["cohort_institution_ids"] == ["our-bank", "peer-a"]
+    assert summary["relative_pricing_rate_candidates"] == {
+        "status": "ready",
+        "availability_match_key": availability_match_key("YN_Busan"),
+        "funding_analysis_month": None,
+    }
     assert summary["relative_pricing"]["status"] == "insufficient_data"
-    assert (
-        summary["relative_pricing"]["reason"]
-        == "relative_pricing_rate_candidates_unresolved"
-    )
+    assert summary["relative_pricing"]["reason"] == "matrix_representative_rate_unresolved"
 
 
 def test_strategy_keeps_multi_area_anchor_fail_closed(
