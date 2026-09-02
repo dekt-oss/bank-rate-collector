@@ -54,8 +54,10 @@ def _version(db_path: Path) -> list[str]:
 
 def _model_tables() -> set[str]:
     # 모델은 도메인별 모듈로 나뉠 수 있으므로 registry extension을 먼저 로드한다.
-    from rate_monitor.db import availability_models  # noqa: F401
-    from rate_monitor.db import institution_funding_models  # noqa: F401
+    from rate_monitor.db import (
+        availability_models,  # noqa: F401
+        institution_funding_models,  # noqa: F401
+    )
     from rate_monitor.db.models import Base
 
     return set(Base.metadata.tables)
