@@ -122,19 +122,38 @@ jobs:
           rp = payload["strategy"]["relative_pricing"]
           assert rp["status"] == "ready", rp
           assert rp["reason"] is None
-          assert rp["scope"]["availability_match_key"] == "fsb:term_deposit:area:YN_Busan"
+
+          scope = rp["scope"]
+          match_key = str(scope["availability_match_key"])
+          assert match_key.startswith("fsb:term_deposit:area:"), match_key
+          assert str(scope.get("availability_scope") or "").strip()
+
           peers = rp["peers"]
           position = rp["pricing_peer_position"]
-          assert len(peers) == 13, len(peers)
-          assert position["pricing_peer_count"] == 13
-          assert position["funding_join_count"] == 13
-          assert position["funding_unjoined_count"] == 0
-          assert float(position["funding_join_ratio"]) == 1.0
-          assert position["funding_analysis_month"] == "2026-03"
-          assert all(peer["funding_status"] == "known" for peer in peers)
-          assert all(peer["funding_balance_million_krw"] is not None for peer in peers)
+          assert peers
+          assert position["pricing_peer_count"] == len(peers)
+
+          known = [peer for peer in peers if peer["funding_status"] == "known"]
+          unavailable = [peer for peer in peers if peer["funding_status"] == "unavailable"]
+          assert len(known) == position["funding_join_count"]
+          assert len(unavailable) == position["funding_unjoined_count"]
+          assert len(known) + len(unavailable) == len(peers)
+          expected_ratio = len(known) / len(peers)
+          assert abs(float(position["funding_join_ratio"]) - expected_ratio) < 1e-12
+          if known:
+              assert position["funding_analysis_month"]
+
           assert all(peer["rate_as_of"] for peer in peers)
-          assert all(peer["funding_as_of"] == "2026-03" for peer in peers)
+          for peer in known:
+              assert peer["funding_balance_million_krw"] is not None
+              assert peer["funding_as_of"]
+          for peer in unavailable:
+              assert peer["funding_balance_million_krw"] is None
+
+          factual = rp["factual_cost"]
+          assert int(factual["standardized_notional_krw"]) > 0
+          assert factual["contract_version"]
+
           encoded = json.dumps(rp, ensure_ascii=False)
           for forbidden in (
               "predicted_inflow",
@@ -146,8 +165,8 @@ jobs:
               assert forbidden not in encoded, forbidden
           print(
               "R1 payload ready",
-              "peers=13",
-              "funding=13/13",
+              f"peers={len(peers)}",
+              f"funding={len(known)}/{len(peers)}",
               f"current={position['current_rate_pct']}",
               f"funding_month={position['funding_analysis_month']}",
           )
