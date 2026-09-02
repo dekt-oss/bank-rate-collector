@@ -13,7 +13,7 @@ def _html() -> str:
 
 def test_search_keeps_preference_tags_compact_until_filter_use() -> None:
     html = _html()
-    assert "search-pref-tags-lazy-v1" in html
+    assert "search-pref-tags-lazy-v2" in html
     assert 'new Set((look("preference_tags"' not in html
     assert ': (look("preference_tags", r[col.preference_tags]) || "")' in html
     assert 'const prefTagValues = (raw) =>' in html
