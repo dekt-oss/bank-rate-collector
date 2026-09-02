@@ -7,9 +7,10 @@ or cost formula: the versioned R0/R1 domain services remain authoritative.
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any
 
 from rate_monitor.services.institution_funding_read_model import InstitutionFundingReadRow
 from rate_monitor.services.institution_funding_read_model_db import (
