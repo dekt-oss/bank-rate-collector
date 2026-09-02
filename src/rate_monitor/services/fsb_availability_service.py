@@ -12,9 +12,10 @@ from __future__ import annotations
 
 import asyncio
 from collections import defaultdict
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
-from typing import Any, Awaitable, Callable
+from typing import Any
 
 import httpx
 from sqlalchemy import select
@@ -37,6 +38,7 @@ from rate_monitor.db.models import Institution, Source, SourceEntityLink
 from rate_monitor.db.session import session_scope
 from rate_monitor.domain.enums import Sector
 from rate_monitor.domain.identifiers import make_org_key
+from rate_monitor.domain.timeutil import now_kst
 
 SOURCE_ID = "fsb"
 PRODUCT_TYPE = "term_deposit"
@@ -75,7 +77,6 @@ class AvailabilityCensusError(RuntimeError):
 @dataclass(frozen=True)
 class AvailabilityCensus:
     query_date: date
-    # FINAN_COMP_CODE -> AREA codes. 빈 membership은 허용하지 않는다.
     memberships: dict[str, frozenset[str]]
     institution_count: int
     product_count: int
@@ -162,8 +163,7 @@ def build_census_from_rows(
         )
 
     # 2026-09-01 evidence에서는 같은 기관의 모든 정기예금 상품이 같은 AREA
-    # pattern이었다. 그 사실이 깨지면 institution × product_type으로 축약하면
-    # 정보를 잃으므로 fail-closed한다.
+    # pattern이었다. 이 사실이 깨지면 institution × product_type 축약은 정보 손실이다.
     product_memberships = {
         product: frozenset(
             code for code in AREA_CODES if product in area_products[code]
@@ -204,7 +204,7 @@ async def _fetch_area_rows(
     expected_total: int | None = None
     for _page in range(MAX_CENSUS_PAGES):
         end = start + PAGE_SIZE - 1
-        _raw, payload = await adapter._post(  # same-package official FSB request contract
+        _raw, payload = await adapter._post(
             client,
             DATA_PATH,
             adapter._rate_body(
@@ -225,9 +225,8 @@ async def _fetch_area_rows(
                 f"FSB REC contains non-object row for area={area_code!r}"
             )
 
-        # FSB는 0건 응답에서 CNT를 실어 줄 행 자체가 없다. 2026-09-01 공식
-        # evidence의 YN_Saejong이 이 형태였다. 첫 페이지의 빈 REC만 정상 0건으로
-        # 인정한다. 이미 paging 중이었다면 조기 종료이므로 아래 CNT mismatch가 잡는다.
+        # FSB는 0건이면 CNT를 담을 행 자체가 없다. 2026-09-01 evidence의
+        # YN_Saejong이 이 형태였다. 첫 페이지의 빈 REC만 정상 0건으로 인정한다.
         total = 0 if not page_rows and start == 1 else fsb_parser.total_count(payload)
         if total is None:
             raise AvailabilityCensusError(
@@ -287,8 +286,7 @@ def _resolve_fsb_institutions(
     session: Session,
     source_codes: set[str],
 ) -> dict[str, str]:
-    source = session.get(Source, SOURCE_ID)
-    if source is None:
+    if session.get(Source, SOURCE_ID) is None:
         raise AvailabilityCensusError(
             "FSB Source row가 없다. 먼저 정상 FSB 금리 수집으로 canonical identity를 구축한다"
         )
@@ -416,7 +414,7 @@ async def sync_fsb_availability(
     now: datetime | None = None,
 ) -> AvailabilitySyncResult:
     """완전 census 확보 후에만 transaction을 열어 membership을 동기화한다."""
-    query_date = as_of or date.today()
+    query_date = as_of or now_kst().date()
     census = await fetch_census(query_date)
     if census.query_date != query_date:
         raise AvailabilityCensusError(
