@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sqlite3
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +14,11 @@ from rate_monitor.services.market_funding_strategy_service import (
     build_market_funding_strategy,
 )
 from rate_monitor.services.rate_funding_matrix_service import build_rate_funding_matrix
+from rate_monitor.services.relative_pricing_availability_resolver import (
+    RESOLUTION_RESOLVED,
+    RelativePricingAvailabilityResolution,
+    resolve_fsb_relative_pricing_availability,
+)
 from rate_monitor.services.relative_pricing_strategy_payload import (
     build_relative_pricing_unavailable_payload,
 )
@@ -25,6 +31,57 @@ from rate_monitor.services.strategy_service_base import *  # noqa: F403
 
 def __getattr__(name: str) -> Any:
     return getattr(_base, name)
+
+
+def _our_canonical_institution_id(db_path: Path) -> str | None:
+    """Resolve the configured Strategy anchor by exact canonical identity only.
+
+    This is not an identity matcher: normalized/fuzzy names, address and geography
+    are deliberately excluded. Multiple exact active rows are an integrity error.
+    """
+
+    uri = db_path.resolve().as_uri() + "?mode=ro&immutable=1"
+    conn = sqlite3.connect(uri, uri=True)
+    try:
+        if (
+            conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' "
+                "AND name='institutions' LIMIT 1"
+            ).fetchone()
+            is None
+        ):
+            return None
+        rows = conn.execute(
+            """
+            SELECT id
+            FROM institutions
+            WHERE sector = 'savings_bank'
+              AND canonical_name = ?
+              AND active = 1
+            ORDER BY id
+            """,
+            (_base.OUR_INSTITUTION_NAME,),
+        ).fetchall()
+    finally:
+        conn.close()
+    if len(rows) > 1:
+        raise ValueError(
+            "Strategy anchor canonical identity resolved more than once: "
+            + _base.OUR_INSTITUTION_NAME
+        )
+    return str(rows[0][0]) if rows else None
+
+
+def _relative_pricing_availability(
+    db_path: Path,
+) -> RelativePricingAvailabilityResolution | None:
+    anchor_id = _our_canonical_institution_id(db_path)
+    if anchor_id is None:
+        return None
+    return resolve_fsb_relative_pricing_availability(
+        db_path,
+        anchor_institution_id=anchor_id,
+    )
 
 
 def build_strategy_summary(db_path: Path) -> dict[str, Any]:
@@ -41,10 +98,33 @@ def build_strategy_summary(db_path: Path) -> dict[str, Any]:
         db_path,
         funding_positions=funding_positions,
     )
-    # R1 pricing peers require an evidence-backed availability_match_key. The
-    # current canonical DB stores only raw/display availability_scope, so Strategy
-    # must fail closed until a validated resolver or explicit key is wired in.
+
+    availability = _relative_pricing_availability(db_path)
+    if availability is None:
+        summary["relative_pricing_availability"] = {
+            "status": "unresolved",
+            "reason": "anchor_institution_id_unresolved",
+            "anchor_institution_id": None,
+            "availability_match_key": None,
+            "active_match_keys": [],
+            "cohort_institution_ids": [],
+            "as_of": None,
+            "source_id": "fsb",
+            "product_type": "term_deposit",
+        }
+        # Preserve the existing public fail-closed reason until canonical anchor
+        # identity and official availability evidence both exist.
+        relative_reason = "availability_match_key_unresolved"
+    else:
+        summary["relative_pricing_availability"] = availability.as_payload()
+        if availability.status == RESOLUTION_RESOLVED:
+            # Availability is now factual, but current Strategy still lacks the
+            # production candidate/reconciliation adapter required by R1 contract v3.
+            relative_reason = "relative_pricing_rate_candidates_unresolved"
+        else:
+            relative_reason = availability.reason or "availability_match_key_unresolved"
+
     summary["relative_pricing"] = build_relative_pricing_unavailable_payload(
-        reason="availability_match_key_unresolved"
+        reason=relative_reason
     )
     return summary
