@@ -37,6 +37,11 @@ _SCRIPT = r'''
     if(!empty)return false;
     return !card.querySelector(POPULATED_SELECTOR);
   };
+  const setToggle=(button,expanded)=>{
+    const value=String(expanded),label=expanded?"접기":"펼치기",span=button.querySelector("span");
+    if(button.getAttribute("aria-expanded")!==value)button.setAttribute("aria-expanded",value);
+    if(span&&span.textContent!==label)span.textContent=label;
+  };
   const clear=card=>{
     card.classList.remove("strategy-unfinished-section");
     card.removeAttribute("data-collapsed");
@@ -49,21 +54,20 @@ _SCRIPT = r'''
     if(!button){
       button=document.createElement("button");
       button.type="button";button.className="strategy-unfinished-toggle";
-      button.innerHTML=`<strong>${titleOf(card)}</strong><span>펼치기</span>`;
-      button.setAttribute("aria-expanded","false");
+      const strong=document.createElement("strong"),span=document.createElement("span");
+      strong.textContent=titleOf(card);span.textContent="펼치기";
+      button.append(strong,span);button.setAttribute("aria-expanded","false");
       button.addEventListener("click",()=>{
         const collapsed=card.dataset.collapsed==="true";
         card.dataset.collapsed=collapsed?"false":"true";
-        button.setAttribute("aria-expanded",String(collapsed));
-        button.querySelector("span").textContent=collapsed?"접기":"펼치기";
+        setToggle(button,collapsed);
         if(collapsed)card.dataset.userExpanded="true";else delete card.dataset.userExpanded;
       });
       card.prepend(button);
     }
     if(card.dataset.userExpanded!=="true"){
-      card.dataset.collapsed="true";
-      button.setAttribute("aria-expanded","false");
-      button.querySelector("span").textContent="펼치기";
+      if(card.dataset.collapsed!=="true")card.dataset.collapsed="true";
+      setToggle(button,false);
     }
   };
   const scan=()=>{
