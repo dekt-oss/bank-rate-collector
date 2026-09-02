@@ -73,23 +73,13 @@ def build_current_relative_pricing_rate_candidates(
     match_key = availability.availability_match_key
     availability_scope = _official_scope(match_key)
     cohort_ids = tuple(sorted(set(availability.cohort_institution_ids)))
+    placeholders = ",".join("?" for _ in cohort_ids)
     uri = db_path.resolve().as_uri() + "?mode=ro&immutable=1"
     conn = sqlite3.connect(uri, uri=True)
     conn.row_factory = sqlite3.Row
     try:
-        conn.execute(
-            """
-            CREATE TEMP TABLE relative_pricing_cohort (
-                institution_id TEXT PRIMARY KEY
-            )
-            """
-        )
-        conn.executemany(
-            "INSERT INTO relative_pricing_cohort(institution_id) VALUES (?)",
-            ((institution_id,) for institution_id in cohort_ids),
-        )
         rows = conn.execute(
-            """
+            f"""
             SELECT i.id AS institution_id,
                    p.id AS product_id,
                    cr.source_id,
@@ -101,13 +91,13 @@ def build_current_relative_pricing_rate_candidates(
                    ro.max_rate,
                    ro.source_effective_at,
                    ro.as_of
-            FROM relative_pricing_cohort rpc
-            JOIN institutions i ON i.id = rpc.institution_id
+            FROM institutions i
             JOIN products p ON p.institution_id = i.id
             JOIN product_variants pv ON pv.product_id = p.id
             JOIN rate_observations ro ON ro.variant_id = pv.id
             JOIN collection_runs cr ON cr.id = ro.run_id
-            WHERE i.sector = ?
+            WHERE i.id IN ({placeholders})
+              AND i.sector = ?
               AND i.active = 1
               AND p.product_type = ?
               AND p.active = 1
@@ -117,7 +107,7 @@ def build_current_relative_pricing_rate_candidates(
               AND ro.max_rate IS NOT NULL
             ORDER BY i.id, p.id, pv.id, cr.source_id
             """,
-            (RATE_SECTOR, RATE_PRODUCT_TYPE, target_term),
+            (*cohort_ids, RATE_SECTOR, RATE_PRODUCT_TYPE, target_term),
         ).fetchall()
     finally:
         conn.close()
