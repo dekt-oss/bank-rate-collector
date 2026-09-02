@@ -20,6 +20,7 @@ from rate_monitor.services.relative_pricing_availability_resolver import (
     RelativePricingAvailabilityResolution,
     resolve_fsb_relative_pricing_availability,
 )
+from rate_monitor.services.relative_pricing_live_service import build_relative_pricing_live
 from rate_monitor.services.relative_pricing_strategy_payload import (
     build_relative_pricing_unavailable_payload,
 )
@@ -119,20 +120,27 @@ def build_strategy_summary(db_path: Path) -> dict[str, Any]:
             "source_id": "fsb",
             "product_type": "term_deposit",
         }
-        relative_reason = "availability_match_key_unresolved"
-    else:
-        summary["relative_pricing_availability"] = availability.as_payload()
-        if availability.status == RESOLUTION_RESOLVED:
-            # Availability is now factual, but current Strategy still lacks the
-            # production candidate/reconciliation adapter required by R1 contract v3.
-            relative_reason = "relative_pricing_rate_candidates_unresolved"
-        elif availability.status == RESOLUTION_AMBIGUOUS:
-            relative_reason = "availability_match_key_ambiguous"
-        else:
-            # Keep the established public contract for missing table/evidence.
-            # The precise gate remains inspectable in relative_pricing_availability.
-            relative_reason = "availability_match_key_unresolved"
+        summary["relative_pricing"] = build_relative_pricing_unavailable_payload(
+            reason="availability_match_key_unresolved"
+        )
+        return summary
 
+    summary["relative_pricing_availability"] = availability.as_payload()
+    if availability.status == RESOLUTION_RESOLVED:
+        live = build_relative_pricing_live(
+            db_path,
+            availability=availability,
+            funding_positions=funding_positions,
+        )
+        summary["relative_pricing_rate_candidates"] = live.diagnostics()
+        summary["relative_pricing"] = live.payload
+        return summary
+
+    relative_reason = (
+        "availability_match_key_ambiguous"
+        if availability.status == RESOLUTION_AMBIGUOUS
+        else "availability_match_key_unresolved"
+    )
     summary["relative_pricing"] = build_relative_pricing_unavailable_payload(
         reason=relative_reason
     )
