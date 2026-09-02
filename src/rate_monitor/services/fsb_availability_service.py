@@ -98,6 +98,32 @@ def availability_match_key(area_code: str) -> str:
     return f"{SOURCE_ID}:{PRODUCT_TYPE}:area:{area_code}"
 
 
+def resolve_active_institutions(
+    session: Session,
+    match_key: str,
+) -> frozenset[str]:
+    """새 membership만으로 동일 가입가능지역 경쟁군을 푼다.
+
+    legacy ``Institution.availability_scope``나 본점 소재지로 fallback하지 않는다.
+    지원하지 않는 key는 빈 경쟁군으로 조용히 바꾸지 않고 거부한다.
+    """
+    prefix = f"{SOURCE_ID}:{PRODUCT_TYPE}:area:"
+    if not match_key.startswith(prefix):
+        raise ValueError(f"지원하지 않는 availability_match_key: {match_key}")
+    area_code = match_key[len(prefix) :]
+    if availability_match_key(area_code) != match_key:
+        raise ValueError(f"지원하지 않는 availability_match_key: {match_key}")
+    institution_ids = session.scalars(
+        select(InstitutionAvailabilityMembership.institution_id).where(
+            InstitutionAvailabilityMembership.source_id == SOURCE_ID,
+            InstitutionAvailabilityMembership.product_type == PRODUCT_TYPE,
+            InstitutionAvailabilityMembership.area_code == area_code,
+            InstitutionAvailabilityMembership.valid_to.is_(None),
+        )
+    ).all()
+    return frozenset(institution_ids)
+
+
 def _clean(value: object) -> str:
     return str(value or "").strip()
 
@@ -330,11 +356,13 @@ def reconcile_fsb_availability(
 ) -> AvailabilitySyncResult:
     """검증된 완전 census를 한 transaction 안에서 temporal reconcile한다."""
     resolved = _resolve_fsb_institutions(session, set(census.memberships))
-    desired: set[tuple[str, str]] = {
-        (resolved[source_code], area_code)
-        for source_code, areas in census.memberships.items()
-        for area_code in areas
-    }
+    desired_sources: dict[tuple[str, str], set[str]] = defaultdict(set)
+    for source_code, areas in census.memberships.items():
+        institution_id = resolved[source_code]
+        source_key = make_org_key(Sector.SAVINGS_BANK, source_code)
+        for area_code in areas:
+            desired_sources[(institution_id, area_code)].add(source_key)
+    desired = set(desired_sources)
 
     active_rows = session.scalars(
         select(InstitutionAvailabilityMembership).where(
@@ -343,6 +371,15 @@ def reconcile_fsb_availability(
             InstitutionAvailabilityMembership.valid_to.is_(None),
         )
     ).all()
+    newest_effective_date = max(
+        (row.source_effective_date for row in active_rows),
+        default=None,
+    )
+    if newest_effective_date is not None and census.query_date < newest_effective_date:
+        raise AvailabilityCensusError(
+            "과거 FSB census로 현재 membership을 되감을 수 없다: "
+            f"census={census.query_date}, current={newest_effective_date}"
+        )
     active = {(row.institution_id, row.area_code): row for row in active_rows}
 
     created = unchanged = expired = 0
@@ -355,8 +392,11 @@ def reconcile_fsb_availability(
             "area_code": area_code,
             "query_date": census.query_date.isoformat(),
             "census_area_count": len(AREA_CODES),
+            "source_entity_keys": sorted(desired_sources[(institution_id, area_code)]),
         }
         if row is not None:
+            row.area_label = AREA_LABELS[area_code]
+            row.availability_match_key = availability_match_key(area_code)
             row.last_seen_at = now
             row.seen_count += 1
             row.source_effective_date = census.query_date
@@ -388,6 +428,9 @@ def reconcile_fsb_availability(
 
     for key, row in active.items():
         if key not in desired:
+            previous_evidence = dict(row.evidence_json or {})
+            previous_evidence["expired_by_query_date"] = census.query_date.isoformat()
+            row.evidence_json = previous_evidence
             row.valid_to = now
             row.updated_at = now
             expired += 1
@@ -414,7 +457,12 @@ async def sync_fsb_availability(
     now: datetime | None = None,
 ) -> AvailabilitySyncResult:
     """완전 census 확보 후에만 transaction을 열어 membership을 동기화한다."""
-    query_date = as_of or now_kst().date()
+    today_kst = now_kst().date()
+    query_date = as_of or today_kst
+    if query_date > today_kst:
+        raise AvailabilityCensusError(
+            f"미래 날짜 FSB census는 authoritative membership이 될 수 없다: {query_date}"
+        )
     census = await fetch_census(query_date)
     if census.query_date != query_date:
         raise AvailabilityCensusError(
