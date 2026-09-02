@@ -3,6 +3,7 @@ from pathlib import Path
 
 import pytest
 
+from rate_monitor.services import strategy_service
 from rate_monitor.services.fsb_availability_service import availability_match_key
 from rate_monitor.services.relative_pricing_availability_resolver import (
     RESOLUTION_AMBIGUOUS,
@@ -17,6 +18,16 @@ def _create_db(path: Path) -> None:
     try:
         conn.execute(
             """
+            CREATE TABLE institutions (
+                id TEXT PRIMARY KEY,
+                sector TEXT NOT NULL,
+                canonical_name TEXT NOT NULL,
+                active INTEGER NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
             CREATE TABLE institution_availability_memberships (
                 source_id TEXT NOT NULL,
                 institution_id TEXT NOT NULL,
@@ -28,6 +39,25 @@ def _create_db(path: Path) -> None:
                 valid_to TEXT
             )
             """
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _insert_institution(
+    path: Path,
+    institution_id: str,
+    canonical_name: str,
+    *,
+    sector: str = "savings_bank",
+    active: int = 1,
+) -> None:
+    conn = sqlite3.connect(path)
+    try:
+        conn.execute(
+            "INSERT INTO institutions(id, sector, canonical_name, active) VALUES (?, ?, ?, ?)",
+            (institution_id, sector, canonical_name, active),
         )
         conn.commit()
     finally:
@@ -67,6 +97,27 @@ def _insert(
         conn.commit()
     finally:
         conn.close()
+
+
+def _stub_strategy_dependencies(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(strategy_service._base, "build_strategy_summary", lambda _path: {})
+    monkeypatch.setattr(strategy_service, "build_product_history", lambda _path: {})
+    monkeypatch.setattr(
+        strategy_service,
+        "build_savings_trend_display_policy",
+        lambda _history: {},
+    )
+    monkeypatch.setattr(strategy_service, "build_market_funding_strategy", lambda _path: {})
+    monkeypatch.setattr(
+        strategy_service,
+        "build_institution_funding_positions",
+        lambda _path: {"display_order": [], "sectors": {}},
+    )
+    monkeypatch.setattr(
+        strategy_service,
+        "build_rate_funding_matrix",
+        lambda _path, funding_positions: {"available": False, "sectors": {}},
+    )
 
 
 def test_missing_membership_table_fails_closed(tmp_path: Path) -> None:
@@ -200,3 +251,57 @@ def test_corrupted_persisted_match_key_is_rejected(tmp_path: Path) -> None:
         resolve_fsb_relative_pricing_availability(
             db_path, anchor_institution_id="our-bank"
         )
+
+
+def test_strategy_consumes_resolved_official_membership_without_opening_r1(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    db_path = tmp_path / "rates.db"
+    _create_db(db_path)
+    _insert_institution(db_path, "our-bank", strategy_service._base.OUR_INSTITUTION_NAME)
+    _insert(db_path, "our-bank", "YN_Busan")
+    _insert(db_path, "peer-a", "YN_Busan")
+    _stub_strategy_dependencies(monkeypatch)
+
+    summary = strategy_service.build_strategy_summary(db_path)
+
+    availability = summary["relative_pricing_availability"]
+    assert availability["status"] == RESOLUTION_RESOLVED
+    assert availability["availability_match_key"] == availability_match_key("YN_Busan")
+    assert availability["cohort_institution_ids"] == ["our-bank", "peer-a"]
+    assert summary["relative_pricing"]["status"] == "insufficient_data"
+    assert (
+        summary["relative_pricing"]["reason"]
+        == "relative_pricing_rate_candidates_unresolved"
+    )
+
+
+def test_strategy_keeps_multi_area_anchor_fail_closed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    db_path = tmp_path / "rates.db"
+    _create_db(db_path)
+    _insert_institution(db_path, "our-bank", strategy_service._base.OUR_INSTITUTION_NAME)
+    _insert(db_path, "our-bank", "YN_Busan")
+    _insert(db_path, "our-bank", "YN_Seoul")
+    _stub_strategy_dependencies(monkeypatch)
+
+    summary = strategy_service.build_strategy_summary(db_path)
+
+    assert summary["relative_pricing_availability"]["status"] == RESOLUTION_AMBIGUOUS
+    assert (
+        summary["relative_pricing"]["reason"]
+        == "availability_match_key_ambiguous"
+    )
+
+
+def test_strategy_anchor_identity_is_exact_and_unique(tmp_path: Path) -> None:
+    db_path = tmp_path / "rates.db"
+    _create_db(db_path)
+    _insert_institution(db_path, "our-a", strategy_service._base.OUR_INSTITUTION_NAME)
+    _insert_institution(db_path, "our-b", strategy_service._base.OUR_INSTITUTION_NAME)
+
+    with pytest.raises(ValueError, match="resolved more than once"):
+        strategy_service._our_canonical_institution_id(db_path)
