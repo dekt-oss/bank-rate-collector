@@ -1,5 +1,6 @@
 import json
 import sqlite3
+from decimal import Decimal
 from pathlib import Path
 
 from rate_monitor.services.fsb_availability_service import availability_match_key
@@ -200,13 +201,13 @@ def test_live_builder_accepts_explained_matrix_special_offer_difference(
     assert result.payload["status"] == "ready"
     peer_recon = result.payload["representative_rate_reconciliations"]["peer"]
     assert peer_recon["status"] == "explained"
-    assert peer_recon["pricing_rate_pct"] == "3.6"
-    assert peer_recon["matrix_rate_pct"] == "4.2"
-    assert peer_recon["gap_bp"] == "-60.00"
+    assert Decimal(peer_recon["pricing_rate_pct"]) == Decimal("3.6")
+    assert Decimal(peer_recon["matrix_rate_pct"]) == Decimal("4.2")
+    assert Decimal(peer_recon["gap_bp"]) == Decimal("-60")
     assert peer_recon["difference_reason"] == (
         "matrix_selection_outside_pricing_core:special_offer"
     )
-    assert result.payload["peers"][0]["rate_pct"] == "3.6"
+    assert Decimal(result.payload["peers"][0]["rate_pct"]) == Decimal("3.6")
 
 
 def test_live_builder_fails_closed_on_matrix_temporal_mismatch(tmp_path: Path) -> None:
