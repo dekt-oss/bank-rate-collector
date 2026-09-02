@@ -147,10 +147,28 @@ def _insert_candidate_fixture(path: Path) -> None:
                 ("o-peer", "v-peer", "r-finlife", 3.60, None, "2026-08-30", None, "valid"),
                 ("o-special", "v-special", "r-fsb", 4.20, "2026-09-02", None, None, "valid"),
                 ("o-outside", "v-outside", "r-fsb", 9.99, "2026-09-02", None, None, "valid"),
-                ("o-inactive-inst", "v-inactive-inst", "r-fsb", 8.00, "2026-09-02", None, None, "valid"),
+                (
+                    "o-inactive-inst",
+                    "v-inactive-inst",
+                    "r-fsb",
+                    8.00,
+                    "2026-09-02",
+                    None,
+                    None,
+                    "valid",
+                ),
                 ("o-inactive", "v-inactive", "r-fsb", 8.10, "2026-09-02", None, None, "valid"),
                 ("o-wrong-type", "v-wrong-type", "r-fsb", 8.20, "2026-09-02", None, None, "valid"),
-                ("o-wrong-sector", "v-wrong-sector", "r-fsb", 8.30, "2026-09-02", None, None, "valid"),
+                (
+                    "o-wrong-sector",
+                    "v-wrong-sector",
+                    "r-fsb",
+                    8.30,
+                    "2026-09-02",
+                    None,
+                    None,
+                    "valid",
+                ),
                 ("o-closed", "v-closed", "r-fsb", 8.40, "2026-09-02", None, "2026-09-02", "valid"),
                 ("o-error", "v-error", "r-fsb", 8.50, "2026-09-02", None, None, "error"),
                 ("o-null", "v-null", "r-fsb", None, "2026-09-02", None, None, "valid"),
@@ -189,8 +207,13 @@ def test_candidate_adapter_reads_only_current_canonical_cohort_rows(tmp_path: Pa
     assert by_product["p-peer"].source_id == "finlife_savings_bank"
     assert by_product["p-peer"].join_channel == "branch"
     assert by_product["p-special"].special_offer_flag is True
-    assert all(row.availability_match_key == result.availability_match_key for row in result.candidates)
-    assert all(row.availability_scope == result.availability_scope for row in result.candidates)
+    assert all(
+        row.availability_match_key == result.availability_match_key
+        for row in result.candidates
+    )
+    assert all(
+        row.availability_scope == result.availability_scope for row in result.candidates
+    )
 
 
 def test_candidate_adapter_does_not_promote_special_offer_or_source_precedence_itself(
