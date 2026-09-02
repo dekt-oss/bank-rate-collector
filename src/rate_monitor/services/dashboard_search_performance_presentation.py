@@ -1,4 +1,5 @@
 # ruff: noqa: E501
+# Evidence branch only: this comment triggers the existing Search A/B workflow.
 """Search 초기 로딩의 전송량과 per-row 우대조건 파싱 비용을 줄인다.
 
 `preference_tags`는 공백 구분 canonical 코드 문자열이다. 필터 의미는 유지하면서
