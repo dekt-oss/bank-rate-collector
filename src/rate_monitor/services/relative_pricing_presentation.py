@@ -162,7 +162,7 @@ _JS = r"""
   const rp=data.strategy?.relative_pricing||null;
   const $=id=>document.getElementById(id);
   const esc=value=>String(value??"").replace(/[&<>"']/g,char=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[char]));
-  const number=value=>{const n=Number(value);return Number.isFinite(n)?n:null};
+  const number=value=>{if(value===null||value===undefined||String(value).trim()==="")return null;const n=Number(value);return Number.isFinite(n)?n:null};
   const rate=value=>{const n=number(value);return n==null?"—":`${n.toFixed(2)}%`};
   const bp=value=>{const n=number(value);return n==null?"—":`${n>=0?"+":""}${n.toFixed(Math.abs(n)>=10?0:1)}bp`};
   const dateText=value=>value?String(value).slice(0,10):"자료없음";
