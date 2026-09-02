@@ -15,6 +15,8 @@ on:
       - "src/rate_monitor/services/institution_funding_*.py"
       - "src/rate_monitor/services/institution_rate_reduction.py"
       - "src/rate_monitor/services/pricing_peer_*.py"
+      - "tests/test_relative_pricing_presentation.py"
+      - "tests/test_strategy_stage_e_ux.py"
       - "web/templates/strategy.html"
       - "pyproject.toml"
   workflow_dispatch:
