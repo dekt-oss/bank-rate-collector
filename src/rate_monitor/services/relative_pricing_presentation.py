@@ -4,7 +4,7 @@ The backend ``strategy.relative_pricing`` payload remains the sole factual sourc
 This injector does not query the database, choose peers, alter source precedence,
 or call the uncalibrated inflow model. Client-side interaction is limited to
 recomputing deterministic peer position and simple fixed-notional surface-interest
-cost for a user-selected review rate.
+cost for a user-selected review rate under the versioned factual cost contract.
 """
 
 from __future__ import annotations
@@ -139,7 +139,9 @@ _SECTION = r"""
       <span><b>비교범위</b> <span id="rp-scope-foot">—</span></span>
       <span><b>pricing 정책</b> <span id="rp-pricing-policy">—</span></span>
       <span><b>Matrix 정책</b> <span id="rp-matrix-policy">—</span></span>
+      <span><b>비용 계약</b> <span id="rp-cost-contract">—</span></span>
       <span><b>현재 대표금리 기준일</b> <span id="rp-current-asof">—</span></span>
+      <span id="rp-temporal-note">금리 기준일과 수신 기준월은 별도 시점입니다.</span>
     </div>
     <details class="rp-policy">
       <summary>정책·정합성 근거 보기</summary><pre id="rp-policy-detail">—</pre>
@@ -192,6 +194,7 @@ _JS = r"""
 
   const current=number(rp.pricing_peer_position.current_rate_pct);
   const peers=Array.isArray(rp.peers)?rp.peers:[];
+  const factualCost=rp.factual_cost||{};
   if(current==null||!peers.length){
     $("rp-status").textContent="근거 부족";
     $("rp-blocked").innerHTML="<b>기관 pricing peer를 계산할 근거가 부족합니다.</b><span>현재 대표금리와 peer 행을 모두 확인해야 합니다.</span>";
@@ -207,6 +210,10 @@ _JS = r"""
   const slider=$("rp-review-slider");
   slider.value=String(Math.min(Number(slider.max),Math.max(Number(slider.min),current)));
   const customNotional=$("rp-cost-notional");
+  const standardNotionalKrw=number(factualCost.standardized_notional_krw);
+  if(standardNotionalKrw!=null&&standardNotionalKrw>=0){
+    customNotional.value=String(standardNotionalKrw/100000000);
+  }
   const scope=rp.scope||{};
   const policy=rp.policies||{};
   const reconciliation=rp.representative_rate_reconciliation||{};
@@ -215,10 +222,12 @@ _JS = r"""
   $("rp-scope-foot").textContent=`${scope.availability_scope||"—"} · ${scope.term_months||12}개월 · 특판 core 제외`;
   $("rp-pricing-policy").textContent=`${policy.institution_rate_reduction?.policy_id||"—"} v${policy.institution_rate_reduction?.policy_version||"—"}`;
   $("rp-matrix-policy").textContent=reconciliation.matrix_policy_id||"—";
+  $("rp-cost-contract").textContent=`surface_cost v${factualCost.contract_version||policy.surface_cost?.contract_version||"—"}`;
   $("rp-current-asof").textContent=dateText(reconciliation.pricing_rate_as_of||rp.as_of);
   $("rp-policy-detail").textContent=JSON.stringify({
     scope:rp.scope,
     policies:rp.policies,
+    factual_cost:rp.factual_cost,
     representative_rate_reconciliation:rp.representative_rate_reconciliation
   },null,2);
 
@@ -250,7 +259,7 @@ _JS = r"""
     const notionalKrw=notional100m*100000000;
     const months=Number(scope.term_months||12);
     const delta=notionalKrw*((review-current)/100)*(months/12);
-    $("rp-cost").innerHTML=`${moneyWon(delta)}<small>${notional100m.toLocaleString("ko-KR",{maximumFractionDigits:2})}억원 · ${months}개월 · 현재 ${rate(current)} 대비 단리 표면이자 차이</small>`;
+    $("rp-cost").innerHTML=`${moneyWon(delta)}<small>${notional100m.toLocaleString("ko-KR",{maximumFractionDigits:2})}억원 · ${months}개월 · ${$("rp-cost-contract").textContent} · 현재 ${rate(current)} 대비 단리 표면이자 차이</small>`;
 
     const sorted=[...peers].sort((left,right)=>
       (number(right.rate_pct)??-Infinity)-(number(left.rate_pct)??-Infinity)
