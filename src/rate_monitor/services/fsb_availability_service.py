@@ -98,6 +98,14 @@ def availability_match_key(area_code: str) -> str:
     return f"{SOURCE_ID}:{PRODUCT_TYPE}:area:{area_code}"
 
 
+def _fsb_source_key(source_code: str) -> str:
+    return make_org_key(
+        sector=Sector.SAVINGS_BANK,
+        source_institution_key=source_code,
+        institution_name="",
+    )
+
+
 def resolve_active_institutions(
     session: Session,
     match_key: str,
@@ -319,7 +327,7 @@ def _resolve_fsb_institutions(
 
     resolved: dict[str, str] = {}
     for source_code in sorted(source_codes):
-        source_key = make_org_key(Sector.SAVINGS_BANK, source_code)
+        source_key = _fsb_source_key(source_code)
         links = session.scalars(
             select(SourceEntityLink).where(
                 SourceEntityLink.source_id == SOURCE_ID,
@@ -359,7 +367,7 @@ def reconcile_fsb_availability(
     desired_sources: dict[tuple[str, str], set[str]] = defaultdict(set)
     for source_code, areas in census.memberships.items():
         institution_id = resolved[source_code]
-        source_key = make_org_key(Sector.SAVINGS_BANK, source_code)
+        source_key = _fsb_source_key(source_code)
         for area_code in areas:
             desired_sources[(institution_id, area_code)].add(source_key)
     desired = set(desired_sources)
