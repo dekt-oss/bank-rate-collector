@@ -42,6 +42,9 @@ from rate_monitor.services.main_map_drilldown_refinement import (
 from rate_monitor.services.rate_funding_matrix_presentation import (
     inject_rate_funding_matrix,
 )
+from rate_monitor.services.relative_pricing_presentation import (
+    inject_relative_pricing_presentation,
+)
 from rate_monitor.services.strategy_mobile_responsive_presentation import (
     inject_strategy_mobile_responsive,
 )
@@ -82,5 +85,9 @@ def inject_dashboard_ui_refinement(html: str) -> str:
     rendered = repair_strategy_product_scope_runtime(rendered)
     rendered = inject_collection_health_live_signal(rendered)
     rendered = inject_strategy_unfinished_collapse(rendered)
+    # Relative Pricing R1은 Strategy decision cockpit 이후에만 합성한다. Search
+    # 화면이나 bare template에는 주입하지 않아 기존 화면 계약을 건드리지 않는다.
+    if 'id="rate-response-cockpit-script"' in rendered:
+        rendered = inject_relative_pricing_presentation(rendered)
     # 모든 Strategy injector 뒤에서 fixed-width 회귀를 최종 정리한다.
     return inject_strategy_mobile_responsive(rendered)
