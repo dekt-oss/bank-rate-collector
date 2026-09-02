@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 
 import fs from "node:fs";
-import zlib from "node:zlib";
 import { chromium } from "playwright";
 
 const baseUrl = (process.env.PRODUCTION_URL || "https://bank-rate-collector.vercel.app").replace(/\/$/, "");
@@ -15,12 +14,6 @@ const scenarios = [
 const throughput = (mbps) => Math.round((mbps * 1_000_000) / 8);
 const round = (value) => (value == null ? null : Math.round(value * 10) / 10);
 const heapBytes = (page) => page.evaluate(() => performance.memory?.usedJSHeapSize ?? null);
-const parseTableResponse = async (response) => {
-  const body = await response.body();
-  const isGzip = body.length >= 2 && body[0] === 0x1f && body[1] === 0x8b;
-  const jsonBytes = isGzip ? zlib.gunzipSync(body) : body;
-  return JSON.parse(jsonBytes.toString("utf8"));
-};
 
 async function runScenario(browser, scenario) {
   const context = await browser.newContext({ viewport: scenario.viewport, isMobile: scenario.mobile, deviceScaleFactor: scenario.mobile ? 2 : 1, locale: "ko-KR" });
@@ -53,7 +46,7 @@ async function runScenario(browser, scenario) {
   const heapAfterRender = await heapBytes(page);
 
   const response = await tableResponse;
-  const payload = await parseTableResponse(response);
+  const payload = await response.json();
   const parsedRows = Array.isArray(payload) ? payload.length : payload.rows?.length ?? null;
   const resource = await page.evaluate(() => {
     const entry = performance.getEntriesByType("resource").find((item) => item.name.includes("/data/table.json"));
