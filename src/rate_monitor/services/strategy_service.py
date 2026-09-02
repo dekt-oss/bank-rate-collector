@@ -38,9 +38,13 @@ def _our_canonical_institution_id(db_path: Path) -> str | None:
     """Resolve the configured Strategy anchor by exact canonical identity only.
 
     This is not an identity matcher: normalized/fuzzy names, address and geography
-    are deliberately excluded. Multiple exact active rows are an integrity error.
+    are deliberately excluded. Current canonical DBs also require ``active=1``.
+    Partial/legacy Strategy fixtures without that column remain readable and simply
+    use the exact sector/name contract they actually contain.
     """
 
+    if not db_path.exists():
+        return None
     uri = db_path.resolve().as_uri() + "?mode=ro&immutable=1"
     conn = sqlite3.connect(uri, uri=True)
     try:
@@ -52,15 +56,17 @@ def _our_canonical_institution_id(db_path: Path) -> str | None:
             is None
         ):
             return None
+        columns = {
+            str(row[1]) for row in conn.execute("PRAGMA table_info(institutions)").fetchall()
+        }
+        if not {"id", "sector", "canonical_name"}.issubset(columns):
+            return None
+        active_clause = " AND active = 1" if "active" in columns else ""
         rows = conn.execute(
-            """
-            SELECT id
-            FROM institutions
-            WHERE sector = 'savings_bank'
-              AND canonical_name = ?
-              AND active = 1
-            ORDER BY id
-            """,
+            "SELECT id FROM institutions "
+            "WHERE sector = 'savings_bank' AND canonical_name = ?"
+            + active_clause
+            + " ORDER BY id",
             (_base.OUR_INSTITUTION_NAME,),
         ).fetchall()
     finally:
