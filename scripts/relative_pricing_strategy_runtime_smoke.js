@@ -46,7 +46,6 @@ async function assertNoRootOverflow(page, label) {
 }
 
 async function openStrategy(page) {
-  await page.route("**/favicon.ico", (route) => route.fulfill({ status: 204, body: "" }));
   const response = await page.goto(`${baseUrl}/strategy.html`, { waitUntil: "networkidle" });
   invariant(response && response.ok(), `strategy.html HTTP ${response ? response.status() : "none"}`);
   await page.waitForFunction(
@@ -149,6 +148,17 @@ async function runViewport(browser, viewport, label, screenshot) {
   const context = await browser.newContext({ viewport });
   const page = await context.newPage();
   const runtimeErrors = [];
+
+  // The evidence server is intentionally a static http.server. Production owns
+  // /api/health in the hosting runtime, so isolate exactly that endpoint here
+  // instead of allowing its harness-only 404 to hide real asset/JS failures.
+  await page.route("**/api/health", (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({ harness: "static-r1-e2e", sources: [] }),
+  }));
+  await page.route("**/favicon.ico", (route) => route.fulfill({ status: 204, body: "" }));
+
   page.on("pageerror", (error) => runtimeErrors.push(`pageerror: ${error.message}`));
   page.on("console", (message) => {
     if (message.type() === "error") runtimeErrors.push(`console: ${message.text()}`);
