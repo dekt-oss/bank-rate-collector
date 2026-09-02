@@ -15,6 +15,7 @@ from rate_monitor.services.market_funding_strategy_service import (
 )
 from rate_monitor.services.rate_funding_matrix_service import build_rate_funding_matrix
 from rate_monitor.services.relative_pricing_availability_resolver import (
+    RESOLUTION_AMBIGUOUS,
     RESOLUTION_RESOLVED,
     RelativePricingAvailabilityResolution,
     resolve_fsb_relative_pricing_availability,
@@ -112,8 +113,6 @@ def build_strategy_summary(db_path: Path) -> dict[str, Any]:
             "source_id": "fsb",
             "product_type": "term_deposit",
         }
-        # Preserve the existing public fail-closed reason until canonical anchor
-        # identity and official availability evidence both exist.
         relative_reason = "availability_match_key_unresolved"
     else:
         summary["relative_pricing_availability"] = availability.as_payload()
@@ -121,8 +120,12 @@ def build_strategy_summary(db_path: Path) -> dict[str, Any]:
             # Availability is now factual, but current Strategy still lacks the
             # production candidate/reconciliation adapter required by R1 contract v3.
             relative_reason = "relative_pricing_rate_candidates_unresolved"
+        elif availability.status == RESOLUTION_AMBIGUOUS:
+            relative_reason = "availability_match_key_ambiguous"
         else:
-            relative_reason = availability.reason or "availability_match_key_unresolved"
+            # Keep the established public contract for missing table/evidence.
+            # The precise gate remains inspectable in relative_pricing_availability.
+            relative_reason = "availability_match_key_unresolved"
 
     summary["relative_pricing"] = build_relative_pricing_unavailable_payload(
         reason=relative_reason
