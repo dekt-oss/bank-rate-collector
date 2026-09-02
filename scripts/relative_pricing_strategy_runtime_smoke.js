@@ -75,15 +75,30 @@ async function assertFactualR1(page, label) {
   const peers = Array.isArray(rp.peers) ? rp.peers : [];
   invariant(peers.length > 0, `${label}: pricing peers empty`);
   invariant(position.pricing_peer_count === peers.length, `${label}: payload peer count mismatch`);
-  invariant(position.funding_join_count === peers.length, `${label}: funding join is not complete`);
-  invariant(position.funding_unjoined_count === 0, `${label}: funding has unjoined peers`);
-  invariant(Number(position.funding_join_ratio) === 1, `${label}: funding join ratio is not 1`);
+  invariant(
+    position.funding_join_count + position.funding_unjoined_count === peers.length,
+    `${label}: funding known/unavailable counts do not sum to pricing peer count`,
+  );
+  const expectedJoinRatio = position.funding_join_count / peers.length;
+  invariant(
+    Math.abs(Number(position.funding_join_ratio) - expectedJoinRatio) < 1e-12,
+    `${label}: funding join ratio mismatch`,
+  );
+
+  const availabilityKey = String(rp.scope?.availability_match_key || "");
+  const availabilityScope = String(rp.scope?.availability_scope || "");
+  invariant(
+    availabilityKey.startsWith("fsb:term_deposit:area:"),
+    `${label}: non-official availability key ${availabilityKey}`,
+  );
+  invariant(availabilityScope.length > 0, `${label}: availability scope missing`);
 
   const section = page.locator("#relative-pricing-r1");
   invariant(await section.isVisible(), `${label}: R1 section hidden`);
   invariant(await page.locator("#rp-ready").isVisible(), `${label}: R1 ready panel hidden`);
   invariant(await page.locator("#rp-blocked").isHidden(), `${label}: blocked panel still visible`);
-  invariant((await page.locator("#rp-scope").textContent()).includes("부산"), `${label}: official Busan scope not visible`);
+  const scopeText = (await page.locator("#rp-scope").textContent()).trim();
+  invariant(scopeText.includes(availabilityScope), `${label}: payload availability scope not visible`);
 
   const current = Number(position.current_rate_pct);
   invariant(Number.isFinite(current), `${label}: current rate invalid`);
@@ -91,8 +106,23 @@ async function assertFactualR1(page, label) {
   invariant(Math.abs(currentDom - current) < 1e-9, `${label}: current rate DOM mismatch`);
 
   const coverage = (await page.locator("#rp-funding-coverage").textContent()).trim();
-  invariant(coverage === `${peers.length} / ${peers.length}기관`, `${label}: funding coverage DOM mismatch: ${coverage}`);
+  invariant(
+    coverage === `${position.funding_join_count} / ${peers.length}기관`,
+    `${label}: funding coverage DOM mismatch: ${coverage}`,
+  );
   invariant(await page.locator("#rp-peer-rows tr").count() === peers.length, `${label}: peer table row count mismatch`);
+
+  const knownPeers = peers.filter((peer) => peer.funding_status === "known");
+  const unavailablePeers = peers.filter((peer) => peer.funding_status === "unavailable");
+  invariant(knownPeers.length === position.funding_join_count, `${label}: known funding peer count mismatch`);
+  invariant(unavailablePeers.length === position.funding_unjoined_count, `${label}: unavailable funding peer count mismatch`);
+  for (const peer of knownPeers) {
+    invariant(peer.funding_balance_million_krw != null, `${label}: known funding peer has null balance`);
+    invariant(peer.funding_as_of, `${label}: known funding peer has no funding_as_of`);
+  }
+  for (const peer of unavailablePeers) {
+    invariant(peer.funding_balance_million_krw == null, `${label}: unavailable funding peer has a balance`);
+  }
 
   const first = peers.slice().sort((a, b) => {
     const rateDiff = Number(b.rate_pct) - Number(a.rate_pct);
@@ -104,7 +134,11 @@ async function assertFactualR1(page, label) {
   const rateAsOfText = (await firstCells.nth(3).textContent()).trim();
   const fundingAsOfText = (await firstCells.nth(6).textContent()).trim();
   invariant(rateAsOfText.startsWith(String(first.rate_as_of).slice(0, 10)), `${label}: rate_as_of not rendered separately`);
-  invariant(fundingAsOfText.startsWith(String(first.funding_as_of)), `${label}: funding_as_of not rendered separately`);
+  if (first.funding_status === "known") {
+    invariant(fundingAsOfText.startsWith(String(first.funding_as_of)), `${label}: funding_as_of not rendered separately`);
+  } else {
+    invariant(fundingAsOfText.includes("자료없음"), `${label}: missing funding_as_of is not explicit`);
+  }
 
   for (const forbidden of [
     "#target-balance",
@@ -132,10 +166,12 @@ async function assertFactualR1(page, label) {
   );
 
   const termMonths = Number(rp.scope?.term_months || 12);
-  const expectedCost = 10_000_000_000 * 0.001 * (termMonths / 12);
+  const standardizedNotional = Number(rp.factual_cost?.standardized_notional_krw);
+  invariant(Number.isFinite(standardizedNotional) && standardizedNotional > 0, `${label}: factual cost notional invalid`);
+  const expectedCost = standardizedNotional * 0.001 * (termMonths / 12);
   const costValueText = await page.locator("#rp-cost").evaluate((node) => node.firstChild?.textContent || "");
   const actualCost = moneyNumber(costValueText);
-  invariant(actualCost === expectedCost, `${label}: +10bp / 100억원 cost mismatch ${actualCost} != ${expectedCost}`);
+  invariant(actualCost === expectedCost, `${label}: +10bp factual cost mismatch ${actualCost} != ${expectedCost}`);
 
   const afterProductRank = (await page.locator("#rp-product-market-rank").textContent()).trim();
   invariant(afterProductRank === initialProductRank, `${label}: review slider mutated factual product-market rank`);
