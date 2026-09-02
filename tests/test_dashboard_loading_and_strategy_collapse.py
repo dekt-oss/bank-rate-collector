@@ -53,10 +53,12 @@ def test_strategy_unfinished_sections_get_progressive_disclosure_runtime() -> No
     assert ".rate-funding-matrix-blocked,.axistext" in rendered
     assert "기간별 이력 데이터가 없습니다" in rendered
     assert 'POPULATED_SELECTOR="tbody tr,.change,.pref,.busan-rate-item' in rendered
-    assert 'card.dataset.collapsed="true"' in rendered
-    assert 'button.querySelector("span").textContent="펼치기"' in rendered
-    assert 'button.querySelector("span").textContent=collapsed?"접기":"펼치기"' in rendered
-    assert 'button.setAttribute("aria-expanded",String(collapsed))' in rendered
+    assert 'if(card.dataset.collapsed!=="true")card.dataset.collapsed="true"' in rendered
+    assert 'const setToggle=(button,expanded)=>{' in rendered
+    assert 'if(span&&span.textContent!==label)span.textContent=label' in rendered
+    assert 'setToggle(button,collapsed)' in rendered
+    assert 'setToggle(button,false)' in rendered
+    assert 'strong.textContent=titleOf(card)' in rendered
 
 
 def test_strategy_unfinished_collapse_is_strategy_only_and_idempotent() -> None:
