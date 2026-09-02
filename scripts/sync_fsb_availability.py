@@ -20,7 +20,7 @@ from rate_monitor.services.fsb_availability_service import sync_fsb_availability
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--db", type=Path, default=Path(DEFAULT_DB_PATH))
-    parser.add_argument("--as-of", type=date.fromisoformat, default=date.today())
+    parser.add_argument("--as-of", type=date.fromisoformat, default=None)
     args = parser.parse_args()
 
     engine = create_db_engine(args.db)
