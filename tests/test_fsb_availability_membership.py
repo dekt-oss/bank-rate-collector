@@ -12,6 +12,7 @@ from datetime import date, datetime, timedelta
 import httpx
 import pytest
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 
 from rate_monitor.db.availability_models import InstitutionAvailabilityMembership
 from rate_monitor.db.models import (
@@ -129,7 +130,7 @@ def test_complete_17_area_census_collapses_only_when_products_agree() -> None:
 def test_missing_one_area_is_not_a_complete_census() -> None:
     rows = _complete_rows()
     rows.pop("YN_Jeju")
-    with pytest.raises(AvailabilityCensusError, match="지역전체\+17 AREA"):
+    with pytest.raises(AvailabilityCensusError, match=r"지역전체\+17 AREA"):
         build_census_from_rows(QUERY_DATE, rows)
 
 
@@ -244,13 +245,15 @@ def test_unresolved_institution_code_rolls_back_whole_reconciliation(factory) ->
         _source(session)
         _institution(session, "001")
 
-    with pytest.raises(AvailabilityCensusError, match="resolve exactly once"):
-        with session_scope(factory) as session:
-            reconcile_fsb_availability(
-                session,
-                _census({"001": {"YN_Busan"}, "999": {"YN_Seoul"}}),
-                now=T0,
-            )
+    with (
+        pytest.raises(AvailabilityCensusError, match="resolve exactly once"),
+        session_scope(factory) as session,
+    ):
+        reconcile_fsb_availability(
+            session,
+            _census({"001": {"YN_Busan"}, "999": {"YN_Seoul"}}),
+            now=T0,
+        )
 
     with session_scope(factory) as session:
         count = session.scalar(
@@ -264,26 +267,31 @@ def test_inactive_or_non_exact_link_is_not_accepted(factory) -> None:
         _source(session)
         _institution(session, "001", match_method="manual_name")
 
-    with pytest.raises(AvailabilityCensusError, match="not exact_code"):
-        with session_scope(factory) as session:
-            reconcile_fsb_availability(
-                session, _census({"001": {"YN_Busan"}}), now=T0
-            )
+    with (
+        pytest.raises(AvailabilityCensusError, match="not exact_code"),
+        session_scope(factory) as session,
+    ):
+        reconcile_fsb_availability(
+            session, _census({"001": {"YN_Busan"}}), now=T0
+        )
 
     with session_scope(factory) as session:
         link = session.scalar(select(SourceEntityLink))
         link.match_method = "exact_code"
         link.valid_to = QUERY_DATE
 
-    with pytest.raises(AvailabilityCensusError, match="active_links=0"):
-        with session_scope(factory) as session:
-            reconcile_fsb_availability(
-                session, _census({"001": {"YN_Busan"}}), now=T0
-            )
+    with (
+        pytest.raises(AvailabilityCensusError, match="active_links=0"),
+        session_scope(factory) as session,
+    ):
+        reconcile_fsb_availability(
+            session, _census({"001": {"YN_Busan"}}), now=T0
+        )
 
 
 def test_active_identity_link_is_unique_at_database_boundary(factory) -> None:
-    with session_scope(factory) as session:
+    session = factory()
+    try:
         _source(session)
         first_id = _institution(session, "001")
         other = Institution(
@@ -312,9 +320,12 @@ def test_active_identity_link_is_unique_at_database_boundary(factory) -> None:
                 updated_at=T0,
             )
         )
-        with pytest.raises(Exception):
+        with pytest.raises(IntegrityError):
             session.flush()
+        session.rollback()
         assert first_id != other.id
+    finally:
+        session.close()
 
 
 def test_timeout_before_transaction_preserves_existing_membership(factory) -> None:
