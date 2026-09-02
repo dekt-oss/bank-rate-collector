@@ -9,6 +9,7 @@ on:
       - "src/rate_monitor/services/relative_pricing_*.py"
       - "src/rate_monitor/services/institution_rate_reduction.py"
       - "src/rate_monitor/services/pricing_peer_*.py"
+      - "src/rate_monitor/services/institution_funding_*.py"
       - "src/rate_monitor/services/strategy_service.py"
       - "scripts/sync_fsb_availability.py"
   workflow_dispatch:
@@ -85,6 +86,9 @@ jobs:
           import sqlite3
           from pathlib import Path
 
+          from rate_monitor.services.institution_funding_position_service import (
+              build_institution_funding_positions,
+          )
           from rate_monitor.services.relative_pricing_availability_resolver import (
               RESOLUTION_RESOLVED,
               resolve_fsb_relative_pricing_availability,
@@ -110,7 +114,6 @@ jobs:
               "source_sha": "${{ github.sha }}",
               "db_quick_check": quick_check,
               "anchor_institution_id": anchor_id,
-              "funding_enrichment_loaded": False,
           }
           if anchor_id is None:
               evidence["status"] = "anchor_institution_id_unresolved"
@@ -147,9 +150,27 @@ jobs:
           )
           evidence["availability"] = availability.as_payload()
 
+          funding_positions = build_institution_funding_positions(db)
+          savings_funding = funding_positions.get("sectors", {}).get("savings_bank")
+          evidence["funding_enrichment_loaded"] = savings_funding is not None
+          evidence["funding_savings_summary"] = (
+              {
+                  "analysis_month": savings_funding.get("analysis_month"),
+                  "row_count": len(savings_funding.get("rows") or []),
+                  "coverage": savings_funding.get("coverage"),
+                  "freshness": savings_funding.get("freshness"),
+              }
+              if savings_funding
+              else None
+          )
+
           if availability.status == RESOLUTION_RESOLVED:
               try:
-                  live = build_relative_pricing_live(db, availability=availability)
+                  live = build_relative_pricing_live(
+                      db,
+                      availability=availability,
+                      funding_positions=funding_positions,
+                  )
               except Exception as exc:
                   evidence["live_error"] = {
                       "type": type(exc).__name__,
@@ -176,10 +197,18 @@ jobs:
           print("active_membership_count=", len(rows))
           print("availability_status=", availability.status)
           print("availability_keys=", list(availability.active_match_keys))
+          print("funding_enrichment_loaded=", savings_funding is not None)
+          if savings_funding:
+              print("funding_analysis_month=", savings_funding.get("analysis_month"))
+              print("funding_rows=", len(savings_funding.get("rows") or []))
           if availability.status == RESOLUTION_RESOLVED:
+              peer = live.payload.get("pricing_peer_position") or {}
               print("relative_pricing_status=", live.payload.get("status"))
               print("relative_pricing_reason=", live.payload.get("reason"))
               print("candidate_institutions=", len(live.rate_candidates.candidate_institution_ids))
+              print("funding_join_count=", peer.get("funding_join_count"))
+              print("funding_unjoined_count=", peer.get("funding_unjoined_count"))
+              print("funding_join_ratio=", peer.get("funding_join_ratio"))
           PY
 
       - name: Upload evidence only
