@@ -10,7 +10,10 @@ from decimal import Decimal
 import pytest
 from sqlalchemy.exc import IntegrityError
 
-from rate_monitor.db import institution_funding_models  # noqa: F401
+from rate_monitor.db import (
+    availability_models,  # noqa: F401
+    institution_funding_models,  # noqa: F401
+)
 from rate_monitor.db import models as m
 from rate_monitor.db.session import create_db_engine, make_session_factory, pragma
 
@@ -20,6 +23,7 @@ EXPECTED_TABLES = {
     "collection_run_stats",
     "collection_runs",
     "entity_aliases",
+    "institution_availability_memberships",
     "institution_funding_observations",
     "institutions",
     "manual_overrides",

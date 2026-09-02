@@ -54,7 +54,10 @@ def _version(db_path: Path) -> list[str]:
 
 def _model_tables() -> set[str]:
     # 모델은 도메인별 모듈로 나뉠 수 있으므로 registry extension을 먼저 로드한다.
-    from rate_monitor.db import institution_funding_models  # noqa: F401
+    from rate_monitor.db import (
+        availability_models,  # noqa: F401
+        institution_funding_models,  # noqa: F401
+    )
     from rate_monitor.db.models import Base
 
     return set(Base.metadata.tables)
@@ -118,6 +121,23 @@ def test_partial_unique_index_survives_migration(db_path: Path) -> None:
     finally:
         conn.close()
     assert row is not None, "부분 유니크 인덱스가 만들어지지 않았다"
+    sql = row[0].upper()
+    assert "UNIQUE" in sql
+    assert "VALID_TO IS NULL" in sql
+
+
+def test_availability_partial_unique_index_survives_migration(db_path: Path) -> None:
+    """가입가능지역 active natural key도 DB가 직접 강제한다."""
+    _alembic("upgrade head", db_path)
+    conn = sqlite3.connect(db_path)
+    try:
+        row = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='index' "
+            "AND name='uq_institution_availability_active'"
+        ).fetchone()
+    finally:
+        conn.close()
+    assert row is not None, "가입가능지역 부분 유니크 인덱스가 만들어지지 않았다"
     sql = row[0].upper()
     assert "UNIQUE" in sql
     assert "VALID_TO IS NULL" in sql

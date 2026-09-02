@@ -13,6 +13,7 @@ from alembic import context
 from sqlalchemy import engine_from_config, event, pool
 
 # 별도 모델 모듈도 Alembic metadata registry에 등록한다. import 자체가 목적이다.
+import rate_monitor.db.availability_models  # noqa: F401
 import rate_monitor.db.institution_funding_models  # noqa: F401
 from rate_monitor.db.models import Base
 from rate_monitor.db.session import DEFAULT_DB_PATH
