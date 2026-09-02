@@ -72,6 +72,20 @@ def test_r1_competitor_table_keeps_rate_and_funding_dates_separate() -> None:
     assert "rate_as_of" in rendered
 
 
+def test_r1_numeric_formatter_does_not_coerce_missing_funding_to_zero() -> None:
+    rendered = inject_relative_pricing_presentation(_strategy_html())
+
+    # JavaScript Number(null) and Number("") are both 0. Missing funding and
+    # funding-change values must be rejected before numeric coercion so the UI
+    # renders 자료없음 instead of a factual-looking zero.
+    assert (
+        'value===null||value===undefined||String(value).trim()===""'
+        in rendered
+    )
+    assert "return n==null?\"자료없음\"" in rendered
+    assert 'change==null?"자료없음"' in rendered
+
+
 def test_r1_blocked_state_exposes_fail_closed_reason_without_fake_values() -> None:
     rendered = inject_relative_pricing_presentation(_strategy_html())
 
