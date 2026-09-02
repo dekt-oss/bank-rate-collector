@@ -134,7 +134,8 @@ async function assertFactualR1(page, label) {
 
   const termMonths = Number(rp.scope?.term_months || 12);
   const expectedCost = 10_000_000_000 * 0.001 * (termMonths / 12);
-  const actualCost = moneyNumber(await page.locator("#rp-cost").textContent());
+  const costValueText = await page.locator("#rp-cost").evaluate((node) => node.firstChild?.textContent || "");
+  const actualCost = moneyNumber(costValueText);
   invariant(actualCost === expectedCost, `${label}: +10bp / 100억원 cost mismatch ${actualCost} != ${expectedCost}`);
 
   const afterProductRank = (await page.locator("#rp-product-market-rank").textContent()).trim();
