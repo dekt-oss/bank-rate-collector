@@ -1,0 +1,172 @@
+name: Relative Pricing production-data evidence
+
+on:
+  push:
+    branches:
+      - "feat/relative-pricing-production-evidence-*"
+    paths:
+      - ".github/workflows/relative-pricing-production-evidence.yml"
+      - "src/rate_monitor/services/relative_pricing_*.py"
+      - "src/rate_monitor/services/strategy_service.py"
+      - "scripts/sync_fsb_availability.py"
+  workflow_dispatch:
+
+# Evidence only. The production database is restored into a runner-local copy,
+# migrated and mutated there, then discarded. Nothing in this workflow publishes
+# the local database or writes back to the canonical storage backend.
+permissions:
+  contents: read
+
+concurrency:
+  group: relative-pricing-production-evidence
+  cancel-in-progress: true
+
+jobs:
+  evidence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Sync dependencies
+        run: uv sync --locked
+
+      - name: Restore current production database into runner-local copy
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+          R2_REGION: ${{ vars.R2_REGION }}
+        run: |
+          set -euo pipefail
+          mkdir -p work
+          BACKEND=$(uv run python -c "
+          from pathlib import Path
+          from rate_monitor.services.storage_service import load_backend
+          print(load_backend(Path('config/storage.yaml')).backend.value)
+          ")
+          echo "evidence source backend=$BACKEND"
+
+          if [ "$BACKEND" = "r2" ]; then
+            uv run rate-monitor storage restore --dest work/rate_monitor.sqlite3
+          else
+            git fetch --force origin \
+              +rate-data:refs/remotes/origin/rate-data --depth=1
+            git show refs/remotes/origin/rate-data:latest/rate_monitor.sqlite3.gz \
+              > work/rate_monitor.sqlite3.gz
+            gunzip work/rate_monitor.sqlite3.gz
+          fi
+
+          test -s work/rate_monitor.sqlite3
+          echo "restored bytes=$(stat -c%s work/rate_monitor.sqlite3)"
+
+      - name: Apply migrations to runner-local copy
+        env:
+          RATE_MONITOR_DB_URL: sqlite+pysqlite:///${{ github.workspace }}/work/rate_monitor.sqlite3
+        run: uv run alembic upgrade head
+
+      - name: Sync official FSB availability into runner-local copy only
+        run: |
+          set -euo pipefail
+          uv run python scripts/sync_fsb_availability.py \
+            --db work/rate_monitor.sqlite3 \
+            2>&1 | tee work/fsb-availability-sync.log
+
+      - name: Verify local database integrity
+        run: |
+          set -euo pipefail
+          RESULT=$(uv run python - <<'PY'
+          import sqlite3
+          conn = sqlite3.connect("work/rate_monitor.sqlite3")
+          try:
+              print(conn.execute("PRAGMA integrity_check").fetchone()[0])
+          finally:
+              conn.close()
+          PY
+          )
+          test "$RESULT" = "ok"
+          echo "sqlite_integrity=$RESULT"
+
+      - name: Build isolated Strategy site from local evidence database
+        env:
+          RATE_MONITOR_STRATEGY_DASHBOARD: "1"
+        run: |
+          set -euo pipefail
+          uv run rate-monitor build-site \
+            --db work/rate_monitor.sqlite3 \
+            --template web/templates/site.html \
+            --out work/site-public
+          test -s work/site-public/strategy.html
+
+      - name: Record Relative Pricing evidence
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+
+          html = Path("work/site-public/strategy.html").read_text(encoding="utf-8")
+          marker = '<script id="rate-monitor-data" type="application/json">'
+          start = html.index(marker) + len(marker)
+          end = html.index("</script>", start)
+          payload = json.loads(html[start:end].replace("<\\/", "</"))
+          strategy = payload["strategy"]
+
+          availability = strategy.get("relative_pricing_availability") or {}
+          candidates = strategy.get("relative_pricing_rate_candidates")
+          relative = strategy.get("relative_pricing") or {}
+          peer_position = relative.get("pricing_peer_position") or {}
+
+          evidence = {
+              "source_sha": "${{ github.sha }}",
+              "availability": availability,
+              "rate_candidates": candidates,
+              "relative_pricing": relative,
+              "summary": {
+                  "availability_status": availability.get("status"),
+                  "active_match_keys": availability.get("active_match_keys"),
+                  "cohort_size": len(availability.get("cohort_institution_ids") or []),
+                  "candidate_institution_count": (
+                      len(candidates.get("candidate_institution_ids") or [])
+                      if isinstance(candidates, dict)
+                      else None
+                  ),
+                  "missing_rate_institution_count": (
+                      len(candidates.get("missing_rate_institution_ids") or [])
+                      if isinstance(candidates, dict)
+                      else None
+                  ),
+                  "relative_pricing_status": relative.get("status"),
+                  "relative_pricing_reason": relative.get("reason"),
+                  "pricing_peer_count": peer_position.get("pricing_peer_count"),
+                  "funding_join_count": peer_position.get("funding_join_count"),
+                  "funding_unjoined_count": peer_position.get("funding_unjoined_count"),
+              },
+          }
+          Path("work/relative-pricing-production-evidence.json").write_text(
+              json.dumps(evidence, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          print(json.dumps(evidence["summary"], ensure_ascii=False, indent=2))
+          PY
+
+      - name: Upload evidence only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: relative-pricing-production-evidence-${{ github.run_id }}
+          path: |
+            work/fsb-availability-sync.log
+            work/relative-pricing-production-evidence.json
+          if-no-files-found: warn
+          retention-days: 30
