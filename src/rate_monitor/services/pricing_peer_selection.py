@@ -69,8 +69,8 @@ def _required_text(value: object, *, field: str) -> str:
 
 
 def _required_match_key(value: object) -> str:
-    key = _required_text(value, field="availability_match_key").lower()
-    if key in UNKNOWN_SCOPE_KEYS:
+    key = _required_text(value, field="availability_match_key")
+    if key.casefold() in UNKNOWN_SCOPE_KEYS:
         raise ValueError("availability_match_key must be evidence-backed, not unknown")
     return key
 
