@@ -82,12 +82,6 @@ def inject_dashboard_search_performance(html: str) -> str:
     )
     rendered = _replace_required(
         rendered,
-        'r.prefTags ? [...r.prefTags] : []',
-        'prefTagValues(r.prefTags)',
-        "preference tag code rendering",
-    )
-    rendered = _replace_required(
-        rendered,
         'r.prefTags.forEach((code) => counts.set(code, '
         '(counts.get(code) || 0) + 1));',
         'prefTagValues(r.prefTags).forEach((code) => counts.set(code, '
