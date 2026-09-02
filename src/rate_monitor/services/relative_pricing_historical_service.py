@@ -1,13 +1,13 @@
 """Point-in-time Relative Pricing R2 historical rate foundation.
 
 R2 must not reuse current product metadata as if it had existed at a historical
-``as_of``.  This module therefore consumes explicit point-in-time evidence rows
+``as_of``. This module therefore consumes explicit point-in-time evidence rows
 and refuses to produce institution representative rates until the historical
 special-offer state is proven for every otherwise-eligible product row.
 
 The module is deliberately pure: it does not query FSB, read mutable Product
 flags from SQLite, choose geography from current institution fields, or write a
-snapshot.  Upstream evidence adapters remain responsible for proving exact
+snapshot. Upstream evidence adapters remain responsible for proving exact
 institution/product identity and official availability at the requested date.
 """
 
@@ -37,6 +37,9 @@ REASON_IDENTITY_UNPROVEN = "historical_identity_unproven"
 REASON_FUTURE_RATE = "future_rate_evidence_detected"
 REASON_SPECIAL_OFFER_UNPROVEN = "historical_special_offer_scope_unproven"
 REASON_RATE_UNAVAILABLE = "historical_rate_unavailable"
+REASON_ANCHOR_REPRESENTATIVE_UNAVAILABLE = (
+    "historical_anchor_representative_rate_unavailable"
+)
 
 _UNKNOWN_MATCH_KEYS = frozenset(
     {"", "unknown", "none", "unavailable", "미상", "자료없음"}
@@ -52,7 +55,7 @@ class HistoricalRateEvidenceRow:
     when the source supplies an individual disclosure/effective date we retain
     it and reject any value later than the snapshot.
 
-    ``special_offer_flag=None`` means *unproven*, not false.  R2 cannot collapse
+    ``special_offer_flag=None`` means *unproven*, not false. R2 cannot collapse
     that state to a normal product because doing so would silently widen the
     core pricing population.
     """
@@ -184,7 +187,7 @@ def build_historical_relative_pricing_rates(
     """Build historical representatives only from fully proven PIT evidence.
 
     The function intentionally blocks the whole representative-rate result when
-    any otherwise-eligible row has unknown historical special-offer state.  A
+    any otherwise-eligible row has unknown historical special-offer state. A
     higher-rate unknown row could otherwise alter which product becomes the
     institution representative, so silently dropping it is not safe.
     """
@@ -214,6 +217,7 @@ def build_historical_relative_pricing_rates(
     cohort_set = set(cohort)
 
     eligible: list[HistoricalRateEvidenceRow] = []
+    rate_evidence_institution_ids: set[str] = set()
     snapshot_mismatch: set[str] = set()
     identity_unproven: set[str] = set()
     future_rate: set[str] = set()
@@ -246,12 +250,17 @@ def build_historical_relative_pricing_rates(
         if row.source_effective_at is not None and row.source_effective_at > as_of:
             future_rate.add(product_id)
             continue
+
+        # The official historical query proves that a rate row existed in the
+        # snapshot even when its special-offer state is still unknown. Keep rate
+        # coverage distinct from product-scope provenance in diagnostics.
+        rate_evidence_institution_ids.add(institution_id)
         if row.special_offer_flag is None:
             special_unproven.add(product_id)
             continue
         eligible.append(row)
 
-    evidence_ids = tuple(sorted({row.institution_id for row in eligible}))
+    evidence_ids = tuple(sorted(rate_evidence_institution_ids))
     common = dict(
         as_of=as_of,
         anchor_institution_id=anchor_id,
@@ -329,6 +338,14 @@ def build_historical_relative_pricing_rates(
             retreating_sources=retreating_sources,
         )
     )
+    if anchor_id not in {row.institution_id for row in representatives}:
+        return _build_result(
+            status=HISTORICAL_BLOCKED,
+            reason=REASON_ANCHOR_REPRESENTATIVE_UNAVAILABLE,
+            candidates=candidates,
+            representatives=representatives,
+            **common,
+        )
     return _build_result(
         status=HISTORICAL_READY,
         reason=None,
