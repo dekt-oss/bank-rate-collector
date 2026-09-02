@@ -1,0 +1,253 @@
+name: Relative Pricing R2 historical evidence
+
+on:
+  push:
+    branches:
+      - "evidence/relative-pricing-r2-historical-*"
+    paths:
+      - ".github/workflows/relative-pricing-r2-historical-evidence.yml"
+  workflow_dispatch:
+
+# Evidence-only. Restores production storage to a runner-local copy and performs
+# read-only official FSB historical queries. Nothing is published or persisted.
+permissions:
+  contents: read
+
+jobs:
+  historical-evidence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Sync dependencies
+        run: uv sync --locked
+
+      - name: Restore production database into runner-local copy
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+          R2_REGION: ${{ vars.R2_REGION }}
+        run: |
+          set -euo pipefail
+          mkdir -p work
+          uv run rate-monitor storage restore --dest work/rate_monitor.sqlite3
+          test -s work/rate_monitor.sqlite3
+          echo "restored bytes=$(stat -c%s work/rate_monitor.sqlite3)"
+
+      - name: Apply migrations to runner-local copy
+        env:
+          RATE_MONITOR_DB_URL: sqlite+pysqlite:///${{ github.workspace }}/work/rate_monitor.sqlite3
+        run: uv run alembic upgrade head
+
+      - name: Audit historical FSB AREA and point-in-time identity
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          import asyncio
+          import json
+          import sqlite3
+          from datetime import date
+          from pathlib import Path
+
+          from rate_monitor.domain.enums import Sector
+          from rate_monitor.domain.identifiers import make_org_key
+          from rate_monitor.services.fsb_availability_service import (
+              AREA_CODES,
+              fetch_fsb_availability_census,
+          )
+          from rate_monitor.services.strategy_service_base import OUR_INSTITUTION_NAME
+
+          DB = Path("work/rate_monitor.sqlite3")
+          OUT = Path("work/r2-fsb-history-evidence.json")
+          TARGETS = (date(2026, 3, 31), date(2026, 8, 31))
+
+          def fsb_source_key(source_code: str) -> str:
+              return make_org_key(
+                  sector=Sector.SAVINGS_BANK,
+                  source_institution_key=source_code,
+                  institution_name="",
+              )
+
+          def exact_anchor_id(conn: sqlite3.Connection) -> str:
+              rows = conn.execute(
+                  """
+                  SELECT id
+                  FROM institutions
+                  WHERE sector = 'savings_bank'
+                    AND canonical_name = ?
+                    AND active = 1
+                  ORDER BY id
+                  """,
+                  (OUR_INSTITUTION_NAME,),
+              ).fetchall()
+              if len(rows) != 1:
+                  raise RuntimeError(
+                      f"Strategy anchor must resolve exactly once; rows={len(rows)}"
+                  )
+              return str(rows[0][0])
+
+          def link_rows(conn: sqlite3.Connection, source_key: str):
+              return conn.execute(
+                  """
+                  SELECT entity_id, match_method, valid_from, valid_to,
+                         source_entity_key, source_name
+                  FROM source_entity_links
+                  WHERE source_id = 'fsb'
+                    AND entity_type = 'institution'
+                    AND source_entity_key = ?
+                  ORDER BY COALESCE(valid_from, ''), COALESCE(valid_to, ''), entity_id
+                  """,
+                  (source_key,),
+              ).fetchall()
+
+          def point_in_time_exact(rows, target: date):
+              target_text = target.isoformat()
+              matched = []
+              for row in rows:
+                  if str(row["match_method"] or "") != "exact_code":
+                      continue
+                  valid_from = str(row["valid_from"] or "").strip()
+                  valid_to = str(row["valid_to"] or "").strip()
+                  # A missing lower bound cannot prove that a mapping existed at t.
+                  if not valid_from or valid_from > target_text:
+                      continue
+                  if valid_to and valid_to <= target_text:
+                      continue
+                  matched.append(row)
+              return matched
+
+          conn = sqlite3.connect(DB)
+          conn.row_factory = sqlite3.Row
+          try:
+              anchor_id = exact_anchor_id(conn)
+              results = []
+              for target in TARGETS:
+                  census = asyncio.run(fetch_fsb_availability_census(target))
+                  source_codes = sorted(census.memberships)
+                  mapped = {}
+                  ambiguous_identity = []
+                  unproven_identity = []
+                  for source_code in source_codes:
+                      rows = link_rows(conn, fsb_source_key(source_code))
+                      effective = point_in_time_exact(rows, target)
+                      entity_ids = sorted({str(row["entity_id"]) for row in effective})
+                      if len(entity_ids) == 1:
+                          mapped[source_code] = entity_ids[0]
+                      elif len(entity_ids) > 1:
+                          ambiguous_identity.append(source_code)
+                      else:
+                          unproven_identity.append(source_code)
+
+                  anchor_codes = sorted(
+                      code for code, entity_id in mapped.items() if entity_id == anchor_id
+                  )
+                  anchor_areas = sorted(
+                      {
+                          area
+                          for code in anchor_codes
+                          for area in census.memberships.get(code, frozenset())
+                      }
+                  )
+
+                  status = "insufficient_history"
+                  reason = None
+                  cohort_source_codes = []
+                  cohort_mapped_institution_ids = []
+                  cohort_unproven_source_codes = []
+                  if not anchor_codes:
+                      reason = "anchor_identity_not_proven_at_as_of"
+                  elif len(anchor_codes) != 1:
+                      reason = "anchor_identity_ambiguous_at_as_of"
+                  elif len(anchor_areas) != 1:
+                      reason = (
+                          "availability_match_key_unresolved"
+                          if not anchor_areas
+                          else "availability_match_key_ambiguous"
+                      )
+                  else:
+                      area = anchor_areas[0]
+                      cohort_source_codes = sorted(
+                          code
+                          for code, areas in census.memberships.items()
+                          if area in areas
+                      )
+                      cohort_unproven_source_codes = sorted(
+                          code for code in cohort_source_codes if code not in mapped
+                      )
+                      cohort_mapped_institution_ids = sorted(
+                          {mapped[code] for code in cohort_source_codes if code in mapped}
+                      )
+                      if ambiguous_identity:
+                          reason = "historical_identity_ambiguous"
+                      elif cohort_unproven_source_codes:
+                          reason = "historical_identity_incomplete"
+                      elif anchor_id not in cohort_mapped_institution_ids:
+                          reason = "anchor_missing_from_historical_cohort"
+                      else:
+                          status = "availability_identity_evidence_ready"
+
+                  area_counts = {
+                      area: sum(
+                          1 for areas in census.memberships.values() if area in areas
+                      )
+                      for area in AREA_CODES
+                  }
+                  results.append(
+                      {
+                          "as_of": target.isoformat(),
+                          "census_institution_count": census.institution_count,
+                          "census_product_count": census.product_count,
+                          "area_institution_counts": area_counts,
+                          "point_in_time_exact_identity_mapped_count": len(mapped),
+                          "point_in_time_identity_unproven_count": len(unproven_identity),
+                          "point_in_time_identity_ambiguous_count": len(ambiguous_identity),
+                          "anchor_institution_id": anchor_id,
+                          "anchor_source_codes": anchor_codes,
+                          "anchor_areas": anchor_areas,
+                          "cohort_source_code_count": len(cohort_source_codes),
+                          "cohort_mapped_institution_count": len(cohort_mapped_institution_ids),
+                          "cohort_unproven_source_codes": cohort_unproven_source_codes,
+                          "status": status,
+                          "reason": reason,
+                      }
+                  )
+
+              evidence = {
+                  "contract": {
+                      "source": "FSB ratedepo official AREA census",
+                      "identity": "source_entity_links exact_code effective at as_of",
+                      "current_identity_carryback": False,
+                      "current_availability_carryback": False,
+                      "production_write": False,
+                  },
+                  "targets": results,
+              }
+              OUT.write_text(
+                  json.dumps(evidence, ensure_ascii=False, indent=2),
+                  encoding="utf-8",
+              )
+              print(OUT.read_text(encoding="utf-8"))
+          finally:
+              conn.close()
+          PY
+
+      - name: Upload R2 historical evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: relative-pricing-r2-historical-${{ github.run_id }}
+          path: work/r2-fsb-history-evidence.json
+          retention-days: 30
+          if-no-files-found: error
