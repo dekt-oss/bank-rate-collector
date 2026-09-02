@@ -152,7 +152,8 @@ def build_census_from_rows(
         for institution in all_institutions
     }
     no_area = sorted(
-        institution for institution, memberships in institution_memberships.items()
+        institution
+        for institution, memberships in institution_memberships.items()
         if not memberships
     )
     if no_area:
@@ -223,7 +224,11 @@ async def _fetch_area_rows(
             raise AvailabilityCensusError(
                 f"FSB REC contains non-object row for area={area_code!r}"
             )
-        total = fsb_parser.total_count(payload)
+
+        # FSB는 0건 응답에서 CNT를 실어 줄 행 자체가 없다. 2026-09-01 공식
+        # evidence의 YN_Saejong이 이 형태였다. 첫 페이지의 빈 REC만 정상 0건으로
+        # 인정한다. 이미 paging 중이었다면 조기 종료이므로 아래 CNT mismatch가 잡는다.
+        total = 0 if not page_rows and start == 1 else fsb_parser.total_count(payload)
         if total is None:
             raise AvailabilityCensusError(
                 f"FSB response lost CNT for area={area_code!r}"
@@ -312,7 +317,8 @@ def _resolve_fsb_institutions(
         institution = session.get(Institution, link.entity_id)
         if institution is None or institution.sector != Sector.SAVINGS_BANK:
             raise AvailabilityCensusError(
-                f"FSB institution link points outside savings-bank canonical identity: {source_key}"
+                "FSB institution link points outside savings-bank canonical identity: "
+                f"{source_key}"
             )
         resolved[source_code] = institution.id
     return resolved
