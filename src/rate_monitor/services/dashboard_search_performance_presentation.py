@@ -1,3 +1,4 @@
+# ruff: noqa: E501
 """Search 초기 로딩의 전송량과 per-row 우대조건 파싱 비용을 줄인다.
 
 `preference_tags`는 공백 구분 canonical 코드 문자열이다. 필터 의미는 유지하면서
@@ -32,22 +33,29 @@ def inject_dashboard_search_performance(html: str) -> str:
         : (look("preference_tags", r[col.preference_tags]) || ""),'''
     rendered = _replace_required(rendered, old_tags, new_tags, "row preference tags")
 
-    helper_anchor = '''  fetch(data.table_url || "data/table.json")'''
-    helpers = '''  // search-pref-tags-lazy-v2: 행마다 Set을 만들지 않고 lookup에서 코드 목록을 만든다.
+    loader_anchor = '''  fetch(data.table_url || "data/table.json")
+    .then((res) => {
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return res.json();
+    })'''
+    loader = '''  // search-pref-tags-lazy-v2: 행마다 Set을 만들지 않고 lookup에서 코드 목록을 만든다.
   const prefTagValues = (raw) => raw ? String(raw).split(" ").filter(Boolean) : [];
   const prefTagHas = (raw, code) => raw ? (` ${raw} `).includes(` ${code} `) : false;
+  const tableUrl = data.table_url || "data/table.json";
+  const tableGzipUrl = `${tableUrl}.gz`;
   const loadPlainTable = async () => {
-    const res = await fetch(data.table_url || "data/table.json");
+    const res = await fetch(tableUrl);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return res.json();
   };
   const loadTable = async () => {
-    if (!data.table_gzip_url || !("DecompressionStream" in window)) {
-      return loadPlainTable();
-    }
+    if (!("DecompressionStream" in window)) return loadPlainTable();
     try {
-      const res = await fetch(data.table_gzip_url);
-      if (!res.ok || !res.body) throw new Error(`gzip HTTP ${res.status}`);
+      const res = await fetch(tableGzipUrl);
+      if (!res.ok) throw new Error(`gzip HTTP ${res.status}`);
+      const encoded = (res.headers.get("content-encoding") || "").toLowerCase();
+      if (encoded.includes("gzip")) return res.json();
+      if (!res.body) throw new Error("gzip response body missing");
       const stream = res.body.pipeThrough(new DecompressionStream("gzip"));
       return new Response(stream).json();
     } catch (error) {
@@ -59,8 +67,8 @@ def inject_dashboard_search_performance(html: str) -> str:
   loadTable()'''
     rendered = _replace_required(
         rendered,
-        helper_anchor,
-        helpers,
+        loader_anchor,
+        loader,
         "compressed table loader",
     )
 
