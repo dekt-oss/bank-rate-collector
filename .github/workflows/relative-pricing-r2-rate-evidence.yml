@@ -1,0 +1,429 @@
+name: Relative Pricing R2 historical rate evidence
+
+on:
+  push:
+    branches:
+      - "evidence/relative-pricing-r2-rate-*"
+    paths:
+      - ".github/workflows/relative-pricing-r2-rate-evidence.yml"
+  workflow_dispatch:
+
+# Evidence-only. Official historical FSB rows and a runner-local production
+# snapshot are read without persisting or publishing historical observations.
+permissions:
+  contents: read
+
+jobs:
+  historical-rate-evidence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Sync dependencies
+        run: uv sync --locked
+
+      - name: Restore production database into runner-local copy
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+          R2_REGION: ${{ vars.R2_REGION }}
+        run: |
+          set -euo pipefail
+          mkdir -p work
+          uv run rate-monitor storage restore --dest work/rate_monitor.sqlite3
+          test -s work/rate_monitor.sqlite3
+          echo "restored bytes=$(stat -c%s work/rate_monitor.sqlite3)"
+
+      - name: Apply migrations to runner-local copy
+        env:
+          RATE_MONITOR_DB_URL: sqlite+pysqlite:///${{ github.workspace }}/work/rate_monitor.sqlite3
+        run: uv run alembic upgrade head
+
+      - name: Audit 2026-08-31 historical rate and product identity
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          import asyncio
+          import json
+          import sqlite3
+          from collections import defaultdict
+          from datetime import date
+          from decimal import Decimal
+          from pathlib import Path
+
+          import httpx
+
+          from rate_monitor.collectors.fsb import parser as fsb_parser
+          from rate_monitor.collectors.fsb.adapter import (
+              BASE_URL,
+              CONNECT_TIMEOUT,
+              READ_TIMEOUT,
+              REQUEST_INTERVAL_SECONDS,
+              USER_AGENT,
+              FsbAdapter,
+          )
+          from rate_monitor.domain.enums import Sector, ValidationStatus
+          from rate_monitor.domain.identifiers import make_org_key
+          from rate_monitor.services.fsb_availability_service import (
+              SCREEN_PATH,
+              _fetch_area_rows,
+              fetch_fsb_availability_census,
+          )
+          from rate_monitor.services.strategy_service_base import OUR_INSTITUTION_NAME
+
+          TARGET = date(2026, 8, 31)
+          TARGET_TEXT = TARGET.isoformat()
+          DB = Path("work/rate_monitor.sqlite3")
+          OUT = Path("work/r2-historical-rate-evidence.json")
+          NETWORK_ATTEMPTS = 3
+          NETWORK_RETRY_SECONDS = (2.0, 4.0)
+
+          def write_evidence(payload: dict) -> None:
+              OUT.write_text(
+                  json.dumps(payload, ensure_ascii=False, indent=2),
+                  encoding="utf-8",
+              )
+              print(OUT.read_text(encoding="utf-8"))
+
+          async def retry_network(label, operation):
+              last_error = None
+              for attempt in range(1, NETWORK_ATTEMPTS + 1):
+                  try:
+                      return await operation()
+                  except (httpx.TimeoutException, httpx.NetworkError) as exc:
+                      last_error = exc
+                      print(
+                          f"{label} network attempt {attempt}/{NETWORK_ATTEMPTS} "
+                          f"failed: {type(exc).__name__}: {exc}"
+                      )
+                      if attempt < NETWORK_ATTEMPTS:
+                          await asyncio.sleep(NETWORK_RETRY_SECONDS[attempt - 1])
+              assert last_error is not None
+              raise last_error
+
+          def fsb_source_key(source_code: str) -> str:
+              return make_org_key(
+                  sector=Sector.SAVINGS_BANK,
+                  source_institution_key=source_code,
+                  institution_name="",
+              )
+
+          def effective_exact_links(
+              conn: sqlite3.Connection,
+              *,
+              entity_type: str,
+              source_entity_key: str,
+          ):
+              rows = conn.execute(
+                  """
+                  SELECT entity_id, match_method, valid_from, valid_to, source_name
+                  FROM source_entity_links
+                  WHERE source_id = 'fsb'
+                    AND entity_type = ?
+                    AND source_entity_key = ?
+                  ORDER BY COALESCE(valid_from, ''), COALESCE(valid_to, ''), entity_id
+                  """,
+                  (entity_type, source_entity_key),
+              ).fetchall()
+              effective = []
+              for row in rows:
+                  if str(row["match_method"] or "") != "exact_code":
+                      continue
+                  valid_from = str(row["valid_from"] or "").strip()
+                  valid_to = str(row["valid_to"] or "").strip()
+                  if not valid_from or valid_from > TARGET_TEXT:
+                      continue
+                  if valid_to and valid_to <= TARGET_TEXT:
+                      continue
+                  effective.append(row)
+              return effective
+
+          async def official_rows():
+              timeout = httpx.Timeout(READ_TIMEOUT, connect=CONNECT_TIMEOUT)
+              headers = {
+                  "User-Agent": USER_AGENT,
+                  "Content-Type": "application/json",
+              }
+              adapter = FsbAdapter()
+              async with httpx.AsyncClient(
+                  timeout=timeout,
+                  follow_redirects=True,
+                  headers=headers,
+              ) as client:
+                  page = await client.get(f"{BASE_URL}{SCREEN_PATH}")
+                  page.raise_for_status()
+                  await asyncio.sleep(REQUEST_INTERVAL_SECONDS)
+                  return await _fetch_area_rows(client, adapter, TARGET, "")
+
+          async def fetch_official_inputs():
+              census = await retry_network(
+                  "FSB historical AREA census",
+                  lambda: fetch_fsb_availability_census(TARGET),
+              )
+              raw_rows = await retry_network(
+                  "FSB historical ratedepo",
+                  official_rows,
+              )
+              return census, raw_rows
+
+          try:
+              census, raw_rows = asyncio.run(fetch_official_inputs())
+          except (httpx.TimeoutException, httpx.NetworkError) as exc:
+              write_evidence(
+                  {
+                      "as_of": TARGET_TEXT,
+                      "evidence_status": "network_unavailable",
+                      "network": {
+                          "attempts": NETWORK_ATTEMPTS,
+                          "error_type": type(exc).__name__,
+                          "error": str(exc),
+                      },
+                      "contract": {
+                          "official_rate_source": "FSB ratedepo",
+                          "current_rate_carryback": False,
+                          "production_write": False,
+                      },
+                      "r2_rate_gate": "blocked",
+                      "r2_rate_gate_reason": "official_source_network_unavailable",
+                  }
+              )
+              raise SystemExit(2)
+
+          parsed, warnings = fsb_parser.parse(
+              {"REC": raw_rows},
+              screen="ratedepo",
+              area="",
+              branches=None,
+              only_terms=(12,),
+          )
+
+          conn = sqlite3.connect(DB)
+          conn.row_factory = sqlite3.Row
+          try:
+              anchor_rows = conn.execute(
+                  """
+                  SELECT id
+                  FROM institutions
+                  WHERE sector = 'savings_bank'
+                    AND canonical_name = ?
+                    AND active = 1
+                  ORDER BY id
+                  """,
+                  (OUR_INSTITUTION_NAME,),
+              ).fetchall()
+              if len(anchor_rows) != 1:
+                  raise RuntimeError(
+                      f"Strategy anchor must resolve exactly once; rows={len(anchor_rows)}"
+                  )
+              anchor_id = str(anchor_rows[0]["id"])
+
+              source_to_institution = {}
+              for source_code in sorted(census.memberships):
+                  links = effective_exact_links(
+                      conn,
+                      entity_type="institution",
+                      source_entity_key=fsb_source_key(source_code),
+                  )
+                  entity_ids = sorted({str(row["entity_id"]) for row in links})
+                  if len(entity_ids) == 1:
+                      source_to_institution[source_code] = entity_ids[0]
+
+              anchor_codes = sorted(
+                  code
+                  for code, institution_id in source_to_institution.items()
+                  if institution_id == anchor_id
+              )
+              if len(anchor_codes) != 1:
+                  raise RuntimeError(
+                      f"historical anchor source code unresolved: {anchor_codes}"
+                  )
+              anchor_code = anchor_codes[0]
+              anchor_areas = sorted(census.memberships[anchor_code])
+              if len(anchor_areas) != 1:
+                  raise RuntimeError(
+                      f"historical anchor availability ambiguous: {anchor_areas}"
+                  )
+              anchor_area = anchor_areas[0]
+              cohort_source_codes = sorted(
+                  code
+                  for code, areas in census.memberships.items()
+                  if anchor_area in areas
+              )
+              cohort_ids = {
+                  source_to_institution[code]
+                  for code in cohort_source_codes
+                  if code in source_to_institution
+              }
+
+              usable = []
+              future_source_effective = []
+              missing_product_link = []
+              ambiguous_product_link = []
+              current_special_flags = []
+              source_rows_by_institution = defaultdict(int)
+              product_ids_by_institution = defaultdict(set)
+
+              for row in parsed:
+                  source_code = str(row.source_institution_key or "")
+                  if source_code not in cohort_source_codes:
+                      continue
+                  if row.validation_status == ValidationStatus.ERROR:
+                      continue
+                  if row.max_rate is None:
+                      continue
+                  if row.source_effective_at is not None and row.source_effective_at > TARGET:
+                      future_source_effective.append(row.source_row_ref)
+                      continue
+                  institution_id = source_to_institution.get(source_code)
+                  if institution_id is None:
+                      continue
+                  product_code = str(row.source_product_key or "")
+                  if not product_code:
+                      missing_product_link.append(row.source_row_ref)
+                      continue
+                  product_key = f"{institution_id}:{product_code}"
+                  links = effective_exact_links(
+                      conn,
+                      entity_type="product",
+                      source_entity_key=product_key,
+                  )
+                  product_ids = sorted({str(link["entity_id"]) for link in links})
+                  if not product_ids:
+                      missing_product_link.append(row.source_row_ref)
+                      continue
+                  if len(product_ids) != 1:
+                      ambiguous_product_link.append(row.source_row_ref)
+                      continue
+                  product_id = product_ids[0]
+                  product = conn.execute(
+                      """
+                      SELECT id, is_special_sale, sale_start, sale_end,
+                             first_seen_at, last_seen_at
+                      FROM products
+                      WHERE id = ?
+                      """,
+                      (product_id,),
+                  ).fetchone()
+                  if product is None:
+                      missing_product_link.append(row.source_row_ref)
+                      continue
+                  if bool(product["is_special_sale"]):
+                      current_special_flags.append(
+                          {
+                              "source_row_ref": row.source_row_ref,
+                              "product_id": product_id,
+                              "sale_start": product["sale_start"],
+                              "sale_end": product["sale_end"],
+                          }
+                      )
+                  usable.append(
+                      {
+                          "institution_id": institution_id,
+                          "source_institution_key": source_code,
+                          "product_id": product_id,
+                          "source_product_key": product_code,
+                          "join_channel": str(row.join_channel),
+                          "interest_method": str(row.interest_method),
+                          "rate_pct": str(row.max_rate),
+                          "source_effective_at": (
+                              row.source_effective_at.isoformat()
+                              if row.source_effective_at is not None
+                              else None
+                          ),
+                          "validation_status": str(row.validation_status),
+                      }
+                  )
+                  source_rows_by_institution[institution_id] += 1
+                  product_ids_by_institution[institution_id].add(product_id)
+
+              raw_max_by_institution = {}
+              for item in usable:
+                  institution_id = item["institution_id"]
+                  rate = Decimal(item["rate_pct"])
+                  current = raw_max_by_institution.get(institution_id)
+                  if current is None or rate > current:
+                      raw_max_by_institution[institution_id] = rate
+
+              rate_institution_ids = sorted(raw_max_by_institution)
+              missing_rate_ids = sorted(cohort_ids - set(rate_institution_ids))
+              anchor_raw_max = raw_max_by_institution.get(anchor_id)
+
+              # FSB is the primary official savings-bank source and the configured
+              # retreating duplicate source is finlife_savings_bank. A usable FSB
+              # historical candidate proves primary coverage for that institution.
+              retreating_sources = ["finlife_savings_bank"]
+              source_precedence_primary_coverage = len(rate_institution_ids)
+
+              # Product.is_special_sale is mutable/current state. It is measured
+              # only as a diagnostic and never promoted to historical truth.
+              special_offer_temporal_status = "unproven"
+
+              result = {
+                  "as_of": TARGET_TEXT,
+                  "evidence_status": "source_read_complete",
+                  "contract": {
+                      "official_rate_source": "FSB ratedepo",
+                      "rate_term_months": 12,
+                      "rate_field": "max_rate",
+                      "current_rate_carryback": False,
+                      "future_source_effective_allowed": False,
+                      "institution_identity": "exact_code effective at as_of",
+                      "product_identity": "exact_code effective at as_of",
+                      "source_precedence": {
+                          "primary": "fsb",
+                          "retreating": retreating_sources,
+                      },
+                      "special_offer_current_flag_carryback": False,
+                      "production_write": False,
+                  },
+                  "official_raw_product_rows": len(raw_rows),
+                  "parsed_12m_rows": len(parsed),
+                  "parser_warning_count": len(warnings),
+                  "availability_area": anchor_area,
+                  "cohort_source_code_count": len(cohort_source_codes),
+                  "cohort_institution_count": len(cohort_ids),
+                  "usable_historical_rate_rows": len(usable),
+                  "historical_rate_institution_count": len(rate_institution_ids),
+                  "historical_rate_missing_institution_count": len(missing_rate_ids),
+                  "historical_rate_missing_institution_ids": missing_rate_ids,
+                  "future_source_effective_row_count": len(future_source_effective),
+                  "product_link_missing_row_count": len(missing_product_link),
+                  "product_link_ambiguous_row_count": len(ambiguous_product_link),
+                  "source_precedence_primary_coverage": source_precedence_primary_coverage,
+                  "anchor_raw_fsb_max_rate_pct_unfiltered": (
+                      str(anchor_raw_max) if anchor_raw_max is not None else None
+                  ),
+                  "current_special_flagged_candidate_row_count": len(current_special_flags),
+                  "special_offer_temporal_status": special_offer_temporal_status,
+                  "special_offer_reason": (
+                      "FSB historical parsed rows do not carry a versioned special-offer "
+                      "classification and Product.is_special_sale is current mutable state"
+                  ),
+                  "r2_rate_gate": "blocked",
+                  "r2_rate_gate_reason": "historical_special_offer_scope_unproven",
+              }
+              write_evidence(result)
+          finally:
+              conn.close()
+          PY
+
+      - name: Upload R2 historical rate evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: relative-pricing-r2-rate-${{ github.run_id }}
+          path: work/r2-historical-rate-evidence.json
+          retention-days: 30
+          if-no-files-found: error
