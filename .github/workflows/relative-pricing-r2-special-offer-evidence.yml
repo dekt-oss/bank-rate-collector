@@ -1,0 +1,279 @@
+name: Relative Pricing R2 historical special-offer evidence
+
+on:
+  push:
+    branches:
+      - "evidence/relative-pricing-r2-rate-*"
+    paths:
+      - ".github/workflows/relative-pricing-r2-special-offer-evidence.yml"
+  workflow_dispatch:
+
+# Evidence-only. Reads an official historical FSB response plus a runner-local
+# production snapshot. It does not infer or persist historical special-offer state.
+permissions:
+  contents: read
+
+jobs:
+  special-offer-evidence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Sync dependencies
+        run: uv sync --locked
+
+      - name: Restore production database into runner-local copy
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+          R2_REGION: ${{ vars.R2_REGION }}
+        run: |
+          set -euo pipefail
+          mkdir -p work
+          uv run rate-monitor storage restore --dest work/rate_monitor.sqlite3
+          test -s work/rate_monitor.sqlite3
+
+      - name: Apply migrations to runner-local copy
+        env:
+          RATE_MONITOR_DB_URL: sqlite+pysqlite:///${{ github.workspace }}/work/rate_monitor.sqlite3
+        run: uv run alembic upgrade head
+
+      - name: Audit historical special-offer provenance
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          import asyncio
+          import json
+          import sqlite3
+          from collections import Counter, defaultdict
+          from datetime import date
+          from pathlib import Path
+
+          import httpx
+
+          from rate_monitor.collectors.fsb.adapter import (
+              BASE_URL,
+              CONNECT_TIMEOUT,
+              READ_TIMEOUT,
+              REQUEST_INTERVAL_SECONDS,
+              USER_AGENT,
+              FsbAdapter,
+          )
+          from rate_monitor.services.fsb_availability_service import SCREEN_PATH, _fetch_area_rows
+
+          TARGET = date(2026, 8, 31)
+          TARGET_TEXT = TARGET.isoformat()
+          DB = Path("work/rate_monitor.sqlite3")
+          OUT = Path("work/r2-historical-special-offer-evidence.json")
+          NETWORK_ATTEMPTS = 3
+          NETWORK_RETRY_SECONDS = (2.0, 4.0)
+          EXPLICIT_FIELD_TOKENS = ("SPECIAL", "SALE", "EVENT", "PROMO")
+          TEXT_FIELDS = ("PRODUCT_NAME", "SWEETENER", "ETC_NOTE_MATTER", "JOIN_TARGET")
+          TEXT_SIGNALS = ("특판", "특별", "한정", "소진", "선착순", "판매기간", "이벤트", "프로모션")
+
+          def write(payload: dict) -> None:
+              OUT.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+              print(OUT.read_text(encoding="utf-8"))
+
+          async def official_rows():
+              timeout = httpx.Timeout(READ_TIMEOUT, connect=CONNECT_TIMEOUT)
+              headers = {"User-Agent": USER_AGENT, "Content-Type": "application/json"}
+              adapter = FsbAdapter()
+              async with httpx.AsyncClient(
+                  timeout=timeout,
+                  follow_redirects=True,
+                  headers=headers,
+              ) as client:
+                  page = await client.get(f"{BASE_URL}{SCREEN_PATH}")
+                  page.raise_for_status()
+                  await asyncio.sleep(REQUEST_INTERVAL_SECONDS)
+                  return await _fetch_area_rows(client, adapter, TARGET, "")
+
+          async def fetch_with_retry():
+              last_error = None
+              for attempt in range(1, NETWORK_ATTEMPTS + 1):
+                  try:
+                      return await official_rows()
+                  except (httpx.TimeoutException, httpx.NetworkError) as exc:
+                      last_error = exc
+                      print(
+                          f"FSB special-offer evidence attempt {attempt}/{NETWORK_ATTEMPTS} "
+                          f"failed: {type(exc).__name__}: {exc}"
+                      )
+                      if attempt < NETWORK_ATTEMPTS:
+                          await asyncio.sleep(NETWORK_RETRY_SECONDS[attempt - 1])
+              assert last_error is not None
+              raise last_error
+
+          try:
+              raw_rows = asyncio.run(fetch_with_retry())
+          except (httpx.TimeoutException, httpx.NetworkError) as exc:
+              write(
+                  {
+                      "as_of": TARGET_TEXT,
+                      "evidence_status": "network_unavailable",
+                      "network": {
+                          "attempts": NETWORK_ATTEMPTS,
+                          "error_type": type(exc).__name__,
+                          "error": str(exc),
+                      },
+                      "historical_special_offer_gate": "blocked",
+                      "historical_special_offer_gate_reason": "official_source_network_unavailable",
+                      "production_write": False,
+                  }
+              )
+              raise SystemExit(2)
+
+          field_names = sorted({str(key) for row in raw_rows for key in row})
+          explicit_field_candidates = sorted(
+              field
+              for field in field_names
+              if any(token in field.upper() for token in EXPLICIT_FIELD_TOKENS)
+          )
+
+          text_signal_counts = Counter()
+          signal_field_counts = defaultdict(Counter)
+          signaled_rows = 0
+          for row in raw_rows:
+              row_signaled = False
+              for field in TEXT_FIELDS:
+                  value = str(row.get(field) or "")
+                  for signal in TEXT_SIGNALS:
+                      if signal in value:
+                          text_signal_counts[signal] += 1
+                          signal_field_counts[field][signal] += 1
+                          row_signaled = True
+              if row_signaled:
+                  signaled_rows += 1
+
+          conn = sqlite3.connect(DB)
+          conn.row_factory = sqlite3.Row
+          try:
+              all_products = conn.execute(
+                  """
+                  SELECT COUNT(*) AS total,
+                         SUM(CASE WHEN is_special_sale = 1 THEN 1 ELSE 0 END) AS special_count,
+                         SUM(CASE WHEN sale_start IS NOT NULL THEN 1 ELSE 0 END) AS sale_start_count,
+                         SUM(CASE WHEN sale_end IS NOT NULL THEN 1 ELSE 0 END) AS sale_end_count
+                  FROM products
+                  """
+              ).fetchone()
+
+              fsb_current = conn.execute(
+                  """
+                  SELECT COUNT(DISTINCT p.id) AS total,
+                         COUNT(DISTINCT CASE WHEN p.is_special_sale = 1 THEN p.id END) AS special_count,
+                         COUNT(DISTINCT CASE WHEN p.sale_start IS NOT NULL THEN p.id END) AS sale_start_count,
+                         COUNT(DISTINCT CASE WHEN p.sale_end IS NOT NULL THEN p.id END) AS sale_end_count,
+                         COUNT(DISTINCT CASE WHEN sel.source_payload_json IS NOT NULL THEN p.id END) AS payload_count
+                  FROM source_entity_links sel
+                  JOIN products p ON p.id = sel.entity_id
+                  WHERE sel.source_id = 'fsb'
+                    AND sel.entity_type = 'product'
+                    AND sel.valid_to IS NULL
+                  """
+              ).fetchone()
+
+              fsb_asof = conn.execute(
+                  """
+                  SELECT COUNT(DISTINCT p.id) AS total,
+                         COUNT(DISTINCT CASE WHEN p.is_special_sale = 1 THEN p.id END) AS current_special_count,
+                         COUNT(DISTINCT CASE WHEN p.sale_start IS NOT NULL THEN p.id END) AS current_sale_start_count,
+                         COUNT(DISTINCT CASE WHEN p.sale_end IS NOT NULL THEN p.id END) AS current_sale_end_count
+                  FROM source_entity_links sel
+                  JOIN products p ON p.id = sel.entity_id
+                  WHERE sel.source_id = 'fsb'
+                    AND sel.entity_type = 'product'
+                    AND sel.match_method = 'exact_code'
+                    AND sel.valid_from IS NOT NULL
+                    AND sel.valid_from <= ?
+                    AND (sel.valid_to IS NULL OR sel.valid_to > ?)
+                  """,
+                  (TARGET_TEXT, TARGET_TEXT),
+              ).fetchone()
+
+              by_source = conn.execute(
+                  """
+                  SELECT sel.source_id,
+                         COUNT(DISTINCT p.id) AS linked_products,
+                         COUNT(DISTINCT CASE WHEN p.is_special_sale = 1 THEN p.id END) AS special_products,
+                         COUNT(DISTINCT CASE WHEN p.sale_start IS NOT NULL THEN p.id END) AS sale_start_products,
+                         COUNT(DISTINCT CASE WHEN p.sale_end IS NOT NULL THEN p.id END) AS sale_end_products
+                  FROM source_entity_links sel
+                  JOIN products p ON p.id = sel.entity_id
+                  WHERE sel.entity_type = 'product'
+                    AND sel.valid_to IS NULL
+                  GROUP BY sel.source_id
+                  ORDER BY sel.source_id
+                  """
+              ).fetchall()
+          finally:
+              conn.close()
+
+          source_recon_fields = {
+              "availability_or_disclosure_dates": [
+                  field
+                  for field in ("START_DATE", "SUBMIT_MONTH", "FINAN_COMP_SUBMIT_DATE", "CHG_DATE", "REG_DATE")
+                  if field in field_names
+              ],
+              "conditions": [
+                  field
+                  for field in ("SWEETENER", "ETC_NOTE_MATTER", "JOIN_TARGET")
+                  if field in field_names
+              ],
+          }
+
+          result = {
+              "as_of": TARGET_TEXT,
+              "evidence_status": "source_and_db_census_complete",
+              "official_raw_product_rows": len(raw_rows),
+              "official_raw_field_count": len(field_names),
+              "official_raw_field_names": field_names,
+              "explicit_special_field_candidates": explicit_field_candidates,
+              "source_recon_interpreted_fields": source_recon_fields,
+              "text_signal_row_count": signaled_rows,
+              "text_signal_counts": dict(sorted(text_signal_counts.items())),
+              "text_signal_field_counts": {
+                  field: dict(sorted(counts.items()))
+                  for field, counts in sorted(signal_field_counts.items())
+              },
+              "text_signal_contract": "diagnostic_only_not_classification",
+              "database": {
+                  "all_products": dict(all_products),
+                  "fsb_current_linked_products": dict(fsb_current),
+                  "fsb_asof_exact_linked_products": dict(fsb_asof),
+                  "active_product_flags_by_source": [dict(row) for row in by_source],
+              },
+              "historical_special_offer_gate": "blocked",
+              "historical_special_offer_gate_reason": (
+                  "no_versioned_explicit_fsb_special_offer_field"
+                  if not explicit_field_candidates
+                  else "source_field_semantics_not_proven"
+              ),
+              "current_product_flag_carryback": False,
+              "text_heuristic_promotion_allowed": False,
+              "production_write": False,
+          }
+          write(result)
+          PY
+
+      - name: Upload R2 historical special-offer evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: relative-pricing-r2-special-offer-${{ github.run_id }}
+          path: work/r2-historical-special-offer-evidence.json
+          retention-days: 30
+          if-no-files-found: error
