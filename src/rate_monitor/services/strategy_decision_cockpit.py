@@ -27,6 +27,9 @@ from rate_monitor.services.public_structural_v2_cockpit_presentation import (
 from rate_monitor.services.public_structural_v2_cockpit_visual_refinement import (
     inject_public_structural_v2_cockpit_visual_refinement,
 )
+from rate_monitor.services.special_offer_radar_presentation import (
+    inject_special_offer_radar_presentation,
+)
 from rate_monitor.services.strategy_decision_evidence_refinement_presentation import (
     inject_strategy_decision_evidence_refinement,
 )
@@ -155,6 +158,8 @@ def inject_strategy_decision_cockpit(html: str) -> str:
     if 'id="market-flow"' in rendered:
         rendered = inject_market_intelligence_presentation(rendered)
         rendered = inject_external_market_context_presentation(rendered)
+        if 'id="rate-monitor-data"' in rendered:
+            rendered = inject_special_offer_radar_presentation(rendered)
     if 'class="grid interpretation"' in rendered:
         rendered = inject_preference_intelligence_presentation(rendered)
     if (
