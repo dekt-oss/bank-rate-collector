@@ -1,0 +1,322 @@
+name: Relative Pricing R2 FSB product-scope evidence
+
+on:
+  push:
+    branches:
+      - "evidence/relative-pricing-r2-product-scope-*"
+    paths:
+      - ".github/workflows/relative-pricing-r2-product-scope-evidence.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  product-scope-evidence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Sync dependencies
+        run: uv sync --locked
+
+      - name: Inspect official FSB lifecycle fields and screen code
+        run: |
+          set -euo pipefail
+          mkdir -p work
+          uv run python - <<'PY'
+          import asyncio
+          import html
+          import json
+          import re
+          from collections import Counter, defaultdict
+          from datetime import date, datetime
+          from pathlib import Path
+          from urllib.parse import urljoin, urlparse
+
+          import httpx
+
+          from rate_monitor.collectors.fsb.adapter import (
+              BASE_URL,
+              CONNECT_TIMEOUT,
+              READ_TIMEOUT,
+              REQUEST_INTERVAL_SECONDS,
+              USER_AGENT,
+              FsbAdapter,
+          )
+          from rate_monitor.services.fsb_availability_service import (
+              SCREEN_PATH,
+              _fetch_area_rows,
+          )
+
+          OUT = Path("work/r2-fsb-product-scope-evidence.json")
+          QUERY_DATES = (
+              date(2026, 7, 31),
+              date(2026, 8, 15),
+              date(2026, 8, 30),
+              date(2026, 8, 31),
+              date(2026, 9, 1),
+          )
+          FIELDS = (
+              "STATUS",
+              "START_DATE",
+              "FINISH_DATE",
+              "REG_DATE",
+              "CHG_DATE",
+              "FINAN_COMP_SUBMIT_DATE",
+              "SUBMIT_MONTH",
+          )
+          TOKENS = ("STATUS", "START_DATE", "FINISH_DATE")
+          MAX_JS_SNIPPETS_PER_TOKEN = 12
+          MAX_TRANSITION_SAMPLES = 80
+
+          def clean(value):
+              return str(value or "").strip()
+
+          def parse_source_date(value):
+              text = clean(value)
+              if not text:
+                  return None
+              compact = re.sub(r"[^0-9]", "", text)
+              candidates = []
+              if len(compact) >= 8:
+                  candidates.append(compact[:8])
+              for candidate in candidates:
+                  try:
+                      return datetime.strptime(candidate, "%Y%m%d").date()
+                  except ValueError:
+                      pass
+              try:
+                  return date.fromisoformat(text[:10])
+              except ValueError:
+                  return None
+
+          def product_key(row):
+              return f"{clean(row.get('FINAN_COMP_CODE'))}:{clean(row.get('FINAN_PROD_CODE'))}"
+
+          def public_row(row):
+              return {
+                  "product_key": product_key(row),
+                  "bank_name": clean(row.get("BANK_NAME")),
+                  "product_name": clean(row.get("PRODUCT_NAME")),
+                  "status": clean(row.get("STATUS")) or None,
+                  "start_date": clean(row.get("START_DATE")) or None,
+                  "finish_date": clean(row.get("FINISH_DATE")) or None,
+                  "reg_date": clean(row.get("REG_DATE")) or None,
+                  "chg_date": clean(row.get("CHG_DATE")) or None,
+                  "submit_date": clean(row.get("FINAN_COMP_SUBMIT_DATE")) or None,
+                  "submit_month": clean(row.get("SUBMIT_MONTH")) or None,
+                  "sweetener": clean(row.get("SWEETENER")) or None,
+                  "etc_note_matter": clean(row.get("ETC_NOTE_MATTER")) or None,
+                  "join_target": clean(row.get("JOIN_TARGET")) or None,
+              }
+
+          def profile_field(rows, field):
+              values = [clean(row.get(field)) for row in rows]
+              populated = [value for value in values if value]
+              parsed = [parse_source_date(value) for value in populated]
+              parsed = [value for value in parsed if value is not None]
+              return {
+                  "populated_count": len(populated),
+                  "blank_count": len(values) - len(populated),
+                  "unique_count": len(set(populated)),
+                  "value_counts": dict(Counter(populated).most_common(40)),
+                  "parseable_date_count": len(parsed),
+                  "date_min": min(parsed).isoformat() if parsed else None,
+                  "date_max": max(parsed).isoformat() if parsed else None,
+              }
+
+          async def fetch_rows(client, adapter, query_date):
+              await client.get(f"{BASE_URL}{SCREEN_PATH}")
+              await asyncio.sleep(REQUEST_INTERVAL_SECONDS)
+              return await _fetch_area_rows(client, adapter, query_date, "")
+
+          async def collect():
+              timeout = httpx.Timeout(READ_TIMEOUT, connect=CONNECT_TIMEOUT)
+              headers = {"User-Agent": USER_AGENT, "Content-Type": "application/json"}
+              adapter = FsbAdapter()
+              snapshots = {}
+              screen_html = ""
+              scripts = {}
+              async with httpx.AsyncClient(
+                  timeout=timeout,
+                  follow_redirects=True,
+                  headers=headers,
+              ) as client:
+                  screen = await client.get(f"{BASE_URL}{SCREEN_PATH}")
+                  screen.raise_for_status()
+                  screen_html = screen.text
+                  for query_date in QUERY_DATES:
+                      rows = await fetch_rows(client, adapter, query_date)
+                      snapshots[query_date.isoformat()] = rows
+                      await asyncio.sleep(REQUEST_INTERVAL_SECONDS)
+
+                  script_srcs = sorted(set(re.findall(
+                      r'<script[^>]+src=["\']([^"\']+)["\']',
+                      screen_html,
+                      flags=re.IGNORECASE,
+                  )))
+                  for src in script_srcs:
+                      url = urljoin(f"{BASE_URL}{SCREEN_PATH}", html.unescape(src))
+                      parsed = urlparse(url)
+                      if parsed.netloc not in {"www.fsb.or.kr", "fsb.or.kr"}:
+                          continue
+                      try:
+                          response = await client.get(url)
+                          response.raise_for_status()
+                      except httpx.HTTPError as exc:
+                          scripts[url] = {"error": f"{type(exc).__name__}: {exc}"}
+                          continue
+                      scripts[url] = {"content": response.text}
+                      await asyncio.sleep(REQUEST_INTERVAL_SECONDS)
+              return snapshots, screen_html, scripts
+
+          snapshots, screen_html, scripts = asyncio.run(collect())
+
+          snapshot_profiles = {}
+          by_date_key = {}
+          for query_date, rows in snapshots.items():
+              keyed = {product_key(row): row for row in rows}
+              if len(keyed) != len(rows):
+                  duplicate_keys = [
+                      key for key, count in Counter(product_key(row) for row in rows).items()
+                      if count > 1
+                  ]
+              else:
+                  duplicate_keys = []
+              by_date_key[query_date] = keyed
+              snapshot_profiles[query_date] = {
+                  "row_count": len(rows),
+                  "product_key_count": len(keyed),
+                  "duplicate_product_keys": duplicate_keys[:20],
+                  "fields": {field: profile_field(rows, field) for field in FIELDS},
+                  "status_finish_cross": dict(Counter(
+                      f"status={clean(row.get('STATUS')) or '<blank>'}|finish={'set' if clean(row.get('FINISH_DATE')) else 'blank'}"
+                      for row in rows
+                  )),
+              }
+
+          all_keys = sorted(set().union(*(set(rows) for rows in by_date_key.values())))
+          transitions = []
+          status_transitions = []
+          start_boundary = []
+          finish_boundary = []
+          query_date_set = {date.fromisoformat(value) for value in by_date_key}
+          sorted_query_dates = sorted(query_date_set)
+
+          for key in all_keys:
+              history = []
+              statuses = []
+              for query_date in sorted(by_date_key):
+                  row = by_date_key[query_date].get(key)
+                  history.append({
+                      "query_date": query_date,
+                      "present": row is not None,
+                      "row": public_row(row) if row is not None else None,
+                  })
+                  if row is not None:
+                      statuses.append(clean(row.get("STATUS")))
+              presence = tuple(item["present"] for item in history)
+              if len(set(presence)) > 1 and len(transitions) < MAX_TRANSITION_SAMPLES:
+                  transitions.append({"product_key": key, "history": history})
+              nonblank_statuses = {status for status in statuses if status}
+              if len(nonblank_statuses) > 1 and len(status_transitions) < MAX_TRANSITION_SAMPLES:
+                  status_transitions.append({"product_key": key, "history": history})
+
+              representative = next(
+                  (item["row"] for item in reversed(history) if item["row"] is not None),
+                  None,
+              )
+              if representative is None:
+                  continue
+              start = parse_source_date(representative.get("start_date"))
+              finish = parse_source_date(representative.get("finish_date"))
+              if start is not None and sorted_query_dates[0] <= start <= sorted_query_dates[-1]:
+                  start_boundary.append({
+                      "product_key": key,
+                      "boundary": start.isoformat(),
+                      "history": history,
+                  })
+              if finish is not None and sorted_query_dates[0] <= finish <= sorted_query_dates[-1]:
+                  finish_boundary.append({
+                      "product_key": key,
+                      "boundary": finish.isoformat(),
+                      "history": history,
+                  })
+
+          js_hits = {token: [] for token in TOKENS}
+          inline_plus_scripts = [("inline:ratedepo_0100.act", screen_html)]
+          inline_plus_scripts.extend(
+              (url, item.get("content", ""))
+              for url, item in scripts.items()
+              if "content" in item
+          )
+          for source, content in inline_plus_scripts:
+              for token in TOKENS:
+                  upper = content.upper()
+                  needle = token.upper()
+                  start = 0
+                  while len(js_hits[token]) < MAX_JS_SNIPPETS_PER_TOKEN:
+                      index = upper.find(needle, start)
+                      if index < 0:
+                          break
+                      left = max(0, index - 240)
+                      right = min(len(content), index + len(token) + 360)
+                      snippet = re.sub(r"\s+", " ", content[left:right]).strip()
+                      js_hits[token].append({"source": source, "snippet": snippet})
+                      start = index + len(token)
+
+          target_rows = snapshots["2026-08-31"]
+          diagnostic_signals = ("특판", "특별", "한정", "소진", "선착순", "판매기간", "이벤트", "프로모션")
+          signaled = []
+          for row in target_rows:
+              text = " ".join(clean(row.get(field)) for field in (
+                  "PRODUCT_NAME", "SWEETENER", "ETC_NOTE_MATTER", "JOIN_TARGET"
+              ))
+              hits = [signal for signal in diagnostic_signals if signal in text]
+              if hits:
+                  item = public_row(row)
+                  item["signals"] = hits
+                  signaled.append(item)
+
+          result = {
+              "evidence_status": "complete",
+              "production_write": False,
+              "source": "FSB official ratedepo current/historical endpoint and screen assets",
+              "query_dates": [value.isoformat() for value in QUERY_DATES],
+              "snapshot_profiles": snapshot_profiles,
+              "presence_transition_samples": transitions,
+              "status_transition_samples": status_transitions,
+              "start_boundary_samples": start_boundary[:MAX_TRANSITION_SAMPLES],
+              "finish_boundary_samples": finish_boundary[:MAX_TRANSITION_SAMPLES],
+              "target_2026_08_31_text_signal_rows": signaled,
+              "screen_script_sources": sorted(scripts),
+              "screen_asset_token_hits": js_hits,
+              "interpretation_contract": {
+                  "status_semantics_inferred_from_name_only": False,
+                  "start_finish_semantics_promoted_without_ui_or_behavioral_evidence": False,
+                  "text_signal_is_special_offer_classification": False,
+                  "current_product_flag_carryback_allowed": False,
+              },
+          }
+          OUT.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+          print(OUT.read_text(encoding="utf-8"))
+          PY
+
+      - name: Upload FSB R2 product-scope evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: relative-pricing-r2-product-scope-${{ github.run_id }}
+          path: work/r2-fsb-product-scope-evidence.json
+          retention-days: 30
+          if-no-files-found: error
