@@ -14,6 +14,44 @@ function invariant(condition, message) {
 
 async function inspectRadar(page, label) {
   await page.goto(`${baseUrl}/strategy.html`, { waitUntil: "networkidle" });
+  const diagnostics = await page.evaluate(() => {
+    const dataNode = document.getElementById("rate-monitor-data");
+    let parsed = null;
+    let parseError = null;
+    try {
+      parsed = JSON.parse(dataNode?.textContent || "{}");
+    } catch (error) {
+      parseError = String(error);
+    }
+    return {
+      readyState: document.readyState,
+      dataNodePresent: Boolean(dataNode),
+      dataBytes: dataNode?.textContent?.length || 0,
+      marketFlowPresent: Boolean(document.getElementById("market-flow")),
+      radarScriptPresent: Boolean(document.getElementById("special-offer-radar-script")),
+      radarStylePresent: Boolean(document.getElementById("special-offer-radar-style")),
+      radarPanelPresent: Boolean(document.getElementById("special-offer-radar")),
+      strategyPresent: Boolean(parsed?.strategy),
+      radarPayloadPresent: Boolean(parsed?.strategy?.special_offer_radar),
+      radarCounts: parsed?.strategy?.special_offer_radar?.counts || null,
+      parseError,
+    };
+  });
+  fs.writeFileSync(
+    path.join(workDir, `special-offer-radar-${label}-dom.json`),
+    `${JSON.stringify(diagnostics, null, 2)}\n`,
+    "utf8",
+  );
+  console.log(`${label} Radar DOM diagnostics: ${JSON.stringify(diagnostics)}`);
+
+  invariant(diagnostics.dataNodePresent, `${label}: rate-monitor-data missing`);
+  invariant(!diagnostics.parseError, `${label}: rate-monitor-data JSON parse failed: ${diagnostics.parseError}`);
+  invariant(diagnostics.strategyPresent, `${label}: Strategy payload missing`);
+  invariant(diagnostics.radarPayloadPresent, `${label}: Radar payload missing`);
+  invariant(diagnostics.marketFlowPresent, `${label}: market-flow anchor missing`);
+  invariant(diagnostics.radarScriptPresent, `${label}: Radar runtime script missing`);
+  invariant(diagnostics.radarStylePresent, `${label}: Radar style missing`);
+
   const panel = page.locator("#special-offer-radar");
   invariant((await panel.count()) === 1, `${label}: special-offer Radar panel missing`);
   invariant(await panel.isVisible(), `${label}: special-offer Radar panel hidden`);
@@ -31,7 +69,7 @@ async function inspectRadar(page, label) {
     const raw = document.getElementById("rate-monitor-data")?.textContent || "{}";
     return JSON.parse(raw)?.strategy?.special_offer_radar || null;
   });
-  invariant(payload, `${label}: Radar payload missing`);
+  invariant(payload, `${label}: Radar payload missing after DOM install`);
   invariant(payload.source_id === "fsb", `${label}: Radar source is not FSB`);
   invariant(payload.activation === "off_until_confirmed_evidence_is_reviewed_and_separately_approved", `${label}: Radar activation unexpectedly changed`);
   invariant(payload.policy?.unknown_is_special === false, `${label}: unknown promotion policy changed`);
