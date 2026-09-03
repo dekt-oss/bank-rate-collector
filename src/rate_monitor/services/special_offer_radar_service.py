@@ -15,7 +15,7 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
-from rate_monitor.db.session import create_db_engine, make_session_factory
+from rate_monitor.db.session import create_readonly_db_engine, make_session_factory
 from rate_monitor.services.special_offer_evidence_service import (
     CONFIRMED_NORMAL,
     CONFIRMED_SPECIAL,
@@ -240,7 +240,7 @@ def build_special_offer_radar(
     finally:
         conn.close()
 
-    engine = create_db_engine(db_path)
+    engine = create_readonly_db_engine(db_path)
     factory = make_session_factory(engine)
     session = factory()
     try:
