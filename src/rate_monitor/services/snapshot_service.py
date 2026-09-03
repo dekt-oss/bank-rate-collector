@@ -19,18 +19,18 @@ integrity_check나 foreign_key_check가 실패하면 스냅샷을 배포하지 �
 
 import hashlib
 import json
-import os
-import re
 import sqlite3
-import subprocess
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 from rate_monitor.domain.timeutil import now_kst
+from rate_monitor.services.canonical_writer_guard import (
+    CanonicalWriterGuardError,
+    ensure_current_main_writer,
+)
 
 DEFAULT_PUBLISH_PATH = Path("publish/rate_monitor.sqlite3")
 DEFAULT_MANIFEST_PATH = Path("publish/manifest.json")
-_GIT_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 
 # manifest에 행 수를 기록할 테이블. 대시보드가 대조에 쓴다.
 COUNTED_TABLES = (
@@ -71,56 +71,10 @@ def sha256_of(path: Path) -> str:
 
 
 def _guard_current_main_writer() -> None:
-    """Block a queued/running GitHub Actions writer after ``main`` moved ahead.
-
-    The production writers share one canonical R2/rate-data state.  GitHub queues can
-    therefore start an old scheduled run long after newer code merged.  An old run is
-    allowed to collect locally, but it must not cross the snapshot/publish boundary.
-
-    Local runs, PR/evidence branches and non-main Actions remain unaffected.  On a
-    main Actions writer, inability to prove the current remote main SHA fails closed.
-    """
-
-    if os.environ.get("GITHUB_ACTIONS") != "true":
-        return
-    if os.environ.get("GITHUB_REF") != "refs/heads/main":
-        return
-
-    run_sha = os.environ.get("GITHUB_SHA", "").strip().lower()
-    if not _GIT_SHA_RE.fullmatch(run_sha):
-        raise SnapshotIntegrityError(
-            "stale-main writer gate: GitHub Actions main 실행의 GITHUB_SHA가 없거나 유효하지 않다"
-        )
-
     try:
-        result = subprocess.run(
-            ["git", "ls-remote", "origin", "refs/heads/main"],
-            check=True,
-            capture_output=True,
-            text=True,
-            timeout=20,
-        )
-    except (OSError, subprocess.SubprocessError) as exc:
-        raise SnapshotIntegrityError(
-            "stale-main writer gate: 현재 origin/main SHA를 검증하지 못했다"
-        ) from exc
-
-    rows = [line.split() for line in result.stdout.splitlines() if line.strip()]
-    if len(rows) != 1 or len(rows[0]) != 2 or rows[0][1] != "refs/heads/main":
-        raise SnapshotIntegrityError(
-            "stale-main writer gate: origin/main 조회 결과가 단일 ref 계약을 만족하지 않는다"
-        )
-    remote_sha = rows[0][0].strip().lower()
-    if not _GIT_SHA_RE.fullmatch(remote_sha):
-        raise SnapshotIntegrityError(
-            "stale-main writer gate: origin/main SHA 형식이 유효하지 않다"
-        )
-    if remote_sha != run_sha:
-        raise SnapshotIntegrityError(
-            "stale-main writer blocked: "
-            f"run_sha={run_sha} current_main_sha={remote_sha}. "
-            "오래 대기한 writer는 canonical R2/rate-data를 갱신할 수 없다"
-        )
+        ensure_current_main_writer()
+    except CanonicalWriterGuardError as exc:
+        raise SnapshotIntegrityError(str(exc)) from exc
 
 
 def _row_counts(conn: sqlite3.Connection) -> dict[str, int]:
