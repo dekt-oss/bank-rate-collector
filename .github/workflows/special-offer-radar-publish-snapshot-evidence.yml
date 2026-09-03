@@ -1,0 +1,279 @@
+name: Special-offer Radar publish-snapshot evidence
+
+on:
+  push:
+    branches:
+      - "feat/strategy-ux-*"
+    paths:
+      - ".github/workflows/special-offer-radar-publish-snapshot-evidence.yml"
+      - "scripts/special_offer_radar_runtime_smoke.js"
+      - "src/rate_monitor/services/special_offer_radar_service.py"
+      - "src/rate_monitor/services/special_offer_radar_presentation.py"
+      - "src/rate_monitor/services/strategy_service.py"
+      - "src/rate_monitor/services/site_service.py"
+      - "tests/test_special_offer_radar_read_only.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: special-offer-radar-publish-snapshot-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  publish-snapshot-browser-e2e:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Sync dependencies
+        run: uv sync --locked
+
+      - name: Restore production database into runner-local candidate
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+          R2_REGION: ${{ vars.R2_REGION }}
+        run: |
+          set -euo pipefail
+          mkdir -p work/source work/publish data/raw
+          uv run rate-monitor storage restore --dest work/source/rate_monitor.sqlite3
+          test -s work/source/rate_monitor.sqlite3
+
+      - name: Apply migrations only to runner-local source
+        env:
+          RATE_MONITOR_DB_URL: sqlite+pysqlite:///${{ github.workspace }}/work/source/rate_monitor.sqlite3
+        run: uv run alembic upgrade head
+
+      - name: Collect live FSB deposit screen into candidate only
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          import asyncio
+          import json
+          from pathlib import Path
+
+          from rate_monitor.collectors.fsb.adapter import FsbAdapter
+          from rate_monitor.db.session import create_db_engine, make_session_factory
+          from rate_monitor.domain.schemas import CollectionRequest
+          from rate_monitor.services.collection_service import collect_source
+
+          db = Path("work/source/rate_monitor.sqlite3")
+          engine = create_db_engine(db)
+          factory = make_session_factory(engine)
+          try:
+              result = asyncio.run(
+                  collect_source(
+                      FsbAdapter(),
+                      CollectionRequest(source_id="fsb", options={"screens": ("ratedepo",)}),
+                      factory,
+                      raw_root=Path("data/raw"),
+                  )
+              )
+          finally:
+              engine.dispose()
+          payload = {
+              "run_id": result.run_id,
+              "status": result.status,
+              "parsed_count": result.parsed_count,
+              "valid_count": result.valid_count,
+              "warning_count": result.warning_count,
+              "error_count": result.error_count,
+              "production_write": False,
+          }
+          Path("work/live-fsb.json").write_text(
+              json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          print(json.dumps(payload, ensure_ascii=False))
+          assert result.status == "success"
+          assert result.parsed_count > 0
+          assert result.valid_count > 0
+          assert result.error_count == 0
+          PY
+
+      - name: Create publish snapshot and record manifest hash
+        run: |
+          set -euo pipefail
+          uv run rate-monitor snapshot \
+            --db work/source/rate_monitor.sqlite3 \
+            --publish-db work/publish/rate_monitor.sqlite3 \
+            --manifest work/publish/manifest.json
+          test -s work/publish/rate_monitor.sqlite3
+          test -s work/publish/manifest.json
+          sha256sum work/publish/rate_monitor.sqlite3 | tee work/publish/sha-before.txt
+          uv run python - <<'PY'
+          import hashlib
+          import json
+          from pathlib import Path
+
+          db = Path("work/publish/rate_monitor.sqlite3")
+          manifest = json.loads(Path("work/publish/manifest.json").read_text(encoding="utf-8"))
+          digest = hashlib.sha256(db.read_bytes()).hexdigest()
+          expected = manifest.get("db_sha256") or manifest.get("database_sha256") or manifest.get("sha256")
+          print(json.dumps({"actual": digest, "manifest": expected}, ensure_ascii=False))
+          assert expected, "manifest has no database SHA field"
+          assert digest == expected, f"snapshot manifest SHA mismatch before Strategy build: {digest} != {expected}"
+          PY
+
+      - name: Verify fail-closed Radar read model from publish snapshot
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+
+          from rate_monitor.services.special_offer_radar_service import build_special_offer_radar
+
+          payload = build_special_offer_radar(Path("work/publish/rate_monitor.sqlite3"))
+          Path("work/radar-payload.json").write_text(
+              json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          print(json.dumps(payload, ensure_ascii=False))
+          assert payload["counts"]["unknown"] > 0
+          assert payload["counts"]["confirmed_special"] == 0
+          assert payload["counts"]["confirmed_normal"] == 0
+          assert payload["counts"]["conflict"] == 0
+          assert payload["offers"] == []
+          assert payload["policy"]["unknown_is_special"] is False
+          assert payload["policy"]["ranking_population_changed"] is False
+          PY
+
+      - name: Build Strategy from the exact publish snapshot
+        env:
+          RATE_MONITOR_STRATEGY_DASHBOARD: "1"
+        run: |
+          set -euo pipefail
+          uv run rate-monitor build-site \
+            --db work/publish/rate_monitor.sqlite3 \
+            --template web/templates/site.html \
+            --out work/site-public
+          test -s work/site-public/strategy.html
+          grep -q 'id="special-offer-radar-style"' work/site-public/strategy.html
+          grep -q 'id="special-offer-radar-script"' work/site-public/strategy.html
+          grep -q '시장 특판 Radar' work/site-public/strategy.html
+
+      - name: Verify embedded live Radar payload
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          import html
+          import json
+          import re
+          from pathlib import Path
+
+          text = Path("work/site-public/strategy.html").read_text(encoding="utf-8")
+          match = re.search(
+              r'<script id="rate-monitor-data" type="application/json">(.*?)</script>',
+              text,
+              flags=re.DOTALL,
+          )
+          assert match is not None, "rate-monitor-data block missing"
+          raw = html.unescape(match.group(1)).replace("<\\/", "</")
+          payload = json.loads(raw)
+          radar = payload.get("strategy", {}).get("special_offer_radar")
+          assert radar is not None, "special_offer_radar missing from embedded Strategy payload"
+          assert radar["counts"]["unknown"] > 0
+          assert radar["counts"]["confirmed_special"] == 0
+          assert radar["counts"]["confirmed_normal"] == 0
+          assert radar["offers"] == []
+          Path("work/radar-embedded.json").write_text(
+              json.dumps(radar, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Prove publish snapshot bytes survived Strategy build
+        run: |
+          set -euo pipefail
+          sha256sum work/publish/rate_monitor.sqlite3 | tee work/publish/sha-after-build.txt
+          cut -d' ' -f1 work/publish/sha-before.txt > work/publish/before.digest
+          cut -d' ' -f1 work/publish/sha-after-build.txt > work/publish/after-build.digest
+          cmp work/publish/before.digest work/publish/after-build.digest
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install browser smoke dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends fonts-noto-cjk
+          npm install --no-save --package-lock=false @playwright/test@1.61.1
+          node --check scripts/special_offer_radar_runtime_smoke.js
+
+      - name: Run desktop and mobile Radar Chrome smoke
+        env:
+          STRATEGY_PREVIEW_BASE_URL: http://127.0.0.1:4173
+        run: |
+          set -euo pipefail
+          python -m http.server 4173 --directory work/site-public > work/http.log 2>&1 &
+          SERVER_PID=$!
+          trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 30); do
+            curl -fsS http://127.0.0.1:4173/strategy.html >/dev/null && break
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:4173/strategy.html >/dev/null
+          node scripts/special_offer_radar_runtime_smoke.js
+
+      - name: Prove browser verification did not mutate publish snapshot
+        run: |
+          set -euo pipefail
+          sha256sum work/publish/rate_monitor.sqlite3 | tee work/publish/sha-after-browser.txt
+          cut -d' ' -f1 work/publish/sha-after-browser.txt > work/publish/after-browser.digest
+          cmp work/publish/before.digest work/publish/after-browser.digest
+          uv run python - <<'PY'
+          import hashlib
+          import json
+          from pathlib import Path
+
+          db = Path("work/publish/rate_monitor.sqlite3")
+          manifest = json.loads(Path("work/publish/manifest.json").read_text(encoding="utf-8"))
+          digest = hashlib.sha256(db.read_bytes()).hexdigest()
+          expected = manifest.get("db_sha256") or manifest.get("database_sha256") or manifest.get("sha256")
+          assert digest == expected, f"manifest SHA changed after Strategy/browser reads: {digest} != {expected}"
+          print(json.dumps({"final_sha256": digest, "manifest_sha256": expected}, ensure_ascii=False))
+          PY
+
+      - name: Explicit candidate-only boundary
+        run: |
+          echo "Runner-local production copy only; no storage upload, git push, or deployment."
+          echo "Radar activation remains OFF; unknown evidence remains non-promotional."
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: special-offer-radar-publish-snapshot-${{ github.run_id }}
+          retention-days: 30
+          if-no-files-found: error
+          path: |
+            work/live-fsb.json
+            work/radar-payload.json
+            work/radar-embedded.json
+            work/publish/manifest.json
+            work/publish/sha-before.txt
+            work/publish/sha-after-build.txt
+            work/publish/sha-after-browser.txt
+            work/special-offer-radar-*-dom.json
+            work/special-offer-radar-runtime-metrics.json
+            work/special-offer-radar-desktop.png
+            work/special-offer-radar-mobile.png
+            work/http.log
