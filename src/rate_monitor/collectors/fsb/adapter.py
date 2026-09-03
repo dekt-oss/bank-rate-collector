@@ -34,6 +34,7 @@ fetch()만 담당한다. 파싱은 parser가, 저장은 오케스트레이터가
 
 import asyncio
 import json
+from datetime import date
 from typing import Any
 
 import httpx
@@ -245,6 +246,7 @@ class FsbAdapter:
                                 "kind": "rate",
                                 "screen": screen,
                                 "area": area,
+                                "query_date": query_date,
                                 "page_offset": start - 1,
                                 "only_terms": list(only_terms or ()),
                             },
@@ -296,6 +298,11 @@ class FsbAdapter:
             payload,
             screen=str(meta["screen"]),
             area=str(meta.get("area") or ""),
+            snapshot_as_of=(
+                date.fromisoformat(str(meta["query_date"]))
+                if meta.get("query_date")
+                else None
+            ),
             branches=self._directory,
             page_offset=int(meta.get("page_offset") or 0),
             only_terms=tuple(meta.get("only_terms") or ()) or None,

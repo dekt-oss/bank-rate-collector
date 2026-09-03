@@ -57,6 +57,7 @@ def _model_tables() -> set[str]:
     from rate_monitor.db import (
         availability_models,  # noqa: F401
         institution_funding_models,  # noqa: F401
+        special_offer_models,  # noqa: F401
     )
     from rate_monitor.db.models import Base
 

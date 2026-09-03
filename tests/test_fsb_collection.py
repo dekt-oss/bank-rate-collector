@@ -14,6 +14,7 @@ from sqlalchemy import func, select
 from rate_monitor.collectors.fsb.adapter import FsbAdapter
 from rate_monitor.db import models as m
 from rate_monitor.db.session import create_db_engine, make_session_factory, session_scope
+from rate_monitor.db.special_offer_models import ProductSpecialOfferEvidence
 from rate_monitor.domain.enums import RateScope, RunStatus, Sector
 from rate_monitor.domain.schemas import CollectionRequest, RawArtifactData
 from rate_monitor.services.collection_service import collect_source
@@ -46,12 +47,12 @@ class FixtureAdapter(FsbAdapter):
             _artifact(
                 "ratedepo_0100_01.json",
                 {"kind": "rate", "screen": "ratedepo", "area": "YN_Busan",
-                 "page_offset": 0, "only_terms": []},
+                 "query_date": "2026-08-05", "page_offset": 0, "only_terms": []},
             ),
             _artifact(
                 "rateinst_0100_01.json",
                 {"kind": "rate", "screen": "rateinst", "area": "YN_Busan",
-                 "page_offset": 0, "only_terms": []},
+                 "query_date": "2026-08-05", "page_offset": 0, "only_terms": []},
             ),
         ]
 
@@ -98,8 +99,15 @@ def test_collect_stores_rows_from_both_screens(factory, tmp_path) -> None:
     assert result.error_count == 0
 
     with session_scope(factory) as session:
-        types = {p.product_type for p in session.scalars(select(m.Product)).all()}
+        products = session.scalars(select(m.Product)).all()
+        types = {p.product_type for p in products}
         assert types == {"term_deposit", "installment_savings"}
+        evidence = session.scalars(select(ProductSpecialOfferEvidence)).all()
+        assert len(evidence) == len(products)
+        assert {row.classification for row in evidence} == {"unknown"}
+        assert {row.snapshot_as_of.isoformat() for row in evidence} == {"2026-08-05"}
+        assert all(row.raw_artifact_id for row in evidence)
+        assert all(product.is_special_sale is False for product in products)
 
 
 def test_source_row_uses_fsb_metadata(factory, tmp_path) -> None:
