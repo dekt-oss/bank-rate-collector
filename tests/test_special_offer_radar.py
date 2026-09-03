@@ -169,6 +169,54 @@ def _evidence(
     )
 
 
+def _seed_other_source_special(session) -> None:
+    session.add(
+        Source(
+            id="other_official",
+            name="다른 공식 원천",
+            sector="savings_bank",
+            mode="http",
+            source_role="secondary_official",
+            trust_level="official_direct",
+            created_at=T0,
+            updated_at=T0,
+        )
+    )
+    session.add(
+        SourceEntityLink(
+            source_id="other_official",
+            entity_type="product",
+            source_entity_key="institution-1:other-product-1",
+            entity_id="product-1",
+            source_name="정기예금",
+            match_method="exact_code",
+            valid_from=DAY,
+            created_at=T0,
+            updated_at=T0,
+        )
+    )
+    session.flush()
+    append_special_offer_evidence(
+        session,
+        SpecialOfferEvidenceInput(
+            source_id="other_official",
+            product_id="product-1",
+            source_product_key="other-product-1",
+            classification=CONFIRMED_SPECIAL,
+            evidence_kind=EXPLICIT_SOURCE_FIELD,
+            snapshot_as_of=DAY,
+            observed_at=T0,
+            source_locator="$.other[0]",
+            evidence_ref="https://other.example/products/1",
+            content_hash="sha256:other-source",
+            evidence={
+                "identity_scope": "exact_product",
+                "explicit_assertion": CONFIRMED_SPECIAL,
+            },
+        ),
+    )
+
+
 def test_missing_registry_is_safe_unavailable(tmp_path: Path) -> None:
     db_path = tmp_path / "legacy.sqlite3"
     engine = create_db_engine(db_path)
@@ -199,6 +247,23 @@ def test_unknown_snapshot_never_becomes_radar_offer(tmp_path: Path) -> None:
     assert payload["counts"][CONFIRMED_SPECIAL] == 0
     assert payload["offers"] == []
     assert payload["activation"] == RADAR_ACTIVATION
+
+
+def test_other_source_confirmation_cannot_promote_fsb_unknown(tmp_path: Path) -> None:
+    db_path, factory = _db(tmp_path)
+    with session_scope(factory) as session:
+        _seed(session)
+        append_special_offer_evidence(
+            session,
+            _evidence(UNKNOWN, content_hash="sha256:unknown"),
+        )
+        _seed_other_source_special(session)
+
+    payload = build_special_offer_radar(db_path)
+    assert payload["source_id"] == "fsb"
+    assert payload["counts"][UNKNOWN] == 1
+    assert payload["counts"][CONFIRMED_SPECIAL] == 0
+    assert payload["offers"] == []
 
 
 def test_only_explicit_confirmed_special_enters_radar_with_current_fsb_rate(
