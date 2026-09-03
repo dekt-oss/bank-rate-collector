@@ -1,0 +1,134 @@
+name: Relative Pricing R2 historical funding runtime evidence
+
+on:
+  push:
+    branches:
+      - "feat/relative-pricing-r2-funding-*"
+    paths:
+      - ".github/workflows/relative-pricing-r2-funding-runtime-evidence.yml"
+      - "src/rate_monitor/services/relative_pricing_historical_funding.py"
+      - "src/rate_monitor/services/relative_pricing_historical_funding_identity.py"
+      - "tests/test_relative_pricing_historical_funding.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  historical-funding-runtime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Sync dependencies
+        run: uv sync --locked
+
+      - name: Restore production database into runner-local copy
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+          R2_REGION: ${{ vars.R2_REGION }}
+        run: |
+          set -euo pipefail
+          mkdir -p work
+          uv run rate-monitor storage restore --dest work/rate_monitor.sqlite3
+          test -s work/rate_monitor.sqlite3
+
+      - name: Apply migrations to runner-local copy
+        env:
+          RATE_MONITOR_DB_URL: sqlite+pysqlite:///${{ github.workspace }}/work/rate_monitor.sqlite3
+        run: uv run alembic upgrade head
+
+      - name: Verify historical funding read model at 2026-08-31 cutoff
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          import json
+          from datetime import date
+          from decimal import Decimal
+          from pathlib import Path
+
+          from rate_monitor.services.relative_pricing_historical_funding import (
+              FUNDING_READY,
+              build_historical_relative_pricing_funding,
+              load_historical_funding_points_as_known_at,
+          )
+
+          DB = Path("work/rate_monitor.sqlite3")
+          OUT = Path("work/r2-historical-funding-runtime-evidence.json")
+          RATE_AS_OF = date(2026, 8, 31)
+          FUNDING_MONTH = "2026-03"
+          OUR_ID = "a78d347f-9a4f-4ec4-9c4e-0bbcce0102c2"
+
+          points = load_historical_funding_points_as_known_at(
+              DB,
+              sector="savings_bank",
+              analysis_month=FUNDING_MONTH,
+              knowledge_as_of=RATE_AS_OF,
+          )
+          current_points = [point for point in points if point.month == FUNDING_MONTH]
+          cohort = tuple(sorted({point.institution_id for point in current_points}))
+          result = build_historical_relative_pricing_funding(
+              DB,
+              sector="savings_bank",
+              cohort_institution_ids=cohort,
+              rate_as_of=RATE_AS_OF,
+              funding_month=FUNDING_MONTH,
+              knowledge_as_of=RATE_AS_OF,
+          )
+          by_id = {row.institution_id: row for row in result.rows}
+          our = by_id[OUR_ID]
+
+          assert len(current_points) == 79, len(current_points)
+          assert len(cohort) == 79, len(cohort)
+          assert result.status == FUNDING_READY, result.status
+          assert result.funding_join_count == 79
+          assert result.funding_unjoined_count == 0
+          assert result.funding_as_of == "2026-03"
+          assert result.rate_as_of == RATE_AS_OF
+          assert our.balance == Decimal("1836484")
+          assert our.balance_6m_ago == Decimal("1721962")
+          assert our.balance_12m_ago == Decimal("1378903")
+          assert our.change_6m_pct == Decimal("1836484") / Decimal("1721962") - Decimal(1)
+          assert our.change_12m_pct == Decimal("1836484") / Decimal("1378903") - Decimal(1)
+
+          payload = result.as_payload()
+          payload.update(
+              {
+                  "production_write": False,
+                  "point_count_all_required_months": len(points),
+                  "current_month_point_count": len(current_points),
+                  "our_institution": {
+                      "institution_id": OUR_ID,
+                      "balance_million_krw": str(our.balance),
+                      "balance_6m_ago_million_krw": str(our.balance_6m_ago),
+                      "balance_12m_ago_million_krw": str(our.balance_12m_ago),
+                      "change_6m_pct": str(our.change_6m_pct),
+                      "change_12m_pct": str(our.change_12m_pct),
+                  },
+              }
+          )
+          OUT.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+          print(OUT.read_text(encoding="utf-8"))
+          PY
+
+      - name: Upload R2 historical funding runtime evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: relative-pricing-r2-funding-runtime-${{ github.run_id }}
+          path: work/r2-historical-funding-runtime-evidence.json
+          retention-days: 30
+          if-no-files-found: error
