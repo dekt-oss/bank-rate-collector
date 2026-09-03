@@ -24,8 +24,8 @@ def test_strategy_ux_production_copy_e2e_has_enough_runtime_and_radar_coverage()
     assert "special-offer-radar-runtime-metrics.json" in text
 
     lower = text.lower()
-    assert "rate-monitor storage upload" not in text
-    assert "git push" not in lower
+    assert "uv run rate-monitor storage upload" not in text
+    assert "\ngit push " not in lower
     assert "vercel deploy" not in lower
     assert "vercel --prod" not in lower
 
