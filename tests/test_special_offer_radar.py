@@ -112,7 +112,7 @@ def _evidence(
 def test_missing_registry_is_safe_unavailable(tmp_path: Path) -> None:
     db_path = tmp_path / "legacy.sqlite3"
     engine = create_db_engine(db_path)
-    # Simulate a legacy/partial Strategy fixture without importing special-offer tables.
+    # Simulate a legacy/partial Strategy fixture without special-offer tables.
     with engine.begin() as conn:
         conn.exec_driver_sql("CREATE TABLE institutions (id TEXT PRIMARY KEY)")
     engine.dispose()
@@ -207,5 +207,7 @@ def test_radar_presentation_is_read_only_and_idempotent() -> None:
     assert SCRIPT_MARKER in rendered
     assert "시장 특판 Radar" in rendered
     assert "unknown" in rendered
-    assert "confirm" not in rendered.lower()
+    assert "<form" not in rendered.lower()
+    assert 'type="submit"' not in rendered.lower()
+    assert "append_operator_confirmation" not in rendered
     assert inject_special_offer_radar_presentation(rendered) == rendered
