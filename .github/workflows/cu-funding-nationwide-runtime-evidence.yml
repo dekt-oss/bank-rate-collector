@@ -1,0 +1,205 @@
+name: CU funding nationwide runtime evidence
+
+on:
+  push:
+    branches:
+      - "evidence/cu-funding-nationwide-*"
+    paths:
+      - ".github/workflows/cu-funding-nationwide-runtime-evidence.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cu-funding-nationwide-runtime-evidence
+  cancel-in-progress: false
+
+jobs:
+  nationwide-candidate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Sync dependencies
+        run: uv sync --locked
+
+      - name: Restore production database into runner-local candidate
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+          R2_REGION: ${{ vars.R2_REGION }}
+        run: |
+          set -euo pipefail
+          mkdir -p work data/raw publish
+          uv run rate-monitor storage restore --dest work/rate_monitor.sqlite3
+          test -s work/rate_monitor.sqlite3
+
+      - name: Apply migrations to runner-local candidate
+        env:
+          RATE_MONITOR_DB_URL: sqlite+pysqlite:///${{ github.workspace }}/work/rate_monitor.sqlite3
+        run: uv run alembic upgrade head
+
+      - name: Run latest-code nationwide CU candidate collection
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          import contextlib
+          import io
+          import json
+          import sqlite3
+          from pathlib import Path
+
+          from rate_monitor.collectors.cu.funding import collect_cu_disclosure_funding
+
+          db = Path("work/rate_monitor.sqlite3")
+          conn = sqlite3.connect(db)
+          census = conn.execute(
+              "SELECT COUNT(*) FROM source_entity_links "
+              "WHERE source_id='cu' AND entity_type='institution' "
+              "AND source_entity_key LIKE 'cu:%' AND valid_to IS NULL"
+          ).fetchone()[0]
+          conn.close()
+          assert census >= 800, census
+
+          capture = io.StringIO()
+          with contextlib.redirect_stdout(capture):
+              result = collect_cu_disclosure_funding(
+                  db_path=db,
+                  raw_root=Path("data/raw"),
+                  periods=2,
+                  request_interval=0.2,
+              )
+          log_text = capture.getvalue()
+          print(log_text, end="")
+          failures = [
+              line.strip()
+              for line in log_text.splitlines()
+              if line.startswith("CU funding target failed cuIngno=")
+          ]
+          warnings = [
+              line.strip()
+              for line in log_text.splitlines()
+              if line.startswith("CU funding warning:")
+          ]
+          payload = {
+              "status": result.status,
+              "run_id": result.run_id,
+              "active_cu_target_census": census,
+              "target_count": result.target_count,
+              "completed_targets": result.completed_targets,
+              "failed_target_count": len(result.failed_targets),
+              "failed_targets": list(result.failed_targets),
+              "failure_messages": failures,
+              "warning_messages": warnings,
+              "fetched_artifacts": result.fetched_artifacts,
+              "parsed_points": result.parsed_points,
+              "stored": result.stored,
+              "unchanged": result.unchanged,
+              "revisions": result.revisions,
+              "warning_count": result.warning_count,
+              "message": result.message,
+              "periods": 2,
+              "canonical_r2_publish": False,
+          }
+          Path("publish/cu-funding-nationwide-result.json").write_text(
+              json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          print(json.dumps(payload, ensure_ascii=False))
+          assert result.target_count == census
+          assert result.completed_targets + len(result.failed_targets) == result.target_count
+          assert result.parsed_points >= result.completed_targets
+          PY
+
+      - name: Verify nationwide candidate integrity and provenance
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          import json
+          import sqlite3
+          from pathlib import Path
+
+          from rate_monitor.collectors.data_go_funding.reconciliation import build_report
+
+          db = Path("work/rate_monitor.sqlite3")
+          report = build_report(db)
+          conn = sqlite3.connect(db)
+          conn.row_factory = sqlite3.Row
+          active = conn.execute(
+              "SELECT COUNT(*) AS n FROM institution_funding_observations "
+              "WHERE source_id='cu_disclosure_funding' AND valid_to IS NULL"
+          ).fetchone()["n"]
+          institutions = conn.execute(
+              "SELECT COUNT(DISTINCT source_institution_key) AS n "
+              "FROM institution_funding_observations "
+              "WHERE source_id='cu_disclosure_funding' AND valid_to IS NULL"
+          ).fetchone()["n"]
+          duplicate_keys = conn.execute(
+              "SELECT COUNT(*) FROM ("
+              "SELECT source_institution_key, metric_code, source_effective_month, COUNT(*) n "
+              "FROM institution_funding_observations "
+              "WHERE source_id='cu_disclosure_funding' AND valid_to IS NULL "
+              "GROUP BY source_institution_key, metric_code, source_effective_month "
+              "HAVING COUNT(*) > 1)"
+          ).fetchone()[0]
+          missing_raw = conn.execute(
+              "SELECT COUNT(*) AS n FROM institution_funding_observations o "
+              "LEFT JOIN raw_artifacts r ON r.id=o.raw_artifact_id "
+              "WHERE o.source_id='cu_disclosure_funding' "
+              "AND o.valid_to IS NULL AND r.id IS NULL"
+          ).fetchone()["n"]
+          integrity = conn.execute("PRAGMA integrity_check").fetchone()[0]
+          fk = conn.execute("PRAGMA foreign_key_check").fetchall()
+          cu_recon = [row for row in report["reconciliation"] if row["sector"] == "cu"]
+          payload = {
+              "active_rows": active,
+              "covered_institutions": institutions,
+              "duplicate_active_keys": duplicate_keys,
+              "missing_raw_provenance": missing_raw,
+              "cu_reconciliation": cu_recon,
+              "integrity_check": integrity,
+              "foreign_key_violations": len(fk),
+              "canonical_r2_publish": False,
+          }
+          Path("publish/cu-funding-nationwide-qc.json").write_text(
+              json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          print(json.dumps(payload, ensure_ascii=False))
+          assert active > 0
+          assert institutions > 0
+          assert duplicate_keys == 0
+          assert missing_raw == 0
+          assert integrity == "ok"
+          assert not fk
+          PY
+
+      - name: Explicit no-publish gate
+        run: |
+          set -euo pipefail
+          echo "Candidate only: no rate-monitor storage upload is called."
+          echo "Canonical R2 state/current.json remains untouched."
+
+      - name: Upload nationwide evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cu-funding-nationwide-runtime-${{ github.run_id }}
+          retention-days: 30
+          if-no-files-found: error
+          path: |
+            publish/cu-funding-nationwide-result.json
+            publish/cu-funding-nationwide-qc.json
