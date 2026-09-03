@@ -1,6 +1,11 @@
 name: Relative Pricing R2 product URL evidence
 
 on:
+  pull_request:
+    paths:
+      - "scripts/relative_pricing_r2_product_url_evidence.py"
+      - "tests/test_relative_pricing_r2_product_url_evidence.py"
+      - ".github/workflows/relative-pricing-r2-product-url-evidence.yml"
   push:
     branches:
       - "evidence/relative-pricing-r2-product-url-*"
