@@ -3,20 +3,26 @@
 작업 중인 DB를 그대로 커밋하지 않는다. WAL 모드에서는 커밋 시점의 파일이
 불완전할 수 있고, -wal/-shm이 분리돼 있으면 복원이 깨진다.
 
-    모든 트랜잭션 종료
-    → Connection.backup() → publish/rate_monitor.sqlite3
+    stale-main writer gate
+    → 모든 트랜잭션 종료
+    → VACUUM INTO publish/rate_monitor.sqlite3
     → PRAGMA integrity_check
     → PRAGMA foreign_key_check
     → SHA256
     → manifest.json
 
 integrity_check나 foreign_key_check가 실패하면 스냅샷을 배포하지 않는다.
+또한 GitHub Actions의 main writer가 현재 origin/main보다 오래된 SHA이면
+스냅샷 단계에서 fail-closed하여 R2/rate-data에 과거 코드 상태가 덮어쓰이지 않게 한다.
 이전 배포본을 유지한다.
 """
 
 import hashlib
 import json
+import os
+import re
 import sqlite3
+import subprocess
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
@@ -24,6 +30,7 @@ from rate_monitor.domain.timeutil import now_kst
 
 DEFAULT_PUBLISH_PATH = Path("publish/rate_monitor.sqlite3")
 DEFAULT_MANIFEST_PATH = Path("publish/manifest.json")
+_GIT_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 
 # manifest에 행 수를 기록할 테이블. 대시보드가 대조에 쓴다.
 COUNTED_TABLES = (
@@ -63,6 +70,59 @@ def sha256_of(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _guard_current_main_writer() -> None:
+    """Block a queued/running GitHub Actions writer after ``main`` moved ahead.
+
+    The production writers share one canonical R2/rate-data state.  GitHub queues can
+    therefore start an old scheduled run long after newer code merged.  An old run is
+    allowed to collect locally, but it must not cross the snapshot/publish boundary.
+
+    Local runs, PR/evidence branches and non-main Actions remain unaffected.  On a
+    main Actions writer, inability to prove the current remote main SHA fails closed.
+    """
+
+    if os.environ.get("GITHUB_ACTIONS") != "true":
+        return
+    if os.environ.get("GITHUB_REF") != "refs/heads/main":
+        return
+
+    run_sha = os.environ.get("GITHUB_SHA", "").strip().lower()
+    if not _GIT_SHA_RE.fullmatch(run_sha):
+        raise SnapshotIntegrityError(
+            "stale-main writer gate: GitHub Actions main 실행의 GITHUB_SHA가 없거나 유효하지 않다"
+        )
+
+    try:
+        result = subprocess.run(
+            ["git", "ls-remote", "origin", "refs/heads/main"],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise SnapshotIntegrityError(
+            "stale-main writer gate: 현재 origin/main SHA를 검증하지 못했다"
+        ) from exc
+
+    rows = [line.split() for line in result.stdout.splitlines() if line.strip()]
+    if len(rows) != 1 or len(rows[0]) != 2 or rows[0][1] != "refs/heads/main":
+        raise SnapshotIntegrityError(
+            "stale-main writer gate: origin/main 조회 결과가 단일 ref 계약을 만족하지 않는다"
+        )
+    remote_sha = rows[0][0].strip().lower()
+    if not _GIT_SHA_RE.fullmatch(remote_sha):
+        raise SnapshotIntegrityError(
+            "stale-main writer gate: origin/main SHA 형식이 유효하지 않다"
+        )
+    if remote_sha != run_sha:
+        raise SnapshotIntegrityError(
+            "stale-main writer blocked: "
+            f"run_sha={run_sha} current_main_sha={remote_sha}. "
+            "오래 대기한 writer는 canonical R2/rate-data를 갱신할 수 없다"
+        )
+
+
 def _row_counts(conn: sqlite3.Connection) -> dict[str, int]:
     counts: dict[str, int] = {}
     for table in COUNTED_TABLES:
@@ -80,10 +140,14 @@ def create_snapshot(
     """작업 DB에서 일관된 배포 스냅샷을 만든다.
 
     Raises:
-        SnapshotIntegrityError: integrity_check가 ok가 아니거나 FK 위반이 있을 때.
+        SnapshotIntegrityError: stale main writer, integrity/FK 검증 실패 시.
     """
     if not work_db.exists():
         raise FileNotFoundError(f"작업 DB가 없다: {work_db}")
+
+    # Canonical writer freshness is checked before touching an existing publish
+    # artifact.  A stale queued run must leave the last known-good output intact.
+    _guard_current_main_writer()
 
     publish_db.parent.mkdir(parents=True, exist_ok=True)
     if publish_db.exists():
