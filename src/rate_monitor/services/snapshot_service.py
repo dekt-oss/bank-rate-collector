@@ -3,14 +3,17 @@
 작업 중인 DB를 그대로 커밋하지 않는다. WAL 모드에서는 커밋 시점의 파일이
 불완전할 수 있고, -wal/-shm이 분리돼 있으면 복원이 깨진다.
 
-    모든 트랜잭션 종료
-    → Connection.backup() → publish/rate_monitor.sqlite3
+    stale-main writer gate
+    → 모든 트랜잭션 종료
+    → VACUUM INTO publish/rate_monitor.sqlite3
     → PRAGMA integrity_check
     → PRAGMA foreign_key_check
     → SHA256
     → manifest.json
 
 integrity_check나 foreign_key_check가 실패하면 스냅샷을 배포하지 않는다.
+또한 GitHub Actions의 main writer가 현재 origin/main보다 오래된 SHA이면
+스냅샷 단계에서 fail-closed하여 R2/rate-data에 과거 코드 상태가 덮어쓰이지 않게 한다.
 이전 배포본을 유지한다.
 """
 
@@ -21,6 +24,10 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 from rate_monitor.domain.timeutil import now_kst
+from rate_monitor.services.canonical_writer_guard import (
+    CanonicalWriterGuardError,
+    ensure_current_main_writer,
+)
 
 DEFAULT_PUBLISH_PATH = Path("publish/rate_monitor.sqlite3")
 DEFAULT_MANIFEST_PATH = Path("publish/manifest.json")
@@ -63,6 +70,13 @@ def sha256_of(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _guard_current_main_writer() -> None:
+    try:
+        ensure_current_main_writer()
+    except CanonicalWriterGuardError as exc:
+        raise SnapshotIntegrityError(str(exc)) from exc
+
+
 def _row_counts(conn: sqlite3.Connection) -> dict[str, int]:
     counts: dict[str, int] = {}
     for table in COUNTED_TABLES:
@@ -80,10 +94,14 @@ def create_snapshot(
     """작업 DB에서 일관된 배포 스냅샷을 만든다.
 
     Raises:
-        SnapshotIntegrityError: integrity_check가 ok가 아니거나 FK 위반이 있을 때.
+        SnapshotIntegrityError: stale main writer, integrity/FK 검증 실패 시.
     """
     if not work_db.exists():
         raise FileNotFoundError(f"작업 DB가 없다: {work_db}")
+
+    # Canonical writer freshness is checked before touching an existing publish
+    # artifact.  A stale queued run must leave the last known-good output intact.
+    _guard_current_main_writer()
 
     publish_db.parent.mkdir(parents=True, exist_ok=True)
     if publish_db.exists():

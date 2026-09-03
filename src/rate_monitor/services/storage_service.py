@@ -43,6 +43,10 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from rate_monitor.domain.timeutil import to_kst as _kst
+from rate_monitor.services.canonical_writer_guard import (
+    CanonicalWriterGuardError,
+    ensure_current_main_writer,
+)
 
 CURRENT_KEY = "state/current.json"
 SNAPSHOT_PREFIX = "state/snapshots/"
@@ -64,6 +68,14 @@ COUNTED_TABLES = (
 
 class StorageError(RuntimeError):
     """저장 계층 실패. 부르는 쪽이 상태에 따라 멈출지 말지 정한다."""
+
+
+def _guard_current_main_writer() -> None:
+    """Map canonical-writer freshness failures onto the storage error contract."""
+    try:
+        ensure_current_main_writer()
+    except CanonicalWriterGuardError as exc:
+        raise StorageError(str(exc)) from exc
 
 
 class StorageBackend(StrEnum):
@@ -368,6 +380,9 @@ def upload_snapshot(
     generated_at = now or datetime.now(UTC)
     key = snapshot_key(generated_at, digest)
 
+    # A long writer may have been current at snapshot time and become stale while
+    # building/gating the publish payload. Re-check before the first R2 mutation.
+    _guard_current_main_writer()
     store.put(key, packed.read_bytes())
 
     # 다시 받아 확인한다. put이 성공했다는 말과 실제로 그 바이트가 거기
@@ -402,7 +417,14 @@ def upload_snapshot(
         foreign_key_check_violations=violations,
         row_counts=counts,
     )
-    # 여기까지 통과한 뒤에야 포인터를 옮긴다.
+    # Pointer movement is the canonical commit. Re-check immediately before it.
+    # If main moved during upload/readback verification, delete the now-orphaned
+    # snapshot and leave current.json untouched.
+    try:
+        _guard_current_main_writer()
+    except StorageError:
+        store.delete(key)
+        raise
     store.put(CURRENT_KEY, ref.to_json().encode("utf-8"))
     prune_snapshots(store)
     return ref
