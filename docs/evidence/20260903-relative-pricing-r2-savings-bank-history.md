@@ -138,6 +138,13 @@ text_heuristic_promotion_allowed = false
 `FINISH_DATE`의 해석 가능한 날짜는 0건이었다. 상세 판정은
 `docs/evidence/20260903-relative-pricing-r2-product-scope-semantics.md`에 기록한다.
 
+마지막으로 FSB `PRODUCT_URL`과 bank-direct 페이지를 연결한 run `33715854914`에서도
+57개 상품 중 historical 특판 여부를 확정한 상품은 0개였다. 34개 상품이 11개의
+shared/general URL을 사용했고, 현재 페이지 capture를 과거로 carry-back할 version
+evidence도 없었다. 따라서 R2 historical analogue는
+`docs/evidence/20260903-relative-pricing-r2-product-url-provenance.md`의 gate에 따라
+비활성 상태로 종료한다.
+
 ---
 
 ## 4. Implemented R2 foundation contract
