@@ -132,6 +132,12 @@ current_product_flag_carryback = false
 text_heuristic_promotion_allowed = false
 ```
 
+후속 product-scope semantics run `33703963004`는 `STATUS`, `START_DATE`,
+`FINISH_DATE`도 이 blocker를 해소하지 못함을 확인했다. `STATUS`는 공식 코드 정의 없이
+`U↔N` 전이가 관측됐고, `START_DATE`는 동일 product key에서 반복 변경됐으며,
+`FINISH_DATE`의 해석 가능한 날짜는 0건이었다. 상세 판정은
+`docs/evidence/20260903-relative-pricing-r2-product-scope-semantics.md`에 기록한다.
+
 ---
 
 ## 4. Implemented R2 foundation contract
