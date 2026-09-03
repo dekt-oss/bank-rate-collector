@@ -1,0 +1,304 @@
+name: Special-offer registry runtime evidence
+
+on:
+  push:
+    branches:
+      - "feat/special-offer-ops-review-*"
+    paths:
+      - ".github/workflows/special-offer-registry-runtime-evidence.yml"
+      - "src/rate_monitor/collectors/fsb/**"
+      - "src/rate_monitor/services/collection_service.py"
+      - "src/rate_monitor/services/special_offer_evidence_service.py"
+      - "src/rate_monitor/services/special_offer_review_service.py"
+      - "src/rate_monitor/special_offer_cli.py"
+      - "tests/test_special_offer_evidence.py"
+      - "tests/test_special_offer_review.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: special-offer-registry-runtime-evidence
+  cancel-in-progress: false
+
+jobs:
+  bounded-fsb-live-probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Sync dependencies
+        run: uv sync --locked
+
+      - name: Restore production database into runner-local candidate
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+          R2_REGION: ${{ vars.R2_REGION }}
+        run: |
+          set -euo pipefail
+          mkdir -p work data/raw publish
+          uv run rate-monitor storage restore --dest work/rate_monitor.sqlite3
+          test -s work/rate_monitor.sqlite3
+
+      - name: Apply migrations to runner-local candidate
+        env:
+          RATE_MONITOR_DB_URL: sqlite+pysqlite:///${{ github.workspace }}/work/rate_monitor.sqlite3
+        run: uv run alembic upgrade head
+
+      - name: Inspect registry before live collection
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          import json
+          import sqlite3
+          from pathlib import Path
+
+          db = Path("work/rate_monitor.sqlite3")
+          conn = sqlite3.connect(db)
+          conn.row_factory = sqlite3.Row
+          rows = conn.execute(
+              "SELECT classification, COUNT(*) AS evidence_rows, "
+              "COUNT(DISTINCT product_id) AS products "
+              "FROM product_special_offer_evidence "
+              "GROUP BY classification ORDER BY classification"
+          ).fetchall()
+          payload = {
+              "registry_before": [dict(row) for row in rows],
+              "production_write": False,
+          }
+          Path("publish/special-offer-before.json").write_text(
+              json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          print(json.dumps(payload, ensure_ascii=False))
+          PY
+
+      - name: Collect one live FSB product screen into candidate only
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          import asyncio
+          import json
+          from pathlib import Path
+
+          from rate_monitor.collectors.fsb.adapter import FsbAdapter
+          from rate_monitor.db.session import create_db_engine, make_session_factory
+          from rate_monitor.domain.schemas import CollectionRequest
+          from rate_monitor.services.collection_service import collect_source
+
+          db = Path("work/rate_monitor.sqlite3")
+          factory = make_session_factory(create_db_engine(db))
+          request = CollectionRequest(
+              source_id="fsb",
+              options={"screens": ("ratedepo",)},
+          )
+          result = asyncio.run(
+              collect_source(
+                  FsbAdapter(),
+                  request,
+                  factory,
+                  raw_root=Path("data/raw"),
+              )
+          )
+          payload = {
+              "run_id": result.run_id,
+              "status": result.status,
+              "raw_count": result.raw_count,
+              "parsed_count": result.parsed_count,
+              "valid_count": result.valid_count,
+              "warning_count": result.warning_count,
+              "error_count": result.error_count,
+              "message": result.message,
+              "production_write": False,
+          }
+          Path("publish/special-offer-first-run.json").write_text(
+              json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          print(json.dumps(payload, ensure_ascii=False))
+          assert result.status == "success"
+          assert result.parsed_count > 0
+          assert result.valid_count > 0
+          assert result.error_count == 0
+          PY
+
+      - name: Verify unknown evidence, exact identity and raw provenance
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          import json
+          import sqlite3
+          from pathlib import Path
+
+          db = Path("work/rate_monitor.sqlite3")
+          conn = sqlite3.connect(db)
+          conn.row_factory = sqlite3.Row
+          unknown = conn.execute(
+              "SELECT COUNT(*) AS evidence_rows, "
+              "COUNT(DISTINCT e.product_id) AS products, "
+              "COUNT(DISTINCT e.evidence_key) AS evidence_keys "
+              "FROM product_special_offer_evidence e "
+              "WHERE e.source_id='fsb' AND e.classification='unknown'"
+          ).fetchone()
+          exact = conn.execute(
+              "SELECT COUNT(*) AS n "
+              "FROM product_special_offer_evidence e "
+              "JOIN products p ON p.id=e.product_id "
+              "JOIN source_entity_links l "
+              "  ON l.source_id=e.source_id "
+              " AND l.entity_type='product' "
+              " AND l.entity_id=e.product_id "
+              " AND l.source_entity_key=(p.institution_id || ':' || e.source_product_key) "
+              " AND l.match_method='exact_code' "
+              " AND l.valid_to IS NULL "
+              "WHERE e.source_id='fsb' AND e.classification='unknown'"
+          ).fetchone()["n"]
+          raw = conn.execute(
+              "SELECT COUNT(*) AS n "
+              "FROM product_special_offer_evidence e "
+              "JOIN raw_artifacts r ON r.id=e.raw_artifact_id "
+              "JOIN collection_runs c ON c.id=r.run_id AND c.source_id=e.source_id "
+              "WHERE e.source_id='fsb' AND e.classification='unknown'"
+          ).fetchone()["n"]
+          confirmed = conn.execute(
+              "SELECT classification, COUNT(*) AS n "
+              "FROM product_special_offer_evidence "
+              "WHERE classification IN ('confirmed_special','confirmed_normal') "
+              "GROUP BY classification ORDER BY classification"
+          ).fetchall()
+          integrity = conn.execute("PRAGMA integrity_check").fetchone()[0]
+          fk = conn.execute("PRAGMA foreign_key_check").fetchall()
+          payload = {
+              "unknown_evidence_rows": unknown["evidence_rows"],
+              "unknown_products": unknown["products"],
+              "distinct_evidence_keys": unknown["evidence_keys"],
+              "exact_identity_rows": exact,
+              "raw_provenance_rows": raw,
+              "confirmed_rows": [dict(row) for row in confirmed],
+              "integrity_check": integrity,
+              "foreign_key_violations": len(fk),
+              "production_write": False,
+          }
+          Path("publish/special-offer-qc.json").write_text(
+              json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          print(json.dumps(payload, ensure_ascii=False))
+          assert unknown["evidence_rows"] > 0
+          assert unknown["products"] > 0
+          assert unknown["evidence_rows"] == unknown["evidence_keys"]
+          assert exact == unknown["evidence_rows"]
+          assert raw == unknown["evidence_rows"]
+          assert integrity == "ok"
+          assert not fk
+          PY
+
+      - name: Recollect same screen and verify evidence idempotency
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          import asyncio
+          import json
+          import sqlite3
+          from pathlib import Path
+
+          from rate_monitor.collectors.fsb.adapter import FsbAdapter
+          from rate_monitor.db.session import create_db_engine, make_session_factory
+          from rate_monitor.domain.schemas import CollectionRequest
+          from rate_monitor.services.collection_service import collect_source
+
+          db = Path("work/rate_monitor.sqlite3")
+          conn = sqlite3.connect(db)
+          before = conn.execute(
+              "SELECT COUNT(*) FROM product_special_offer_evidence "
+              "WHERE source_id='fsb' AND classification='unknown'"
+          ).fetchone()[0]
+          conn.close()
+
+          factory = make_session_factory(create_db_engine(db))
+          result = asyncio.run(
+              collect_source(
+                  FsbAdapter(),
+                  CollectionRequest(
+                      source_id="fsb",
+                      options={"screens": ("ratedepo",)},
+                  ),
+                  factory,
+                  raw_root=Path("data/raw"),
+              )
+          )
+          conn = sqlite3.connect(db)
+          after = conn.execute(
+              "SELECT COUNT(*) FROM product_special_offer_evidence "
+              "WHERE source_id='fsb' AND classification='unknown'"
+          ).fetchone()[0]
+          payload = {
+              "status": result.status,
+              "unknown_before_rerun": before,
+              "unknown_after_rerun": after,
+              "production_write": False,
+          }
+          Path("publish/special-offer-second-run.json").write_text(
+              json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          print(json.dumps(payload, ensure_ascii=False))
+          assert result.status == "success"
+          assert before > 0
+          assert after == before
+          PY
+
+      - name: Exercise review CLI read path
+        run: |
+          set -euo pipefail
+          uv run rate-monitor-special-offer --db work/rate_monitor.sqlite3 summary \
+            > publish/special-offer-cli-summary.json
+          uv run rate-monitor-special-offer --db work/rate_monitor.sqlite3 list \
+            --classification unknown --limit 3 \
+            > publish/special-offer-cli-list.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          summary = json.loads(Path("publish/special-offer-cli-summary.json").read_text())
+          rows = json.loads(Path("publish/special-offer-cli-list.json").read_text())
+          assert summary["by_classification"]["unknown"]["evidence_rows"] > 0
+          assert rows
+          assert all(row["classification"] == "unknown" for row in rows)
+          print(json.dumps({"cli_rows_checked": len(rows), "production_write": False}))
+          PY
+
+      - name: Explicit no-publish gate
+        run: |
+          set -euo pipefail
+          echo "Candidate only: this workflow never calls rate-monitor storage upload."
+          echo "Radar remains off; no confirmed classification is synthesized by this workflow."
+
+      - name: Upload special-offer runtime evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: special-offer-registry-runtime-${{ github.run_id }}
+          retention-days: 30
+          if-no-files-found: error
+          path: |
+            publish/special-offer-before.json
+            publish/special-offer-first-run.json
+            publish/special-offer-qc.json
+            publish/special-offer-second-run.json
+            publish/special-offer-cli-summary.json
+            publish/special-offer-cli-list.json
