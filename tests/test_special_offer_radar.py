@@ -3,9 +3,20 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta
+from decimal import Decimal
 from pathlib import Path
 
-from rate_monitor.db.models import Base, Institution, Product, Source, SourceEntityLink
+from rate_monitor.db.models import (
+    Base,
+    CollectionRun,
+    Institution,
+    Product,
+    ProductVariant,
+    RateObservation,
+    RawArtifact,
+    Source,
+    SourceEntityLink,
+)
 from rate_monitor.db.session import create_db_engine, make_session_factory, session_scope
 from rate_monitor.services.special_offer_evidence_service import (
     CONFIRMED_NORMAL,
@@ -84,6 +95,55 @@ def _seed(session) -> None:
     session.flush()
 
 
+def _seed_current_fsb_rate(session, *, rate: Decimal = Decimal("4.25")) -> None:
+    run = CollectionRun(
+        id="run-1",
+        source_id="fsb",
+        mode="http",
+        started_at=T0,
+        finished_at=T0,
+        status="success",
+    )
+    artifact = RawArtifact(
+        id="artifact-1",
+        run_id=run.id,
+        artifact_type="json",
+        relative_path="fsb/test.json",
+        sha256="a" * 64,
+        content_length=2,
+        captured_at=T0,
+    )
+    variant = ProductVariant(
+        id="variant-1",
+        product_id="product-1",
+        term_months=12,
+        join_channel="online",
+        interest_method="simple",
+        rate_scope="published",
+        variant_key="variant-1",
+    )
+    observation = RateObservation(
+        id="observation-1",
+        variant_id=variant.id,
+        run_id=run.id,
+        last_run_id=run.id,
+        raw_artifact_id=artifact.id,
+        as_of=DAY,
+        observed_at=T0,
+        base_rate=Decimal("4.00"),
+        max_rate=rate,
+        source_detail_json={},
+        raw_preference_text="",
+        validation_status="valid",
+        content_hash="sha256:rate",
+        base_source_locator="$.REC[0]",
+        source_record_hash="sha256:source-rate",
+        source_effective_at=DAY,
+    )
+    session.add_all([run, artifact, variant, observation])
+    session.flush()
+
+
 def _evidence(
     classification: str,
     *,
@@ -141,11 +201,14 @@ def test_unknown_snapshot_never_becomes_radar_offer(tmp_path: Path) -> None:
     assert payload["activation"] == RADAR_ACTIVATION
 
 
-def test_only_explicit_confirmed_special_enters_radar(tmp_path: Path) -> None:
+def test_only_explicit_confirmed_special_enters_radar_with_current_fsb_rate(
+    tmp_path: Path,
+) -> None:
     db_path, factory = _db(tmp_path)
     reviewed_at = T0 + timedelta(hours=1)
     with session_scope(factory) as session:
         _seed(session)
+        _seed_current_fsb_rate(session)
         append_special_offer_evidence(
             session,
             _evidence(UNKNOWN, content_hash="sha256:unknown"),
@@ -166,7 +229,9 @@ def test_only_explicit_confirmed_special_enters_radar(tmp_path: Path) -> None:
     assert len(payload["offers"]) == 1
     assert payload["offers"][0]["institution_name"] == "테스트저축은행"
     assert payload["offers"][0]["product_name"] == "정기예금"
-    assert payload["offers"][0]["representative_rate"] is None
+    assert payload["offers"][0]["representative_rate"] == 4.25
+    assert payload["offers"][0]["term_months"] == 12
+    assert payload["offers"][0]["join_channel"] == "online"
     assert payload["policy"]["ranking_population_changed"] is False
 
 
@@ -210,4 +275,5 @@ def test_radar_presentation_is_read_only_and_idempotent() -> None:
     assert "<form" not in rendered.lower()
     assert 'type="submit"' not in rendered.lower()
     assert "append_operator_confirmation" not in rendered
+    assert "^https?:" in rendered
     assert inject_special_offer_radar_presentation(rendered) == rendered
