@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta
 
 import pytest
+from sqlalchemy import select
 
 from rate_monitor.db.models import Base, Institution, Product, Source, SourceEntityLink
 from rate_monitor.db.session import create_db_engine, make_session_factory, session_scope
@@ -35,7 +36,7 @@ def factory(tmp_path):
     return make_session_factory(engine)
 
 
-def _seed(session, *, match_method: str = "exact_code") -> str:
+def _seed(session) -> str:
     session.add(
         Source(
             id="fsb",
@@ -73,7 +74,7 @@ def _seed(session, *, match_method: str = "exact_code") -> str:
             source_entity_key="institution-1:source-product-1",
             entity_id=product.id,
             source_name=product.name,
-            match_method=match_method,
+            match_method="exact_code",
             valid_from=DAY,
             created_at=T0,
             updated_at=T0,
@@ -184,11 +185,16 @@ def test_operator_confirmation_rejects_fake_hash_and_non_exact_identity(factory)
                 content_sha256="not-a-hash",
             )
 
-    engine = create_db_engine("file:non-exact?mode=memory&cache=shared&uri=true")
-    non_exact_factory = make_session_factory(engine)
-    Base.metadata.create_all(engine)
-    with session_scope(non_exact_factory) as session:
-        product_id = _seed(session, match_method="manual_name")
+        link = session.scalar(
+            select(SourceEntityLink).where(
+                SourceEntityLink.source_id == "fsb",
+                SourceEntityLink.entity_type == "product",
+                SourceEntityLink.entity_id == product_id,
+            )
+        )
+        assert link is not None
+        link.match_method = "manual_name"
+        session.flush()
         with pytest.raises(SpecialOfferEvidenceError, match="exactly one active exact_code"):
             append_operator_confirmation(
                 session,
