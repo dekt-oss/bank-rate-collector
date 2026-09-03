@@ -24,6 +24,7 @@ permissions:
 jobs:
   collect-bank-rates:
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     env:
       RATE_MONITOR_STRATEGY_DASHBOARD: "1"
     steps:
