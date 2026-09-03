@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - "feat/special-offer-radar-*"
+      - "feat/strategy-ux-*"
     paths:
       - ".github/workflows/special-offer-radar-runtime-evidence.yml"
       - "scripts/special_offer_radar_runtime_smoke.js"
@@ -13,6 +14,7 @@ on:
       - "src/rate_monitor/services/strategy_service.py"
       - "src/rate_monitor/services/strategy_decision_cockpit.py"
       - "tests/test_special_offer_radar.py"
+      - "tests/test_special_offer_radar_mobile_ux.py"
   workflow_dispatch:
 
 permissions:
