@@ -1,0 +1,163 @@
+name: Strategy UX production-copy browser E2E
+
+on:
+  push:
+    branches:
+      - main
+      - "feat/strategy-ux-*"
+    paths:
+      - "src/rate_monitor/services/strategy_service.py"
+      - "src/rate_monitor/services/strategy_decision_cockpit.py"
+      - "src/rate_monitor/services/strategy_workspace_presentation.py"
+      - "src/rate_monitor/services/strategy_light_theme_presentation.py"
+      - "src/rate_monitor/services/strategy_brand_theme_presentation.py"
+      - "src/rate_monitor/services/strategy_ux_refinement_presentation.py"
+      - "src/rate_monitor/services/special_offer_radar_service.py"
+      - "src/rate_monitor/services/special_offer_radar_presentation.py"
+      - "src/rate_monitor/services/external_market_context_presentation.py"
+      - "src/rate_monitor/services/market_intelligence_presentation.py"
+      - "src/rate_monitor/services/preference_intelligence_presentation.py"
+      - "src/rate_monitor/services/site_service.py"
+      - "web/templates/strategy.html"
+      - "web/templates/site.html"
+      - "web/assets/**"
+      - "config/**"
+      - "migrations/**"
+      - "scripts/strategy_preview_smoke.js"
+      - "scripts/strategy_main_runtime_external_context_smoke.js"
+      - "scripts/strategy_workspace_smoke.js"
+      - "scripts/special_offer_radar_runtime_smoke.js"
+      - "tests/test_special_offer_radar.py"
+      - "tests/test_special_offer_radar_mobile_ux.py"
+      - "tests/test_strategy_radar_runtime_contract.py"
+      - ".github/workflows/strategy-ux-production-copy-e2e.yml"
+  workflow_dispatch:
+
+# Restore the canonical production snapshot into a runner-local copy and render
+# Strategy with the exact branch code. This workflow never publishes the local DB/site.
+concurrency:
+  group: strategy-ux-production-copy-e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  browser-e2e:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Sync dependencies
+        run: uv sync --locked
+
+      - name: Restore canonical production database into local copy
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+          R2_REGION: ${{ vars.R2_REGION }}
+        run: |
+          set -euo pipefail
+          mkdir -p work
+          uv run rate-monitor storage restore --dest work/rate_monitor.sqlite3
+          test -s work/rate_monitor.sqlite3
+
+      - name: Apply migrations only to runner-local copy
+        env:
+          RATE_MONITOR_DB_URL: sqlite+pysqlite:///${{ github.workspace }}/work/rate_monitor.sqlite3
+        run: uv run alembic upgrade head
+
+      - name: Build isolated Strategy site from production data
+        env:
+          RATE_MONITOR_STRATEGY_DASHBOARD: "1"
+        run: |
+          set -euo pipefail
+          uv run rate-monitor build-site \
+            --db work/rate_monitor.sqlite3 \
+            --template web/templates/site.html \
+            --out work/site-public
+
+          test -s work/site-public/strategy.html
+          test -s work/site-public/data/strategy-table.json
+          grep -q 'id="strategy-workspace-script"' work/site-public/strategy.html
+          grep -q 'id="strategy-light-theme-script"' work/site-public/strategy.html
+          grep -q 'id="strategy-brand-theme-script"' work/site-public/strategy.html
+          grep -q 'id="strategy-ux-refinement-script"' work/site-public/strategy.html
+          grep -q 'id="external-market-context-script"' work/site-public/strategy.html
+          grep -q 'id="special-offer-radar-style"' work/site-public/strategy.html
+          grep -q 'id="special-offer-radar-script"' work/site-public/strategy.html
+          grep -q '시장 특판 Radar' work/site-public/strategy.html
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install Chrome smoke dependencies
+        run: |
+          set -euo pipefail
+          command -v google-chrome
+          google-chrome --version
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends fonts-noto-cjk
+          npm install --no-save --package-lock=false @playwright/test@1.61.1
+          node --check scripts/strategy_preview_smoke.js
+          node --check scripts/strategy_main_runtime_external_context_smoke.js
+          node --check scripts/strategy_workspace_smoke.js
+          node --check scripts/special_offer_radar_runtime_smoke.js
+
+      - name: Run Strategy desktop and mobile Chrome smoke
+        env:
+          STRATEGY_PREVIEW_BASE_URL: http://127.0.0.1:4173
+          RADAR_REQUIRE_LIVE_UNKNOWN: "0"
+          RADAR_REQUIRE_NO_CONFIRMED: "0"
+        run: |
+          set -euo pipefail
+          python -m http.server 4173 --directory work/site-public \
+            > work/strategy-ux-production-copy-http.log 2>&1 &
+          SERVER_PID=$!
+          trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT
+
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:4173/strategy.html >/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:4173/strategy.html >/dev/null
+          node scripts/strategy_preview_smoke.js
+          node scripts/strategy_main_runtime_external_context_smoke.js
+          node scripts/strategy_workspace_smoke.js
+          node scripts/special_offer_radar_runtime_smoke.js
+
+      - name: Assert candidate-only verification boundary
+        run: |
+          set -euo pipefail
+          echo "Production data was restored into a runner-local copy only."
+          echo "No rate-monitor storage upload, git push, or deployment is performed."
+
+      - name: Upload Strategy UX evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: strategy-ux-production-copy-${{ github.run_id }}
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            work/strategy-smoke-*.png
+            work/strategy-main-runtime-*.png
+            work/special-offer-radar-*.png
+            work/special-offer-radar-runtime-metrics.json
+            work/strategy-ux-production-copy-http.log
