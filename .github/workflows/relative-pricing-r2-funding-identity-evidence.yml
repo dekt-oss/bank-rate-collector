@@ -1,0 +1,260 @@
+name: Relative Pricing R2 historical funding identity evidence
+
+on:
+  push:
+    branches:
+      - "evidence/relative-pricing-r2-funding-*"
+    paths:
+      - ".github/workflows/relative-pricing-r2-funding-identity-evidence.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  historical-funding-identity-evidence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Sync dependencies
+        run: uv sync --locked
+
+      - name: Restore production database into runner-local copy
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+          R2_REGION: ${{ vars.R2_REGION }}
+        run: |
+          set -euo pipefail
+          mkdir -p work
+          uv run rate-monitor storage restore --dest work/rate_monitor.sqlite3
+          test -s work/rate_monitor.sqlite3
+
+      - name: Apply migrations to runner-local copy
+        env:
+          RATE_MONITOR_DB_URL: sqlite+pysqlite:///${{ github.workspace }}/work/rate_monitor.sqlite3
+        run: uv run alembic upgrade head
+
+      - name: Audit historical identity provenance for 2026-03 funding rows
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          import json
+          import sqlite3
+          from collections import Counter
+          from datetime import date, datetime
+          from pathlib import Path
+
+          DB = Path("work/rate_monitor.sqlite3")
+          OUT = Path("work/r2-historical-funding-identity-evidence.json")
+          CUTOFF_DATE = date(2026, 8, 31)
+          CUTOFF_DT = datetime(2026, 8, 31, 23, 59, 59)
+          MONTH = "2026-03"
+          DIRECT_SOURCE = "data_go_savings_bank_funding"
+          REFERENCE_SOURCES = ("fsb", "finlife_savings_bank")
+
+          def parse_date(value):
+              text = str(value or "").strip()
+              if not text:
+                  return None
+              return date.fromisoformat(text[:10])
+
+          def parse_dt(value):
+              text = str(value or "").strip()
+              if not text:
+                  return None
+              parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+              if parsed.tzinfo is not None:
+                  parsed = parsed.replace(tzinfo=None)
+              return parsed
+
+          def link_as_of(link):
+              valid_from = parse_date(link["valid_from"])
+              valid_to = parse_date(link["valid_to"])
+              return (
+                  valid_from is not None
+                  and valid_from <= CUTOFF_DATE
+                  and (valid_to is None or valid_to > CUTOFF_DATE)
+              )
+
+          def recorded_by_cutoff(link):
+              created_at = parse_dt(link["created_at"])
+              return created_at is not None and created_at <= CUTOFF_DT
+
+          conn = sqlite3.connect(DB)
+          conn.row_factory = sqlite3.Row
+          try:
+              observations = conn.execute(
+                  """
+                  SELECT institution_id, source_institution_key,
+                         source_institution_name, identity_status,
+                         observed_at, valid_from, valid_to
+                  FROM institution_funding_observations
+                  WHERE source_id = ?
+                    AND sector = 'savings_bank'
+                    AND metric_code = 'deposit_liabilities_total'
+                    AND source_effective_month = ?
+                    AND valid_to IS NULL
+                  ORDER BY source_institution_key
+                  """,
+                  (DIRECT_SOURCE, MONTH),
+              ).fetchall()
+
+              links = conn.execute(
+                  """
+                  SELECT source_id, source_entity_key, entity_id, match_method,
+                         valid_from, valid_to, created_at, updated_at
+                  FROM source_entity_links
+                  WHERE entity_type = 'institution'
+                    AND source_id IN (?, ?, ?)
+                  ORDER BY source_id, source_entity_key, valid_from, created_at
+                  """,
+                  (DIRECT_SOURCE, *REFERENCE_SOURCES),
+              ).fetchall()
+          finally:
+              conn.close()
+
+          links_by = {}
+          for link in links:
+              links_by.setdefault(
+                  (str(link["source_id"]), str(link["source_entity_key"])), []
+              ).append(link)
+
+          rows = []
+          resolved_by_temporal_links = 0
+          resolved_and_recorded_by_cutoff = 0
+          unresolved = 0
+          current_dual = 0
+          current_dual_keys = []
+
+          for obs in observations:
+              source_key = str(obs["source_institution_key"])
+              org_key = f"savings_bank:{source_key}"
+              current_status = str(obs["identity_status"])
+              current_entity = str(obs["institution_id"] or "") or None
+              if current_status == "mapped_dual_source":
+                  current_dual += 1
+                  current_dual_keys.append(source_key)
+
+              direct = [
+                  link for link in links_by.get((DIRECT_SOURCE, org_key), [])
+                  if str(link["match_method"]) == "exact_code" and link_as_of(link)
+              ]
+              fsb = [
+                  link for link in links_by.get(("fsb", org_key), [])
+                  if str(link["match_method"]) == "exact_code" and link_as_of(link)
+              ]
+              finlife = [
+                  link for link in links_by.get(("finlife_savings_bank", org_key), [])
+                  if str(link["match_method"]) == "exact_code" and link_as_of(link)
+              ]
+
+              method = None
+              entity_id = None
+              supporting = []
+              if len(direct) == 1:
+                  method = "direct_exact_code_temporal_link"
+                  entity_id = str(direct[0]["entity_id"])
+                  supporting = direct
+              elif len(direct) == 0 and len(fsb) == 1 and len(finlife) == 1:
+                  fsb_entity = str(fsb[0]["entity_id"])
+                  finlife_entity = str(finlife[0]["entity_id"])
+                  if fsb_entity == finlife_entity:
+                      method = "fsb_finlife_exact_code_temporal_consensus"
+                      entity_id = fsb_entity
+                      supporting = [fsb[0], finlife[0]]
+
+              recorded = bool(supporting) and all(
+                  recorded_by_cutoff(link) for link in supporting
+              )
+              if method is not None:
+                  resolved_by_temporal_links += 1
+                  if recorded:
+                      resolved_and_recorded_by_cutoff += 1
+              else:
+                  unresolved += 1
+
+              rows.append(
+                  {
+                      "source_key": source_key,
+                      "source_name": str(obs["source_institution_name"]),
+                      "current_observation_identity_status": current_status,
+                      "current_observation_institution_id": current_entity,
+                      "historical_resolution_method": method,
+                      "historical_resolution_entity_id": entity_id,
+                      "historical_resolution_matches_current": (
+                          entity_id is not None and entity_id == current_entity
+                      ),
+                      "supporting_links_recorded_by_cutoff": recorded,
+                      "direct_link_count_as_of": len(direct),
+                      "fsb_link_count_as_of": len(fsb),
+                      "finlife_link_count_as_of": len(finlife),
+                      "supporting_links": [
+                          {
+                              "source_id": str(link["source_id"]),
+                              "entity_id": str(link["entity_id"]),
+                              "valid_from": link["valid_from"],
+                              "valid_to": link["valid_to"],
+                              "created_at": str(link["created_at"]),
+                              "updated_at": str(link["updated_at"]),
+                          }
+                          for link in supporting
+                      ],
+                  }
+              )
+
+          dual_rows = [
+              row for row in rows
+              if row["current_observation_identity_status"] == "mapped_dual_source"
+          ]
+          payload = {
+              "cutoff": CUTOFF_DT.isoformat(sep=" "),
+              "funding_month": MONTH,
+              "production_write": False,
+              "observation_rows": len(observations),
+              "current_identity_status_counts": dict(
+                  sorted(Counter(str(row["identity_status"]) for row in observations).items())
+              ),
+              "current_mapped_dual_source_count": current_dual,
+              "current_mapped_dual_source_keys": current_dual_keys,
+              "historical_temporal_link_resolved_count": resolved_by_temporal_links,
+              "historical_temporal_link_and_recorded_by_cutoff_count": (
+                  resolved_and_recorded_by_cutoff
+              ),
+              "historical_unresolved_count": unresolved,
+              "all_historical_resolution_matches_current": all(
+                  row["historical_resolution_matches_current"] for row in rows
+              ),
+              "dual_source_rows": dual_rows,
+              "rows": rows,
+              "interpretation": {
+                  "mutable_observation_identity_is_historical_proof": False,
+                  "temporal_source_links_required": True,
+                  "created_at_is_reported_separately_from_valid_interval": True,
+              },
+          }
+          OUT.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+          print(OUT.read_text(encoding="utf-8"))
+          PY
+
+      - name: Upload R2 historical funding identity evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: relative-pricing-r2-funding-identity-${{ github.run_id }}
+          path: work/r2-historical-funding-identity-evidence.json
+          retention-days: 30
+          if-no-files-found: error
