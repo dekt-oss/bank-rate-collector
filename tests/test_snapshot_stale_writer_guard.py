@@ -8,7 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from rate_monitor.services import snapshot_service
+from rate_monitor.services import canonical_writer_guard, snapshot_service
 from rate_monitor.services.snapshot_service import SnapshotIntegrityError
 
 RUN_SHA = "1" * 40
@@ -27,7 +27,7 @@ def test_local_snapshot_does_not_query_remote(monkeypatch: pytest.MonkeyPatch) -
     def unexpected(*args, **kwargs):  # noqa: ANN002, ANN003
         raise AssertionError("local snapshot must not query origin/main")
 
-    monkeypatch.setattr(snapshot_service.subprocess, "run", unexpected)
+    monkeypatch.setattr(canonical_writer_guard.subprocess, "run", unexpected)
     snapshot_service._guard_current_main_writer()
 
 
@@ -39,7 +39,7 @@ def test_non_main_actions_does_not_query_remote(monkeypatch: pytest.MonkeyPatch)
     def unexpected(*args, **kwargs):  # noqa: ANN002, ANN003
         raise AssertionError("non-main Actions must not query origin/main")
 
-    monkeypatch.setattr(snapshot_service.subprocess, "run", unexpected)
+    monkeypatch.setattr(canonical_writer_guard.subprocess, "run", unexpected)
     snapshot_service._guard_current_main_writer()
 
 
@@ -52,7 +52,7 @@ def test_main_actions_requires_valid_run_sha(monkeypatch: pytest.MonkeyPatch) ->
 def test_current_main_writer_is_allowed(monkeypatch: pytest.MonkeyPatch) -> None:
     _main_actions(monkeypatch)
     monkeypatch.setattr(
-        snapshot_service.subprocess,
+        canonical_writer_guard.subprocess,
         "run",
         lambda *args, **kwargs: SimpleNamespace(  # noqa: ARG005
             stdout=f"{RUN_SHA}\trefs/heads/main\n"
@@ -64,7 +64,7 @@ def test_current_main_writer_is_allowed(monkeypatch: pytest.MonkeyPatch) -> None
 def test_stale_main_writer_is_blocked(monkeypatch: pytest.MonkeyPatch) -> None:
     _main_actions(monkeypatch)
     monkeypatch.setattr(
-        snapshot_service.subprocess,
+        canonical_writer_guard.subprocess,
         "run",
         lambda *args, **kwargs: SimpleNamespace(  # noqa: ARG005
             stdout=f"{CURRENT_SHA}\trefs/heads/main\n"
@@ -82,7 +82,7 @@ def test_remote_lookup_failure_fails_closed(monkeypatch: pytest.MonkeyPatch) -> 
     def fail(*args, **kwargs):  # noqa: ANN002, ANN003
         raise subprocess.TimeoutExpired(cmd="git ls-remote", timeout=20)
 
-    monkeypatch.setattr(snapshot_service.subprocess, "run", fail)
+    monkeypatch.setattr(canonical_writer_guard.subprocess, "run", fail)
     with pytest.raises(SnapshotIntegrityError, match="검증하지 못했다"):
         snapshot_service._guard_current_main_writer()
 
@@ -90,7 +90,7 @@ def test_remote_lookup_failure_fails_closed(monkeypatch: pytest.MonkeyPatch) -> 
 def test_malformed_remote_ref_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
     _main_actions(monkeypatch)
     monkeypatch.setattr(
-        snapshot_service.subprocess,
+        canonical_writer_guard.subprocess,
         "run",
         lambda *args, **kwargs: SimpleNamespace(stdout="not-a-sha refs/heads/main\n"),  # noqa: ARG005
     )
