@@ -23,7 +23,7 @@ permissions:
 
 concurrency:
   group: special-offer-radar-runtime-evidence-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   production-copy-live-fsb-browser-smoke:
