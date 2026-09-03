@@ -123,9 +123,8 @@ jobs:
           db = Path("work/publish/rate_monitor.sqlite3")
           manifest = json.loads(Path("work/publish/manifest.json").read_text(encoding="utf-8"))
           digest = hashlib.sha256(db.read_bytes()).hexdigest()
-          expected = manifest.get("db_sha256") or manifest.get("database_sha256") or manifest.get("sha256")
+          expected = manifest["sqlite_sha256"]
           print(json.dumps({"actual": digest, "manifest": expected}, ensure_ascii=False))
-          assert expected, "manifest has no database SHA field"
           assert digest == expected, f"snapshot manifest SHA mismatch before Strategy build: {digest} != {expected}"
           PY
 
@@ -247,7 +246,7 @@ jobs:
           db = Path("work/publish/rate_monitor.sqlite3")
           manifest = json.loads(Path("work/publish/manifest.json").read_text(encoding="utf-8"))
           digest = hashlib.sha256(db.read_bytes()).hexdigest()
-          expected = manifest.get("db_sha256") or manifest.get("database_sha256") or manifest.get("sha256")
+          expected = manifest["sqlite_sha256"]
           assert digest == expected, f"manifest SHA changed after Strategy/browser reads: {digest} != {expected}"
           print(json.dumps({"final_sha256": digest, "manifest_sha256": expected}, ensure_ascii=False))
           PY
