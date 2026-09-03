@@ -184,3 +184,8 @@ reason = no_versioned_explicit_fsb_special_offer_field
 
 Therefore this funding work does not bypass PR #286's fail-closed historical rate gate,
 and does not enable historical peer ranking, analogue UI, or causal interpretation.
+
+The follow-up FSB `PRODUCT_URL` census (run `33715854914`) also found no versioned
+historical special-offer classification: 57 candidate products mapped to only 34 URLs,
+34 products shared 11 general/list URLs, and 0 products were historically classified.
+R2 historical analogue therefore remains intentionally inactive.
