@@ -3,9 +3,9 @@
 The current Strategy funding reader intentionally uses the latest active revision
 for each source month. Historical analogue recomputation has a stricter contract:
 a correction or identity remap learned after the historical analysis date must
-not leak backward. This module therefore reconstructs the funding revisions that
-were known at an explicit cutoff and then reuses the canonical exact-month
-funding read model.
+not leak backward. This module therefore reconstructs both the funding revision
+and source-key identity evidence that were known at an explicit cutoff, then
+reuses the canonical exact-month funding read model.
 
 No nearest-month interpolation is performed. The caller must name the exact
 funding month to align with a historical rate snapshot, and the payload preserves
@@ -28,9 +28,12 @@ from rate_monitor.services.institution_funding_read_model import (
     InstitutionFundingReadRow,
     build_institution_funding_read_model,
 )
-from rate_monitor.services.institution_funding_read_model_db import (
-    FUNDING_METRIC_CODE,
-    VERIFIED_IDENTITY_STATUSES,
+from rate_monitor.services.institution_funding_read_model_db import FUNDING_METRIC_CODE
+from rate_monitor.services.relative_pricing_historical_funding_identity import (
+    DATA_GO_SAVINGS_BANK_SOURCE_ID,
+    SAVINGS_BANK_SECTOR,
+    HistoricalFundingIdentityInput,
+    resolve_historical_savings_bank_funding_identities,
 )
 
 HISTORICAL_FUNDING_POLICY_ID = "relative-pricing-historical-funding"
@@ -99,6 +102,7 @@ class HistoricalFundingBuild:
             ),
             "nearest_month_interpolation": False,
             "missing_as_zero": False,
+            "mutable_observation_identity_trusted": False,
         }
 
 
@@ -178,22 +182,31 @@ def load_historical_funding_points_as_known_at(
     knowledge_as_of: date | datetime | str,
     metric_code: str = FUNDING_METRIC_CODE,
 ) -> list[FundingPoint]:
-    """Load exact-month funding revisions that were known at ``knowledge_as_of``.
+    """Load exact-month funding and identity evidence known at the cutoff.
 
-    Revision validity is evaluated using ``valid_from``/``valid_to`` and the
-    source observation itself must also have been observed by the cutoff. If two
-    revisions of the same source natural key are simultaneously valid, the read
-    fails closed rather than choosing one by revision number.
+    Value revision validity is evaluated using ``valid_from``/``valid_to`` and
+    ``observed_at``. Mutable observation identity fields are ignored for mapping;
+    savings-bank identity is reconstructed from source links recorded by the same
+    cutoff. If two value revisions of one source natural key are simultaneously
+    valid, or reconstructed identity conflicts with a populated current mapping,
+    the read fails closed.
     """
 
     target_sector = _required_text(sector, field="sector")
+    if target_sector != SAVINGS_BANK_SECTOR:
+        raise ValueError(
+            "historical funding identity reconstruction currently supports "
+            "savings_bank only"
+        )
     target_month = _validate_month(analysis_month, field="analysis_month")
     target_metric = _required_text(metric_code, field="metric_code")
     cutoff = _normalized_cutoff(knowledge_as_of)
     if target_month > cutoff.strftime("%Y-%m"):
         raise ValueError("analysis_month cannot be later than knowledge_as_of")
 
-    months = sorted({target_month, _shift_month(target_month, -6), _shift_month(target_month, -12)})
+    months = sorted(
+        {target_month, _shift_month(target_month, -6), _shift_month(target_month, -12)}
+    )
     placeholders = ",".join("?" for _ in months)
     connection = _open_immutable_snapshot(db_path)
     try:
@@ -202,6 +215,8 @@ def load_historical_funding_points_as_known_at(
             SELECT institution_id,
                    source_id,
                    source_institution_key,
+                   source_institution_name,
+                   source_crno,
                    sector,
                    source_effective_month,
                    value,
@@ -247,19 +262,58 @@ def load_historical_funding_points_as_known_at(
             )
         selected.append(revisions[0])
 
-    points = [
-        FundingPoint(
-            institution_id=str(row["institution_id"]),
-            sector=str(row["sector"]),
-            month=str(row["source_effective_month"]),
-            balance=Decimal(str(row["value"])),
-            identity_status="exact",
-            quality_status="usable_exact",
+    unsupported_sources = sorted(
+        {
+            str(row["source_id"])
+            for row in selected
+            if str(row["source_id"]) != DATA_GO_SAVINGS_BANK_SOURCE_ID
+        }
+    )
+    if unsupported_sources:
+        raise ValueError(
+            "unexpected historical savings-bank funding source(s): "
+            + ",".join(unsupported_sources)
         )
-        for row in selected
-        if row["institution_id"] is not None
-        and str(row["identity_status"]) in VERIFIED_IDENTITY_STATUSES
-    ]
+
+    resolutions = resolve_historical_savings_bank_funding_identities(
+        db_path,
+        inputs=(
+            HistoricalFundingIdentityInput(
+                source_institution_key=str(row["source_institution_key"]),
+                source_institution_name=str(row["source_institution_name"]),
+                source_crno=str(row["source_crno"] or "").strip() or None,
+            )
+            for row in selected
+        ),
+        knowledge_as_of=cutoff,
+    )
+
+    points: list[FundingPoint] = []
+    for row in selected:
+        source_key = str(row["source_institution_key"])
+        resolution = resolutions.get(source_key)
+        if resolution is None or resolution.institution_id is None:
+            continue
+        current_institution_id = str(row["institution_id"] or "").strip() or None
+        if (
+            current_institution_id is not None
+            and current_institution_id != resolution.institution_id
+        ):
+            raise ValueError(
+                "historical funding identity conflicts with current observation: "
+                f"source_key={source_key} historical={resolution.institution_id} "
+                f"current={current_institution_id}"
+            )
+        points.append(
+            FundingPoint(
+                institution_id=resolution.institution_id,
+                sector=str(row["sector"]),
+                month=str(row["source_effective_month"]),
+                balance=Decimal(str(row["value"])),
+                identity_status="exact",
+                quality_status="usable_exact",
+            )
+        )
     return sorted(points, key=lambda point: (point.institution_id, point.month))
 
 
