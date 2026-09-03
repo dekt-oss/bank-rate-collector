@@ -1,15 +1,17 @@
-"""Canonical snapshot stale-main writer gate."""
+"""Canonical snapshot/R2 stale-main writer gate."""
 
 from __future__ import annotations
 
+import sqlite3
 import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
-from rate_monitor.services import canonical_writer_guard, snapshot_service
+from rate_monitor.services import canonical_writer_guard, snapshot_service, storage_service
 from rate_monitor.services.snapshot_service import SnapshotIntegrityError
+from rate_monitor.services.storage_service import CURRENT_KEY, SNAPSHOT_PREFIX, LocalObjectStore, StorageError
 
 RUN_SHA = "1" * 40
 CURRENT_SHA = "2" * 40
@@ -118,3 +120,56 @@ def test_guard_runs_before_existing_publish_artifacts_are_touched(
 
     assert publish_db.read_bytes() == b"last-known-good"
     assert manifest.read_text(encoding="utf-8") == '{"state":"last-known-good"}\n'
+
+
+def _tiny_db(path: Path) -> None:
+    conn = sqlite3.connect(path)
+    try:
+        conn.execute("CREATE TABLE rate_observations (id INTEGER PRIMARY KEY)")
+        conn.execute("CREATE TABLE institutions (id INTEGER PRIMARY KEY)")
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def test_storage_rechecks_before_pointer_and_removes_stale_object(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    db_path = tmp_path / "publish.sqlite3"
+    _tiny_db(db_path)
+    store = LocalObjectStore(tmp_path / "bucket")
+    calls = 0
+
+    def become_stale_before_pointer() -> None:
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise StorageError("stale-main writer blocked")
+
+    monkeypatch.setattr(storage_service, "_guard_current_main_writer", become_stale_before_pointer)
+    with pytest.raises(StorageError, match="stale-main writer blocked"):
+        storage_service.upload_snapshot(store, db_path, tmp_path / "work")
+
+    assert calls == 2
+    assert not store.exists(CURRENT_KEY)
+    assert store.list(SNAPSHOT_PREFIX) == []
+
+
+def test_storage_first_guard_blocks_before_any_r2_mutation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    db_path = tmp_path / "publish.sqlite3"
+    _tiny_db(db_path)
+    store = LocalObjectStore(tmp_path / "bucket")
+
+    def stale() -> None:
+        raise StorageError("stale-main writer blocked")
+
+    monkeypatch.setattr(storage_service, "_guard_current_main_writer", stale)
+    with pytest.raises(StorageError, match="stale-main writer blocked"):
+        storage_service.upload_snapshot(store, db_path, tmp_path / "work")
+
+    assert not store.exists(CURRENT_KEY)
+    assert store.list(SNAPSHOT_PREFIX) == []
