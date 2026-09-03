@@ -253,18 +253,22 @@ def resolve_special_offer_state(
     product_id: str,
     as_of: date,
     known_at: datetime,
+    source_id: str | None = None,
 ) -> ResolvedSpecialOfferState:
     """요청 snapshot에서 당시까지 알려진 판정만 푼다.
 
     exact snapshot이 있으면 기간형 근거보다 우선한다. 같은 최신 시각에 서로
     다른 판정이 있으면 한쪽을 고르지 않고 conflict/unknown으로 닫는다.
+    ``source_id``를 주면 그 원천의 판정만 해석하며, 생략하면 기존의
+    product-level 통합 해석 계약을 유지한다.
     """
-    rows = session.scalars(
-        select(ProductSpecialOfferEvidence).where(
-            ProductSpecialOfferEvidence.product_id == product_id,
-            ProductSpecialOfferEvidence.observed_at <= known_at,
-        )
-    ).all()
+    query = select(ProductSpecialOfferEvidence).where(
+        ProductSpecialOfferEvidence.product_id == product_id,
+        ProductSpecialOfferEvidence.observed_at <= known_at,
+    )
+    if source_id is not None:
+        query = query.where(ProductSpecialOfferEvidence.source_id == source_id)
+    rows = session.scalars(query).all()
     exact = [row for row in rows if row.snapshot_as_of == as_of]
     exact_confirmed = [row for row in exact if row.classification != UNKNOWN]
     period_confirmed = [
