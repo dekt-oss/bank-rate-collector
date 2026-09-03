@@ -15,7 +15,9 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
-from rate_monitor.db.session import create_db_engine, make_session_factory
+from sqlalchemy import create_engine
+
+from rate_monitor.db.session import make_session_factory
 from rate_monitor.services.special_offer_evidence_service import (
     CONFIRMED_NORMAL,
     CONFIRMED_SPECIAL,
@@ -206,6 +208,25 @@ def _current_fsb_rates(
     return rates
 
 
+def _read_only_session_factory(db_path: Path):
+    """Create an ORM session factory that cannot mutate SQLite file state.
+
+    The normal application engine switches every connection to WAL mode. Strategy
+    rendering runs *after* the publish snapshot hash is recorded, so even that
+    connection-level PRAGMA is too much: a presentation read must leave the
+    snapshot byte-for-byte unchanged. ``mode=ro`` also keeps live-candidate WAL
+    contents visible, unlike ``immutable=1``.
+    """
+
+    uri = db_path.resolve().as_uri() + "?mode=ro"
+    engine = create_engine(
+        "sqlite+pysqlite://",
+        creator=lambda: sqlite3.connect(uri, uri=True),
+        future=True,
+    )
+    return engine, make_session_factory(engine)
+
+
 def build_special_offer_radar(
     db_path: Path,
     *,
@@ -240,8 +261,7 @@ def build_special_offer_radar(
     finally:
         conn.close()
 
-    engine = create_db_engine(db_path)
-    factory = make_session_factory(engine)
+    engine, factory = _read_only_session_factory(db_path)
     session = factory()
     try:
         counts = {
