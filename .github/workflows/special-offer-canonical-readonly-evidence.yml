@@ -148,7 +148,7 @@ jobs:
           wrong_kind = conn.execute(
               "SELECT COUNT(*) AS n FROM product_special_offer_evidence "
               "WHERE source_id='fsb' AND classification='unknown' "
-              "AND evidence_kind <> 'source_snapshot_no_special_label'"
+              "AND evidence_kind <> 'source_snapshot'"
           ).fetchone()["n"]
           confirmed = [
               dict(row)
