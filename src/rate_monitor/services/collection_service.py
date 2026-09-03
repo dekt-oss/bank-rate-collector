@@ -28,6 +28,9 @@ from rate_monitor.domain.enums import RunStatus, ValidationStatus
 from rate_monitor.domain.schemas import CollectionRequest, ParsedRateRow, RawArtifactData
 from rate_monitor.domain.timeutil import kst_path_stamp
 from rate_monitor.services import entity_service
+from rate_monitor.services.special_offer_evidence_service import (
+    append_unknown_fsb_snapshot,
+)
 
 DEFAULT_RAW_ROOT = Path("data/raw")
 
@@ -238,6 +241,15 @@ def persist_rows(
         # 비어 있으면 아무 일도 하지 않는다.
         entity_service.resolve_outlet_directory(session, row, institution, now)
         product = entity_service.resolve_product(session, row, institution, now)
+        # FSB는 특판 여부를 명시하지 않는다. 기존 Product boolean을 False로
+        # 해석하지 않고, 이 시점에는 unknown이었다는 원본 근거만 쌓는다.
+        append_unknown_fsb_snapshot(
+            session,
+            row=row,
+            product=product,
+            artifact=artifact,
+            observed_at=now,
+        )
         variant = entity_service.resolve_variant(session, row, product, institution, outlet)
 
         if variant.id in seen_variants:
