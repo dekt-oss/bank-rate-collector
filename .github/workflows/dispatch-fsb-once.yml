@@ -1,0 +1,51 @@
+name: One-time FSB canonical dispatch
+
+on:
+  push:
+    branches:
+      - ops/dispatch-fsb-once-20260904
+    paths:
+      - .github/workflows/dispatch-fsb-once.yml
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch production collect.yml on current main
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DASHBOARD_PASSWORD: ${{ secrets.DASHBOARD_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -z "${DASHBOARD_PASSWORD}" ]; then
+            echo "::error::DASHBOARD_PASSWORD secret is missing"
+            exit 1
+          fi
+          python - <<'PY' > "${RUNNER_TEMP}/dispatch.json"
+          import json
+          import os
+
+          json.dump(
+              {
+                  "ref": "main",
+                  "inputs": {
+                      "password": os.environ["DASHBOARD_PASSWORD"],
+                      "manual_target": "저축은행만",
+                      "kfcc_scope": "전국",
+                      "kfcc_resume_mode": "auto",
+                      "accept_volume_drop": "false",
+                  },
+              },
+              open(os.environ["RUNNER_TEMP"] + "/dispatch.json", "w"),
+          )
+          PY
+          gh api \
+            --method POST \
+            -H "Accept: application/vnd.github+json" \
+            "repos/${GITHUB_REPOSITORY}/actions/workflows/collect.yml/dispatches" \
+            --input "${RUNNER_TEMP}/dispatch.json"
+          echo "production collect.yml 저축은행만 dispatch 요청 완료"
