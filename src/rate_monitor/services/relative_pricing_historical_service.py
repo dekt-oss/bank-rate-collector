@@ -19,6 +19,7 @@ from datetime import date
 from decimal import Decimal
 from typing import Any
 
+from rate_monitor.services.dashboard_service import dedupe_sources
 from rate_monitor.services.institution_rate_reduction import (
     InstitutionRateCandidate,
     InstitutionRepresentativeRate,
@@ -41,6 +42,16 @@ REASON_ANCHOR_REPRESENTATIVE_UNAVAILABLE = (
     "historical_anchor_representative_rate_unavailable"
 )
 
+EXACT_IDENTITY_METHOD = "exact_code"
+SPECIAL_OFFER_EVIDENCE_EXPLICIT_SOURCE = "explicit_source_field"
+SPECIAL_OFFER_EVIDENCE_VERSIONED_SCOPE = "versioned_product_scope_observation"
+SPECIAL_OFFER_EVIDENCE_KINDS = frozenset(
+    {
+        SPECIAL_OFFER_EVIDENCE_EXPLICIT_SOURCE,
+        SPECIAL_OFFER_EVIDENCE_VERSIONED_SCOPE,
+    }
+)
+
 _UNKNOWN_MATCH_KEYS = frozenset(
     {"", "unknown", "none", "unavailable", "미상", "자료없음"}
 )
@@ -55,9 +66,10 @@ class HistoricalRateEvidenceRow:
     when the source supplies an individual disclosure/effective date we retain
     it and reject any value later than the snapshot.
 
-    ``special_offer_flag=None`` means *unproven*, not false. R2 cannot collapse
-    that state to a normal product because doing so would silently widen the
-    core pricing population.
+    Historical identity is accepted only when both mapping methods are
+    ``exact_code``. ``special_offer_flag=None`` means *unproven*, not false.
+    A boolean special-offer value is accepted only with an approved, versioned
+    evidence kind; free-text heuristics cannot promote an unknown state.
     """
 
     institution_id: str
@@ -72,10 +84,11 @@ class HistoricalRateEvidenceRow:
     rate_pct: Decimal
     snapshot_as_of: date
     source_effective_at: date | None
-    institution_identity_proven: bool
-    product_identity_proven: bool
+    institution_identity_method: str | None
+    product_identity_method: str | None
     special_offer_flag: bool | None
-    special_offer_evidence: str | None = None
+    special_offer_evidence_kind: str | None = None
+    special_offer_evidence_ref: str | None = None
 
 
 @dataclass(frozen=True)
@@ -90,6 +103,7 @@ class HistoricalRelativePricingBuild:
     cohort_institution_ids: tuple[str, ...]
     evidence_institution_ids: tuple[str, ...]
     missing_rate_institution_ids: tuple[str, ...]
+    retreating_sources: tuple[str, ...]
     snapshot_mismatch_product_ids: tuple[str, ...]
     identity_unproven_product_ids: tuple[str, ...]
     future_rate_product_ids: tuple[str, ...]
@@ -109,6 +123,7 @@ class HistoricalRelativePricingBuild:
             "cohort_institution_ids": list(self.cohort_institution_ids),
             "evidence_institution_ids": list(self.evidence_institution_ids),
             "missing_rate_institution_ids": list(self.missing_rate_institution_ids),
+            "retreating_sources": list(self.retreating_sources),
             "snapshot_mismatch_product_ids": list(self.snapshot_mismatch_product_ids),
             "identity_unproven_product_ids": list(self.identity_unproven_product_ids),
             "future_rate_product_ids": list(self.future_rate_product_ids),
@@ -143,6 +158,7 @@ def _build_result(
     availability_match_key: str,
     cohort_institution_ids: tuple[str, ...],
     evidence_institution_ids: tuple[str, ...],
+    retreating_sources: tuple[str, ...],
     snapshot_mismatch_product_ids: tuple[str, ...],
     identity_unproven_product_ids: tuple[str, ...],
     future_rate_product_ids: tuple[str, ...],
@@ -163,6 +179,7 @@ def _build_result(
         missing_rate_institution_ids=tuple(
             sorted(set(cohort_institution_ids) - set(evidence_institution_ids))
         ),
+        retreating_sources=retreating_sources,
         snapshot_mismatch_product_ids=snapshot_mismatch_product_ids,
         identity_unproven_product_ids=identity_unproven_product_ids,
         future_rate_product_ids=future_rate_product_ids,
@@ -170,6 +187,18 @@ def _build_result(
         candidates=candidates,
         representatives=representatives,
     )
+
+
+def _has_exact_identity(row: HistoricalRateEvidenceRow) -> bool:
+    return (
+        str(row.institution_identity_method or "").strip() == EXACT_IDENTITY_METHOD
+        and str(row.product_identity_method or "").strip() == EXACT_IDENTITY_METHOD
+    )
+
+
+def _has_special_offer_provenance(row: HistoricalRateEvidenceRow) -> bool:
+    kind = str(row.special_offer_evidence_kind or "").strip()
+    return row.special_offer_flag is not None and kind in SPECIAL_OFFER_EVIDENCE_KINDS
 
 
 def build_historical_relative_pricing_rates(
@@ -215,6 +244,15 @@ def build_historical_relative_pricing_rates(
     if anchor_id not in cohort:
         raise ValueError("historical availability cohort must contain anchor institution")
     cohort_set = set(cohort)
+    resolved_retreating = tuple(
+        sorted(
+            set(
+                retreating_sources
+                if retreating_sources is not None
+                else dedupe_sources()
+            )
+        )
+    )
 
     eligible: list[HistoricalRateEvidenceRow] = []
     rate_evidence_institution_ids: set[str] = set()
@@ -244,18 +282,18 @@ def build_historical_relative_pricing_rates(
         if row.snapshot_as_of != as_of:
             snapshot_mismatch.add(product_id)
             continue
-        if not row.institution_identity_proven or not row.product_identity_proven:
+        if not _has_exact_identity(row):
             identity_unproven.add(product_id)
             continue
         if row.source_effective_at is not None and row.source_effective_at > as_of:
             future_rate.add(product_id)
             continue
 
-        # The official historical query proves that a rate row existed in the
-        # snapshot even when its special-offer state is still unknown. Keep rate
-        # coverage distinct from product-scope provenance in diagnostics.
+        # Validate the rate even when product-scope provenance is unresolved.
+        # A malformed/high-risk rate must not hide behind the later special-offer gate.
+        normalize_rate(row.rate_pct)
         rate_evidence_institution_ids.add(institution_id)
-        if row.special_offer_flag is None:
+        if not _has_special_offer_provenance(row):
             special_unproven.add(product_id)
             continue
         eligible.append(row)
@@ -267,6 +305,7 @@ def build_historical_relative_pricing_rates(
         availability_match_key=target_match_key,
         cohort_institution_ids=cohort,
         evidence_institution_ids=evidence_ids,
+        retreating_sources=resolved_retreating,
         snapshot_mismatch_product_ids=tuple(sorted(snapshot_mismatch)),
         identity_unproven_product_ids=tuple(sorted(identity_unproven)),
         future_rate_product_ids=tuple(sorted(future_rate)),
@@ -335,7 +374,7 @@ def build_historical_relative_pricing_rates(
             term_months=target_term,
             availability_match_key=target_match_key,
             include_special_offer=False,
-            retreating_sources=retreating_sources,
+            retreating_sources=resolved_retreating,
         )
     )
     if anchor_id not in {row.institution_id for row in representatives}:
