@@ -1,0 +1,200 @@
+name: Special-offer Radar runtime evidence
+
+on:
+  push:
+    branches:
+      - "feat/special-offer-radar-*"
+    paths:
+      - ".github/workflows/special-offer-radar-runtime-evidence.yml"
+      - "scripts/special_offer_radar_runtime_smoke.js"
+      - "src/rate_monitor/services/special_offer_evidence_service.py"
+      - "src/rate_monitor/services/special_offer_radar_service.py"
+      - "src/rate_monitor/services/special_offer_radar_presentation.py"
+      - "src/rate_monitor/services/strategy_service.py"
+      - "src/rate_monitor/services/strategy_decision_cockpit.py"
+      - "tests/test_special_offer_radar.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: special-offer-radar-runtime-evidence
+  cancel-in-progress: false
+
+jobs:
+  production-copy-live-fsb-browser-smoke:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Sync dependencies
+        run: uv sync --locked
+
+      - name: Restore production database into runner-local candidate
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+          R2_REGION: ${{ vars.R2_REGION }}
+        run: |
+          set -euo pipefail
+          mkdir -p work data/raw
+          uv run rate-monitor storage restore --dest work/rate_monitor.sqlite3
+          test -s work/rate_monitor.sqlite3
+
+      - name: Apply migrations only to runner-local candidate
+        env:
+          RATE_MONITOR_DB_URL: sqlite+pysqlite:///${{ github.workspace }}/work/rate_monitor.sqlite3
+        run: uv run alembic upgrade head
+
+      - name: Collect live FSB deposit screen into candidate only
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          import asyncio
+          import json
+          from pathlib import Path
+
+          from rate_monitor.collectors.fsb.adapter import FsbAdapter
+          from rate_monitor.db.session import create_db_engine, make_session_factory
+          from rate_monitor.domain.schemas import CollectionRequest
+          from rate_monitor.services.collection_service import collect_source
+
+          db = Path("work/rate_monitor.sqlite3")
+          factory = make_session_factory(create_db_engine(db))
+          result = asyncio.run(
+              collect_source(
+                  FsbAdapter(),
+                  CollectionRequest(source_id="fsb", options={"screens": ("ratedepo",)}),
+                  factory,
+                  raw_root=Path("data/raw"),
+              )
+          )
+          payload = {
+              "run_id": result.run_id,
+              "status": result.status,
+              "parsed_count": result.parsed_count,
+              "valid_count": result.valid_count,
+              "warning_count": result.warning_count,
+              "error_count": result.error_count,
+              "production_write": False,
+          }
+          Path("work/special-offer-radar-live-fsb.json").write_text(
+              json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          print(json.dumps(payload, ensure_ascii=False))
+          assert result.status == "success"
+          assert result.parsed_count > 0
+          assert result.valid_count > 0
+          assert result.error_count == 0
+          PY
+
+      - name: Verify fail-closed Radar read model on live candidate
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+
+          from rate_monitor.services.special_offer_radar_service import build_special_offer_radar
+
+          payload = build_special_offer_radar(Path("work/rate_monitor.sqlite3"))
+          Path("work/special-offer-radar-payload.json").write_text(
+              json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          print(json.dumps(payload, ensure_ascii=False))
+          assert payload["source_id"] == "fsb"
+          assert payload["counts"]["unknown"] > 0
+          assert payload["counts"]["confirmed_special"] == 0
+          assert payload["counts"]["confirmed_normal"] == 0
+          assert payload["counts"]["conflict"] == 0
+          assert payload["offers"] == []
+          assert payload["policy"]["unknown_is_special"] is False
+          assert payload["policy"]["ranking_population_changed"] is False
+          assert payload["activation"] == (
+              "off_until_confirmed_evidence_is_reviewed_and_separately_approved"
+          )
+          PY
+
+      - name: Build isolated Strategy site from candidate
+        env:
+          RATE_MONITOR_STRATEGY_DASHBOARD: "1"
+        run: |
+          set -euo pipefail
+          uv run rate-monitor build-site \
+            --db work/rate_monitor.sqlite3 \
+            --template web/templates/site.html \
+            --out work/site-public
+          test -s work/site-public/strategy.html
+          grep -q 'id="special-offer-radar-style"' work/site-public/strategy.html
+          grep -q 'id="special-offer-radar-script"' work/site-public/strategy.html
+          grep -q '시장 특판 Radar' work/site-public/strategy.html
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install browser smoke dependencies
+        run: |
+          set -euo pipefail
+          command -v google-chrome
+          google-chrome --version
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends fonts-noto-cjk
+          npm install --no-save --package-lock=false @playwright/test@1.61.1
+          node --check scripts/special_offer_radar_runtime_smoke.js
+
+      - name: Run desktop and mobile Radar Chrome smoke
+        env:
+          STRATEGY_PREVIEW_BASE_URL: http://127.0.0.1:4173
+        run: |
+          set -euo pipefail
+          python -m http.server 4173 --directory work/site-public \
+            > work/special-offer-radar-http.log 2>&1 &
+          SERVER_PID=$!
+          trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:4173/strategy.html >/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:4173/strategy.html >/dev/null
+          node scripts/special_offer_radar_runtime_smoke.js
+
+      - name: Explicit candidate-only gate
+        run: |
+          set -euo pipefail
+          echo "No rate-monitor storage upload is called by this workflow."
+          echo "No confirmed special/normal evidence is synthesized."
+          echo "Radar activation remains OFF and general ranking population is unchanged."
+
+      - name: Upload Radar runtime evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: special-offer-radar-runtime-${{ github.run_id }}
+          retention-days: 30
+          if-no-files-found: error
+          path: |
+            work/special-offer-radar-live-fsb.json
+            work/special-offer-radar-payload.json
+            work/special-offer-radar-runtime-metrics.json
+            work/special-offer-radar-desktop.png
+            work/special-offer-radar-mobile.png
+            work/special-offer-radar-http.log
