@@ -57,7 +57,7 @@ jobs:
           from pathlib import Path
 
           db = Path("work/rate_monitor.sqlite3").resolve()
-          conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+          conn = sqlite3.connect(db.as_uri() + "?mode=ro", uri=True)
           conn.row_factory = sqlite3.Row
 
           tables = {
@@ -68,8 +68,36 @@ jobs:
           }
           assert "product_special_offer_evidence" in tables
 
-          revision = conn.execute("SELECT version_num FROM alembic_version").fetchone()[0]
-          assert revision == "4d1c2a9e7b60", revision
+          required_columns = {
+              "id",
+              "source_id",
+              "product_id",
+              "source_product_key",
+              "classification",
+              "evidence_kind",
+              "snapshot_as_of",
+              "observed_at",
+              "source_effective_from",
+              "source_effective_to",
+              "raw_artifact_id",
+              "source_locator",
+              "content_hash",
+              "evidence_key",
+          }
+          actual_columns = {
+              str(row["name"])
+              for row in conn.execute(
+                  "PRAGMA table_info(product_special_offer_evidence)"
+              ).fetchall()
+          }
+          missing_columns = required_columns - actual_columns
+          assert not missing_columns, sorted(missing_columns)
+
+          revision_row = conn.execute(
+              "SELECT version_num FROM alembic_version"
+          ).fetchone()
+          assert revision_row is not None and revision_row[0]
+          revision = str(revision_row[0])
 
           by_classification = [
               dict(row)
@@ -137,6 +165,7 @@ jobs:
 
           payload = {
               "alembic_revision": revision,
+              "required_columns_present": True,
               "by_classification": by_classification,
               "by_source": by_source,
               "fsb_unknown_evidence_rows": unknown["evidence_rows"],
