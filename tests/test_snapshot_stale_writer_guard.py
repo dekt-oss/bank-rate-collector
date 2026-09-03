@@ -11,7 +11,12 @@ import pytest
 
 from rate_monitor.services import canonical_writer_guard, snapshot_service, storage_service
 from rate_monitor.services.snapshot_service import SnapshotIntegrityError
-from rate_monitor.services.storage_service import CURRENT_KEY, SNAPSHOT_PREFIX, LocalObjectStore, StorageError
+from rate_monitor.services.storage_service import (
+    CURRENT_KEY,
+    SNAPSHOT_PREFIX,
+    LocalObjectStore,
+    StorageError,
+)
 
 RUN_SHA = "1" * 40
 CURRENT_SHA = "2" * 40
@@ -147,7 +152,11 @@ def test_storage_rechecks_before_pointer_and_removes_stale_object(
         if calls == 2:
             raise StorageError("stale-main writer blocked")
 
-    monkeypatch.setattr(storage_service, "_guard_current_main_writer", become_stale_before_pointer)
+    monkeypatch.setattr(
+        storage_service,
+        "_guard_current_main_writer",
+        become_stale_before_pointer,
+    )
     with pytest.raises(StorageError, match="stale-main writer blocked"):
         storage_service.upload_snapshot(store, db_path, tmp_path / "work")
 
