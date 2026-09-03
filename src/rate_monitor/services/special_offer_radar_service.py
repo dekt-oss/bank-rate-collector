@@ -177,8 +177,8 @@ def build_special_offer_radar(
 ) -> dict[str, Any]:
     """Build the Strategy read model without inferring special-sale status.
 
-    ``unknown`` is coverage information only.  Only a state resolved by the registry
-    as ``confirmed_special`` is eligible for ``offers``.
+    ``unknown`` is coverage information only.  Only an FSB state resolved by the
+    registry as ``confirmed_special`` is eligible for ``offers``.
     """
 
     if not db_path.exists():
@@ -224,6 +224,7 @@ def build_special_offer_radar(
                 product_id=product_id,
                 as_of=resolved_as_of,
                 known_at=resolved_known_at,
+                source_id=SOURCE_ID,
             )
             if state.conflict:
                 counts["conflict"] += 1
