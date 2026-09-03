@@ -10,9 +10,10 @@ separate release decision.
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Iterable
 from datetime import date, datetime
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 from rate_monitor.db.session import create_db_engine, make_session_factory
 from rate_monitor.services.special_offer_evidence_service import (
