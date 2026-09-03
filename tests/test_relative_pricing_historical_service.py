@@ -4,6 +4,7 @@ from decimal import Decimal
 import pytest
 
 from rate_monitor.services.relative_pricing_historical_service import (
+    EXACT_IDENTITY_METHOD,
     HISTORICAL_BLOCKED,
     HISTORICAL_READY,
     REASON_ANCHOR_REPRESENTATIVE_UNAVAILABLE,
@@ -11,6 +12,7 @@ from rate_monitor.services.relative_pricing_historical_service import (
     REASON_IDENTITY_UNPROVEN,
     REASON_SNAPSHOT_MISMATCH,
     REASON_SPECIAL_OFFER_UNPROVEN,
+    SPECIAL_OFFER_EVIDENCE_EXPLICIT_SOURCE,
     HistoricalRateEvidenceRow,
     build_historical_relative_pricing_rates,
 )
@@ -28,10 +30,11 @@ def _row(
     rate: str = "3.70",
     snapshot_as_of: date = AS_OF,
     source_effective_at: date | None = date(2026, 8, 28),
-    institution_identity_proven: bool = True,
-    product_identity_proven: bool = True,
+    institution_identity_method: str | None = EXACT_IDENTITY_METHOD,
+    product_identity_method: str | None = EXACT_IDENTITY_METHOD,
     special_offer_flag: bool | None = False,
-    special_offer_evidence: str | None = "source-backed-test",
+    special_offer_evidence_kind: str | None = SPECIAL_OFFER_EVIDENCE_EXPLICIT_SOURCE,
+    special_offer_evidence_ref: str | None = "fixture:explicit-special-field",
     match_key: str = BUSAN_KEY,
 ) -> HistoricalRateEvidenceRow:
     return HistoricalRateEvidenceRow(
@@ -47,10 +50,11 @@ def _row(
         rate_pct=Decimal(rate),
         snapshot_as_of=snapshot_as_of,
         source_effective_at=source_effective_at,
-        institution_identity_proven=institution_identity_proven,
-        product_identity_proven=product_identity_proven,
+        institution_identity_method=institution_identity_method,
+        product_identity_method=product_identity_method,
         special_offer_flag=special_offer_flag,
-        special_offer_evidence=special_offer_evidence,
+        special_offer_evidence_kind=special_offer_evidence_kind,
+        special_offer_evidence_ref=special_offer_evidence_ref,
     )
 
 
@@ -71,13 +75,18 @@ def _build(rows, *, cohort=("anchor", "peer"), retreating_sources=()):
 def test_historical_special_offer_unknown_blocks_without_erasing_rate_coverage() -> None:
     result = _build(
         [
-            _row(special_offer_flag=None, special_offer_evidence=None),
+            _row(
+                special_offer_flag=None,
+                special_offer_evidence_kind=None,
+                special_offer_evidence_ref=None,
+            ),
             _row(
                 institution_id="peer",
                 product_id="p-peer",
                 rate="3.80",
                 special_offer_flag=None,
-                special_offer_evidence=None,
+                special_offer_evidence_kind=None,
+                special_offer_evidence_ref=None,
             ),
         ]
     )
@@ -91,12 +100,13 @@ def test_historical_special_offer_unknown_blocks_without_erasing_rate_coverage()
     assert result.representatives == ()
 
 
-def test_text_heuristic_does_not_promote_unknown_special_offer_to_normal() -> None:
+def test_text_heuristic_evidence_kind_cannot_promote_special_offer_state() -> None:
     result = _build(
         [
             _row(
-                special_offer_flag=None,
-                special_offer_evidence="PRODUCT_NAME contains 한정",
+                special_offer_flag=False,
+                special_offer_evidence_kind="text_heuristic",
+                special_offer_evidence_ref="PRODUCT_NAME contains 한정",
             )
         ],
         cohort=("anchor",),
@@ -123,9 +133,9 @@ def test_future_source_effective_date_blocks_snapshot() -> None:
     assert result.evidence_institution_ids == ()
 
 
-def test_unproven_point_in_time_identity_blocks_snapshot() -> None:
+def test_non_exact_point_in_time_identity_blocks_snapshot() -> None:
     result = _build(
-        [_row(product_identity_proven=False)],
+        [_row(product_identity_method="name_normalized")],
         cohort=("anchor",),
     )
 
@@ -205,6 +215,7 @@ def test_historical_source_precedence_keeps_primary_fsb_when_retreating_source_e
     )
 
     assert result.status == HISTORICAL_READY
+    assert result.retreating_sources == ("finlife_savings_bank",)
     anchor = next(row for row in result.representatives if row.institution_id == "anchor")
     assert anchor.source_id == "fsb"
     assert anchor.rate_pct == Decimal("3.7000")
