@@ -15,6 +15,7 @@ on:
       - "src/rate_monitor/services/strategy_decision_cockpit.py"
       - "tests/test_special_offer_radar.py"
       - "tests/test_special_offer_radar_mobile_ux.py"
+      - "tests/test_special_offer_radar_read_only.py"
   workflow_dispatch:
 
 permissions:
@@ -146,6 +147,37 @@ jobs:
           grep -q 'id="special-offer-radar-script"' work/site-public/strategy.html
           grep -q '시장 특판 Radar' work/site-public/strategy.html
 
+      - name: Verify live Radar payload is embedded in Strategy HTML
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          import html
+          import json
+          import re
+          from pathlib import Path
+
+          text = Path("work/site-public/strategy.html").read_text(encoding="utf-8")
+          match = re.search(
+              r'<script id="rate-monitor-data" type="application/json">(.*?)</script>',
+              text,
+              flags=re.DOTALL,
+          )
+          assert match is not None, "rate-monitor-data block missing"
+          raw = html.unescape(match.group(1)).replace("<\\/", "</")
+          payload = json.loads(raw)
+          radar = payload.get("strategy", {}).get("special_offer_radar")
+          assert radar is not None, "special_offer_radar missing from embedded Strategy payload"
+          assert radar["counts"]["unknown"] > 0
+          assert radar["counts"]["confirmed_special"] == 0
+          assert radar["counts"]["confirmed_normal"] == 0
+          assert radar["offers"] == []
+          Path("work/special-offer-radar-embedded.json").write_text(
+              json.dumps(radar, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          print(json.dumps(radar, ensure_ascii=False))
+          PY
+
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
@@ -196,6 +228,8 @@ jobs:
           path: |
             work/special-offer-radar-live-fsb.json
             work/special-offer-radar-payload.json
+            work/special-offer-radar-embedded.json
+            work/special-offer-radar-*-dom.json
             work/special-offer-radar-runtime-metrics.json
             work/special-offer-radar-desktop.png
             work/special-offer-radar-mobile.png
