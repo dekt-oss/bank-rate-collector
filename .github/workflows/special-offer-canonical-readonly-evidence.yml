@@ -1,0 +1,186 @@
+name: Special-offer canonical R2 read-only evidence
+
+on:
+  push:
+    branches:
+      - "verify/special-offer-canonical-*"
+    paths:
+      - ".github/workflows/special-offer-canonical-readonly-evidence.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: special-offer-canonical-readonly-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify-current-canonical:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Sync dependencies
+        run: uv sync --locked
+
+      - name: Restore current canonical R2 snapshot read-only candidate
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+          R2_REGION: ${{ vars.R2_REGION }}
+        run: |
+          set -euo pipefail
+          mkdir -p work evidence
+          uv run rate-monitor storage restore --dest work/rate_monitor.sqlite3
+          test -s work/rate_monitor.sqlite3
+          sha256sum work/rate_monitor.sqlite3 | tee work/canonical-before.sha256
+
+      - name: Verify special-offer registry persisted in canonical snapshot
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          import json
+          import sqlite3
+          from pathlib import Path
+
+          db = Path("work/rate_monitor.sqlite3").resolve()
+          conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+          conn.row_factory = sqlite3.Row
+
+          tables = {
+              row["name"]
+              for row in conn.execute(
+                  "SELECT name FROM sqlite_master WHERE type='table'"
+              ).fetchall()
+          }
+          assert "product_special_offer_evidence" in tables
+
+          revision = conn.execute("SELECT version_num FROM alembic_version").fetchone()[0]
+          assert revision == "4d1c2a9e7b60", revision
+
+          by_classification = [
+              dict(row)
+              for row in conn.execute(
+                  "SELECT classification, COUNT(*) AS evidence_rows, "
+                  "COUNT(DISTINCT product_id) AS products "
+                  "FROM product_special_offer_evidence "
+                  "GROUP BY classification ORDER BY classification"
+              ).fetchall()
+          ]
+          by_source = [
+              dict(row)
+              for row in conn.execute(
+                  "SELECT source_id, COUNT(*) AS evidence_rows, "
+                  "COUNT(DISTINCT product_id) AS products "
+                  "FROM product_special_offer_evidence "
+                  "GROUP BY source_id ORDER BY source_id"
+              ).fetchall()
+          ]
+
+          unknown = conn.execute(
+              "SELECT COUNT(*) AS evidence_rows, "
+              "COUNT(DISTINCT e.product_id) AS products, "
+              "COUNT(DISTINCT e.evidence_key) AS evidence_keys "
+              "FROM product_special_offer_evidence e "
+              "WHERE e.source_id='fsb' AND e.classification='unknown'"
+          ).fetchone()
+          exact = conn.execute(
+              "SELECT COUNT(*) AS n "
+              "FROM product_special_offer_evidence e "
+              "JOIN products p ON p.id=e.product_id "
+              "JOIN source_entity_links l "
+              "  ON l.source_id=e.source_id "
+              " AND l.entity_type='product' "
+              " AND l.entity_id=e.product_id "
+              " AND l.source_entity_key=(p.institution_id || ':' || e.source_product_key) "
+              " AND l.match_method='exact_code' "
+              " AND l.valid_to IS NULL "
+              "WHERE e.source_id='fsb' AND e.classification='unknown'"
+          ).fetchone()["n"]
+          raw = conn.execute(
+              "SELECT COUNT(*) AS n "
+              "FROM product_special_offer_evidence e "
+              "JOIN raw_artifacts r ON r.id=e.raw_artifact_id "
+              "JOIN collection_runs c ON c.id=r.run_id AND c.source_id=e.source_id "
+              "WHERE e.source_id='fsb' AND e.classification='unknown'"
+          ).fetchone()["n"]
+          wrong_kind = conn.execute(
+              "SELECT COUNT(*) AS n FROM product_special_offer_evidence "
+              "WHERE source_id='fsb' AND classification='unknown' "
+              "AND evidence_kind <> 'source_snapshot_no_special_label'"
+          ).fetchone()["n"]
+          confirmed = [
+              dict(row)
+              for row in conn.execute(
+                  "SELECT classification, COUNT(*) AS n "
+                  "FROM product_special_offer_evidence "
+                  "WHERE classification IN ('confirmed_special','confirmed_normal') "
+                  "GROUP BY classification ORDER BY classification"
+              ).fetchall()
+          ]
+          integrity = conn.execute("PRAGMA integrity_check").fetchone()[0]
+          fk = conn.execute("PRAGMA foreign_key_check").fetchall()
+          conn.close()
+
+          payload = {
+              "alembic_revision": revision,
+              "by_classification": by_classification,
+              "by_source": by_source,
+              "fsb_unknown_evidence_rows": unknown["evidence_rows"],
+              "fsb_unknown_products": unknown["products"],
+              "fsb_unknown_distinct_evidence_keys": unknown["evidence_keys"],
+              "fsb_unknown_exact_identity_rows": exact,
+              "fsb_unknown_raw_provenance_rows": raw,
+              "fsb_unknown_wrong_evidence_kind_rows": wrong_kind,
+              "confirmed_rows": confirmed,
+              "integrity_check": integrity,
+              "foreign_key_violations": len(fk),
+              "production_write": False,
+          }
+          Path("evidence/canonical-special-offer.json").write_text(
+              json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          print(json.dumps(payload, ensure_ascii=False))
+
+          assert unknown["evidence_rows"] > 0
+          assert unknown["products"] > 0
+          assert unknown["evidence_rows"] == unknown["evidence_keys"]
+          assert exact == unknown["evidence_rows"]
+          assert raw == unknown["evidence_rows"]
+          assert wrong_kind == 0
+          assert integrity == "ok"
+          assert not fk
+          PY
+
+      - name: Prove local canonical copy was not mutated
+        run: |
+          set -euo pipefail
+          sha256sum work/rate_monitor.sqlite3 | tee work/canonical-after.sha256
+          diff -u work/canonical-before.sha256 work/canonical-after.sha256
+          echo "Read-only verification only: no migration, collection, storage upload, or rate-data publish occurred."
+
+      - name: Upload canonical evidence report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: special-offer-canonical-readonly-${{ github.run_id }}
+          retention-days: 30
+          if-no-files-found: error
+          path: |
+            evidence/canonical-special-offer.json
+            work/canonical-before.sha256
+            work/canonical-after.sha256
