@@ -1,0 +1,47 @@
+name: Relative Pricing R2 product URL evidence
+
+on:
+  push:
+    branches:
+      - "evidence/relative-pricing-r2-product-url-*"
+    paths:
+      - "scripts/relative_pricing_r2_product_url_evidence.py"
+      - "tests/test_relative_pricing_r2_product_url_evidence.py"
+      - ".github/workflows/relative-pricing-r2-product-url-evidence.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  product-url-evidence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - run: uv python install 3.12
+      - run: uv sync --locked
+
+      - name: Test evidence contract
+        run: uv run pytest -q tests/test_relative_pricing_r2_product_url_evidence.py
+
+      - name: Capture FSB-linked bank-direct product pages
+        run: |
+          uv run python scripts/relative_pricing_r2_product_url_evidence.py \
+            --as-of 2026-08-31 \
+            --area YN_Busan \
+            --output work/r2-product-url-evidence.json
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: relative-pricing-r2-product-url-${{ github.run_id }}
+          path: work/r2-product-url-evidence.json
+          retention-days: 30
+          if-no-files-found: error
