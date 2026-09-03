@@ -48,6 +48,52 @@ async function inspectRadar(page, label) {
     `${label}: page horizontal overflow ${pageMetrics.scrollWidth} > ${pageMetrics.clientWidth}`,
   );
 
+  const radarLayout = await page.evaluate(() => {
+    const panel = document.getElementById("special-offer-radar");
+    const metrics = panel?.querySelector(".special-radar-metrics");
+    const cards = [...(metrics?.querySelectorAll(".special-radar-metric") || [])];
+    const rect = (node) => {
+      const box = node.getBoundingClientRect();
+      return {
+        left: box.left,
+        right: box.right,
+        top: box.top,
+        bottom: box.bottom,
+        width: box.width,
+        height: box.height,
+      };
+    };
+    return {
+      viewportWidth: window.innerWidth,
+      panel: panel ? rect(panel) : null,
+      metrics: metrics ? {
+        ...rect(metrics),
+        clientWidth: metrics.clientWidth,
+        scrollWidth: metrics.scrollWidth,
+      } : null,
+      cards: cards.map(rect),
+    };
+  });
+  invariant(radarLayout.panel && radarLayout.metrics, `${label}: Radar layout metrics missing`);
+  invariant(radarLayout.cards.length === 4, `${label}: Radar layout card count != 4`);
+  invariant(
+    radarLayout.metrics.scrollWidth <= radarLayout.metrics.clientWidth + 1,
+    `${label}: Radar metrics require horizontal scrolling ${radarLayout.metrics.scrollWidth} > ${radarLayout.metrics.clientWidth}`,
+  );
+  for (const [index, card] of radarLayout.cards.entries()) {
+    invariant(
+      card.left >= radarLayout.panel.left - 1 && card.right <= radarLayout.panel.right + 1,
+      `${label}: Radar metric ${index + 1} clipped (${card.left}-${card.right}) outside panel (${radarLayout.panel.left}-${radarLayout.panel.right})`,
+    );
+  }
+  if (radarLayout.viewportWidth <= 760 && radarLayout.viewportWidth > 340) {
+    const [first, second, third, fourth] = radarLayout.cards;
+    invariant(Math.abs(first.top - second.top) <= 2, `${label}: first Radar row is not two columns`);
+    invariant(third.top > first.top + 4, `${label}: second Radar row did not wrap below first row`);
+    invariant(Math.abs(third.top - fourth.top) <= 2, `${label}: second Radar row is not two columns`);
+    invariant(Math.abs(first.left - third.left) <= 2, `${label}: Radar grid columns are misaligned`);
+  }
+
   await panel.screenshot({ path: path.join(workDir, `special-offer-radar-${label}.png`) });
   return {
     label,
@@ -55,6 +101,7 @@ async function inspectRadar(page, label) {
     counts: payload.counts,
     offers: payload.offers.length,
     pageMetrics,
+    radarLayout,
   };
 }
 
