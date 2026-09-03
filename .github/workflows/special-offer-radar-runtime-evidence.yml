@@ -22,7 +22,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: special-offer-radar-runtime-evidence-${{ github.ref }}
+  group: special-offer-radar-runtime-evidence-v2-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
