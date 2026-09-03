@@ -1,0 +1,114 @@
+name: Special-offer production state evidence
+
+on:
+  push:
+    branches:
+      - "evidence/special-offer-production-state-*"
+    paths:
+      - ".github/workflows/special-offer-production-state-evidence.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect-production-snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Sync dependencies
+        run: uv sync --locked
+
+      - name: Restore canonical production snapshot read-only copy
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+          R2_REGION: ${{ vars.R2_REGION }}
+        run: |
+          set -euo pipefail
+          mkdir -p work publish
+          uv run rate-monitor storage restore --dest work/rate_monitor.sqlite3
+          test -s work/rate_monitor.sqlite3
+
+      - name: Inspect production schema and special-offer registry without migration
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          import json
+          import sqlite3
+          from pathlib import Path
+
+          db = Path("work/rate_monitor.sqlite3")
+          conn = sqlite3.connect(f"file:{db.resolve()}?mode=ro", uri=True)
+          conn.row_factory = sqlite3.Row
+          revision = conn.execute("SELECT version_num FROM alembic_version").fetchone()[0]
+          has_registry = conn.execute(
+              "SELECT 1 FROM sqlite_master WHERE type='table' "
+              "AND name='product_special_offer_evidence'"
+          ).fetchone() is not None
+          registry = []
+          latest_evidence = None
+          if has_registry:
+              registry = [dict(row) for row in conn.execute(
+                  "SELECT classification, COUNT(*) evidence_rows, "
+                  "COUNT(DISTINCT product_id) products, "
+                  "MAX(snapshot_as_of) latest_snapshot_as_of, "
+                  "MAX(observed_at) latest_observed_at "
+                  "FROM product_special_offer_evidence "
+                  "GROUP BY classification ORDER BY classification"
+              ).fetchall()]
+              latest_evidence = conn.execute(
+                  "SELECT MAX(observed_at) FROM product_special_offer_evidence"
+              ).fetchone()[0]
+          fsb_runs = [dict(row) for row in conn.execute(
+              "SELECT id, started_at, finished_at, status, parsed_count, valid_count, "
+              "warning_count, error_count, message "
+              "FROM collection_runs WHERE source_id='fsb' "
+              "ORDER BY started_at DESC LIMIT 5"
+          ).fetchall()]
+          integrity = conn.execute("PRAGMA integrity_check").fetchone()[0]
+          conn.close()
+          payload = {
+              "alembic_revision": revision,
+              "has_special_offer_registry": has_registry,
+              "registry": registry,
+              "latest_evidence_observed_at": latest_evidence,
+              "latest_fsb_runs": fsb_runs,
+              "integrity_check": integrity,
+              "migration_applied_by_workflow": False,
+              "production_write": False,
+          }
+          Path("publish/special-offer-production-state.json").write_text(
+              json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          print(json.dumps(payload, ensure_ascii=False))
+          assert integrity == "ok"
+          PY
+
+      - name: Explicit read-only gate
+        run: |
+          set -euo pipefail
+          echo "No alembic upgrade and no storage upload were executed."
+          echo "This is an inspection of the restored canonical snapshot only."
+
+      - name: Upload production-state evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: special-offer-production-state-${{ github.run_id }}
+          retention-days: 30
+          if-no-files-found: error
+          path: publish/special-offer-production-state.json
