@@ -131,6 +131,7 @@ class R2Config:
     # 다섯 개가 다 있어야 설정된 것으로 본다.
     #
     # 저장 위치가 갈린다 — 비밀 둘은 Secrets, 나머지 셋은 Variables다.
+    # 워크플로우가 한쪽만 넘기면 여기서 걸린다.
     ENV_KEYS = (
         "R2_ACCOUNT_ID",
         "R2_ACCESS_KEY_ID",
