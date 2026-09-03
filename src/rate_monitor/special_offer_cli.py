@@ -12,13 +12,18 @@ import sys
 from dataclasses import asdict
 from datetime import UTC, date, datetime
 
-from rate_monitor.db.session import DEFAULT_DB_PATH, create_db_engine, make_session_factory, session_scope
+from rate_monitor.db.session import (
+    DEFAULT_DB_PATH,
+    create_db_engine,
+    make_session_factory,
+    session_scope,
+)
 from rate_monitor.services.special_offer_evidence_service import (
     CONFIRMED_NORMAL,
     CONFIRMED_SPECIAL,
     EXPLICIT_SOURCE_FIELD,
-    SpecialOfferEvidenceError,
     VERSIONED_PRODUCT_SCOPE,
+    SpecialOfferEvidenceError,
 )
 from rate_monitor.services.special_offer_review_service import (
     append_operator_confirmation,
