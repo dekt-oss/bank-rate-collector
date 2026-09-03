@@ -1,0 +1,289 @@
+name: Relative Pricing R2 historical funding knowledge evidence
+
+on:
+  push:
+    branches:
+      - "evidence/relative-pricing-r2-funding-*"
+    paths:
+      - ".github/workflows/relative-pricing-r2-funding-knowledge-evidence.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  historical-funding-knowledge-evidence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Sync dependencies
+        run: uv sync --locked
+
+      - name: Restore production database into runner-local copy
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+          R2_REGION: ${{ vars.R2_REGION }}
+        run: |
+          set -euo pipefail
+          mkdir -p work
+          uv run rate-monitor storage restore --dest work/rate_monitor.sqlite3
+          test -s work/rate_monitor.sqlite3
+
+      - name: Apply migrations to runner-local copy
+        env:
+          RATE_MONITOR_DB_URL: sqlite+pysqlite:///${{ github.workspace }}/work/rate_monitor.sqlite3
+        run: uv run alembic upgrade head
+
+      - name: Audit historical funding knowledge-time and exact-month coverage
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          import json
+          import sqlite3
+          from collections import Counter
+          from datetime import date, datetime
+          from decimal import Decimal
+          from pathlib import Path
+
+          DB = Path("work/rate_monitor.sqlite3")
+          OUT = Path("work/r2-historical-funding-knowledge-evidence.json")
+          CUTOFF_DATE = date(2026, 8, 31)
+          CUTOFF_DT = datetime(2026, 8, 31, 23, 59, 59)
+          MONTHS = ("2026-03", "2025-09", "2025-03")
+          DIRECT_SOURCE = "data_go_savings_bank_funding"
+          REFERENCE_SOURCES = ("fsb", "finlife_savings_bank")
+          METRIC = "deposit_liabilities_total"
+          OUR_SOURCE_KEY = "0010390"
+
+          def parse_date(value):
+              text = str(value or "").strip()
+              return date.fromisoformat(text[:10]) if text else None
+
+          def parse_dt(value):
+              text = str(value or "").strip()
+              if not text:
+                  return None
+              parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+              if parsed.tzinfo is not None:
+                  parsed = parsed.replace(tzinfo=None)
+              return parsed
+
+          def link_as_of(link):
+              valid_from = parse_date(link["valid_from"])
+              valid_to = parse_date(link["valid_to"])
+              created_at = parse_dt(link["created_at"])
+              return (
+                  valid_from is not None
+                  and valid_from <= CUTOFF_DATE
+                  and (valid_to is None or valid_to > CUTOFF_DATE)
+                  and created_at is not None
+                  and created_at <= CUTOFF_DT
+                  and str(link["match_method"]) == "exact_code"
+              )
+
+          conn = sqlite3.connect(DB)
+          conn.row_factory = sqlite3.Row
+          try:
+              observations = conn.execute(
+                  """
+                  SELECT id, institution_id, source_institution_key,
+                         source_institution_name, identity_status,
+                         source_effective_month, value, unit,
+                         observed_at, valid_from, valid_to, revision,
+                         raw_artifact_id, content_hash
+                  FROM institution_funding_observations
+                  WHERE source_id = ?
+                    AND sector = 'savings_bank'
+                    AND metric_code = ?
+                    AND source_effective_month IN (?, ?, ?)
+                    AND valid_to IS NULL
+                  ORDER BY source_effective_month, source_institution_key
+                  """,
+                  (DIRECT_SOURCE, METRIC, *MONTHS),
+              ).fetchall()
+              links = conn.execute(
+                  """
+                  SELECT source_id, source_entity_key, entity_id, match_method,
+                         valid_from, valid_to, created_at
+                  FROM source_entity_links
+                  WHERE entity_type = 'institution'
+                    AND source_id IN (?, ?, ?)
+                  ORDER BY source_id, source_entity_key, valid_from, created_at
+                  """,
+                  (DIRECT_SOURCE, *REFERENCE_SOURCES),
+              ).fetchall()
+          finally:
+              conn.close()
+
+          links_by = {}
+          for link in links:
+              links_by.setdefault(
+                  (str(link["source_id"]), str(link["source_entity_key"])), []
+              ).append(link)
+
+          def historical_entity(source_key):
+              org_key = f"savings_bank:{source_key}"
+              direct = [
+                  link for link in links_by.get((DIRECT_SOURCE, org_key), [])
+                  if link_as_of(link)
+              ]
+              if len(direct) == 1:
+                  return str(direct[0]["entity_id"]), "direct_exact_code_temporal_link"
+              fsb = [
+                  link for link in links_by.get(("fsb", org_key), [])
+                  if link_as_of(link)
+              ]
+              finlife = [
+                  link for link in links_by.get(("finlife_savings_bank", org_key), [])
+                  if link_as_of(link)
+              ]
+              if len(direct) == 0 and len(fsb) == 1 and len(finlife) == 1:
+                  fsb_entity = str(fsb[0]["entity_id"])
+                  if fsb_entity == str(finlife[0]["entity_id"]):
+                      return fsb_entity, "fsb_finlife_exact_code_temporal_consensus"
+              return None, None
+
+          by_month = {month: [] for month in MONTHS}
+          for obs in observations:
+              by_month[str(obs["source_effective_month"])].append(obs)
+
+          month_results = {}
+          for month in MONTHS:
+              rows = by_month[month]
+              observed_dates = [parse_dt(row["observed_at"]) for row in rows]
+              observed_dates = [item for item in observed_dates if item is not None]
+              by_cutoff = [
+                  row for row in rows
+                  if (parse_dt(row["observed_at"]) or datetime.max) <= CUTOFF_DT
+              ]
+              after_cutoff = [
+                  row for row in rows
+                  if (parse_dt(row["observed_at"]) or datetime.max) > CUTOFF_DT
+              ]
+              resolved = []
+              unresolved = []
+              duplicate_canonical = Counter()
+              for row in by_cutoff:
+                  source_key = str(row["source_institution_key"])
+                  entity_id, method = historical_entity(source_key)
+                  item = {
+                      "source_key": source_key,
+                      "entity_id": entity_id,
+                      "method": method,
+                      "observed_at": str(row["observed_at"]),
+                      "current_institution_id": str(row["institution_id"] or "") or None,
+                  }
+                  if entity_id is None:
+                      unresolved.append(item)
+                  else:
+                      resolved.append(item)
+                      duplicate_canonical[entity_id] += 1
+              duplicates = sorted(
+                  entity_id for entity_id, count in duplicate_canonical.items() if count > 1
+              )
+              our_rows = [row for row in rows if str(row["source_institution_key"]) == OUR_SOURCE_KEY]
+              month_results[month] = {
+                  "row_count": len(rows),
+                  "observed_at_min": min(observed_dates).isoformat(sep=" ") if observed_dates else None,
+                  "observed_at_max": max(observed_dates).isoformat(sep=" ") if observed_dates else None,
+                  "observed_by_cutoff_count": len(by_cutoff),
+                  "observed_after_cutoff_count": len(after_cutoff),
+                  "historical_identity_resolved_by_cutoff_count": len(resolved),
+                  "historical_identity_unresolved_by_cutoff_count": len(unresolved),
+                  "duplicate_canonical_institution_ids": duplicates,
+                  "current_identity_status_counts": dict(sorted(Counter(str(row["identity_status"]) for row in rows).items())),
+                  "our_institution": [
+                      {
+                          "source_key": str(row["source_institution_key"]),
+                          "value": str(Decimal(str(row["value"]))),
+                          "unit": str(row["unit"]),
+                          "observed_at": str(row["observed_at"]),
+                          "historical_entity_id": historical_entity(OUR_SOURCE_KEY)[0],
+                          "historical_identity_method": historical_entity(OUR_SOURCE_KEY)[1],
+                          "recorded_by_cutoff": (
+                              (parse_dt(row["observed_at"]) or datetime.max) <= CUTOFF_DT
+                          ),
+                      }
+                      for row in our_rows
+                  ],
+              }
+
+          available_months = []
+          conn = sqlite3.connect(DB)
+          conn.row_factory = sqlite3.Row
+          try:
+              census = conn.execute(
+                  """
+                  SELECT source_effective_month,
+                         COUNT(*) AS row_count,
+                         SUM(CASE WHEN observed_at <= ? THEN 1 ELSE 0 END) AS known_count,
+                         MIN(observed_at) AS observed_min,
+                         MAX(observed_at) AS observed_max
+                  FROM institution_funding_observations
+                  WHERE source_id = ?
+                    AND sector = 'savings_bank'
+                    AND metric_code = ?
+                    AND valid_to IS NULL
+                  GROUP BY source_effective_month
+                  ORDER BY source_effective_month
+                  """,
+                  (CUTOFF_DT.isoformat(sep=" "), DIRECT_SOURCE, METRIC),
+              ).fetchall()
+          finally:
+              conn.close()
+
+          for row in census:
+              available_months.append(
+                  {
+                      "month": str(row["source_effective_month"]),
+                      "row_count": int(row["row_count"]),
+                      "known_by_cutoff_count": int(row["known_count"] or 0),
+                      "observed_at_min": str(row["observed_min"] or "") or None,
+                      "observed_at_max": str(row["observed_max"] or "") or None,
+                  }
+              )
+
+          fully_known_months = [
+              item["month"] for item in available_months
+              if item["row_count"] > 0 and item["known_by_cutoff_count"] == item["row_count"]
+          ]
+          payload = {
+              "cutoff": CUTOFF_DT.isoformat(sep=" "),
+              "production_write": False,
+              "metric_code": METRIC,
+              "target_months": month_results,
+              "available_month_census": available_months,
+              "latest_fully_known_month_by_cutoff": max(fully_known_months) if fully_known_months else None,
+              "contracts": {
+                  "nearest_month_interpolation_allowed": False,
+                  "mutable_observation_identity_is_historical_proof": False,
+                  "temporal_exact_identity_required": True,
+                  "observation_recorded_after_cutoff_allowed": False,
+              },
+          }
+          OUT.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+          print(OUT.read_text(encoding="utf-8"))
+          PY
+
+      - name: Upload R2 historical funding knowledge evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: relative-pricing-r2-funding-knowledge-${{ github.run_id }}
+          path: work/r2-historical-funding-knowledge-evidence.json
+          retention-days: 30
+          if-no-files-found: error
