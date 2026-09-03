@@ -94,7 +94,7 @@ def _candidate_product_ids(
         ")) ORDER BY product_id",
         (
             SOURCE_ID,
-            known_at.isoformat(sep=" "),
+            known_at.isoformat(sep=" ", timespec="microseconds"),
             as_of.isoformat(),
             as_of.isoformat(),
             as_of.isoformat(),
