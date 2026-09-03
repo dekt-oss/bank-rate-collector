@@ -1,0 +1,248 @@
+name: CU funding producer runtime evidence
+
+on:
+  push:
+    branches:
+      - "feat/cu-funding-producer-recovery-*"
+    paths:
+      - ".github/workflows/cu-funding-producer-runtime-evidence.yml"
+      - "src/rate_monitor/collectors/cu/funding.py"
+      - "src/rate_monitor/collectors/data_go_funding/reconciliation.py"
+      - "tests/test_cu_funding.py"
+      - "tests/test_cu_funding_year_format.py"
+      - "tests/test_institution_funding_source_collision.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cu-funding-producer-runtime-evidence
+  cancel-in-progress: false
+
+jobs:
+  bounded-live-probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Sync dependencies
+        run: uv sync --locked
+
+      - name: Restore production database into runner-local candidate
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+          R2_REGION: ${{ vars.R2_REGION }}
+        run: |
+          set -euo pipefail
+          mkdir -p work data/raw publish
+          uv run rate-monitor storage restore --dest work/rate_monitor.sqlite3
+          test -s work/rate_monitor.sqlite3
+
+      - name: Apply migrations to runner-local candidate
+        env:
+          RATE_MONITOR_DB_URL: sqlite+pysqlite:///${{ github.workspace }}/work/rate_monitor.sqlite3
+        run: uv run alembic upgrade head
+
+      - name: Inspect current CU funding source census
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          import json
+          import sqlite3
+          from pathlib import Path
+
+          db = Path("work/rate_monitor.sqlite3")
+          conn = sqlite3.connect(db)
+          conn.row_factory = sqlite3.Row
+          targets = conn.execute(
+              "SELECT COUNT(*) AS n FROM source_entity_links "
+              "WHERE source_id='cu' AND entity_type='institution' "
+              "AND source_entity_key LIKE 'cu:%' AND valid_to IS NULL"
+          ).fetchone()["n"]
+          source_rows = conn.execute(
+              "SELECT source_id, COUNT(*) AS active_rows, "
+              "COUNT(DISTINCT source_institution_key) AS institutions, "
+              "MIN(source_effective_month) AS first_month, "
+              "MAX(source_effective_month) AS latest_month "
+              "FROM institution_funding_observations "
+              "WHERE sector='cu' AND valid_to IS NULL "
+              "GROUP BY source_id ORDER BY source_id"
+          ).fetchall()
+          payload = {
+              "active_cu_targets": targets,
+              "active_cu_funding_sources": [dict(row) for row in source_rows],
+              "production_write": False,
+          }
+          Path("publish/cu-funding-before.json").write_text(
+              json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          print(json.dumps(payload, ensure_ascii=False))
+          if targets < 800:
+              raise SystemExit(f"unexpected active CU target population: {targets}")
+          PY
+
+      - name: Collect bounded official CU disclosure controls
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+
+          from rate_monitor.collectors.cu.funding import collect_cu_disclosure_funding
+
+          controls = {"02002", "02022", "03087", "10154"}
+          result = collect_cu_disclosure_funding(
+              db_path=Path("work/rate_monitor.sqlite3"),
+              raw_root=Path("data/raw"),
+              periods=2,
+              only_cu_nos=controls,
+              request_interval=0.2,
+          )
+          payload = {
+              "status": result.status,
+              "run_id": result.run_id,
+              "target_count": result.target_count,
+              "completed_targets": result.completed_targets,
+              "failed_targets": list(result.failed_targets),
+              "fetched_artifacts": result.fetched_artifacts,
+              "parsed_points": result.parsed_points,
+              "stored": result.stored,
+              "unchanged": result.unchanged,
+              "revisions": result.revisions,
+              "warning_count": result.warning_count,
+              "message": result.message,
+              "production_write": False,
+          }
+          Path("publish/cu-funding-first-run.json").write_text(
+              json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          print(json.dumps(payload, ensure_ascii=False))
+          assert result.target_count == len(controls)
+          assert result.completed_targets == len(controls)
+          assert not result.failed_targets
+          assert result.parsed_points >= len(controls)
+          PY
+
+      - name: Verify reconciliation, provenance and database integrity
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          import json
+          import sqlite3
+          from pathlib import Path
+
+          from rate_monitor.collectors.data_go_funding.reconciliation import build_report
+
+          db = Path("work/rate_monitor.sqlite3")
+          report = build_report(db)
+          conn = sqlite3.connect(db)
+          conn.row_factory = sqlite3.Row
+          active = conn.execute(
+              "SELECT COUNT(*) AS n FROM institution_funding_observations "
+              "WHERE source_id='cu_disclosure_funding' AND valid_to IS NULL"
+          ).fetchone()["n"]
+          missing_raw = conn.execute(
+              "SELECT COUNT(*) AS n FROM institution_funding_observations o "
+              "LEFT JOIN raw_artifacts r ON r.id=o.raw_artifact_id "
+              "WHERE o.source_id='cu_disclosure_funding' "
+              "AND o.valid_to IS NULL AND r.id IS NULL"
+          ).fetchone()["n"]
+          integrity = conn.execute("PRAGMA integrity_check").fetchone()[0]
+          fk = conn.execute("PRAGMA foreign_key_check").fetchall()
+          cu_reconciliation = [
+              row for row in report["reconciliation"] if row["sector"] == "cu"
+          ]
+          payload = {
+              "active_cu_disclosure_rows": active,
+              "missing_raw_provenance": missing_raw,
+              "cu_reconciliation": cu_reconciliation,
+              "integrity_check": integrity,
+              "foreign_key_violations": len(fk),
+              "production_write": False,
+          }
+          Path("publish/cu-funding-qc.json").write_text(
+              json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          print(json.dumps(payload, ensure_ascii=False))
+          assert active > 0
+          assert missing_raw == 0
+          assert integrity == "ok"
+          assert not fk
+          PY
+
+      - name: Verify bounded idempotency on same controls
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+
+          from rate_monitor.collectors.cu.funding import collect_cu_disclosure_funding
+
+          controls = {"02002", "02022", "03087", "10154"}
+          result = collect_cu_disclosure_funding(
+              db_path=Path("work/rate_monitor.sqlite3"),
+              raw_root=Path("data/raw"),
+              periods=2,
+              only_cu_nos=controls,
+              request_interval=0.2,
+          )
+          payload = {
+              "status": result.status,
+              "target_count": result.target_count,
+              "completed_targets": result.completed_targets,
+              "failed_targets": list(result.failed_targets),
+              "stored": result.stored,
+              "revisions": result.revisions,
+              "unchanged": result.unchanged,
+              "parsed_points": result.parsed_points,
+              "production_write": False,
+          }
+          Path("publish/cu-funding-second-run.json").write_text(
+              json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          print(json.dumps(payload, ensure_ascii=False))
+          assert result.status == "success"
+          assert result.completed_targets == len(controls)
+          assert not result.failed_targets
+          assert result.stored == 0
+          assert result.revisions == 0
+          assert result.unchanged == result.parsed_points
+          PY
+
+      - name: Explicit no-publish gate
+        run: |
+          set -euo pipefail
+          echo "Candidate only: this workflow never calls rate-monitor storage upload."
+          echo "Canonical R2 state/current.json is unchanged."
+
+      - name: Upload CU producer evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cu-funding-producer-runtime-${{ github.run_id }}
+          retention-days: 30
+          if-no-files-found: error
+          path: |
+            publish/cu-funding-before.json
+            publish/cu-funding-first-run.json
+            publish/cu-funding-qc.json
+            publish/cu-funding-second-run.json
