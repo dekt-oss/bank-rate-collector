@@ -37,6 +37,11 @@ def test_injects_first_screen_refinement_once() -> None:
     assert inject_strategy_first_screen_ux(rendered) == rendered
 
 
+def test_partial_strategy_composition_without_kpis_is_ignored() -> None:
+    fragment = '<html><head></head><body><div id="market-scope"></div></body></html>'
+    assert inject_strategy_first_screen_ux(fragment) == fragment
+
+
 def test_strategy_sector_parent_selection_is_compact_and_soft() -> None:
     assert "min-height:32px!important" in STYLE
     assert "width:13px!important" in STYLE
