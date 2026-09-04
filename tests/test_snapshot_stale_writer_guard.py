@@ -28,6 +28,20 @@ def _main_actions(monkeypatch: pytest.MonkeyPatch, *, sha: str = RUN_SHA) -> Non
     monkeypatch.setenv("GITHUB_SHA", sha)
 
 
+def _git_responses(*, changed: tuple[str, ...] = ()):
+    def run(args, **kwargs):  # noqa: ANN001, ANN003
+        del kwargs
+        if args[:2] == ["git", "ls-remote"]:
+            return SimpleNamespace(stdout=f"{CURRENT_SHA}\trefs/heads/main\n")
+        if args[:2] == ["git", "fetch"]:
+            return SimpleNamespace(stdout="")
+        if args[:3] == ["git", "diff", "--name-only"]:
+            return SimpleNamespace(stdout="".join(f"{path}\n" for path in changed))
+        raise AssertionError(f"unexpected git command: {args}")
+
+    return run
+
+
 def test_local_snapshot_does_not_query_remote(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
 
@@ -68,19 +82,60 @@ def test_current_main_writer_is_allowed(monkeypatch: pytest.MonkeyPatch) -> None
     snapshot_service._guard_current_main_writer()
 
 
-def test_stale_main_writer_is_blocked(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_stale_main_presentation_only_drift_is_allowed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Regression for the real #300 failure: valid collection must survive UI-only merge."""
+
+    _main_actions(monkeypatch)
+    changed = (
+        ".github/workflows/strategy-ux-production-copy-e2e.yml",
+        "scripts/special_offer_radar_runtime_smoke.js",
+        "src/rate_monitor/services/special_offer_radar_presentation.py",
+        "tests/test_special_offer_radar_mobile_ux.py",
+        "tests/test_strategy_radar_runtime_contract.py",
+    )
+    monkeypatch.setattr(
+        canonical_writer_guard.subprocess,
+        "run",
+        _git_responses(changed=changed),
+    )
+
+    snapshot_service._guard_current_main_writer()
+
+
+def test_stale_main_writer_with_canonical_change_is_blocked(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     _main_actions(monkeypatch)
     monkeypatch.setattr(
         canonical_writer_guard.subprocess,
         "run",
-        lambda *args, **kwargs: SimpleNamespace(  # noqa: ARG005
-            stdout=f"{CURRENT_SHA}\trefs/heads/main\n"
-        ),
+        _git_responses(changed=("src/rate_monitor/db/models.py",)),
     )
     with pytest.raises(SnapshotIntegrityError, match="stale-main writer blocked") as exc_info:
         snapshot_service._guard_current_main_writer()
     assert RUN_SHA in str(exc_info.value)
     assert CURRENT_SHA in str(exc_info.value)
+    assert "src/rate_monitor/db/models.py" in str(exc_info.value)
+
+
+def test_stale_main_writer_with_mixed_drift_is_blocked(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _main_actions(monkeypatch)
+    monkeypatch.setattr(
+        canonical_writer_guard.subprocess,
+        "run",
+        _git_responses(
+            changed=(
+                "tests/test_strategy_radar_runtime_contract.py",
+                "src/rate_monitor/services/storage_service.py",
+            )
+        ),
+    )
+    with pytest.raises(SnapshotIntegrityError, match="storage_service.py"):
+        snapshot_service._guard_current_main_writer()
 
 
 def test_remote_lookup_failure_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -91,6 +146,20 @@ def test_remote_lookup_failure_fails_closed(monkeypatch: pytest.MonkeyPatch) -> 
 
     monkeypatch.setattr(canonical_writer_guard.subprocess, "run", fail)
     with pytest.raises(SnapshotIntegrityError, match="검증하지 못했다"):
+        snapshot_service._guard_current_main_writer()
+
+
+def test_stale_diff_lookup_failure_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
+    _main_actions(monkeypatch)
+
+    def run(args, **kwargs):  # noqa: ANN001, ANN003
+        del kwargs
+        if args[:2] == ["git", "ls-remote"]:
+            return SimpleNamespace(stdout=f"{CURRENT_SHA}\trefs/heads/main\n")
+        raise subprocess.TimeoutExpired(cmd=args, timeout=60)
+
+    monkeypatch.setattr(canonical_writer_guard.subprocess, "run", run)
+    with pytest.raises(SnapshotIntegrityError, match="변경 경로를 검증하지 못했다"):
         snapshot_service._guard_current_main_writer()
 
 
