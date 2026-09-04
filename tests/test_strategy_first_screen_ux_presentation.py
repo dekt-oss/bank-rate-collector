@@ -15,8 +15,16 @@ def _fixture() -> str:
 <section id="market-scope"></section>
 <section class="grid kpis">
   <article class="card kpi green"><div id="market-max"></div></article>
-  <article class="card kpi gold"><div class="klabel">시장 평균 금리 <span class="basis-label">12개월</span></div><div id="mean"></div><div class="kfoot"><span>상품 대표 최고금리 평균</span><span id="trend-delta"></span></div></article>
-  <article class="card kpi teal"><div id="count"></div><span id="median">중앙값 —</span></article>
+  <article class="card kpi gold">
+    <div class="klabel">시장 평균 금리 <span class="basis-label">12개월</span></div>
+    <div id="mean"></div>
+    <div class="kfoot">
+      <span>상품 대표 최고금리 평균</span><span id="trend-delta"></span>
+    </div>
+  </article>
+  <article class="card kpi teal">
+    <div id="count"></div><span id="median">중앙값 —</span>
+  </article>
   <article class="card kpi threshold"><div id="top10"></div></article>
 </section>
 </body></html>"""
