@@ -45,6 +45,9 @@ from rate_monitor.services.rate_funding_matrix_presentation import (
 from rate_monitor.services.relative_pricing_presentation import (
     inject_relative_pricing_presentation,
 )
+from rate_monitor.services.strategy_decision_scope_compact_presentation import (
+    inject_strategy_decision_scope_compact,
+)
 from rate_monitor.services.strategy_first_screen_ux_presentation import (
     inject_strategy_first_screen_ux,
 )
@@ -95,8 +98,9 @@ def inject_dashboard_ui_refinement(html: str) -> str:
     # 화면이나 bare template에는 주입하지 않아 기존 화면 계약을 건드리지 않는다.
     if 'id="rate-response-cockpit-script"' in rendered:
         rendered = inject_relative_pricing_presentation(rendered)
-    # fixed-width 회귀를 정리한 뒤 첫 화면 UX와 factual 시장방향을 마지막에
-    # 합성해 이전 injector가 핵심 의사결정 위계를 다시 뒤집지 못하게 한다.
+    # fixed-width 회귀를 정리한 뒤 첫 화면 UX, factual 시장방향, 의사결정 범위
+    # compact presentation을 마지막에 합성해 이전 injector가 위계를 뒤집지 못하게 한다.
     rendered = inject_strategy_mobile_responsive(rendered)
     rendered = inject_strategy_first_screen_ux(rendered)
-    return inject_strategy_market_direction(rendered)
+    rendered = inject_strategy_market_direction(rendered)
+    return inject_strategy_decision_scope_compact(rendered)
