@@ -1,0 +1,129 @@
+name: 복구 — 실패한 정기 수집 1회 재실행
+
+on:
+  workflow_run:
+    workflows:
+      - "수집 — 일반·새마을금고"
+      - "수집 — 농·축협"
+      - "수집 — Data.go 기관별 수신잔액"
+      - "Collect bank rates fast"
+    types: [completed]
+
+# 이 workflow는 DB를 직접 쓰지 않는다. 실패한 *정기* 수집만 최신 main에서
+# 딱 한 번 workflow_dispatch하고 끝낸다. 재실행은 workflow_dispatch 이벤트라
+# 이 job의 schedule-only 조건을 다시 만족하지 않아 무한 retry가 되지 않는다.
+# child workflow가 기존 rate-data-writer lock을 그대로 사용하므로 canonical
+# write 직렬화도 유지된다.
+concurrency:
+  group: failed-scheduled-collection-recovery-control-plane
+  cancel-in-progress: false
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  recover:
+    if: >-
+      ${{ github.event.workflow_run.conclusion == 'failure' &&
+          github.event.workflow_run.event == 'schedule' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      COLLECT_PASSWORD: ${{ secrets.DASHBOARD_PASSWORD }}
+      FAILED_RUN_ID: ${{ github.event.workflow_run.id }}
+      FAILED_WORKFLOW: ${{ github.event.workflow_run.name }}
+    steps:
+      - name: Validate recovery context
+        run: |
+          set -euo pipefail
+          test -n "$COLLECT_PASSWORD"
+          test -n "$FAILED_RUN_ID"
+          test -n "$FAILED_WORKFLOW"
+          echo "failed scheduled workflow=$FAILED_WORKFLOW run_id=$FAILED_RUN_ID"
+
+      - name: Dispatch one current-main recovery
+        run: |
+          set -euo pipefail
+
+          case "$FAILED_WORKFLOW" in
+            "수집 — 일반·새마을금고")
+              # collect.yml has two schedules. Infer the failed schedule from the
+              # immutable job environment printed in the completed run. If logs
+              # cannot prove which schedule ran, fail closed instead of launching
+              # the wrong acquisition scope.
+              gh run view "$FAILED_RUN_ID" \
+                --repo "$GITHUB_REPOSITORY" \
+                --log > failed-run.log
+
+              if grep -q 'KFCC_ONLY: true' failed-run.log; then
+                echo "recovery target=KFCC nationwide"
+                gh workflow run collect.yml \
+                  --repo "$GITHUB_REPOSITORY" \
+                  --ref main \
+                  -f password="$COLLECT_PASSWORD" \
+                  -f manual_target="새마을금고만" \
+                  -f kfcc_scope="전국" \
+                  -f kfcc_resume_mode=auto \
+                  -f accept_volume_drop=false
+              elif grep -q 'KFCC_ONLY: false' failed-run.log; then
+                echo "recovery target=general"
+                gh workflow run collect.yml \
+                  --repo "$GITHUB_REPOSITORY" \
+                  --ref main \
+                  -f password="$COLLECT_PASSWORD" \
+                  -f manual_target="일반 전체" \
+                  -f accept_volume_drop=false
+              else
+                echo "::error::failed run logs do not prove KFCC_ONLY=true/false; refusing ambiguous recovery"
+                exit 1
+              fi
+              ;;
+
+            "수집 — 농·축협")
+              echo "recovery target=NH nationwide"
+              gh workflow run collect-nh.yml \
+                --repo "$GITHUB_REPOSITORY" \
+                --ref main \
+                -f password="$COLLECT_PASSWORD" \
+                -f nh_local_scope="전국" \
+                -f nh_resume_mode=auto \
+                -f accept_volume_drop=false
+              ;;
+
+            "수집 — Data.go 기관별 수신잔액")
+              # The collector already performs bounded request retries and a
+              # source/month retry round. A terminal scheduled failure gets one
+              # fresh workflow/run/egress attempt, preserving its idempotent DB
+              # contract while avoiding an unbounded retry loop.
+              echo "recovery target=Data.go incremental"
+              gh workflow run collect-institution-funding.yml \
+                --repo "$GITHUB_REPOSITORY" \
+                --ref main \
+                -f password="$COLLECT_PASSWORD" \
+                -f mode=incremental \
+                -f periods=12
+              ;;
+
+            "Collect bank rates fast")
+              # The fast workflow has no manual trigger. Recover through the
+              # authenticated general workflow so FINLIFE bank/savings + FSB are
+              # all refreshed once on current main rather than silently waiting
+              # for the next fast schedule.
+              echo "recovery target=general after fast-bank failure"
+              gh workflow run collect.yml \
+                --repo "$GITHUB_REPOSITORY" \
+                --ref main \
+                -f password="$COLLECT_PASSWORD" \
+                -f manual_target="일반 전체" \
+                -f accept_volume_drop=false
+              ;;
+
+            *)
+              echo "::error::unsupported scheduled workflow: $FAILED_WORKFLOW"
+              exit 1
+              ;;
+          esac
+
+          echo "one-shot recovery dispatched on current main"
