@@ -57,6 +57,9 @@ from rate_monitor.services.strategy_market_direction_presentation import (
 from rate_monitor.services.strategy_mobile_responsive_presentation import (
     inject_strategy_mobile_responsive,
 )
+from rate_monitor.services.strategy_top5_compact_presentation import (
+    inject_strategy_top5_compact,
+)
 from rate_monitor.services.strategy_unfinished_collapse_presentation import (
     inject_strategy_unfinished_collapse,
 )
@@ -98,9 +101,10 @@ def inject_dashboard_ui_refinement(html: str) -> str:
     # 화면이나 bare template에는 주입하지 않아 기존 화면 계약을 건드리지 않는다.
     if 'id="rate-response-cockpit-script"' in rendered:
         rendered = inject_relative_pricing_presentation(rendered)
-    # fixed-width 회귀를 정리한 뒤 첫 화면 UX, factual 시장방향, 의사결정 범위
-    # compact presentation을 마지막에 합성해 이전 injector가 위계를 뒤집지 못하게 한다.
+    # fixed-width 회귀를 정리한 뒤 첫 화면 UX → factual 시장방향 → 4단계
+    # 의사결정 메뉴 → sector-aware TOP5 순으로 합성해 최종 정보 위계를 고정한다.
     rendered = inject_strategy_mobile_responsive(rendered)
     rendered = inject_strategy_first_screen_ux(rendered)
     rendered = inject_strategy_market_direction(rendered)
-    return inject_strategy_decision_scope_compact(rendered)
+    rendered = inject_strategy_decision_scope_compact(rendered)
+    return inject_strategy_top5_compact(rendered)
