@@ -48,18 +48,21 @@ _SCRIPT = r'''
     if(!readiness)return;
     const changes=payload()?.strategy?.market_changes||{};
     const state=direction(changes);
+    const signature=`${state.up}|${state.down}|${state.total}|${state.position.toFixed(2)}|${state.label}`;
     let host=document.querySelector(`.${BAR_CLASS}`);
     if(!host){
       host=document.createElement("section");
       host.className=BAR_CLASS;
-      host.setAttribute("aria-label","최근 30일 시장 방향");
+      host.setAttribute("aria-label","최근 30일 저축은행 시장 방향");
       readiness.insertAdjacentElement("beforebegin",host);
     }
+    if(host.dataset.directionSignature===signature)return;
+    host.dataset.directionSignature=signature;
     host.innerHTML=`
       <div class="strategy-market-direction-copy">
         <span class="strategy-market-direction-kicker">최근 30일</span>
-        <div class="strategy-market-direction-title"><b>시장 방향</b><strong>${state.label}</strong></div>
-        <div class="strategy-market-direction-scope">저축은행 · 12개월 정기예금 · 최고금리 변경 이벤트</div>
+        <div class="strategy-market-direction-title"><b>저축은행 시장 방향</b><strong>${state.label}</strong></div>
+        <div class="strategy-market-direction-scope">12개월 정기예금 · 최고금리 변경 이벤트 기준</div>
       </div>
       <div class="strategy-market-direction-viz">
         <div class="strategy-market-direction-scale" aria-hidden="true"><span>인하 우세</span><span>혼조</span><span>인상 우세</span></div>
@@ -84,8 +87,9 @@ _SCRIPT = r'''
       details.append(summary);
     }
     const title=insight.querySelector(".head h2"),copy=insight.querySelector(".head p");
-    if(title)title.textContent="세부 시장 인사이트";
-    if(copy)copy.textContent="경쟁강도·지역 편차·우대조건 구조 등 보조 판단 근거입니다.";
+    if(title&&title.textContent!=="세부 시장 인사이트")title.textContent="세부 시장 인사이트";
+    const helper="경쟁강도·지역 편차·우대조건 구조 등 보조 판단 근거입니다.";
+    if(copy&&copy.textContent!==helper)copy.textContent=helper;
     if(insight.parentElement!==details)details.append(insight);
     const top5=document.querySelector(".decision-integrated-top5");
     const anchor=top5||readiness;
