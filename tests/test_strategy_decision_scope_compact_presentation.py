@@ -50,10 +50,10 @@ def test_decision_scope_is_four_step_navigation_with_safety_boundary() -> None:
     assert 'data-decision-step="competitors"' in rendered
     assert 'data-decision-step="detail"' in rendered
     assert 'data-decision-step="boundary"' in rendered
-    assert ">01<" in rendered
-    assert ">02<" in rendered
-    assert ">03<" in rendered
-    assert ">04<" in rendered
+    assert '>01</span>' in rendered
+    assert '>02</span>' in rendered
+    assert '>03</span>' in rendered
+    assert '>04</span>' in rendered
     assert "시장 방향" in rendered
     assert "경쟁사 TOP5" in rendered
     assert "세부 비교" in rendered
