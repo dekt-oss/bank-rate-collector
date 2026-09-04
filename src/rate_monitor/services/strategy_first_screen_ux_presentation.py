@@ -176,10 +176,11 @@ def inject_strategy_first_screen_ux(html: str) -> str:
     """Strategy 첫 화면에 compact controls와 median 중심 KPI 위계를 주입한다."""
     if STYLE_MARKER in html or SCRIPT_MARKER in html:
         return html
-    if 'id="market-scope"' not in html:
+    if 'id="market-scope"' not in html or 'class="grid kpis"' not in html:
+        # 공통 composition 테스트/부분 fragment는 market-scope만 가질 수 있다.
+        # 실제 첫 화면 KPI surface가 존재할 때만 이 presentation의 계약을 적용한다.
         return html
     required = (
-        'class="grid kpis"',
         'id="market-max"',
         'id="mean"',
         'id="count"',
