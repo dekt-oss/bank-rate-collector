@@ -144,13 +144,17 @@ SCRIPT = r'''
     }
   }
 
+  function setScopeLabel(node,text){
+    if(node&&String(node.textContent||"")!==text)node.textContent=text;
+  }
+
   function compactScopeContract(){
     const contract=$("strategy-scope-contract");
     if(!contract)return;
     const labels=contract.querySelectorAll("b");
-    if(labels[0])labels[0].textContent="비교 기준";
-    if(labels[1])labels[1].textContent="이력";
-    if(labels[2])labels[2].textContent="예측";
+    setScopeLabel(labels[0],"비교 기준");
+    setScopeLabel(labels[1],"이력");
+    setScopeLabel(labels[2],"예측");
   }
 
   function install(){
@@ -181,8 +185,6 @@ def inject_strategy_first_screen_ux(html: str) -> str:
         'id="count"',
         'id="median"',
         'id="top10"',
-        'id="strategy-scope-contract"',
-        'class="strategy-sector-family-controls"',
     )
     missing = [anchor for anchor in required if anchor not in html]
     if missing:
