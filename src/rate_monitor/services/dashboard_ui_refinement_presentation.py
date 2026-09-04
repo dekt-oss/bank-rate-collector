@@ -96,3 +96,5 @@ def inject_dashboard_ui_refinement(html: str) -> str:
     # 진한 선택상태/대형 scope card가 다시 우선하지 못하게 한다.
     rendered = inject_strategy_mobile_responsive(rendered)
     return inject_strategy_first_screen_ux(rendered)
+
+# Exact-source preview/browser evidence trigger only; functional code matches PR #302.
