@@ -41,25 +41,48 @@ def test_compact_decision_scope_injection_is_idempotent() -> None:
     assert inject_strategy_decision_scope_compact(rendered) == rendered
 
 
-def test_compact_decision_scope_preserves_safety_boundary_in_business_language() -> None:
+def test_decision_scope_is_four_step_navigation_with_safety_boundary() -> None:
     rendered = inject_strategy_decision_scope_compact(_strategy_html())
 
-    assert "의사결정 범위" in rendered
-    assert "시장 비교 가능" in rendered
-    assert "수신반응은 시나리오" in rendered
-    assert "최적금리 자동추천은 아직 불가" in rendered
+    assert "의사결정 메뉴" in rendered
+    assert "금리 의사결정 4단계 바로가기" in rendered
+    assert 'data-decision-step="market"' in rendered
+    assert 'data-decision-step="competitors"' in rendered
+    assert 'data-decision-step="detail"' in rendered
+    assert 'data-decision-step="boundary"' in rendered
+    assert ">01<" in rendered
+    assert ">02<" in rendered
+    assert ">03<" in rendered
+    assert ">04<" in rendered
+    assert "시장 방향" in rendered
+    assert "경쟁사 TOP5" in rendered
+    assert "세부 비교" in rendered
+    assert "자동추천 범위" in rendered
+    assert "scrollIntoView" in rendered
     assert "내부 실적 보정 전에는 최적금리 자동추천으로 해석하지 않습니다." in rendered
     assert 'card.dataset.decisionScopeCompact="1"' in rendered
     assert 'data-decision-scope-compact="1"' in rendered
 
 
-def test_compact_decision_scope_hides_visible_internal_kicker_without_deleting_owner_dom() -> None:
+def test_decision_scope_preserves_owner_dom_but_hides_old_readiness_items() -> None:
     rendered = inject_strategy_decision_scope_compact(_strategy_html())
 
     assert '.ux-readiness-title>span{display:none!important}' in rendered
+    assert '.ux-readiness-item{display:none!important}' in rendered
     assert 'const kicker=title.querySelector("span")' in rendered
     assert 'kicker.textContent=""' in rendered
     assert "remove()" not in rendered
+
+
+def test_decision_navigation_resolves_targets_at_click_time() -> None:
+    rendered = inject_strategy_decision_scope_compact(_strategy_html())
+
+    assert 'market:[".strategy-market-direction"]' in rendered
+    assert 'competitors:[".top5-card"]' in rendered
+    assert 'detail:[".market-flow",".workspace-decision","#planning-zone"]' in rendered
+    assert 'boundary:["#planning-zone",".prediction-panel"]' in rendered
+    assert "resolveTarget(step)" in rendered
+    assert "gotoStep(button.dataset.decisionStep)" in rendered
 
 
 def test_compact_decision_scope_partial_injection_fails_closed() -> None:
