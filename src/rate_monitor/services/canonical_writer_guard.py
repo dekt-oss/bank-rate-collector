@@ -70,9 +70,7 @@ def _is_publish_safe_stale_path(path: str) -> bool:
         _SAFE_PRESENTATION_SERVICE_SUFFIX
     ):
         return True
-    if normalized.startswith("scripts/") and normalized.endswith(_SAFE_SMOKE_SUFFIXES):
-        return True
-    return False
+    return normalized.startswith("scripts/") and normalized.endswith(_SAFE_SMOKE_SUFFIXES)
 
 
 def _changed_paths(run_sha: str, remote_sha: str) -> tuple[str, ...]:
