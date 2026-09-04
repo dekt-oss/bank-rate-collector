@@ -8,9 +8,9 @@ import subprocess
 
 _GIT_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 
-# A queued collection can legitimately outlive a presentation-only merge.  Blocking
+# A queued collection can legitimately outlive a presentation-only merge. Blocking
 # that run after hours of acquisition discards valid source data and turns ordinary
-# UI work into an operational collection failure.  The allow-list is intentionally
+# UI work into an operational collection failure. The allow-list is intentionally
 # narrow and fail-closed: anything that can affect acquisition, schema, validation,
 # canonical storage, production writer workflow semantics, dependencies or runtime
 # code remains unsafe and must be recollected on current main.
@@ -77,7 +77,7 @@ def _changed_paths(run_sha: str, remote_sha: str) -> tuple[str, ...]:
     """Return tree changes between the queued run and current main.
 
     ``actions/checkout`` is shallow, so the current main object may not exist locally.
-    Fetch exactly the already-validated SHA, then compare the two trees directly.  We
+    Fetch exactly the already-validated SHA, then compare the two trees directly. We
     do not need ancestry for this safety decision; we need to know whether the current
     production writer/acquisition contract differs from the run's tree.
     """
@@ -99,14 +99,39 @@ def _changed_paths(run_sha: str, remote_sha: str) -> tuple[str, ...]:
     return tuple(line.strip() for line in result.stdout.splitlines() if line.strip())
 
 
+def _refresh_safe_paths(remote_sha: str, changed: tuple[str, ...]) -> None:
+    """Refresh presentation-only paths so a stale collector cannot roll UI back.
+
+    Acquisition has already used the run's original code. If the only main drift is
+    explicitly presentation/test/docs-only, keeping the collected DB is safe, but
+    publishing the old presentation would temporarily undo the UI merge that caused
+    the drift. Refresh only the allow-listed paths from the exact verified main SHA.
+    Subsequent build commands are separate processes and therefore consume these
+    current-main presentation files. Any checkout failure is fail-closed.
+    """
+
+    if not changed:
+        return
+    try:
+        _git_run(["git", "checkout", remote_sha, "--", *changed], timeout=60)
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise CanonicalWriterGuardError(
+            "stale-main writer gate: 안전한 presentation 변경을 현재 main에서 동기화하지 못했다"
+        ) from exc
+
+
 def ensure_current_main_writer() -> None:
     """Allow current main, or narrowly compatible presentation-only main drift.
 
     Local runs, PR/evidence branches and other non-main Actions are intentionally
-    untouched.  A stale production writer is still blocked whenever current main has
-    *any* change outside the explicit presentation/test/docs allow-list.  This keeps
+    untouched. A stale production writer is still blocked whenever current main has
+    *any* change outside the explicit presentation/test/docs allow-list. This keeps
     the #293 schema/canonical-state rollback protection while avoiding loss of a long
     collection merely because a Strategy presentation PR merged during acquisition.
+
+    When drift is safe, the allow-listed files are refreshed from the verified current
+    main commit before the workflow proceeds, preventing a later rate-data publish
+    from rolling the presentation back to the stale run's version.
     """
 
     if os.environ.get("GITHUB_ACTIONS") != "true":
@@ -126,15 +151,15 @@ def ensure_current_main_writer() -> None:
 
     changed = _changed_paths(run_sha, remote_sha)
     unsafe = tuple(path for path in changed if not _is_publish_safe_stale_path(path))
-    if not unsafe:
-        return
+    if unsafe:
+        preview = ", ".join(unsafe[:8])
+        if len(unsafe) > 8:
+            preview += f", ... (+{len(unsafe) - 8})"
+        raise CanonicalWriterGuardError(
+            "stale-main writer blocked: "
+            f"run_sha={run_sha} current_main_sha={remote_sha}. "
+            f"canonical/acquisition-sensitive changes={preview}. "
+            "오래 대기한 writer는 변경된 계약으로 canonical R2/rate-data를 갱신할 수 없다"
+        )
 
-    preview = ", ".join(unsafe[:8])
-    if len(unsafe) > 8:
-        preview += f", ... (+{len(unsafe) - 8})"
-    raise CanonicalWriterGuardError(
-        "stale-main writer blocked: "
-        f"run_sha={run_sha} current_main_sha={remote_sha}. "
-        f"canonical/acquisition-sensitive changes={preview}. "
-        "오래 대기한 writer는 변경된 계약으로 canonical R2/rate-data를 갱신할 수 없다"
-    )
+    _refresh_safe_paths(remote_sha, changed)
