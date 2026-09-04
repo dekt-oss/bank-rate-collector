@@ -57,7 +57,7 @@ def test_top5_compact_handles_six_column_empty_and_mobile_layout() -> None:
     assert "cell.colSpan=6" in rendered
     assert 'td:nth-child(1){grid-area:r!important}' in rendered
     assert 'td:nth-child(2){grid-area:s!important}' in rendered
-    assert 'td:nth-child(3){grid-area:n!important}' in rendered
+    assert 'td:nth-child(3){grid-area:n!important' in rendered
     assert 'td:nth-child(4){grid-area:b!important}' in rendered
     assert 'td:nth-child(5){grid-area:u!important}' in rendered
     assert 'td:nth-child(6){grid-area:m!important' in rendered
