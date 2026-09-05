@@ -7,6 +7,7 @@ from rate_monitor.collectors.data_go_funding import total_assets_transport as tr
 from rate_monitor.collectors.data_go_funding.collector import (
     CONTRACTS,
     FundingContractError,
+    FundingTransportError,
 )
 
 
@@ -30,6 +31,15 @@ def _payload(title: str, total: int, rows: list[dict[str, str]]) -> dict[str, ob
     }
 
 
+def _accepted_payload() -> dict[str, object]:
+    return {
+        "response": {
+            "header": {"resultCode": "00", "resultMsg": "NORMAL SERVICE."},
+            "body": {"tableList": []},
+        }
+    }
+
+
 def test_asset_request_uses_exact_asset_filter() -> None:
     savings = _contract("data_go_savings_bank_funding")
     params = transport.request_params(
@@ -40,6 +50,69 @@ def test_asset_request_uses_exact_asset_filter() -> None:
     )
     assert params["astSmryStfnpsAcitCd"] == "A"
     assert "debtCptlSmryStfnpsAcitCd" not in params
+
+
+def test_asset_request_has_bounded_longer_timeout_and_recovers_from_transient_timeout(
+    monkeypatch,
+) -> None:
+    contract = _contract("data_go_savings_bank_funding")
+    attempts: list[float] = []
+
+    class FakeClient:
+        def get(self, endpoint, *, params, timeout):
+            del params
+            attempts.append(timeout)
+            if len(attempts) < len(transport.ASSET_RETRY_DELAYS):
+                raise httpx.ReadTimeout("timed out")
+            request = httpx.Request("GET", endpoint)
+            return httpx.Response(200, json=_accepted_payload(), request=request)
+
+    monkeypatch.setattr(transport.time, "sleep", lambda _delay: None)
+    payload, raw, params = transport._request_json(
+        FakeClient(),
+        contract=contract,
+        endpoint="https://example.invalid/savings",
+        key="secret",
+        bas_ym="202512",
+        page_no=7,
+    )
+
+    assert payload == _accepted_payload()
+    assert json.loads(raw) == _accepted_payload()
+    assert params["pageNo"] == "7"
+    assert attempts == [transport.ASSET_REQUEST_TIMEOUT_SECONDS] * len(
+        transport.ASSET_RETRY_DELAYS
+    )
+    assert transport.ASSET_REQUEST_TIMEOUT_SECONDS > 30.0
+
+
+def test_asset_request_retry_exhaustion_reports_exact_source_month_and_page(
+    monkeypatch,
+) -> None:
+    contract = _contract("data_go_savings_bank_funding")
+    attempts = 0
+
+    class FakeClient:
+        def get(self, endpoint, *, params, timeout):
+            del endpoint, params, timeout
+            nonlocal attempts
+            attempts += 1
+            raise httpx.ReadTimeout("timed out")
+
+    monkeypatch.setattr(transport.time, "sleep", lambda _delay: None)
+    with pytest.raises(
+        FundingTransportError,
+        match=r"source=data_go_savings_bank_funding month=202512 page=7",
+    ):
+        transport._request_json(
+            FakeClient(),
+            contract=contract,
+            endpoint="https://example.invalid/savings",
+            key="secret",
+            bas_ym="202512",
+            page_no=7,
+        )
+    assert attempts == len(transport.ASSET_RETRY_DELAYS)
 
 
 def test_fetch_month_follows_asset_table_total_count_beyond_funding_style_page_counts(
