@@ -1,10 +1,15 @@
-"""Exact cross-source identity reconciliation for NH local funding observations.
+"""Exact cross-source identity reconciliation for NH local observations.
 
 Data.go agricultural-cooperative institution keys embed the six-digit NH BRC
 used by the official NH rate directory. The BRC relation is deterministic, but
 historical names show mergers/renames. Therefore this module maps each active
-funding observation independently only when BRC *and* normalized source name
-match the active official ``nh_local`` institution link.
+observation independently only when BRC *and* normalized source name match the
+active official ``nh_local`` institution link.
+
+Callers may scope reconciliation to one metric and/or source month. This is
+important for total-assets persistence: writing ``total_assets`` must never
+modify an existing ``deposit_liabilities_total`` observation as a side effect.
+The default remains unscoped for the pre-existing funding maintenance command.
 
 It deliberately does not create a permanent funding SourceEntityLink: doing so
 would cause one exact observation to absorb historical rows whose names differ.
@@ -51,11 +56,16 @@ def _nh_org_key(brc: str) -> str:
 
 def reconcile_agri_funding_identity(
     db_path: Path,
+    *,
+    metric_code: str | None = None,
+    source_effective_month: str | None = None,
 ) -> FundingIdentityReconciliationResult:
-    """Map active NH funding observations using exact BRC + official source name.
+    """Map active NH observations using exact BRC + official source name.
 
     Amount, revision, validity and raw provenance are never changed. A row that
     already points at a different institution fails the whole transaction.
+    Optional selectors constrain which observations may be mutated; they do not
+    weaken the exact BRC + normalized-name identity contract.
     """
     engine = create_db_engine(db_path)
     factory = make_session_factory(engine)
@@ -64,14 +74,22 @@ def reconcile_agri_funding_identity(
     no_brc_link = name_mismatch = invalid_link = 0
 
     with session_scope(factory) as session:
+        statement = select(InstitutionFundingObservation).where(
+            InstitutionFundingObservation.source_id == FUNDING_SOURCE_ID,
+            InstitutionFundingObservation.valid_to.is_(None),
+        )
+        if metric_code is not None:
+            statement = statement.where(
+                InstitutionFundingObservation.metric_code == metric_code
+            )
+        if source_effective_month is not None:
+            statement = statement.where(
+                InstitutionFundingObservation.source_effective_month
+                == source_effective_month
+            )
         observations = list(
             session.scalars(
-                select(InstitutionFundingObservation)
-                .where(
-                    InstitutionFundingObservation.source_id == FUNDING_SOURCE_ID,
-                    InstitutionFundingObservation.valid_to.is_(None),
-                )
-                .order_by(
+                statement.order_by(
                     InstitutionFundingObservation.source_effective_month,
                     InstitutionFundingObservation.source_institution_key,
                 )
