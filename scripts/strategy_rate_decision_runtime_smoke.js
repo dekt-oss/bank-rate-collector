@@ -71,15 +71,33 @@ async function assertPrimaryFlow(page, simulator, label) {
   const total = numberFromText(totalText);
   invariant(Number.isFinite(total), `${label}: rate mode 총수신이 계산되지 않음`);
   invariant((await page.locator("#rds-nearby").textContent()).trim().length > 0, `${label}: 주변 경쟁상품 결과가 비어 있음`);
+  invariant(
+    (await page.locator("#rds-nearby thead").textContent()).includes("업권"),
+    `${label}: 주변 경쟁상품 표에 업권 열이 없음`,
+  );
 
   const targetTab = page.locator('[data-rds-mode="target"]');
   await targetTab.click();
   invariant(await page.locator(".rds-target-mode").isVisible(), `${label}: 목표금액 입력이 보이지 않음`);
+  await page.waitForFunction(
+    () => {
+      const rank = document.getElementById("rds-rank")?.textContent || "";
+      const nearby = document.getElementById("rds-nearby")?.textContent || "";
+      const peers = document.getElementById("rds-peers")?.textContent || "";
+      return rank === "—" && nearby.includes("계산이 차단") && peers.includes("계산이 차단");
+    },
+    null,
+    { timeout: 10_000 },
+  );
   const targetInput = page.locator("#rds-target-total");
   await targetInput.fill(String(Math.max(0, Math.floor(total))));
   await targetInput.dispatchEvent("change");
   await page.waitForFunction(
-    () => (document.getElementById("rds-rate-note")?.textContent || "").trim().length > 0,
+    () => {
+      const note = document.getElementById("rds-rate-note")?.textContent || "";
+      const rank = document.getElementById("rds-rank")?.textContent || "";
+      return note.trim().length > 0 && rank !== "—";
+    },
     null,
     { timeout: 10_000 },
   );
