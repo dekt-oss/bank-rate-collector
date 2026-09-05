@@ -1,6 +1,6 @@
 """Eligibility universe for Strategy size peers.
 
-Size-peer eligibility is deliberately independent from size similarity.  This
+Size-peer eligibility is deliberately independent from size similarity. This
 module answers only "can this institution belong to the comparison universe?".
 Funding balance and total assets are evaluated by later layers.
 
@@ -10,8 +10,7 @@ The policy is fail-closed around evidence:
   contract;
 * mutual-finance institutions require explicit internet/mobile/smartphone
   channel evidence for REMOTE scenarios;
-* branch scenarios require an official outlet/availability district inside the
-  Busan Dong-gu land-boundary two-hop set;
+* branch scenarios require official outlet/availability evidence inside Busan;
 * ``any`` and ``unknown`` never prove remote eligibility.
 """
 
@@ -21,29 +20,36 @@ from dataclasses import dataclass
 from typing import Iterable
 
 SIZE_PEER_UNIVERSE_POLICY_ID = "strategy-size-peer-universe"
-SIZE_PEER_UNIVERSE_POLICY_VERSION = "1"
+SIZE_PEER_UNIVERSE_POLICY_VERSION = "2"
 
 REMOTE = "remote"
-BRANCH_LOCAL_2HOP = "branch_local_2hop"
-SUPPORTED_MODES = frozenset({REMOTE, BRANCH_LOCAL_2HOP})
+BRANCH_BUSAN = "branch_busan"
+SUPPORTED_MODES = frozenset({REMOTE, BRANCH_BUSAN})
 
 SAVINGS_BANK = "savings_bank"
 MUTUAL_FINANCE_SECTORS = frozenset({"cu", "kfcc", "nh_local"})
 ELIGIBLE_SECTORS = frozenset({SAVINGS_BANK, *MUTUAL_FINANCE_SECTORS})
 
-# v1 contract: Busan Dong-gu + land-boundary graph distance <= 2.
-# See docs/specs/20260905-strategy-size-peer-total-assets-v1.md §2.3.
-DONG_GU_TWO_HOP_LAND_DISTRICTS = frozenset(
+# v2 contract: branch comparison universe is all 16 Busan gu/gun.
+# See docs/specs/20260905-strategy-size-peer-total-assets-v1.md §2.2.
+BUSAN_ALL_DISTRICTS = frozenset(
     {
-        "동구",
+        "강서구",
+        "금정구",
+        "기장군",
         "남구",
+        "동구",
+        "동래구",
         "부산진구",
-        "서구",
-        "중구",
-        "연제구",
-        "수영구",
-        "사하구",
+        "북구",
         "사상구",
+        "사하구",
+        "서구",
+        "수영구",
+        "연제구",
+        "영도구",
+        "중구",
+        "해운대구",
     }
 )
 
@@ -95,7 +101,6 @@ class SizePeerUniverseSelection:
     policy_id: str
     policy_version: str
     anchor_sido: str
-    anchor_sigungu: str
     eligible_ids: tuple[str, ...]
     eligible_count: int
     excluded_count: int
@@ -120,7 +125,9 @@ def _normalized_remote_channels(values: Iterable[str]) -> tuple[str, ...]:
 
 
 def _normalized_districts(values: Iterable[str]) -> tuple[str, ...]:
-    return tuple(sorted({str(value or "").strip() for value in values if str(value or "").strip()}))
+    return tuple(
+        sorted({str(value or "").strip() for value in values if str(value or "").strip()})
+    )
 
 
 def _decision(
@@ -133,7 +140,7 @@ def _decision(
     remote_channels = _normalized_remote_channels(candidate.source_channels)
     districts = _normalized_districts(candidate.outlet_sigungu)
     matched_districts = tuple(
-        district for district in districts if district in DONG_GU_TWO_HOP_LAND_DISTRICTS
+        district for district in districts if district in BUSAN_ALL_DISTRICTS
     )
 
     if sector not in ELIGIBLE_SECTORS:
@@ -152,13 +159,13 @@ def _decision(
     else:
         if matched_districts:
             eligible = True
-            reason = "official_local_district_evidence"
+            reason = "official_busan_district_evidence"
         elif not districts:
             eligible = False
             reason = "local_outlet_evidence_missing"
         else:
             eligible = False
-            reason = "outside_local_2hop"
+            reason = "outside_busan"
 
     return SizePeerEligibilityDecision(
         institution_id=institution_id,
@@ -167,7 +174,7 @@ def _decision(
         eligible=eligible,
         reason=reason,
         matched_remote_channels=remote_channels if eligible and mode == REMOTE else (),
-        matched_districts=matched_districts if eligible and mode == BRANCH_LOCAL_2HOP else (),
+        matched_districts=matched_districts if eligible and mode == BRANCH_BUSAN else (),
         channel_evidence_source_id=(
             str(candidate.channel_evidence_source_id).strip()
             if candidate.channel_evidence_source_id
@@ -213,10 +220,9 @@ def select_size_peer_universe(
         policy_id=SIZE_PEER_UNIVERSE_POLICY_ID,
         policy_version=SIZE_PEER_UNIVERSE_POLICY_VERSION,
         anchor_sido="부산",
-        anchor_sigungu="동구",
         eligible_ids=eligible_ids,
         eligible_count=len(eligible_ids),
         excluded_count=len(decisions) - len(eligible_ids),
-        local_scope_districts=tuple(sorted(DONG_GU_TWO_HOP_LAND_DISTRICTS)),
+        local_scope_districts=tuple(sorted(BUSAN_ALL_DISTRICTS)),
         decisions=decisions,
     )
