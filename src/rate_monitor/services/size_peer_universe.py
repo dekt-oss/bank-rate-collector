@@ -16,8 +16,8 @@ The policy is fail-closed around evidence:
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Iterable
 
 SIZE_PEER_UNIVERSE_POLICY_ID = "strategy-size-peer-universe"
 SIZE_PEER_UNIVERSE_POLICY_VERSION = "2"
