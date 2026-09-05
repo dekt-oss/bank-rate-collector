@@ -260,8 +260,9 @@
   }
 
   function moveLegacy(){
-    const legacy=$("rds-legacy"),cockpit=$("public-structural-v2-cockpit"),response=$("rate-response-wrap");
+    const legacy=$("rds-legacy"),results=document.querySelector(".prediction-results"),cockpit=$("public-structural-v2-cockpit"),response=$("rate-response-wrap");
     if(!legacy)return;
+    if(results&&!legacy.contains(results))legacy.appendChild(results);
     if(response&&!legacy.contains(response))legacy.appendChild(response);
     if(cockpit&&!legacy.contains(cockpit))legacy.appendChild(cockpit);
   }
