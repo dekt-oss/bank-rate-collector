@@ -106,6 +106,20 @@ def test_busan_mode_is_transformed_from_existing_district_tiles_to_svg() -> None
     assert "전국으로 돌아가기" in rendered
 
 
+def test_mobile_busan_label_offsets_keep_dense_dong_gu_area_separated() -> None:
+    strategy = STRATEGY_TEMPLATE.read_text(encoding="utf-8")
+    rendered = inject_main_map_drilldown_refinement(
+        '<html><head></head><body><div id="reg"></div></body></html>',
+        strategy,
+    )
+
+    assert "const MOBILE_LABEL_OFFSETS" in rendered
+    assert '"남구": [0,24,"middle"]' in rendered
+    assert '"해운대구": [58,-8,"start"]' in rendered
+    assert 'window.matchMedia("(max-width: 760px)").matches' in rendered
+    assert "mobileOffset || LABEL_OFFSETS[path.id]" in rendered
+
+
 def test_existing_core_busan_state_and_back_contract_remains_owner() -> None:
     text = SITE_TEMPLATE.read_text(encoding="utf-8")
 
