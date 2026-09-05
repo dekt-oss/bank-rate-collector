@@ -1,3 +1,4 @@
+# ruff: noqa: E501
 """Strategy Rate Decision Simulator v1 presentation wiring.
 
 이 모듈은 기존 Public Structural v2 browser engine이 주입된 뒤 bounded
