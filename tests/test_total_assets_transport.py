@@ -3,8 +3,11 @@ import json
 import httpx
 import pytest
 
-from rate_monitor.collectors.data_go_funding.collector import CONTRACTS, FundingContractError
 from rate_monitor.collectors.data_go_funding import total_assets_transport as transport
+from rate_monitor.collectors.data_go_funding.collector import (
+    CONTRACTS,
+    FundingContractError,
+)
 
 
 def _contract(source_id: str):
