@@ -1,12 +1,12 @@
 """Pure total-assets parser for size-peer evidence diagnostics.
 
-This module deliberately has no database/session dependency. It parses the
-verified total-assets rows from the same Data.go finance payloads already used
-for institution funding, validates source-reported aggregate hierarchy, and
-returns institution/aggregate partitions for read-only evidence generation.
+This module deliberately has no database/session dependency. It parses verified
+total-assets rows from the same Data.go finance payloads already used for
+institution funding and validates source-reported aggregate hierarchy *for the
+asset metric itself*.
 
 Persistence is intentionally out of scope until the size-peer Evidence Gate has
-validated real production-source distributions and temporal alignment.
+validated real source distributions and temporal alignment.
 """
 
 from __future__ import annotations
@@ -18,9 +18,12 @@ from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from rate_monitor.collectors.data_go_funding.aggregate_policy import (
+    AGRI_COOP_AGGREGATE_KEYS,
     AGRI_COOP_CENTRAL_POPULATION_SCOPE,
-    AggregateValidationError,
-    partition_validated_agri_coop_rows,
+    AGRI_COOP_LEGACY_TOTALS,
+    AGRI_COOP_REGION_TOTALS,
+    AGRI_COOP_SECTOR_TOTALS,
+    is_agri_coop_institution_key,
 )
 from rate_monitor.db.types import quantize_quantity
 from rate_monitor.domain.normalization import normalize_institution_name
@@ -270,6 +273,129 @@ def _partition_savings_bank_month(
     return institutions, aggregates
 
 
+def _validate_agri_aggregate_identity(
+    point: TotalAssetsEvidencePoint,
+    expected_name: str,
+) -> None:
+    if point.source_institution_name != expected_name or point.source_crno:
+        raise TotalAssetsEvidenceError(
+            "농·축협 총자산 aggregate identity 계약 불일치: "
+            f"month={point.source_effective_month} "
+            f"fncoCd={point.source_institution_key!r} "
+            f"fncoNm={point.source_institution_name!r} crno={point.source_crno!r}"
+        )
+
+
+def _partition_agri_assets_month(
+    points: list[TotalAssetsEvidencePoint],
+) -> tuple[list[TotalAssetsEvidencePoint], list[TotalAssetsEvidencePoint]]:
+    """Validate the asset-specific current NH aggregate hierarchy.
+
+    Authenticated 2025-12 evidence proves a different hierarchy from the funding
+    metric: 16 regional totals sum to the local-institution total, while the
+    sector total itself also equals the local-institution total. Therefore the
+    funding rule `sector = institutions + regions` must not be reused here.
+    """
+
+    month = points[0].source_effective_month if points else "unknown"
+    unknown_aggregate_like = [
+        point
+        for point in points
+        if point.source_institution_key.endswith("S")
+        and point.source_institution_key not in AGRI_COOP_AGGREGATE_KEYS
+    ]
+    if unknown_aggregate_like:
+        keys = sorted(
+            {point.source_institution_key for point in unknown_aggregate_like}
+        )
+        raise TotalAssetsEvidenceError(
+            f"농·축협 총자산 미확정 aggregate key 발견: month={month} keys={keys}"
+        )
+
+    aggregates = [
+        point
+        for point in points
+        if point.source_institution_key in AGRI_COOP_AGGREGATE_KEYS
+    ]
+    if not aggregates:
+        return points, []
+
+    institutions = [
+        point
+        for point in points
+        if is_agri_coop_institution_key(point.source_institution_key)
+    ]
+    central = [
+        point
+        for point in points
+        if point.population_scope == AGRI_COOP_CENTRAL_POPULATION_SCOPE
+    ]
+    recognized = {id(point) for point in institutions + central + aggregates}
+    unknown = [point for point in points if id(point) not in recognized]
+    if unknown:
+        keys = sorted({point.source_institution_key for point in unknown})
+        raise TotalAssetsEvidenceError(
+            "농·축협 총자산 aggregate 동반 시 미확정 institution key 발견: "
+            f"month={month} keys={keys}"
+        )
+    if not institutions:
+        raise TotalAssetsEvidenceError(
+            f"농·축협 총자산 aggregate 검증 대상 실제 기관 row가 없다: month={month}"
+        )
+
+    by_key = {point.source_institution_key: point for point in aggregates}
+    if len(by_key) != len(aggregates):
+        raise TotalAssetsEvidenceError(
+            f"농·축협 총자산 aggregate key 중복: month={month}"
+        )
+
+    legacy_keys = set(by_key) & set(AGRI_COOP_LEGACY_TOTALS)
+    if legacy_keys:
+        raise TotalAssetsEvidenceError(
+            "농·축협 legacy 총자산 aggregate hierarchy는 아직 실증되지 않았다: "
+            f"month={month} keys={sorted(by_key)}"
+        )
+
+    expected = set(AGRI_COOP_REGION_TOTALS) | set(AGRI_COOP_SECTOR_TOTALS)
+    if set(by_key) != expected:
+        missing = sorted(expected - set(by_key))
+        extra = sorted(set(by_key) - expected)
+        raise TotalAssetsEvidenceError(
+            "농·축협 총자산 current aggregate hierarchy 불완전: "
+            f"month={month} missing={missing} extra={extra}"
+        )
+
+    for key, expected_name in AGRI_COOP_REGION_TOTALS.items():
+        _validate_agri_aggregate_identity(by_key[key], expected_name)
+    for key, expected_name in AGRI_COOP_SECTOR_TOTALS.items():
+        _validate_agri_aggregate_identity(by_key[key], expected_name)
+
+    institution_total = sum(
+        (point.value for point in institutions),
+        start=Decimal("0"),
+    )
+    regional_total = sum(
+        (by_key[key].value for key in AGRI_COOP_REGION_TOTALS),
+        start=Decimal("0"),
+    )
+    sector_total = by_key["030801S"].value
+
+    if regional_total != institution_total:
+        raise TotalAssetsEvidenceError(
+            "농·축협 총자산 regional total 합계 불일치: "
+            f"month={month} regions={regional_total} institutions={institution_total} "
+            f"institution_rows={len(institutions)}"
+        )
+    if sector_total != institution_total:
+        raise TotalAssetsEvidenceError(
+            "농·축협 총자산 sector total 합계 불일치: "
+            f"month={month} sector={sector_total} institutions={institution_total}"
+        )
+
+    # 중앙회는 local-coop size peer가 아니므로 검증만 하고 institution_rows에서 제외한다.
+    return institutions, aggregates
+
+
 def partition_validated_total_assets(
     points: list[TotalAssetsEvidencePoint],
 ) -> list[TotalAssetsEvidencePartition]:
@@ -292,10 +418,7 @@ def partition_validated_total_assets(
         if source_id == SAVINGS_BANK_SOURCE_ID:
             institutions, aggregates = _partition_savings_bank_month(month_points)
         elif source_id == AGRI_COOP_SOURCE_ID:
-            try:
-                institutions, aggregates = partition_validated_agri_coop_rows(month_points)
-            except AggregateValidationError as exc:
-                raise TotalAssetsEvidenceError(str(exc)) from exc
+            institutions, aggregates = _partition_agri_assets_month(month_points)
         else:
             raise TotalAssetsEvidenceError(f"unsupported total-assets source: {source_id}")
 
