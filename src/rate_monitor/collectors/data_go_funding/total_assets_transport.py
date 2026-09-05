@@ -18,7 +18,6 @@ from typing import Any
 import httpx
 
 from rate_monitor.collectors.data_go_funding.collector import (
-    RETRY_DELAYS,
     FundingContractError,
     FundingSourceUnavailable,
     FundingTransportError,
@@ -30,6 +29,11 @@ from rate_monitor.domain.schemas import RawArtifactData
 
 PAGE_SIZE = 500
 MAX_PAGES = 120
+# The asset tables are materially larger than the funding-summary tables and
+# Data.go occasionally stalls on a table page. Keep the retry policy local to
+# this transport rather than broadening the normal funding collector contract.
+ASSET_REQUEST_TIMEOUT_SECONDS = 60.0
+ASSET_RETRY_DELAYS = (0.0, 2.0, 5.0, 10.0)
 
 ASSET_ACCOUNT_FILTERS: dict[str, tuple[str, str]] = {
     "data_go_savings_bank_funding": ("astSmryStfnpsAcitCd", "A"),
@@ -82,11 +86,15 @@ def _request_json(
         page_no=page_no,
     )
     last_error: Exception | None = None
-    for delay in (0.0, *RETRY_DELAYS):
+    for delay in ASSET_RETRY_DELAYS:
         if delay:
             time.sleep(delay)
         try:
-            response = client.get(endpoint, params=params)
+            response = client.get(
+                endpoint,
+                params=params,
+                timeout=ASSET_REQUEST_TIMEOUT_SECONDS,
+            )
             raw = response.content
             text = raw.decode("utf-8", "replace")
             try:
@@ -112,7 +120,10 @@ def _request_json(
             raise
         except (httpx.HTTPError, FundingTransportError) as exc:
             last_error = exc
-    raise FundingTransportError(f"Data.go transport retry 소진: {last_error}")
+    raise FundingTransportError(
+        f"Data.go total-assets transport retry 소진: source={contract.source_id} "
+        f"month={bas_ym} page={page_no} last_error={last_error}"
+    )
 
 
 def _artifact(
