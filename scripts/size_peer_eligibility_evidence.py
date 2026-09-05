@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Current REMOTE / BRANCH_BUSAN eligibility evidence for size peers.
+"""Build current REMOTE / BRANCH_BUSAN eligibility evidence for size peers.
 
-Consumes the exact-common-vintage financial artifact, overlays current official
-term-deposit availability evidence, and measures the two-axis distance
-population. It never persists a peer selection.
+The financial axes remain at their exact historical common vintage. This script
+only overlays current selected-product availability evidence and measures the
+resulting distance population. It never persists or selects production peers.
 """
 
 from __future__ import annotations
@@ -31,6 +31,7 @@ from rate_monitor.collectors.fsb.adapter import (
     USER_AGENT,
     FsbAdapter,
 )
+from rate_monitor.domain.timeutil import now_kst
 from rate_monitor.services.fsb_availability_service import _fetch_area_rows
 from rate_monitor.services.region_service import BUSAN_DISTRICTS
 from rate_monitor.services.size_peer_current_eligibility import (
@@ -42,7 +43,6 @@ from rate_monitor.services.size_peer_current_eligibility import (
     threshold_counts,
 )
 from rate_monitor.services.size_peer_universe import SAVINGS_BANK
-from rate_monitor.domain.timeutil import now_kst
 
 TERM_MONTHS_DEFAULT = 12
 FSB_SOURCE_ID = "fsb"
@@ -50,7 +50,8 @@ NH_SOURCE_ID = "nh_local"
 NH_SECTOR = "nh_local"
 FSB_BUSAN_AREA = "YN_Busan"
 THRESHOLDS = tuple(
-    Decimal(value) for value in ("0.02", "0.05", "0.075", "0.10", "0.15", "0.20")
+    Decimal(value)
+    for value in ("0.02", "0.05", "0.075", "0.10", "0.15", "0.20")
 )
 
 
@@ -61,15 +62,16 @@ def _open_immutable(db_path: Path) -> sqlite3.Connection:
     return connection
 
 
-def _load_financial_candidates(path: Path) -> tuple[str, list[TwoAxisFinancialCandidate], str]:
+def _load_financial_candidates(
+    path: Path,
+) -> tuple[str, list[TwoAxisFinancialCandidate], str]:
     payload = json.loads(path.read_text(encoding="utf-8"))
     if payload.get("status") != "ready_for_similarity_policy_evidence":
         raise RuntimeError("common-vintage artifact is not ready")
     if payload.get("eligibility_universe_applied") is not False:
-        raise RuntimeError("common-vintage artifact already claims an eligibility overlay")
+        raise RuntimeError("common-vintage artifact already claims eligibility")
     month = str(payload.get("selected_common_month") or "").strip()
-    anchor = payload.get("anchor") or {}
-    anchor_id = str(anchor.get("institution_id") or "").strip()
+    anchor_id = str((payload.get("anchor") or {}).get("institution_id") or "").strip()
     if not month or not anchor_id:
         raise RuntimeError("common-vintage artifact lost month/anchor")
 
@@ -101,17 +103,18 @@ def _current_active_ids(db_path: Path, candidate_ids: set[str]) -> set[str]:
     return {str(row["id"]) for row in rows}
 
 
-def _nh_current_evidence(
+def _current_rate_rows(
     db_path: Path,
     *,
+    source_id: str,
     candidate_ids: set[str],
     term_months: int,
-) -> tuple[dict[str, set[str]], dict[str, set[str]], dict[str, Any]]:
+) -> list[sqlite3.Row]:
     if not candidate_ids:
-        return {}, {}, {"row_count": 0}
+        return []
     placeholders = ",".join("?" for _ in candidate_ids)
     with closing(_open_immutable(db_path)) as connection:
-        rows = connection.execute(
+        return connection.execute(
             f"""
             SELECT p.institution_id,
                    pv.join_channel,
@@ -133,13 +136,30 @@ def _nh_current_evidence(
               AND p.institution_id IN ({placeholders})
             ORDER BY p.institution_id
             """,
-            (NH_SOURCE_ID, term_months, *sorted(candidate_ids)),
+            (source_id, term_months, *sorted(candidate_ids)),
         ).fetchall()
 
+
+def _rate_row_summary(rows: list[sqlite3.Row]) -> dict[str, Any]:
+    last_seen = [str(row["last_seen_at"]) for row in rows if row["last_seen_at"]]
+    effective = [
+        str(row["source_effective_at"])
+        for row in rows
+        if row["source_effective_at"]
+    ]
+    return {
+        "row_count": len(rows),
+        "institution_count": len({str(row["institution_id"]) for row in rows}),
+        "max_last_seen_at": max(last_seen) if last_seen else None,
+        "max_source_effective_at": max(effective) if effective else None,
+    }
+
+
+def _nh_current_evidence(
+    rows: list[sqlite3.Row],
+) -> tuple[dict[str, set[str]], dict[str, set[str]], dict[str, Any]]:
     remote: dict[str, set[str]] = defaultdict(set)
     districts: dict[str, set[str]] = defaultdict(set)
-    last_seen_values: list[str] = []
-    source_effective_values: list[str] = []
     for row in rows:
         institution_id = str(row["institution_id"])
         channel = str(row["join_channel"] or "").strip()
@@ -148,27 +168,16 @@ def _nh_current_evidence(
         sido = str(row["region_sido"] or "").strip()
         sigungu = str(row["region_sigungu"] or "").strip()
         address = str(row["address"] or "").strip()
-        if (
-            sido == "부산"
-            and sigungu in BUSAN_DISTRICTS
-            and address
-        ):
+        if sido == "부산" and sigungu in BUSAN_DISTRICTS and address:
             districts[institution_id].add(sigungu)
-        if row["last_seen_at"]:
-            last_seen_values.append(str(row["last_seen_at"]))
-        if row["source_effective_at"]:
-            source_effective_values.append(str(row["source_effective_at"]))
 
-    summary = {
-        "row_count": len(rows),
-        "institution_count": len({str(row["institution_id"]) for row in rows}),
-        "remote_institution_count": len(remote),
-        "busan_branch_institution_count": len(districts),
-        "max_last_seen_at": max(last_seen_values) if last_seen_values else None,
-        "max_source_effective_at": (
-            max(source_effective_values) if source_effective_values else None
-        ),
-    }
+    summary = _rate_row_summary(rows)
+    summary.update(
+        {
+            "remote_institution_count": len(remote),
+            "busan_branch_institution_count": len(districts),
+        }
+    )
     return remote, districts, summary
 
 
@@ -184,10 +193,8 @@ def _fsb_current_outlet_districts(
         rows = connection.execute(
             f"""
             SELECT o.institution_id,
-                   o.region_sido,
                    o.region_sigungu,
-                   o.address,
-                   l.source_entity_key
+                   o.address
             FROM outlets o
             JOIN source_entity_links l
               ON l.entity_id = o.id
@@ -218,7 +225,13 @@ def _fsb_current_outlet_districts(
     }
 
 
-async def _fetch_fsb_busan_rows(term_months: int) -> tuple[list[dict[str, Any]], str]:
+async def _fetch_fsb_busan_rows(
+    term_months: int,
+) -> tuple[list[dict[str, Any]], str]:
+    if term_months != TERM_MONTHS_DEFAULT:
+        raise RuntimeError(
+            "current FSB live eligibility probe is contract-locked to 12 months"
+        )
     query_date = now_kst().date()
     screen_path, _data_path = SCREENS["ratedepo"]
     timeout = httpx.Timeout(READ_TIMEOUT, connect=CONNECT_TIMEOUT)
@@ -237,15 +250,17 @@ async def _fetch_fsb_busan_rows(term_months: int) -> tuple[list[dict[str, Any]],
     return selected, query_date.isoformat()
 
 
-def _fsb_branch_capable_codes(rows: list[dict[str, Any]]) -> tuple[set[str], dict[str, Any]]:
+def _fsb_branch_capable_codes(
+    rows: list[dict[str, Any]],
+) -> tuple[set[str], dict[str, Any]]:
     codes: set[str] = set()
-    institutions_all: set[str] = set()
+    institutions: set[str] = set()
     unknown_channel_rows = 0
     for row in rows:
         institution = fsb_parser.clean(row.get("FINAN_COMP_CODE"))
         if not institution:
             raise RuntimeError("FSB Busan row lost FINAN_COMP_CODE")
-        institutions_all.add(institution)
+        institutions.add(institution)
         raw_channel = fsb_parser.clean(row.get("JOIN_LOCATION"))
         members = {value.strip() for value in raw_channel.split(",") if value.strip()}
         if not members:
@@ -255,7 +270,7 @@ def _fsb_branch_capable_codes(rows: list[dict[str, Any]]) -> tuple[set[str], dic
             codes.add(institution)
     return codes, {
         "row_count": len(rows),
-        "institution_count": len(institutions_all),
+        "institution_count": len(institutions),
         "branch_capable_institution_count": len(codes),
         "unknown_channel_rows": unknown_channel_rows,
     }
@@ -289,7 +304,7 @@ def _fsb_code_to_current_id(
 
 
 def _facts(
-    financial_candidates: list[TwoAxisFinancialCandidate],
+    candidates: list[TwoAxisFinancialCandidate],
     *,
     nh_remote: dict[str, set[str]],
     nh_districts: dict[str, set[str]],
@@ -299,7 +314,7 @@ def _facts(
 ) -> tuple[list[EligibilityEvidenceFact], list[dict[str, str]]]:
     facts: list[EligibilityEvidenceFact] = []
     conflicts: list[dict[str, str]] = []
-    for candidate in financial_candidates:
+    for candidate in candidates:
         channels: tuple[str, ...] = ()
         districts: tuple[str, ...] = ()
         channel_source = None
@@ -307,8 +322,10 @@ def _facts(
         if candidate.sector == NH_SECTOR:
             channels = tuple(sorted(nh_remote.get(candidate.institution_id, set())))
             districts = tuple(sorted(nh_districts.get(candidate.institution_id, set())))
-            channel_source = "nh_local_active_term_deposit_rate" if channels else None
-            locality_source = "nh_local_active_busan_outlet_rate" if districts else None
+            if channels:
+                channel_source = "nh_local_active_term_deposit_rate"
+            if districts:
+                locality_source = "nh_local_active_busan_outlet_rate"
         elif candidate.sector == SAVINGS_BANK:
             current_id = fsb_code_to_id.get(candidate.source_institution_key)
             if current_id and current_id != candidate.institution_id:
@@ -320,18 +337,15 @@ def _facts(
                     }
                 )
                 continue
-            if (
-                current_id == candidate.institution_id
-                and candidate.source_institution_key in fsb_branch_codes
-            ):
+            has_branch = candidate.source_institution_key in fsb_branch_codes
+            if current_id == candidate.institution_id and has_branch:
                 districts = tuple(
                     sorted(savings_districts.get(candidate.institution_id, set()))
                 )
-                locality_source = (
-                    "fsb_live_busan_branch_channel_plus_official_outlet"
-                    if districts
-                    else None
-                )
+                if districts:
+                    locality_source = (
+                        "fsb_live_busan_branch_channel_plus_official_outlet"
+                    )
         facts.append(
             EligibilityEvidenceFact(
                 institution_id=candidate.institution_id,
@@ -390,7 +404,9 @@ def main() -> int:
     active_ids = _current_active_ids(args.db_path, candidate_ids)
     inactive_ids = sorted(candidate_ids - active_ids)
     active_candidates = [
-        candidate for candidate in financial_candidates if candidate.institution_id in active_ids
+        candidate
+        for candidate in financial_candidates
+        if candidate.institution_id in active_ids
     ]
 
     nh_ids = {
@@ -403,41 +419,68 @@ def main() -> int:
         for candidate in active_candidates
         if candidate.sector == SAVINGS_BANK
     }
-    nh_remote, nh_districts, nh_summary = _nh_current_evidence(
+    nh_rows = _current_rate_rows(
         args.db_path,
+        source_id=NH_SOURCE_ID,
         candidate_ids=nh_ids,
         term_months=args.term_months,
     )
+    fsb_rows_current = _current_rate_rows(
+        args.db_path,
+        source_id=FSB_SOURCE_ID,
+        candidate_ids=savings_ids,
+        term_months=args.term_months,
+    )
+    nh_remote, nh_districts, nh_summary = _nh_current_evidence(nh_rows)
+    fsb_current_product_ids = {
+        str(row["institution_id"]) for row in fsb_rows_current
+    }
+    nh_current_product_ids = {str(row["institution_id"]) for row in nh_rows}
+    current_product_ids = fsb_current_product_ids | nh_current_product_ids
+    product_unavailable_ids = sorted(active_ids - current_product_ids)
+    scenario_candidates = [
+        candidate
+        for candidate in active_candidates
+        if candidate.institution_id in current_product_ids
+    ]
+
+    savings_scenario_ids = {
+        candidate.institution_id
+        for candidate in scenario_candidates
+        if candidate.sector == SAVINGS_BANK
+    }
     savings_districts, savings_outlet_summary = _fsb_current_outlet_districts(
         args.db_path,
-        candidate_ids=savings_ids,
+        candidate_ids=savings_scenario_ids,
     )
-    fsb_rows, fsb_query_date = asyncio.run(_fetch_fsb_busan_rows(args.term_months))
-    fsb_branch_codes, fsb_live_summary = _fsb_branch_capable_codes(fsb_rows)
+    fsb_live_rows, fsb_query_date = asyncio.run(
+        _fetch_fsb_busan_rows(args.term_months)
+    )
+    fsb_branch_codes, fsb_live_summary = _fsb_branch_capable_codes(fsb_live_rows)
     code_to_id = _fsb_code_to_current_id(
         args.db_path,
         source_keys={
             candidate.source_institution_key
-            for candidate in active_candidates
+            for candidate in scenario_candidates
             if candidate.sector == SAVINGS_BANK
         },
     )
-    facts, current_identity_conflicts = _facts(
-        active_candidates,
+    facts, identity_conflicts = _facts(
+        scenario_candidates,
         nh_remote=nh_remote,
         nh_districts=nh_districts,
         savings_districts=savings_districts,
         fsb_branch_codes=fsb_branch_codes,
         fsb_code_to_id=code_to_id,
     )
-    if current_identity_conflicts:
+    if identity_conflicts:
         raise RuntimeError(
             "current FSB identity conflicts with historical financial candidate: "
-            f"count={len(current_identity_conflicts)}"
+            f"count={len(identity_conflicts)}"
         )
 
     overlay = apply_current_eligibility(
-        active_candidates,
+        scenario_candidates,
         facts,
         financial_as_of=financial_as_of,
         eligibility_as_of=fsb_query_date,
@@ -449,32 +492,35 @@ def main() -> int:
         raise RuntimeError("Koryo anchor is not eligible in BRANCH_BUSAN evidence")
 
     remote_gaps = relative_gap_distribution(
-        active_candidates,
+        scenario_candidates,
         eligible_ids=overlay.remote.eligible_ids,
         anchor_id=anchor_id,
     )
     branch_gaps = relative_gap_distribution(
-        active_candidates,
+        scenario_candidates,
         eligible_ids=overlay.branch_busan.eligible_ids,
         anchor_id=anchor_id,
     )
-
-    sector_counts = Counter(candidate.sector for candidate in active_candidates)
+    sector_counts = Counter(candidate.sector for candidate in scenario_candidates)
     report = {
         "status": "ready_for_similarity_policy_review",
         "generated_at_utc": datetime.now(UTC).isoformat(),
         "financial_as_of": overlay.financial_as_of,
-        "eligibility_as_of": overlay.eligibility_as_of,
+        "eligibility_evaluated_on": overlay.eligibility_as_of,
         "term_months": overlay.term_months,
         "policy_id": overlay.policy_id,
         "policy_version": overlay.policy_version,
         "financial_candidate_count": len(financial_candidates),
         "current_active_financial_candidate_count": len(active_candidates),
-        "current_active_count_by_sector": dict(sorted(sector_counts.items())),
+        "current_selected_product_candidate_count": len(scenario_candidates),
+        "current_selected_product_count_by_sector": dict(sorted(sector_counts.items())),
         "current_inactive_candidate_count": len(inactive_ids),
         "current_inactive_candidate_ids": inactive_ids,
+        "current_product_unavailable_count": len(product_unavailable_ids),
+        "current_product_unavailable_ids": product_unavailable_ids,
         "evidence_sources": {
-            "nh_local": nh_summary,
+            "nh_local_current_rate": nh_summary,
+            "fsb_current_rate": _rate_row_summary(fsb_rows_current),
             "fsb_live_busan": {**fsb_live_summary, "query_date": fsb_query_date},
             "fsb_official_outlets": savings_outlet_summary,
         },
@@ -487,9 +533,12 @@ def main() -> int:
             "relative_gap_evidence": _gap_payload(branch_gaps),
         },
         "anchor_id": anchor_id,
-        "current_identity_conflicts": current_identity_conflicts,
+        "current_identity_conflicts": identity_conflicts,
         "similarity_metric_under_review": {
-            "primary": "max(abs(peer_funding/anchor_funding-1), abs(peer_assets/anchor_assets-1))",
+            "primary": (
+                "max(abs(peer_funding/anchor_funding-1), "
+                "abs(peer_assets/anchor_assets-1))"
+            ),
             "tie_breaker": "funding_gap + assets_gap",
             "policy_locked": False,
             "peer_count_or_threshold_locked": False,
@@ -504,8 +553,10 @@ def main() -> int:
     )
     print(
         "eligibility evidence "
-        f"financial={overlay.financial_as_of} eligibility={overlay.eligibility_as_of} "
-        f"active={len(active_candidates)} remote={overlay.remote.eligible_count} "
+        f"financial={overlay.financial_as_of} "
+        f"evaluated={overlay.eligibility_as_of} "
+        f"product_candidates={len(scenario_candidates)} "
+        f"remote={overlay.remote.eligible_count} "
         f"branch_busan={overlay.branch_busan.eligible_count}"
     )
     return 0
