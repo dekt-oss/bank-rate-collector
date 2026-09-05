@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - "scripts/public_structural_v2_stage_j_runtime_smoke.js"
+      - "scripts/strategy_rate_decision_runtime_smoke.js"
       - "src/rate_monitor/services/public_structural_v2_*.py"
       - "web/public-structural-v2/**"
       - "docs/specs/20260823-public-structural-v2-j-integrated-qa.md"
@@ -46,6 +47,7 @@ jobs:
         run: |
           node --check scripts/public_structural_v2_cockpit_runtime_smoke.js
           node --check scripts/public_structural_v2_stage_j_runtime_smoke.js
+          node --check scripts/strategy_rate_decision_runtime_smoke.js
 
   production-integrated-qa:
     needs: contract
@@ -128,6 +130,7 @@ jobs:
           grep -q 'id="public-structural-v2-cockpit-script"' work/site-stage-j/strategy.html
           grep -q 'id="public-structural-v2-forecast-provider-engine"' work/site-stage-j/strategy.html
           grep -q 'id="public-structural-v2-factual-rate-finder-script"' work/site-stage-j/strategy.html
+          grep -q 'id="rate-decision-simulator-v1-bundle"' work/site-stage-j/strategy.html
 
       - name: Set up Node
         uses: actions/setup-node@v4
@@ -148,6 +151,7 @@ jobs:
           npm install --no-save --package-lock=false @playwright/test@1.61.1
           node --check scripts/public_structural_v2_cockpit_runtime_smoke.js
           node --check scripts/public_structural_v2_stage_j_runtime_smoke.js
+          node --check scripts/strategy_rate_decision_runtime_smoke.js
 
       - name: Run actual-data desktop/mobile integrated QA
         env:
@@ -165,6 +169,25 @@ jobs:
             sleep 1
           done
           curl -fsS http://127.0.0.1:4173/strategy.html >/dev/null
+
+          # Verify the redesigned primary decision surface in its production-candidate state.
+          node scripts/strategy_rate_decision_runtime_smoke.js
+
+          # Legacy Public Structural v2 evidence remains intentionally collapsed under
+          # '상세 분석'. Expand only the isolated QA copy so existing deep-contract
+          # smokes can continue to validate the underlying cockpit without promoting it
+          # back to the primary flow.
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("work/site-stage-j/strategy.html")
+          html = path.read_text(encoding="utf-8")
+          marker = '<details class="rds-details">'
+          if marker not in html:
+              raise SystemExit("Rate Decision Simulator detail marker missing")
+          path.write_text(html.replace(marker, '<details class="rds-details" open>', 1), encoding="utf-8")
+          PY
+
           node scripts/public_structural_v2_cockpit_runtime_smoke.js
           node scripts/public_structural_v2_stage_j_runtime_smoke.js
           test -s work/public-structural-v2-stage-j-metrics.json
@@ -183,6 +206,8 @@ jobs:
             work/public-structural-v2-stage-j-mobile.png
             work/public-structural-v2-cockpit-desktop.png
             work/public-structural-v2-cockpit-mobile.png
+            work/strategy-rate-decision-desktop.png
+            work/strategy-rate-decision-mobile.png
             work/stage-j-http.log
           retention-days: 30
           if-no-files-found: warn
