@@ -2,9 +2,10 @@
 
 Funding and total-assets live in different statement tables and have very
 different pagination sizes. This module deliberately does not reuse the funding
-transport's 20-page cap. It pins the authenticated asset table title and exact
-`A / 자산총계` code, follows that table's own `totalCount`, and fails closed on
-schema drift, repeated pages, or an unexpectedly large request.
+transport's 20-page cap. It uses Data.go's documented `title + basYm` request
+contract to pin the asset statement table, follows that table's own
+`totalCount`, then applies the exact `A / 자산총계` account-code filter locally.
+Schema drift, repeated pages, or an unexpectedly large request fail closed.
 """
 
 from __future__ import annotations
@@ -35,6 +36,9 @@ MAX_PAGES = 120
 ASSET_REQUEST_TIMEOUT_SECONDS = 60.0
 ASSET_RETRY_DELAYS = (0.0, 2.0, 5.0, 10.0)
 
+# These are response-field contracts, not server-side request parameters.
+# Data.go documents `title` and `basYm` for the financial-statistics operation;
+# the exact total-asset account code is therefore validated/filter locally.
 ASSET_ACCOUNT_FILTERS: dict[str, tuple[str, str]] = {
     "data_go_savings_bank_funding": ("astSmryStfnpsAcitCd", "A"),
     "data_go_agri_coop_funding": ("astSmryBlnshDcd", "A"),
@@ -55,7 +59,7 @@ def request_params(
     num_rows: int = PAGE_SIZE,
 ) -> dict[str, str]:
     try:
-        field, value = ASSET_ACCOUNT_FILTERS[contract.source_id]
+        title = TARGET_TABLE_TITLES[contract.source_id]
     except KeyError as exc:
         raise FundingContractError(
             f"total-assets source contract 미지원: {contract.source_id}"
@@ -65,8 +69,8 @@ def request_params(
         "numOfRows": str(num_rows),
         "pageNo": str(page_no),
         "resultType": "json",
+        "title": title,
         "basYm": bas_ym,
-        field: value,
     }
 
 
@@ -136,7 +140,7 @@ def _artifact(
     params: dict[str, str],
 ) -> RawArtifactData:
     digest = hashlib.sha256(raw).hexdigest()
-    filter_field, _ = ASSET_ACCOUNT_FILTERS[contract.source_id]
+    code_field, total_code = ASSET_ACCOUNT_FILTERS[contract.source_id]
     return RawArtifactData(
         artifact_type="json",
         content=raw,
@@ -150,7 +154,8 @@ def _artifact(
             "basYm": bas_ym,
             "pageNo": page_no,
             "numOfRows": int(params["numOfRows"]),
-            filter_field: params[filter_field],
+            "title": params["title"],
+            "local_account_filter": {code_field: total_code},
         },
         schema_fingerprint=digest,
         source_role="secondary_official",
@@ -206,7 +211,6 @@ def _select_asset_table(
 ) -> tuple[int, list[dict[str, Any]]]:
     try:
         title = TARGET_TABLE_TITLES[contract.source_id]
-        code_field, total_code = ASSET_ACCOUNT_FILTERS[contract.source_id]
     except KeyError as exc:
         raise FundingContractError(
             f"total-assets source contract 미지원: {contract.source_id}"
@@ -229,10 +233,6 @@ def _select_asset_table(
         raise FundingContractError(
             f"{context}/{title}: totalCount={total_count} < rows={len(rows)}"
         )
-    if any(str(row.get(code_field) or "").strip() != total_code for row in rows):
-        raise FundingContractError(
-            f"{context}/{title}: total-assets account filter 밖의 row가 섞였다"
-        )
     return total_count, rows
 
 
@@ -251,8 +251,16 @@ def fetch_month(
     key: str,
     bas_ym: str,
 ) -> tuple[list[dict[str, Any]], list[RawArtifactData]]:
-    """Fetch the complete exact asset table for one reporting month."""
-    rows: list[dict[str, Any]] = []
+    """Fetch one complete asset statement table and return exact total-asset rows."""
+    try:
+        code_field, total_code = ASSET_ACCOUNT_FILTERS[contract.source_id]
+    except KeyError as exc:
+        raise FundingContractError(
+            f"total-assets source contract 미지원: {contract.source_id}"
+        ) from exc
+
+    total_asset_rows: list[dict[str, Any]] = []
+    fetched_table_rows = 0
     artifacts: list[RawArtifactData] = []
     target_total: int | None = None
     expected_pages: int | None = None
@@ -311,15 +319,26 @@ def fetch_month(
             )
         if page_rows:
             seen_hashes.add(digest)
-        rows.extend(page_rows)
+
+        fetched_table_rows += len(page_rows)
+        total_asset_rows.extend(
+            row
+            for row in page_rows
+            if str(row.get(code_field) or "").strip() == total_code
+        )
 
         if page_no >= expected_pages:
-            if len(rows) != target_total:
+            if fetched_table_rows != target_total:
                 raise FundingContractError(
-                    f"{contract.source_id}/{bas_ym}: collected={len(rows)} "
+                    f"{contract.source_id}/{bas_ym}: collected={fetched_table_rows} "
                     f"!= totalCount={target_total}"
                 )
-            return rows, artifacts
+            if not total_asset_rows:
+                raise FundingContractError(
+                    f"{contract.source_id}/{bas_ym}: complete asset table에 "
+                    f"{code_field}={total_code} row가 없다"
+                )
+            return total_asset_rows, artifacts
 
     raise FundingContractError(
         f"{contract.source_id}/{bas_ym}: asset pagination이 {MAX_PAGES} page를 초과했다"
