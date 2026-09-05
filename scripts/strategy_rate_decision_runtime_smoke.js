@@ -85,7 +85,7 @@ async function assertPrimaryFlow(page, simulator, label) {
   );
   const targetText = await simulator.textContent();
   invariant(targetText.includes("existing candidate") || targetText.includes("후보"), `${label}: 목표금액 bounded candidate 의미가 사라짐`);
-  invariant(!targetText.includes("보간"), `${label}: 목표금액 UI가 보간을 암시함`);
+  invariant(targetText.includes("보간/외삽/자동 최적화 아님"), `${label}: no-interpolation disclosure가 없음`);
 }
 
 async function assertNoHorizontalOverflow(page, label) {
