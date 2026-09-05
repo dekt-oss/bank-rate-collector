@@ -48,7 +48,28 @@ async function assertPrimaryFlow(page, simulator, label) {
   const details = simulator.locator("details.rds-details");
   invariant((await details.count()) === 1, `${label}: 상세 분석 disclosure가 없음`);
   invariant(!(await details.evaluate((node) => node.open)), `${label}: legacy 상세 분석이 기본 펼침 상태임`);
+  await page.waitForFunction(
+    () => {
+      const detail = document.querySelector("details.rds-details");
+      const results = document.querySelector(".prediction-results");
+      const response = document.querySelector(".rate-response-wrap");
+      const cockpit = document.getElementById("public-structural-v2-cockpit");
+      return Boolean(
+        detail
+        && results
+        && response
+        && cockpit
+        && detail.contains(results)
+        && detail.contains(response)
+        && detail.contains(cockpit),
+      );
+    },
+    null,
+    { timeout: 10_000 },
+  );
   invariant(await page.locator("#public-structural-v2-cockpit").isHidden(), `${label}: legacy cockpit이 primary로 노출됨`);
+  invariant(await page.locator(".prediction-results").isHidden(), `${label}: legacy v1 결과가 primary로 노출됨`);
+  invariant(await page.locator(".rate-response-wrap").isHidden(), `${label}: legacy scenario table이 primary로 노출됨`);
 
   await populateScenarioInputs(page);
   const rateInput = page.locator("#rds-review-rate");
