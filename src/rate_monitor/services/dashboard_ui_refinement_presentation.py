@@ -69,6 +69,7 @@ SCRIPT_MARKER = _base.SCRIPT_MARKER
 DASHBOARD_UI_STYLE = _base.DASHBOARD_UI_STYLE
 DASHBOARD_UI_SCRIPT = _base.DASHBOARD_UI_SCRIPT
 _STRATEGY_TEMPLATE = Path("web/templates/strategy.html")
+# Exact-source evidence trigger only. Functional source equals PR #306 HEAD.
 
 
 def __getattr__(name: str) -> Any:
