@@ -86,6 +86,27 @@ async function waitForCockpit(page) {
   );
 }
 
+async function ensureLegacyDetailsOpen(page) {
+  const details = page.locator("details.rds-details");
+  if (await details.count()) await details.evaluate((node) => { node.open = true; });
+}
+
+async function activateLegacyControl(page, selector, label) {
+  const control = page.locator(selector);
+  invariant(await control.count() === 1, `${label}: legacy control 없음 ${selector}`);
+  await control.evaluate((node) => node.click());
+}
+
+async function setLegacyInput(page, selector, value, label) {
+  const input = page.locator(selector);
+  invariant(await input.count() === 1, `${label}: legacy input 없음 ${selector}`);
+  await input.evaluate((node, nextValue) => {
+    node.value = nextValue;
+    node.dispatchEvent(new Event("input", { bubbles: true }));
+    node.dispatchEvent(new Event("change", { bubbles: true }));
+  }, String(value));
+}
+
 async function chooseActualDenseTie(page) {
   const fixture = await page.evaluate(({ institution }) => {
     const dataNode = document.getElementById("rate-monitor-data");
@@ -177,10 +198,8 @@ async function chooseActualDenseTie(page) {
   );
   invariant(fixture.market_rows.length >= 2, "actual market universe가 비정상적으로 작음");
 
-  await page.locator('[data-market-mode="savings_bank"]').click();
-  const termButton = page.locator(`#term-segment button[data-term="${fixture.term}"]`);
-  invariant(await termButton.count() === 1, `term ${fixture.term} button 없음`);
-  await termButton.click();
+  await activateLegacyControl(page, '[data-market-mode="savings_bank"]', "dense tie market mode");
+  await activateLegacyControl(page, `#term-segment button[data-term="${fixture.term}"]`, `term ${fixture.term}`);
 
   const engine = await page.evaluate(({ fixture, config }) => {
     const api = globalThis.PublicStructuralV2MarketPosition;
@@ -227,8 +246,8 @@ async function chooseActualDenseTie(page) {
     "anchor self-count가 tie에 포함됨",
   );
 
-  await page.locator("#base-n").fill(Number(fixture.dense_rate).toFixed(2));
-  await page.locator("#bonus-n").fill("0.00");
+  await setLegacyInput(page, "#base-n", Number(fixture.dense_rate).toFixed(2), "dense base");
+  await setLegacyInput(page, "#bonus-n", "0.00", "dense bonus");
   await page.waitForFunction(
     (expected) => document.querySelector("#public-structural-v2-cockpit .psv2-card strong")?.textContent?.trim() === expected,
     `${Number(fixture.dense_rate).toFixed(2)}%`,
@@ -264,9 +283,9 @@ async function chooseActualDenseTie(page) {
 }
 
 async function populateStructuralInputs(page) {
-  await page.locator("#baseline-new").fill("100");
-  await page.locator("#maturity-amount").fill("200");
-  await page.locator("#rollover-rate").fill("60");
+  await setLegacyInput(page, "#baseline-new", "100", "baseline new money");
+  await setLegacyInput(page, "#maturity-amount", "200", "maturity amount");
+  await setLegacyInput(page, "#rollover-rate", "60", "rollover rate");
   await page.waitForFunction(
     () => {
       const cockpit = document.getElementById("public-structural-v2-cockpit");
@@ -424,12 +443,13 @@ async function runViewport(browser, viewport, label, actualSeed = null) {
   });
 
   await waitForCockpit(page);
+  await ensureLegacyDetailsOpen(page);
   const actual = actualSeed || await chooseActualDenseTie(page);
   if (actualSeed) {
-    await page.locator('[data-market-mode="savings_bank"]').click();
-    await page.locator(`#term-segment button[data-term="${actual.term}"]`).click();
-    await page.locator("#base-n").fill(Number(actual.dense_rate).toFixed(2));
-    await page.locator("#bonus-n").fill("0.00");
+    await activateLegacyControl(page, '[data-market-mode="savings_bank"]', `${label} market mode`);
+    await activateLegacyControl(page, `#term-segment button[data-term="${actual.term}"]`, `${label} term ${actual.term}`);
+    await setLegacyInput(page, "#base-n", Number(actual.dense_rate).toFixed(2), `${label} base`);
+    await setLegacyInput(page, "#bonus-n", "0.00", `${label} bonus`);
   }
   await populateStructuralInputs(page);
   const grid = await assertFixed5bpAndMarginalBoundary(page, actual);
