@@ -40,7 +40,7 @@ def _accepted_payload() -> dict[str, object]:
     }
 
 
-def test_asset_request_uses_exact_asset_filter() -> None:
+def test_asset_request_uses_documented_title_and_month_filters() -> None:
     savings = _contract("data_go_savings_bank_funding")
     params = transport.request_params(
         savings,
@@ -48,7 +48,11 @@ def test_asset_request_uses_exact_asset_filter() -> None:
         bas_ym="202512",
         page_no=1,
     )
-    assert params["astSmryStfnpsAcitCd"] == "A"
+    assert params["title"] == transport.TARGET_TABLE_TITLES[savings.source_id]
+    assert params["basYm"] == "202512"
+    # Account codes are response fields; they are validated locally rather than
+    # sent as undocumented server-side request parameters.
+    assert "astSmryStfnpsAcitCd" not in params
     assert "debtCptlSmryStfnpsAcitCd" not in params
 
 
@@ -115,6 +119,58 @@ def test_asset_request_retry_exhaustion_reports_exact_source_month_and_page(
     assert attempts == len(transport.ASSET_RETRY_DELAYS)
 
 
+def test_complete_asset_table_is_paged_before_exact_total_account_filter(monkeypatch) -> None:
+    contract = _contract("data_go_savings_bank_funding")
+    title = transport.TARGET_TABLE_TITLES[contract.source_id]
+    table_rows = [
+        {
+            "fncoCd": "0010",
+            "fncoNm": "A저축은행",
+            "basYm": "202512",
+            "astSmryStfnpsAcitCd": "A",
+            "astSmryStfnpsAcitCdNm": "자산총계",
+            "astSmryStfnpsAcitCdAmt": "1000000",
+        },
+        {
+            "fncoCd": "0010",
+            "fncoNm": "A저축은행",
+            "basYm": "202512",
+            "astSmryStfnpsAcitCd": "A1",
+            "astSmryStfnpsAcitCdNm": "현금및예치금",
+            "astSmryStfnpsAcitCdAmt": "100000",
+        },
+    ]
+
+    def fake_request(client, *, contract, endpoint, key, bas_ym, page_no):
+        del client, endpoint, key, page_no
+        payload = _payload(title, 2, table_rows)
+        raw = json.dumps(payload, ensure_ascii=False).encode()
+        params = transport.request_params(
+            contract,
+            key="secret",
+            bas_ym=bas_ym,
+            page_no=1,
+        )
+        return payload, raw, params
+
+    monkeypatch.setattr(transport, "_request_json", fake_request)
+    with httpx.Client() as client:
+        rows, artifacts = transport.fetch_month(
+            client,
+            contract=contract,
+            endpoint="https://example.invalid/savings",
+            key="secret",
+            bas_ym="202512",
+        )
+
+    assert len(rows) == 1
+    assert rows[0]["astSmryStfnpsAcitCd"] == "A"
+    assert artifacts[0].request_meta["title"] == title
+    assert artifacts[0].request_meta["local_account_filter"] == {
+        "astSmryStfnpsAcitCd": "A"
+    }
+
+
 def test_fetch_month_follows_asset_table_total_count_beyond_funding_style_page_counts(
     monkeypatch,
 ) -> None:
@@ -162,6 +218,7 @@ def test_fetch_month_follows_asset_table_total_count_beyond_funding_style_page_c
     assert len(artifacts) == 3
     assert calls == [1, 2, 3]
     assert all(artifact.request_meta["metric"] == "total_assets" for artifact in artifacts)
+    assert all(artifact.request_meta["title"] == title for artifact in artifacts)
 
 
 def test_asset_pagination_fails_closed_over_explicit_safety_cap(monkeypatch) -> None:
