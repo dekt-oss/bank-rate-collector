@@ -27,6 +27,19 @@ async function waitForCockpit(page) {
 async function ensurePredictionPanelVisible(page, label) {
   const cockpit = page.locator("#public-structural-v2-cockpit");
   if (await cockpit.isVisible()) return cockpit;
+
+  const legacyDetails = page.locator("details.rds-details");
+  if (await legacyDetails.count()) {
+    const ownsCockpit = await legacyDetails.evaluate((details) => Boolean(
+      details.querySelector("#public-structural-v2-cockpit"),
+    ));
+    if (ownsCockpit) {
+      await legacyDetails.evaluate((details) => { details.open = true; });
+      await cockpit.waitFor({ state: "visible", timeout: 10_000 });
+      return cockpit;
+    }
+  }
+
   const toggle = page.locator("#prediction-toggle");
   invariant(await toggle.isVisible(), `${label}: 예측엔진 열기 버튼이 보이지 않음`);
   if (await toggle.getAttribute("aria-expanded") !== "true") await toggle.click();
@@ -244,7 +257,7 @@ async function runViewport(browser, viewport, label) {
   const runtimeErrors = [];
   page.on("pageerror", (error) => runtimeErrors.push(`pageerror: ${error.message}`));
   page.on("console", (message) => {
-    if (message.type() === "error") runtimeErrors.push(`console: ${message.text()}`);
+    if (message.type() === "error") runtimeErrors.push(`console: ${message.text()}`));
   });
 
   await waitForCockpit(page);
