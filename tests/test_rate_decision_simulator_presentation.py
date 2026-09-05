@@ -31,6 +31,18 @@ def test_injects_style_and_runtime_bundle_once() -> None:
     assert inject_rate_decision_simulator(rendered) == rendered
 
 
+def test_runtime_bundle_keeps_nearby_sector_and_fail_closed_state_contract() -> None:
+    rendered = inject_rate_decision_simulator(BASE_HTML)
+
+    assert "SECTOR_LABELS" in rendered
+    assert "<th>업권</th>" in rendered
+    assert "clearDecisionState" in rendered
+    assert "현재 계산이 차단되어 주변 상품을 표시하지 않습니다." in rendered
+    assert "현재 계산이 차단되어 pricing peer gap을 표시하지 않습니다." in rendered
+    assert "가장 낮은 existing candidate도 목표 이상" in rendered
+    assert "더 낮은 금리는 지원범위 밖" in rendered
+
+
 def test_rejects_partial_injection_state() -> None:
     partial = BASE_HTML.replace(
         "</head>", '<style id="rate-decision-simulator-v1-style"></style></head>'
