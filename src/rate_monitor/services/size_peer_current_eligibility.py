@@ -93,7 +93,6 @@ def apply_current_eligibility(
     term_months: int,
 ) -> EligibilityOverlayResult:
     """Apply current scenario evidence without mutating historical financial facts."""
-
     financial_date = _required(financial_as_of, field="financial_as_of")
     eligibility_date = _required(eligibility_as_of, field="eligibility_as_of")
     if term_months <= 0:
@@ -108,7 +107,10 @@ def apply_current_eligibility(
             )
         _required(candidate.canonical_name, field="candidate.canonical_name")
         _required(candidate.sector, field="candidate.sector")
-        _required(candidate.source_institution_key, field="candidate.source_institution_key")
+        _required(
+            candidate.source_institution_key,
+            field="candidate.source_institution_key",
+        )
         _positive_decimal(
             candidate.deposit_liabilities_total,
             field="candidate.deposit_liabilities_total",
@@ -125,7 +127,7 @@ def apply_current_eligibility(
             )
         facts_by_id[institution_id] = fact
 
-    universe_candidates = []
+    universe_candidates: list[SizePeerUniverseCandidate] = []
     missing_fact_count = 0
     for institution_id in sorted(by_id):
         financial = by_id[institution_id]
@@ -163,19 +165,19 @@ def relative_gap_distribution(
     anchor_id: str,
 ) -> tuple[RelativeGapEvidence, ...]:
     """Measure transparent two-axis relative gaps; this does not select peers."""
-
     candidates = {candidate.institution_id: candidate for candidate in financial_candidates}
     anchor_key = _required(anchor_id, field="anchor_id")
     try:
         anchor = candidates[anchor_key]
     except KeyError as exc:
-        raise SizePeerEligibilityEvidenceError("anchor is absent from financial candidates") from exc
+        message = "anchor is absent from financial candidates"
+        raise SizePeerEligibilityEvidenceError(message) from exc
+
     anchor_funding = _positive_decimal(
         anchor.deposit_liabilities_total,
         field="anchor.deposit_liabilities_total",
     )
     anchor_assets = _positive_decimal(anchor.total_assets, field="anchor.total_assets")
-
     rows: list[RelativeGapEvidence] = []
     for institution_id in sorted(set(eligible_ids)):
         if institution_id == anchor_key:
@@ -185,7 +187,9 @@ def relative_gap_distribution(
             raise SizePeerEligibilityEvidenceError(
                 f"eligible institution absent from financial candidates: {institution_id}"
             )
-        funding_gap = abs(candidate.deposit_liabilities_total / anchor_funding - Decimal("1"))
+        funding_gap = abs(
+            candidate.deposit_liabilities_total / anchor_funding - Decimal("1")
+        )
         assets_gap = abs(candidate.total_assets / anchor_assets - Decimal("1"))
         rows.append(
             RelativeGapEvidence(
