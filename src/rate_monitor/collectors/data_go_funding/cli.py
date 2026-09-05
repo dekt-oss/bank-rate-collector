@@ -1,4 +1,4 @@
-"""CLI for Data.go.kr institution funding collection and evidence reports."""
+"""CLI for Data.go.kr institution financial collection and evidence reports."""
 
 from __future__ import annotations
 
@@ -18,6 +18,10 @@ from rate_monitor.collectors.data_go_funding.operations import (
 )
 from rate_monitor.collectors.data_go_funding.reconciliation import build_report
 from rate_monitor.collectors.data_go_funding.resilient import required_failures
+from rate_monitor.collectors.data_go_funding.total_assets_persistence import (
+    active_metric_counts,
+    collect_total_assets,
+)
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -43,6 +47,19 @@ def _parser() -> argparse.ArgumentParser:
         help="신협 exact finance contract가 미확정이면 전체 실행을 실패시킨다",
     )
     collect.add_argument("--json", type=Path)
+
+    assets = sub.add_parser(
+        "collect-total-assets",
+        help="검증 완료된 저축은행/농축협 total_assets를 exact common month로 저장한다",
+    )
+    assets.add_argument("--db", type=Path, required=True)
+    assets.add_argument("--raw-root", type=Path, default=Path("data/raw"))
+    assets.add_argument(
+        "--bas-ym",
+        required=True,
+        help="두 업권에 동일하게 적용할 exact source reporting month (YYYYMM 또는 YYYY-MM)",
+    )
+    assets.add_argument("--json", type=Path)
 
     report = sub.add_parser("report")
     report.add_argument("--db", type=Path, required=True)
@@ -138,6 +155,25 @@ def main() -> int:
             )
             print(f"필수 source/month 미완료: {failed}")
             return 1
+        return 0
+
+    if args.command == "collect-total-assets":
+        before = active_metric_counts(args.db)
+        results = collect_total_assets(
+            bas_ym=args.bas_ym,
+            db_path=args.db,
+            raw_root=args.raw_root,
+        )
+        after = active_metric_counts(args.db)
+        payload: dict[str, object] = {
+            "metric": "total_assets",
+            "requested_bas_ym": args.bas_ym,
+            "results": [asdict(result) for result in results],
+            "active_metric_counts_before": before,
+            "active_metric_counts_after": after,
+        }
+        _write_json(args.json, payload)
+        print(json.dumps(payload, ensure_ascii=False, indent=2, default=str))
         return 0
 
     if args.command == "reconcile-nh-identity":
