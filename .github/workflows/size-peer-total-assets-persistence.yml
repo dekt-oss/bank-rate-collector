@@ -1,0 +1,222 @@
+name: Size Peer Total Assets Persistence Gate
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feat/strategy-size-peer-ranking-v1-20260905
+    paths:
+      - src/rate_monitor/collectors/data_go_funding/total_assets_transport.py
+      - src/rate_monitor/collectors/data_go_funding/total_assets_persistence.py
+      - src/rate_monitor/collectors/data_go_funding/cli.py
+      - src/rate_monitor/services/size_peer_similarity.py
+      - tests/test_total_assets_transport.py
+      - tests/test_total_assets_persistence.py
+      - tests/test_size_peer_similarity.py
+      - .github/workflows/size-peer-total-assets-persistence.yml
+
+permissions:
+  contents: read
+
+jobs:
+  production-copy-gate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Sync dependencies
+        run: uv sync --locked
+
+      - name: Lint changed contracts
+        run: >-
+          uv run ruff check
+          src/rate_monitor/collectors/data_go_funding/total_assets_transport.py
+          src/rate_monitor/collectors/data_go_funding/total_assets_persistence.py
+          src/rate_monitor/collectors/data_go_funding/cli.py
+          src/rate_monitor/services/size_peer_similarity.py
+          tests/test_total_assets_transport.py
+          tests/test_total_assets_persistence.py
+          tests/test_size_peer_similarity.py
+
+      - name: Test changed contracts
+        run: >-
+          uv run pytest -q
+          tests/test_total_assets_evidence.py
+          tests/test_total_assets_transport.py
+          tests/test_total_assets_persistence.py
+          tests/test_size_peer_two_axis.py
+          tests/test_size_peer_current_eligibility.py
+          tests/test_size_peer_similarity.py
+
+      - name: Restore production database into runner-local copy
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+          R2_REGION: ${{ vars.R2_REGION }}
+        run: |
+          set -euo pipefail
+          mkdir -p work artifacts data/raw
+          uv run rate-monitor storage restore --dest work/rate_monitor.sqlite3
+          test -s work/rate_monitor.sqlite3
+
+      - name: Apply migrations to runner-local copy
+        env:
+          RATE_MONITOR_DB_URL: sqlite+pysqlite:///${{ github.workspace }}/work/rate_monitor.sqlite3
+        run: uv run alembic upgrade head
+
+      - name: Seal funding rows before asset write
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          import hashlib, json, sqlite3
+          c = sqlite3.connect("work/rate_monitor.sqlite3")
+          c.row_factory = sqlite3.Row
+          rows = c.execute(
+              "SELECT * FROM institution_funding_observations "
+              "WHERE metric_code='deposit_liabilities_total' ORDER BY id"
+          ).fetchall()
+          encoded = json.dumps([dict(r) for r in rows], default=str, sort_keys=True).encode()
+          payload = {"rows": len(rows), "sha256": hashlib.sha256(encoded).hexdigest()}
+          open("artifacts/funding-before.json", "w").write(json.dumps(payload, indent=2) + "\n")
+          print(payload)
+          PY
+
+      - name: Persist exact-common-vintage total assets into local copy only
+        env:
+          DATA_GO_KR_SERVICE_KEY_SB: ${{ secrets.DATA_GO_KR_SERVICE_KEY_SB }}
+          DATA_GO_KR_SERVICE_KEY_NH: ${{ secrets.DATA_GO_KR_SERVICE_KEY_NH }}
+        run: >-
+          uv run python -m rate_monitor.collectors.data_go_funding.cli collect-total-assets
+          --db work/rate_monitor.sqlite3
+          --raw-root data/raw
+          --bas-ym 202512
+          --json artifacts/total-assets-first-run.json
+
+      - name: Verify metric isolation, aggregate exclusion and common-vintage coverage
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          import hashlib, json, sqlite3
+          c = sqlite3.connect("work/rate_monitor.sqlite3")
+          c.row_factory = sqlite3.Row
+          before = json.load(open("artifacts/funding-before.json"))
+          funding = c.execute(
+              "SELECT * FROM institution_funding_observations "
+              "WHERE metric_code='deposit_liabilities_total' ORDER BY id"
+          ).fetchall()
+          encoded = json.dumps([dict(r) for r in funding], default=str, sort_keys=True).encode()
+          after_hash = hashlib.sha256(encoded).hexdigest()
+          assert len(funding) == before["rows"], (len(funding), before)
+          assert after_hash == before["sha256"], (after_hash, before)
+
+          assets = c.execute(
+              "SELECT source_id, COUNT(*) n FROM institution_funding_observations "
+              "WHERE metric_code='total_assets' AND source_effective_month='2025-12' "
+              "AND valid_to IS NULL GROUP BY source_id ORDER BY source_id"
+          ).fetchall()
+          by_source = {r["source_id"]: r["n"] for r in assets}
+          assert by_source.get("data_go_savings_bank_funding", 0) > 0, by_source
+          assert by_source.get("data_go_agri_coop_funding", 0) > 1000, by_source
+
+          aggregate_keys = ["030350S", "030801S"]
+          aggregate_keys.extend([f"0308{i:02d}S" for i in range(2, 18)])
+          q = ",".join("?" for _ in aggregate_keys)
+          aggregate_rows = c.execute(
+              f"SELECT source_institution_key FROM institution_funding_observations "
+              f"WHERE metric_code='total_assets' AND valid_to IS NULL "
+              f"AND source_institution_key IN ({q})",
+              aggregate_keys,
+          ).fetchall()
+          assert not aggregate_rows, [dict(r) for r in aggregate_rows]
+
+          pair_count = c.execute(
+              "SELECT COUNT(*) FROM institution_funding_observations a "
+              "JOIN institution_funding_observations f "
+              "ON f.source_id=a.source_id "
+              "AND f.source_institution_key=a.source_institution_key "
+              "AND f.source_effective_month=a.source_effective_month "
+              "AND f.metric_code='deposit_liabilities_total' AND f.valid_to IS NULL "
+              "WHERE a.metric_code='total_assets' AND a.valid_to IS NULL "
+              "AND a.source_effective_month='2025-12' "
+              "AND a.institution_id IS NOT NULL AND f.institution_id=a.institution_id"
+          ).fetchone()[0]
+          assert pair_count >= 1100, pair_count
+
+          koryo = c.execute(
+              "SELECT metric_code, value FROM institution_funding_observations "
+              "WHERE source_id='data_go_savings_bank_funding' "
+              "AND source_institution_key='0010390' "
+              "AND source_effective_month='2025-12' AND valid_to IS NULL "
+              "AND metric_code IN ('deposit_liabilities_total','total_assets') "
+              "ORDER BY metric_code"
+          ).fetchall()
+          assert {r["metric_code"] for r in koryo} == {
+              "deposit_liabilities_total", "total_assets"
+          }, [dict(r) for r in koryo]
+          payload = {
+              "funding_rows_unchanged": len(funding),
+              "funding_sha256_unchanged": after_hash,
+              "asset_rows_by_source": by_source,
+              "pair_complete_mapped_2025_12": pair_count,
+              "koryo": [dict(r) for r in koryo],
+          }
+          open("artifacts/total-assets-readback.json", "w").write(
+              json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
+          )
+          print(json.dumps(payload, ensure_ascii=False))
+          PY
+
+      - name: Idempotent rerun on local copy
+        env:
+          DATA_GO_KR_SERVICE_KEY_SB: ${{ secrets.DATA_GO_KR_SERVICE_KEY_SB }}
+          DATA_GO_KR_SERVICE_KEY_NH: ${{ secrets.DATA_GO_KR_SERVICE_KEY_NH }}
+        run: |
+          set -euo pipefail
+          uv run python -m rate_monitor.collectors.data_go_funding.cli collect-total-assets \
+            --db work/rate_monitor.sqlite3 \
+            --raw-root data/raw \
+            --bas-ym 202512 \
+            --json artifacts/total-assets-second-run.json
+          uv run python - <<'PY'
+          import json, sqlite3
+          payload = json.load(open("artifacts/total-assets-second-run.json"))
+          for result in payload["results"]:
+              assert result["stored"] == 0, result
+              assert result["revisions"] == 0, result
+              assert result["unchanged"] == result["institution_rows"], result
+          c = sqlite3.connect("work/rate_monitor.sqlite3")
+          assert c.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+          assert not c.execute("PRAGMA foreign_key_check").fetchall()
+          print("asset idempotency + sqlite integrity ok")
+          PY
+
+      - name: Confirm no production upload path exists in this gate
+        run: |
+          set -euo pipefail
+          echo "Production R2 was restored read-only for this gate."
+          echo "This workflow contains no storage upload command."
+
+      - name: Upload persistence evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: size-peer-total-assets-persistence
+          path: |
+            artifacts/funding-before.json
+            artifacts/total-assets-first-run.json
+            artifacts/total-assets-readback.json
+            artifacts/total-assets-second-run.json
+          if-no-files-found: warn
+          retention-days: 14
