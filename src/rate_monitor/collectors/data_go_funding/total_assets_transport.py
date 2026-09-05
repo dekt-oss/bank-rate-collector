@@ -202,9 +202,15 @@ def _select_asset_table(
         ) from exc
 
     context = f"{contract.source_id}/{bas_ym}"
-    matches = [table for table in _table_list(payload, context=context) if table.get("title") == title]
+    matches = [
+        table
+        for table in _table_list(payload, context=context)
+        if table.get("title") == title
+    ]
     if len(matches) != 1:
-        raise FundingContractError(f"{context}: asset target table {title!r}가 {len(matches)}개다")
+        raise FundingContractError(
+            f"{context}: asset target table {title!r}가 {len(matches)}개다"
+        )
     table = matches[0]
     rows = _table_rows(table, context=f"{context}/{title}")
     total_count = _integer(table.get("totalCount"), field="totalCount", context=context)
@@ -299,7 +305,8 @@ def fetch_month(
         if page_no >= expected_pages:
             if len(rows) != target_total:
                 raise FundingContractError(
-                    f"{contract.source_id}/{bas_ym}: collected={len(rows)} != totalCount={target_total}"
+                    f"{contract.source_id}/{bas_ym}: collected={len(rows)} "
+                    f"!= totalCount={target_total}"
                 )
             return rows, artifacts
 
