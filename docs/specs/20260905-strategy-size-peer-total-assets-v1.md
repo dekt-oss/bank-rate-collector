@@ -33,45 +33,38 @@ size peer는 금리순위 비교군이 아니다. 먼저 실제 가입 가능성
 - normalized `JoinChannel.ANY`만으로는 비대면 근거가 아니다. 원 source의 channel set을 복원·보존해야 한다.
 - `unknown`, 이름 패턴, 상품명 추정만으로 remote eligibility를 만들지 않는다.
 
-### 2.2 `BRANCH_LOCAL_2HOP`
+### 2.2 `BRANCH_BUSAN`
 
-대면 가입 조건일 때:
+대면 가입 조건일 때 비교 universe는 **부산광역시 전체**다.
 
-- anchor 지역은 **부산 동구**다.
-- `주변`은 거리(km)나 중심점이 아니라 **육상 행정경계 adjacency graph distance <= 2**다.
-- 후보 기관은 아래 scope 안에 공식 점포/영업점 주소 또는 동등한 구·군 단위 가입가능 evidence가 있어야 한다.
-- 시도 단위 조회근거만 있고 점포/구·군 근거가 없는 row는 local universe에 자동 포함하지 않는다.
-- FSB 금리는 본점기준 공시라는 원래 의미를 유지한다. 해당 지역에 점포가 있다는 사실과 금리 scope를 혼동하지 않는다.
-
-### 2.3 부산 동구 2-hop 육상 행정경계 scope
-
-v1에서 고정하는 district set:
+- 동구 인접구/2-hop 경계 규칙은 사용하지 않는다.
+- 후보 기관은 부산광역시 16개 구·군 중 하나에 공식 점포/영업점 주소 또는 동등한 구·군 단위 가입가능 evidence가 있어야 한다.
+- 시도 단위 조회근거만 있고 실제 점포/구·군 근거가 없는 row는 자동 포함하지 않는다.
+- FSB 금리는 본점기준 공시라는 원래 의미를 유지한다. 부산 점포가 있다는 사실과 금리 적용범위를 혼동하지 않는다.
+- 부산시 전체 범위는 다음 16개 구·군으로 고정한다.
 
 ```text
-동구
+강서구
+금정구
+기장군
 남구
+동구
+동래구
 부산진구
-서구
-중구
-연제구
-수영구
-사하구
+북구
 사상구
+사하구
+서구
+수영구
+연제구
+영도구
+중구
+해운대구
 ```
 
-총 9개 구다.
+부산 밖 주소는 `outside_busan`으로 fail closed한다.
 
-근거:
-
-- 부산 동구청 일반현황: 동구 직접 접경 `남구·부산진구·서구·중구`.
-- 남구 공식 자료: `부산진구·연제구·수영구·동구` 경계.
-- 서구 공식 자료: `중구·동구·사하구·부산진구·사상구` 경계.
-- 부산진구 공식/공공 지리자료: `남구·서구·동구·사상구·연제구` 경계.
-- 저장소의 SGIS 2020 기반 부산 행정경계 SVG는 geometry sanity check로 사용한다.
-
-따라서 **동래구·북구는 v1 2-hop 육상 경계 scope에 포함하지 않는다.** 영도구도 교량 연결만으로 adjacency를 만들지 않는다.
-
-행정경계 source가 변경되면 이 상수와 contract test를 함께 version-up한다.
+행정구역 변경 시 이 상수와 contract test를 함께 version-up한다.
 
 ## 3. 재무 metric source contract
 
@@ -144,7 +137,7 @@ read-only diagnostic Action은 production R2를 **절대 upload/mutate하지 않
 - institution-only sum vs aggregate validation
 - canonical mapped / unmapped count
 - 고려저축은행 total assets + funding + 각각의 as-of
-- eligible `REMOTE` / `BRANCH_LOCAL_2HOP` universe count by sector
+- eligible `REMOTE` / `BRANCH_BUSAN` universe count by sector
 - complete two-axis candidate distribution
 - missing reason histogram
 
@@ -159,7 +152,7 @@ read-only diagnostic Action은 production R2를 **절대 upload/mutate하지 않
 - 수신잔액 / 총자산
 - 각 기준월
 - 규모 유사성 근거
-- 가입가능 universe mode (`REMOTE` / `BRANCH_LOCAL_2HOP`)
+- 가입가능 universe mode (`REMOTE` / `BRANCH_BUSAN`)
 - 공식 pricing peer와 별도 정책임을 명시
 
 unavailable reason 예:
@@ -167,6 +160,7 @@ unavailable reason 예:
 - `total_assets_missing`
 - `remote_eligibility_unverified`
 - `local_outlet_evidence_missing`
+- `outside_busan`
 - `temporal_alignment_unresolved`
 - `institution_identity_unmapped`
 - `aggregate_validation_failed`
@@ -174,7 +168,7 @@ unavailable reason 예:
 
 ## 9. 구현 순서
 
-A. eligibility universe pure service + 부산 2-hop contract  
+A. eligibility universe pure service + 부산 전체 branch contract  
 B. source/evidence total-assets parser + read-only evidence workflow  
 C. two-axis read model + temporal gate  
 D. real production distribution 기반 similarity policy 확정  
