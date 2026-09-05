@@ -30,6 +30,8 @@
   const signed=value=>Number.isFinite(value)
     ?`${value>=0?"+":""}${Number(value).toLocaleString("ko-KR",{maximumFractionDigits:1})}억원`:"—";
   const bp=value=>Number.isFinite(value)?`${value>=0?"+":""}${Math.round(value)}bp`:"—";
+  const SECTOR_LABELS={savings_bank:"저축은행",cu:"신협",kfcc:"새마을금고",nh_local:"농·축협"};
+  const sectorLabel=value=>SECTOR_LABELS[value]||String(value||"업권 미상");
 
   function inlineData(){
     const node=$("rate-monitor-data");
@@ -195,7 +197,7 @@
       .filter(row=>row.absGapBp<=10.0001)
       .sort((a,b)=>a.absGapBp-b.absGapBp||b.max_rate-a.max_rate||a.institution.localeCompare(b.institution,"ko"));
     if(!rows.length)return'<div class="rds-empty">검토금리 ±10bp 안에 현재 비교상품이 없습니다.</div>';
-    return `<div class="rds-table-wrap"><table class="rds-table"><thead><tr><th>금융사</th><th>상품</th><th>최고금리</th><th>검토 대비</th><th>기준일</th></tr></thead><tbody>${rows.slice(0,12).map(row=>`<tr><td>${esc(row.institution)}</td><td>${esc(row.product)}</td><td>${pct(row.max_rate)}</td><td>${bp(row.gapBp)}</td><td>${esc(row.source_effective_at?row.source_effective_at.slice(0,10):"자료없음")}</td></tr>`).join("")}</tbody></table></div>`;
+    return `<div class="rds-table-wrap"><table class="rds-table"><thead><tr><th>업권</th><th>금융사</th><th>상품</th><th>최고금리</th><th>검토 대비</th><th>기준일</th></tr></thead><tbody>${rows.slice(0,12).map(row=>`<tr><td>${esc(sectorLabel(row.sector))}</td><td>${esc(row.institution)}</td><td>${esc(row.product)}</td><td>${pct(row.max_rate)}</td><td>${bp(row.gapBp)}</td><td>${esc(row.source_effective_at?row.source_effective_at.slice(0,10):"자료없음")}</td></tr>`).join("")}</tbody></table></div>`;
   }
 
   function peerHtml(review){
@@ -237,16 +239,24 @@
     }
   }
 
-  function clearUnsupported(target){
-    $("rds-rate").textContent="범위 밖";
-    $("rds-rate-note").textContent="현재 구조 시나리오 범위에서는 목표금액을 만족하는 금리 후보를 찾을 수 없습니다.";
+  function clearDecisionState(rateText,note,rangeText){
+    $("rds-rate").textContent=rateText;
+    $("rds-rate-note").textContent=note;
     $("rds-total").textContent="—";
-    $("rds-range").textContent=`목표 ${amount(target)}`;
+    $("rds-range").textContent=rangeText;
     $("rds-delta").textContent="—";
     $("rds-rank").textContent="—";
     $("rds-threshold").textContent="candidate 미선택";
-    $("rds-nearby").innerHTML='<div class="rds-empty">검토금리가 선택되지 않아 주변 상품을 표시하지 않습니다.</div>';
-    $("rds-peers").innerHTML='<div class="rds-empty">검토금리가 선택되지 않아 pricing peer gap을 계산하지 않습니다.</div>';
+    $("rds-nearby").innerHTML='<div class="rds-empty">현재 계산이 차단되어 주변 상품을 표시하지 않습니다.</div>';
+    $("rds-peers").innerHTML='<div class="rds-empty">현재 계산이 차단되어 pricing peer gap을 표시하지 않습니다.</div>';
+  }
+
+  function clearUnsupported(target){
+    clearDecisionState(
+      "범위 밖",
+      "현재 구조 시나리오 범위에서는 목표금액을 만족하는 금리 후보를 찾을 수 없습니다.",
+      `목표 ${amount(target)}`
+    );
   }
 
   function moveLegacy(){
@@ -282,10 +292,7 @@
 
       const target=finite($("rds-target-total")?.value);
       if(target===null){
-        $("rds-rate").textContent="입력 필요";
-        $("rds-rate-note").textContent="목표 총수신을 입력하세요.";
-        $("rds-total").textContent="—";
-        $("rds-delta").textContent="—";
+        clearDecisionState("입력 필요","목표 총수신을 입력하세요.","목표 입력 필요");
         return;
       }
       if(typeof StrategyTargetCandidate!=="object")throw new Error("target candidate selector가 없습니다.");
@@ -296,10 +303,24 @@
         return;
       }
       $("rds-review-rate").value=selection.rate_pct.toFixed(2);
-      $("rds-rate-note").textContent="목표 이상이 되는 첫 후보금리 · 자동 최적화 아님";
+      const validCandidates=(surface.forecast?.scenarios||[])
+        .map(row=>({rate:finite(row?.rate_pct),total:finite(row?.predicted_total)}))
+        .filter(row=>row.rate!==null&&row.total!==null)
+        .sort((a,b)=>a.rate-b.rate);
+      const lowest=validCandidates[0]||null;
+      const lowestAlreadyAbove=lowest
+        &&Math.abs(lowest.rate-selection.rate_pct)<.00005
+        &&lowest.total>target;
+      $("rds-rate-note").textContent=lowestAlreadyAbove
+        ?"가장 낮은 existing candidate도 목표 이상 · 더 낮은 금리는 지원범위 밖"
+        :"목표 이상이 되는 첫 후보금리 · 자동 최적화 아님";
       renderFacts(context,selection.rate_pct,surface);
     }catch(error){
-      $("rds-rate-note").textContent=`계산 차단 · ${String(error?.message||error)}`;
+      clearDecisionState(
+        "계산 차단",
+        `계산 차단 · ${String(error?.message||error)}`,
+        "계산 근거를 확인하세요."
+      );
     }
   }
 
