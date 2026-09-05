@@ -8,7 +8,8 @@ agricultural cooperatives.
 
 Important safety properties:
 - aggregate pseudo rows are validated for the *asset* metric before exclusion;
-- identity uses the existing exact FSS-code/CRNO source-link path;
+- identity uses the existing exact FSS-code/CRNO path and, for NH local rows,
+  the repository's exact BRC + normalized official-name reconciliation;
 - the natural active key includes ``metric_code``, so funding revisions cannot
   be superseded by an asset write;
 - content hash includes ``total_assets`` and canonical/source values;
@@ -36,6 +37,9 @@ from rate_monitor.collectors.data_go_funding.collector import (
     _now,
     _resolve_identity,
     _service_key,
+)
+from rate_monitor.collectors.data_go_funding.identity_reconciliation import (
+    reconcile_agri_funding_identity,
 )
 from rate_monitor.collectors.data_go_funding.total_assets_evidence import (
     AGRI_COOP_SOURCE_ID,
@@ -123,10 +127,9 @@ def _upsert_asset_point(
     *,
     raw_artifact_id: str,
     now: datetime,
-) -> tuple[str, bool]:
+) -> str:
     # _resolve_identity is source-identity logic despite its historical module
-    # location. The asset point intentionally carries the same exact source key,
-    # official name and CRNO fields as a funding point.
+    # location. NH local observations require the exact BRC reconciliation below.
     institution_id, identity_status = _resolve_identity(session, point, now)  # type: ignore[arg-type]
     content_hash = _content_hash(point)
     existing = session.scalars(
@@ -144,7 +147,7 @@ def _upsert_asset_point(
     ).first()
 
     if existing is not None and existing.content_hash == content_hash:
-        return "unchanged", institution_id is not None
+        return "unchanged"
 
     revision = 1
     if existing is not None:
@@ -182,7 +185,7 @@ def _upsert_asset_point(
             created_at=now,
         )
     )
-    return ("revision" if existing is not None else "stored"), institution_id is not None
+    return "revision" if existing is not None else "stored"
 
 
 def _new_run(factory: Any, contract: SourceContract, *, bas_ym: str) -> str:
@@ -206,6 +209,28 @@ def _new_run(factory: Any, contract: SourceContract, *, bas_ym: str) -> str:
         return run.id
 
 
+def _asset_identity_counts(
+    factory: Any,
+    *,
+    source_id: str,
+    source_effective_month: str,
+) -> tuple[int, int]:
+    with session_scope(factory) as session:
+        observations = list(
+            session.scalars(
+                select(InstitutionFundingObservation).where(
+                    InstitutionFundingObservation.source_id == source_id,
+                    InstitutionFundingObservation.metric_code == TOTAL_ASSETS_METRIC_CODE,
+                    InstitutionFundingObservation.source_effective_month
+                    == source_effective_month,
+                    InstitutionFundingObservation.valid_to.is_(None),
+                )
+            )
+        )
+    mapped = sum(row.institution_id is not None for row in observations)
+    return mapped, len(observations) - mapped
+
+
 def collect_total_assets_source(
     source_id: str,
     *,
@@ -215,6 +240,7 @@ def collect_total_assets_source(
 ) -> TotalAssetsPersistResult:
     """Fetch, validate and persist one exact asset source/month."""
     requested = _canonical_bas_ym(bas_ym)
+    effective_month = f"{requested[:4]}-{requested[4:]}"
     contract = _contract(source_id)
     assert contract.finance_endpoint is not None
 
@@ -222,7 +248,7 @@ def collect_total_assets_source(
     factory = make_session_factory(engine)
     run_id = _new_run(factory, contract, bas_ym=requested)
     fetched = parsed = aggregate_count = institution_count = 0
-    stored = unchanged = revisions = mapped = 0
+    stored = unchanged = revisions = 0
 
     try:
         key = _service_key(contract)
@@ -281,13 +307,12 @@ def collect_total_assets_source(
                 )
             raw_id = records[0].id
             for point in partition.institution_rows:
-                action, is_mapped = _upsert_asset_point(
+                action = _upsert_asset_point(
                     session,
                     point,
                     raw_artifact_id=raw_id,
                     now=now,
                 )
-                mapped += int(is_mapped)
                 if action == "stored":
                     stored += 1
                 elif action == "revision":
@@ -295,12 +320,31 @@ def collect_total_assets_source(
                 else:
                     unchanged += 1
 
+        # Data.go NH keys embed the exact six-digit BRC used by the official
+        # nh_local rate directory. The existing reconciliation additionally
+        # requires normalized official-name equality and fails on conflicts.
+        # It scans the shared metric-aware observation table, so calling it here
+        # maps the newly written total_assets rows without name-only inference.
+        if source_id == AGRI_COOP_SOURCE_ID:
+            reconcile_agri_funding_identity(db_path)
+
+        mapped, unmapped = _asset_identity_counts(
+            factory,
+            source_id=source_id,
+            source_effective_month=effective_month,
+        )
+        if mapped + unmapped != institution_count:
+            raise FundingContractError(
+                f"{source_id}/{requested}: active asset identity count drift "
+                f"mapped={mapped} unmapped={unmapped} expected={institution_count}"
+            )
+
         status = "success"
         message = (
             f"metric={TOTAL_ASSETS_METRIC_CODE}; month={requested}; artifacts={fetched}; "
             f"contract_rows={parsed}; aggregate_rows={aggregate_count}; "
             f"institution_rows={institution_count}; stored={stored}; revisions={revisions}; "
-            f"unchanged={unchanged}"
+            f"unchanged={unchanged}; mapped={mapped}; unmapped={unmapped}"
         )
     except TotalAssetsEvidenceError as exc:
         status = "failed"
@@ -316,7 +360,7 @@ def collect_total_assets_source(
     _finish_run(factory, run_id, status, message, fetched, institution_count)
     return TotalAssetsPersistResult(
         source_id=source_id,
-        source_effective_month=f"{requested[:4]}-{requested[4:]}",
+        source_effective_month=effective_month,
         fetched_artifacts=fetched,
         parsed_contract_rows=parsed,
         aggregate_rows_validated=aggregate_count,
@@ -325,7 +369,7 @@ def collect_total_assets_source(
         unchanged=unchanged,
         revisions=revisions,
         mapped=mapped,
-        unmapped=max(0, institution_count - mapped),
+        unmapped=unmapped,
     )
 
 
