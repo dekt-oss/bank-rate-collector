@@ -1,0 +1,95 @@
+name: Size Peer Common Vintage Evidence
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feat/strategy-size-peer-common-vintage-20260905
+    paths:
+      - src/rate_monitor/services/size_peer_two_axis.py
+      - scripts/size_peer_common_vintage_evidence.py
+      - tests/test_size_peer_two_axis.py
+      - .github/workflows/size-peer-common-vintage-evidence.yml
+      - docs/specs/20260905-strategy-size-peer-total-assets-v1.md
+
+permissions:
+  contents: read
+
+jobs:
+  evidence:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Sync dependencies
+        run: uv sync --locked
+
+      - name: Lint common-vintage evidence code
+        run: >-
+          uv run ruff check
+          src/rate_monitor/services/size_peer_two_axis.py
+          scripts/size_peer_common_vintage_evidence.py
+          tests/test_size_peer_two_axis.py
+
+      - name: Test common-vintage contracts
+        run: uv run pytest -q tests/test_size_peer_two_axis.py
+
+      - name: Restore production database into runner-local copy
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+          R2_REGION: ${{ vars.R2_REGION }}
+        run: |
+          set -euo pipefail
+          mkdir -p work
+          BACKEND=$(uv run python -c "
+          from pathlib import Path
+          from rate_monitor.services.storage_service import load_backend
+          print(load_backend(Path('config/storage.yaml')).backend.value)
+          ")
+          echo "size-peer common-vintage source backend=$BACKEND"
+          if [ "$BACKEND" = "r2" ]; then
+            uv run rate-monitor storage restore --dest work/rate_monitor.sqlite3
+          else
+            git fetch --force origin +rate-data:refs/remotes/origin/rate-data --depth=1
+            git show refs/remotes/origin/rate-data:latest/rate_monitor.sqlite3.gz \
+              > work/rate_monitor.sqlite3.gz
+            gunzip work/rate_monitor.sqlite3.gz
+          fi
+          test -s work/rate_monitor.sqlite3
+          echo "restored bytes=$(stat -c%s work/rate_monitor.sqlite3)"
+
+      - name: Apply migrations to runner-local copy
+        env:
+          RATE_MONITOR_DB_URL: sqlite+pysqlite:///${{ github.workspace }}/work/rate_monitor.sqlite3
+        run: uv run alembic upgrade head
+
+      - name: Build exact common-vintage two-axis evidence
+        env:
+          DATA_GO_KR_SERVICE_KEY_SB: ${{ secrets.DATA_GO_KR_SERVICE_KEY_SB }}
+          DATA_GO_KR_SERVICE_KEY_NH: ${{ secrets.DATA_GO_KR_SERVICE_KEY_NH }}
+        run: >-
+          uv run python scripts/size_peer_common_vintage_evidence.py
+          --db-path work/rate_monitor.sqlite3
+          --out artifacts/size-peer-common-vintage-evidence.json
+
+      - name: Upload common-vintage evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: size-peer-common-vintage-evidence
+          path: artifacts/size-peer-common-vintage-evidence.json
+          if-no-files-found: error
+          retention-days: 14
