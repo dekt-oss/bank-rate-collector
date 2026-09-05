@@ -55,6 +55,20 @@ def _agri_row(
     return row
 
 
+def _agri_current_rows(*, sector_total_krw: str = "3000000") -> list[dict[str, str]]:
+    rows = [
+        _agri_row("0010027000001", "가농협", "1000000", crno="123"),
+        _agri_row("0010027000002", "나농협", "2000000", crno="456"),
+    ]
+    first_region = True
+    for key, name in AGRI_COOP_REGION_TOTALS.items():
+        rows.append(_agri_row(key, name, "3000000" if first_region else "0"))
+        first_region = False
+    for key, name in AGRI_COOP_SECTOR_TOTALS.items():
+        rows.append(_agri_row(key, name, sector_total_krw))
+    return rows
+
+
 def test_savings_assets_parser_preserves_and_validates_sector_total() -> None:
     rows = [
         _savings_row("001", "A저축은행", "1000000"),
@@ -100,21 +114,10 @@ def test_savings_assets_sector_total_mismatch_fails_closed() -> None:
         partition_validated_total_assets(points)
 
 
-def test_agri_assets_reuses_exact_aggregate_hierarchy_on_asset_values() -> None:
-    rows = [
-        _agri_row("0010027000001", "가농협", "1000000", crno="123"),
-        _agri_row("0010027000002", "나농협", "2000000", crno="456"),
-    ]
-    first_region = True
-    for key, name in AGRI_COOP_REGION_TOTALS.items():
-        rows.append(_agri_row(key, name, "3000000" if first_region else "0"))
-        first_region = False
-    for key, name in AGRI_COOP_SECTOR_TOTALS.items():
-        rows.append(_agri_row(key, name, "6000000"))
-
+def test_agri_assets_use_asset_specific_current_aggregate_hierarchy() -> None:
     points = parse_total_assets_rows(
         source_id=AGRI_COOP_SOURCE_ID,
-        rows=rows,
+        rows=_agri_current_rows(),
         endpoint="https://example.invalid/agri",
     )
     partitions = partition_validated_total_assets(points)
@@ -123,7 +126,18 @@ def test_agri_assets_reuses_exact_aggregate_hierarchy_on_asset_values() -> None:
     assert len(partition.institution_rows) == 2
     assert len(partition.aggregate_rows) == 17
     assert partition.institution_total == Decimal("3.000000")
-    assert partition.aggregate_total == Decimal("9.000000")
+    # 16 regions sum to 3 and the sector total itself is also 3 => aggregate rows sum to 6.
+    assert partition.aggregate_total == Decimal("6.000000")
+
+
+def test_agri_assets_reject_funding_style_double_count_sector_total() -> None:
+    points = parse_total_assets_rows(
+        source_id=AGRI_COOP_SOURCE_ID,
+        rows=_agri_current_rows(sector_total_krw="6000000"),
+        endpoint="https://example.invalid/agri",
+    )
+    with pytest.raises(TotalAssetsEvidenceError, match="sector total 합계 불일치"):
+        partition_validated_total_assets(points)
 
 
 def test_assets_parser_requires_exact_a_asset_total_label() -> None:
