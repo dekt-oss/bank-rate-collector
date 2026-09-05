@@ -52,9 +52,32 @@ def test_ranking_uses_worst_axis_then_sum_gap_and_keeps_full_universe():
     assert result.eligible_count_including_anchor == 4
     assert result.ranked_count_excluding_anchor == 3
     assert [row.institution_id for row in result.rows] == ["a", "b", "c"]
-    assert result.rows[0].worst_axis_gap == Decimal("0.01")
-    assert result.rows[1].worst_axis_gap == Decimal("0.02")
-    assert result.rows[2].worst_axis_gap == Decimal("0.3")
+    assert result.rows[0].worst_axis_gap == Decimal("1.01").ln()
+    assert result.rows[1].worst_axis_gap == Decimal("1.02").ln()
+    assert result.rows[2].worst_axis_gap == Decimal("1.3").ln()
+
+
+def test_log_ratio_distance_is_symmetric_for_reciprocal_sizes():
+    rows = (
+        candidate("own", "Own", "100", "100"),
+        candidate("double", "Double", "200", "100"),
+        candidate("half", "Half", "50", "100"),
+    )
+
+    result = rank_size_peers(
+        rows,
+        eligible_ids=("own", "double", "half"),
+        anchor_id="own",
+        financial_as_of="2025-12",
+        eligibility_as_of="2026-09-05",
+        eligibility_mode="REMOTE",
+    )
+
+    by_id = {row.institution_id: row for row in result.rows}
+    expected = Decimal("2").ln()
+    assert by_id["double"].funding_gap == expected
+    assert by_id["half"].funding_gap == expected
+    assert by_id["double"].worst_axis_gap == by_id["half"].worst_axis_gap
 
 
 def test_ranking_has_no_hidden_cutoff_or_semantic_target_n():
@@ -80,12 +103,12 @@ def test_ranking_has_no_hidden_cutoff_or_semantic_target_n():
     assert result.ranked_count_excluding_anchor == 30
 
 
-def test_tie_breaker_is_sum_gap_then_name_then_id():
+def test_exact_tie_breaker_uses_stable_institution_id():
     rows = (
         candidate("own", "Own", "100", "100"),
-        candidate("z", "Zulu", "110", "100"),
-        candidate("b", "Beta", "100", "110"),
-        candidate("a", "Alpha", "90", "100"),
+        candidate("z", "Alpha", "200", "100"),
+        candidate("b", "Zulu", "100", "200"),
+        candidate("a", "Beta", "50", "100"),
     )
 
     result = rank_size_peers(
@@ -110,6 +133,37 @@ def test_anchor_must_be_in_eligible_universe():
         rank_size_peers(
             rows,
             eligible_ids=("peer",),
+            anchor_id="own",
+            financial_as_of="2025-12",
+            eligibility_as_of="2026-09-05",
+            eligibility_mode="REMOTE",
+        )
+
+
+def test_eligible_candidate_must_exist_in_financial_universe():
+    rows = (candidate("own", "Own", "100", "100"),)
+
+    with pytest.raises(SizePeerEligibilityEvidenceError, match="absent from financial"):
+        rank_size_peers(
+            rows,
+            eligible_ids=("own", "missing"),
+            anchor_id="own",
+            financial_as_of="2025-12",
+            eligibility_as_of="2026-09-05",
+            eligibility_mode="REMOTE",
+        )
+
+
+def test_nonpositive_financial_axis_fails_closed():
+    rows = (
+        candidate("own", "Own", "100", "100"),
+        candidate("peer", "Peer", "0", "101"),
+    )
+
+    with pytest.raises(SizePeerEligibilityEvidenceError, match="positive"):
+        rank_size_peers(
+            rows,
+            eligible_ids=("own", "peer"),
             anchor_id="own",
             financial_as_of="2025-12",
             eligibility_as_of="2026-09-05",
