@@ -4,7 +4,6 @@ import json
 import subprocess
 from pathlib import Path
 
-
 TARGET_CANDIDATE = Path("web/public-structural-v2/target_candidate.js")
 
 
