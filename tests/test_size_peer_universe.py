@@ -61,7 +61,7 @@ def test_remote_mutual_finance_requires_explicit_internet_or_mobile_member() -> 
 
 
 def test_branch_scope_is_all_16_busan_gu_gun() -> None:
-    assert BUSAN_ALL_DISTRICTS == {
+    assert {
         "강서구",
         "금정구",
         "기장군",
@@ -78,7 +78,7 @@ def test_branch_scope_is_all_16_busan_gu_gun() -> None:
         "영도구",
         "중구",
         "해운대구",
-    }
+    } == BUSAN_ALL_DISTRICTS
 
 
 def test_branch_universe_uses_official_busan_district_evidence_across_sectors() -> None:
