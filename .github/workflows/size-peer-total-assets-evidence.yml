@@ -1,0 +1,55 @@
+name: Size Peer Total Assets Evidence
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feat/strategy-size-peer-assets-evidence-v2-20260905
+    paths:
+      - src/rate_monitor/collectors/data_go_funding/total_assets_evidence.py
+      - scripts/size_peer_total_assets_evidence.py
+      - tests/test_total_assets_evidence.py
+      - .github/workflows/size-peer-total-assets-evidence.yml
+
+permissions:
+  contents: read
+
+jobs:
+  evidence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Set up Python
+        run: uv python install 3.12
+      - name: Sync dependencies
+        run: uv sync --locked
+      - name: Lint evidence code
+        run: >-
+          uv run ruff check
+          src/rate_monitor/collectors/data_go_funding/total_assets_evidence.py
+          src/rate_monitor/services/size_peer_universe.py
+          scripts/size_peer_total_assets_evidence.py
+          tests/test_total_assets_evidence.py
+          tests/test_size_peer_universe.py
+      - name: Test evidence contracts
+        run: >-
+          uv run pytest -q
+          tests/test_total_assets_evidence.py
+          tests/test_size_peer_universe.py
+      - name: Probe official total-assets sources without database access
+        env:
+          DATA_GO_KR_SERVICE_KEY_SB: ${{ secrets.DATA_GO_KR_SERVICE_KEY_SB }}
+          DATA_GO_KR_SERVICE_KEY_NH: ${{ secrets.DATA_GO_KR_SERVICE_KEY_NH }}
+        run: uv run python scripts/size_peer_total_assets_evidence.py
+      - name: Upload total-assets evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: size-peer-total-assets-evidence
+          path: artifacts/size-peer-total-assets-evidence.json
+          if-no-files-found: error
+          retention-days: 14

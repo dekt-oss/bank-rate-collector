@@ -76,6 +76,16 @@ size peer는 금리순위 비교군이 아니다. 먼저 실제 가입 가능성
 - identity: existing exact FSS `fncoCd`, secondary `crno` policy를 유지한다.
 - `030350S` sector-total 등 aggregate는 **total-assets metric 자체로** identity + exact-sum 검증 후 제외한다. funding metric에서 통과했다는 이유로 asset aggregate 의미를 가정하지 않는다.
 
+2026-09-05 authenticated read-only evidence:
+
+- 최신 확인 가능 기준월: `2026-03` (`2026-06`, `2026-09`은 no rows)
+- raw finance rows: `52,240`
+- `A / 자산총계` rows: `80`
+- 실제 기관: `79`, unique official key도 `79`
+- `030350S` aggregate: `1` row
+- 실제 기관 총자산 합계 = sector total = `119,269,920.000000 million_krw`
+- 고려저축은행: `fncoCd=0010390`, `crno=1801110015304`, 총자산 `2,094,142.000000 million_krw`
+
 ### 3.2 농·축협 — Data.go
 
 - source: existing `data_go_agri_coop_funding` finance endpoint / dataset `15061344`.
@@ -83,6 +93,21 @@ size peer는 금리순위 비교군이 아니다. 먼저 실제 가입 가능성
 - source unit: KRW integer; canonical unit: `million_krw`.
 - actual local coop / regional aggregate / sector aggregate partition을 total-assets 기준으로 별도 검증한다.
 - 중앙회/aggregate는 local institution peer로 승격하지 않는다.
+
+2026-09-05 authenticated read-only evidence에서 **funding aggregate 의미와 total-assets aggregate 의미가 다름**이 확인됐다.
+
+- 최신 확인 가능 기준월: `2025-12` (`2026-06`은 no rows)
+- raw finance rows: `177,908`
+- `A / 자산총계` rows: `1,126`
+- 실제 local institutions: `1,109`, unique official key도 `1,109`
+- current aggregate rows: `17` = 16 regional totals + `030801S` sector total
+- 실제 기관 총자산 합계 = `563,075,215.088950 million_krw`
+- 16 regional totals 합계 = `563,075,215.088950 million_krw`
+- `030801S` sector total = `563,075,215.088950 million_krw`
+- 따라서 total-assets current hierarchy는 `regional_total == institution_total` 및 `sector_total == institution_total`이다.
+- funding에서 검증된 `sector_total == institution_total + regional_total` 규칙을 total-assets에 재사용하면 안 된다.
+- 17 aggregate rows를 단순 합산하면 기관 실총액의 2배가 되므로 기관 규모 계산에는 절대 포함하지 않는다.
+- legacy aggregate key의 total-assets 의미는 아직 실증하지 않았으므로 fail closed한다.
 
 ### 3.3 신협 — 신협중앙회 경영공시
 
@@ -111,8 +136,9 @@ v1 원칙:
 ## 5. temporal alignment
 
 - 한 institution의 두 size axis는 같은 reporting period를 우선 요구한다.
-- 업권 간 reporting cadence가 달라 exact common month가 존재하지 않는 경우 허용 lag를 임의로 정하지 않는다.
-- production evidence에서 실제 reporting cadence / coverage를 측정한 뒤 별도 temporal policy version으로 잠근다.
+- 최신 원천 기준월은 현재 저축은행 `2026-03`, 농·축협 `2025-12`로 다르다.
+- 서로 다른 latest vintage를 동시점 cross-sector 규모 비교에 바로 사용하지 않는다.
+- 업권 간 exact common month를 먼저 측정하고, common vintage가 존재하지 않는 경우에만 허용 lag 정책을 별도 evidence로 검토한다.
 - lag policy 확정 전에는 cross-sector size ranking을 `ready`로 생성하지 않는다.
 - UI에는 `funding_as_of`와 `assets_as_of`를 각각 보존한다.
 
@@ -141,7 +167,7 @@ read-only diagnostic Action은 production R2를 **절대 upload/mutate하지 않
 - complete two-axis candidate distribution
 - missing reason histogram
 
-이 evidence가 없으면 persistence / similarity selection / UI `ready` 상태를 만들지 않는다.
+현재 B-source gate에서 저축은행·농축협 total-assets source/aggregate 검증은 통과했다. 그러나 canonical mapping, two-axis distribution, CU/KFCC source completion은 아직 남아 있으므로 persistence / similarity selection / UI `ready` 상태를 만들지 않는다.
 
 ## 8. UI contract
 
