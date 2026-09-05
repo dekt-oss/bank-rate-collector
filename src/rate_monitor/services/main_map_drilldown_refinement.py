@@ -213,6 +213,7 @@ _SCRIPT = r"""
     "서구": [-44,22,"end"]
   };
   const MOBILE_LABEL_OFFSETS = {
+    "남구": [0,24,"middle"],
     "해운대구": [58,-8,"start"]
   };
   const cleanName = (text) => String(text || "").replace(/\s*▾\s*$/, "").trim();

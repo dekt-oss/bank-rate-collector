@@ -41,11 +41,10 @@ def test_top5_compact_adds_sector_column_without_recomputing_ranking() -> None:
     rendered = inject_strategy_top5_compact(_strategy_html())
 
     assert 'th.textContent="업권"' in rendered
-    assert "products12.slice(0,5)" in rendered
-    assert "sectorLabel(sector" in rendered
+    assert "SECTOR_BY_LABEL" in rendered
     assert 'row.querySelector(".rank")' in rendered
     assert 'row.querySelector(".our-rank")' in rendered
-    assert "OUR_INSTITUTION" in rendered
+    assert 'key:"savings_bank",label:"저축은행"' in rendered
     assert "sort(" not in rendered
     assert "aggregateProducts(" not in rendered
     assert "ratesStats(" not in rendered
@@ -63,11 +62,15 @@ def test_top5_compact_handles_six_column_empty_and_mobile_layout() -> None:
     assert 'td:nth-child(6){grid-area:m!important' in rendered
 
 
-def test_top5_compact_wraps_existing_render_market_once() -> None:
+def test_top5_compact_observes_rendered_dom_without_iife_global_dependencies() -> None:
     rendered = inject_strategy_top5_compact(_strategy_html())
 
-    assert "const priorRenderMarket=renderMarket" in rendered
-    assert "renderMarket=function(){priorRenderMarket();decorate()}" in rendered
+    assert 'new MutationObserver(schedule).observe(body,{childList:true,subtree:true})' in rendered
+    assert 'row?.querySelector(".sourcehint")' in rendered
+    assert "renderMarket" not in rendered
+    assert "products12" not in rendered
+    assert "OUR_INSTITUTION" not in rendered
+    assert "sectorLabel(" not in rendered
     assert "decorate();" in rendered
 
 

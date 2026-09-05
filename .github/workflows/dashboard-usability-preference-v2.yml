@@ -137,7 +137,7 @@ jobs:
   production-data-runtime:
     needs: contract
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 

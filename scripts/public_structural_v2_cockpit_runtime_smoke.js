@@ -27,6 +27,19 @@ async function waitForCockpit(page) {
 async function ensurePredictionPanelVisible(page, label) {
   const cockpit = page.locator("#public-structural-v2-cockpit");
   if (await cockpit.isVisible()) return cockpit;
+
+  const legacyDetails = page.locator("details.rds-details");
+  if (await legacyDetails.count()) {
+    const ownsCockpit = await legacyDetails.evaluate((details) => Boolean(
+      details.querySelector("#public-structural-v2-cockpit"),
+    ));
+    if (ownsCockpit) {
+      await legacyDetails.evaluate((details) => { details.open = true; });
+      await cockpit.waitFor({ state: "visible", timeout: 10_000 });
+      return cockpit;
+    }
+  }
+
   const toggle = page.locator("#prediction-toggle");
   invariant(await toggle.isVisible(), `${label}: 예측엔진 열기 버튼이 보이지 않음`);
   if (await toggle.getAttribute("aria-expanded") !== "true") await toggle.click();
@@ -209,6 +222,35 @@ async function populateStructuralInputs(page) {
   );
 }
 
+async function assertLegacySurfacesAreNotPrimary(page, label) {
+  const placement = await page.evaluate(() => {
+    const details = document.querySelector("details.rds-details");
+    const inspect = (selector) => {
+      const node = document.querySelector(selector);
+      if (!node) return { exists: false, insideDetails: false, visible: false };
+      const style = getComputedStyle(node);
+      const rect = node.getBoundingClientRect();
+      return {
+        exists: true,
+        insideDetails: Boolean(details?.contains(node)),
+        visible: !node.hidden && style.display !== "none" && style.visibility !== "hidden" && rect.width > 0 && rect.height > 0,
+      };
+    };
+    return {
+      predictionResults: inspect(".prediction-results"),
+      rateResponse: inspect(".rate-response-wrap"),
+    };
+  });
+  const predictionLeak = placement.predictionResults.exists
+    && placement.predictionResults.visible
+    && !placement.predictionResults.insideDetails;
+  const rateResponseLeak = placement.rateResponse.exists
+    && placement.rateResponse.visible
+    && !placement.rateResponse.insideDetails;
+  invariant(!predictionLeak, `${label}: v1 결과 카드가 상세분석 밖 primary에 남아 있음`);
+  invariant(!rateResponseLeak, `${label}: 구형 scenario table이 상세분석 밖 primary에 남아 있음`);
+}
+
 async function runViewport(browser, viewport, label) {
   const context = await browser.newContext({ viewport });
   const page = await context.newPage();
@@ -241,8 +283,7 @@ async function runViewport(browser, viewport, label) {
   invariant(fullText.includes("직전 5bp 표면비용"), `${label}: 5bp 비용 비교가 없음`);
   invariant(await cockpit.locator(".psv2-chart").count() === 1, `${label}: Response Surface SVG가 없음`);
   invariant(await cockpit.locator(".psv2-table tbody tr").count() >= 2, `${label}: 후보금리 표가 비어 있음`);
-  invariant(await page.locator(".prediction-results").isHidden(), `${label}: v1 결과 카드가 primary로 남아 있음`);
-  invariant(await page.locator(".rate-response-wrap").isHidden(), `${label}: 구형 scenario table이 primary로 남아 있음`);
+  await assertLegacySurfacesAreNotPrimary(page, label);
   await assertUniqueLadderRates(cockpit, `${label} full`);
   await assertCandidateTableVisualSpace(cockpit, viewport, label);
 

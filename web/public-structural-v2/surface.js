@@ -59,5 +59,23 @@
     return {...frame,forecast};
   }
 
-  return {attachForecast,buildSurfaceFrame};
+  function buildSurface(args,marketApi,marketConfig,decisionApi,inflowApi,inflowConfig){
+    const frame=buildSurfaceFrame(args,marketApi,marketConfig,decisionApi);
+    const candidateRates=[...new Set([
+      ...(frame.candidate_set?.economics_grid||[]),
+      frame.candidate_set?.proposal_rate
+    ].filter(Number.isFinite))].sort((a,b)=>a-b);
+    const forecast=decisionApi.buildPublicForecast({
+      generated_at:args.generated_at,
+      candidate_rates:candidateRates,
+      baseline_new_money:args.baseline_new_money,
+      maturity_amount:args.maturity_amount,
+      current_rollover_rate_pct:args.current_rollover_rate_pct,
+      current_own_rate:args.current_own_rate,
+      term_months:args.term_months
+    },inflowApi,inflowConfig);
+    return attachForecast(frame,forecast);
+  }
+
+  return {attachForecast,buildSurface,buildSurfaceFrame};
 });

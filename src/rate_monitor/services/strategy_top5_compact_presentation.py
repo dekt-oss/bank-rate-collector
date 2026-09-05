@@ -1,9 +1,9 @@
 # ruff: noqa: E501
 """Strategy 경쟁사 TOP5를 업권 구분이 있는 compact 표로 정리한다.
 
-기존 ``renderMarket`` 의 정렬/상위5개 선정과 당사 위치 행을 그대로 사용한다.
-이 presentation은 업권 열과 표시 밀도만 추가하며 ranking population, tie, source,
-금리 계산 계약은 변경하지 않는다.
+기존 ``renderMarket`` 이 만든 TOP5 DOM을 후처리한다. 이 presentation은 업권 열과
+표시 밀도만 추가하며 ranking population, tie, source, 금리 계산 계약은 변경하지
+않는다. Base Strategy script의 IIFE-local 변수/함수를 전역처럼 참조하지 않는다.
 """
 
 from __future__ import annotations
@@ -26,16 +26,29 @@ _SCRIPT = r'''
   "use strict";
   const HEAD_CLASS="strategy-sector-head";
   const CELL_CLASS="strategy-sector-cell";
+  const SECTOR_BY_LABEL=new Map([
+    ["저축은행","savings_bank"],
+    ["신협","cu"],
+    ["새마을금고","kfcc"],
+    ["농·축협","nh_local"],
+  ]);
   function addHeader(card){
     const row=card?.querySelector("thead tr"),first=row?.querySelector("th");if(!row||!first)return;
     if(row.querySelector(`.${HEAD_CLASS}`))return;
     const th=document.createElement("th");th.className=HEAD_CLASS;th.scope="col";th.textContent="업권";first.insertAdjacentElement("afterend",th);
   }
+  function sectorFromSourceHint(row){
+    const hint=String(row?.querySelector(".sourcehint")?.textContent||"").trim();
+    for(const [label,key] of SECTOR_BY_LABEL){
+      if(hint===label||hint.startsWith(`${label} ·`))return{key,label};
+    }
+    return null;
+  }
   function addSectorCell(row,sector){
     if(!row||row.querySelector(`.${CELL_CLASS}`))return;
     const first=row.querySelector("td");if(!first)return;
     const td=document.createElement("td");td.className=CELL_CLASS;
-    const badge=document.createElement("span");badge.className="strategy-sector-badge";badge.dataset.sector=sector||"unknown";badge.textContent=sectorLabel(sector||"")||"—";
+    const badge=document.createElement("span");badge.className="strategy-sector-badge";badge.dataset.sector=sector?.key||"unknown";badge.textContent=sector?.label||"—";
     td.appendChild(badge);first.insertAdjacentElement("afterend",td);
   }
   function fixEmptyRow(row){
@@ -45,20 +58,24 @@ _SCRIPT = r'''
   function decorate(){
     const card=document.querySelector(".top5-card"),body=document.getElementById("top5");if(!card||!body)return;
     card.dataset.top5Compact="1";addHeader(card);
-    const top=products12.slice(0,5),own=products12.find(product=>product.institution===OUR_INSTITUTION)||null;
-    const rows=[...body.querySelectorAll(":scope > tr")];
-    let marketIndex=0;
-    for(const row of rows){
+    for(const row of [...body.querySelectorAll(":scope > tr")]){
       if(fixEmptyRow(row))continue;
-      if(row.querySelector(".rank")){
-        const product=top[marketIndex++];if(product)addSectorCell(row,product.sector);continue;
-      }
-      if(row.querySelector(".our-rank")&&own)addSectorCell(row,own.sector);
+      if(row.querySelector(".rank")){addSectorCell(row,sectorFromSourceHint(row));continue;}
+      if(row.querySelector(".our-rank"))addSectorCell(row,{key:"savings_bank",label:"저축은행"});
     }
   }
-  const priorRenderMarket=renderMarket;
-  renderMarket=function(){priorRenderMarket();decorate()};
-  decorate();
+  function install(){
+    const body=document.getElementById("top5");if(!body)return;
+    let queued=false;
+    const schedule=()=>{
+      if(queued)return;
+      queued=true;
+      queueMicrotask(()=>{queued=false;decorate();});
+    };
+    new MutationObserver(schedule).observe(body,{childList:true,subtree:true});
+    decorate();
+  }
+  if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",install,{once:true});else install();
 })();
 </script>
 '''.strip("\n")
