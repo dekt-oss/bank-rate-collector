@@ -10,6 +10,8 @@ Important safety properties:
 - aggregate pseudo rows are validated for the *asset* metric before exclusion;
 - identity uses the existing exact FSS-code/CRNO path and, for NH local rows,
   the repository's exact BRC + normalized official-name reconciliation;
+- NH reconciliation is scoped to total_assets + the requested source month, so
+  an asset write cannot mutate an existing funding observation as a side effect;
 - the natural active key includes ``metric_code``, so funding revisions cannot
   be superseded by an asset write;
 - content hash includes ``total_assets`` and canonical/source values;
@@ -321,12 +323,15 @@ def collect_total_assets_source(
                     unchanged += 1
 
         # Data.go NH keys embed the exact six-digit BRC used by the official
-        # nh_local rate directory. The existing reconciliation additionally
-        # requires normalized official-name equality and fails on conflicts.
-        # It scans the shared metric-aware observation table, so calling it here
-        # maps the newly written total_assets rows without name-only inference.
+        # nh_local rate directory. Reconcile only the asset rows just written:
+        # this keeps exact BRC + normalized-name evidence while guaranteeing an
+        # asset collection cannot mutate historical funding identity state.
         if source_id == AGRI_COOP_SOURCE_ID:
-            reconcile_agri_funding_identity(db_path)
+            reconcile_agri_funding_identity(
+                db_path,
+                metric_code=TOTAL_ASSETS_METRIC_CODE,
+                source_effective_month=effective_month,
+            )
 
         mapped, unmapped = _asset_identity_counts(
             factory,
