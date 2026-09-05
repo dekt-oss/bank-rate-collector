@@ -5,15 +5,16 @@ upstream and every eligible, non-anchor institution remains in the ranked
 result. A UI may show the first N rows as a presentation convenience, but N is
 not a financial-policy cutoff and must not be described as the peer universe.
 
-The distance is deliberately transparent and weight-free:
+The final v1 distance is a symmetric log-ratio distance on both financial axes:
 
-- funding_gap = abs(peer_funding / anchor_funding - 1)
-- assets_gap = abs(peer_assets / anchor_assets - 1)
+- funding_gap = abs(ln(peer_funding / anchor_funding))
+- assets_gap = abs(ln(peer_assets / anchor_assets))
 - worst_axis_gap = max(funding_gap, assets_gap)
-- tie breaker = funding_gap + assets_gap, then stable name/id
+- tie breaker = funding_gap + assets_gap, then stable canonical institution id
 
-The policy is based on the authenticated production-copy distribution recorded
-in ``docs/source-recon/20260905-size-peer-current-eligibility-evidence.md``.
+This deliberately differs from the simple relative-gap distribution used in
+#310 to inspect empirical threshold counts. That diagnostic distribution did
+not lock the final ranking policy.
 """
 
 from __future__ import annotations
@@ -23,13 +24,11 @@ from dataclasses import dataclass
 from decimal import Decimal
 
 from rate_monitor.services.size_peer_current_eligibility import (
-    RelativeGapEvidence,
     SizePeerEligibilityEvidenceError,
     TwoAxisFinancialCandidate,
-    relative_gap_distribution,
 )
 
-SIZE_PEER_RANKING_POLICY_ID = "strategy-size-peer-worst-axis-relative-gap"
+SIZE_PEER_RANKING_POLICY_ID = "strategy-size-peer-worst-axis-log-ratio"
 SIZE_PEER_RANKING_POLICY_VERSION = "1"
 
 
@@ -67,6 +66,18 @@ def _required(value: object, *, field: str) -> str:
     return text
 
 
+def _positive_decimal(value: Decimal, *, field: str) -> Decimal:
+    if not isinstance(value, Decimal) or not value.is_finite() or value <= 0:
+        raise SizePeerEligibilityEvidenceError(f"{field} must be finite and positive")
+    return value
+
+
+def _log_ratio_gap(value: Decimal, anchor: Decimal, *, field: str) -> Decimal:
+    numerator = _positive_decimal(value, field=field)
+    denominator = _positive_decimal(anchor, field=f"anchor.{field}")
+    return abs((numerator / denominator).ln())
+
+
 def rank_size_peers(
     financial_candidates: Iterable[TwoAxisFinancialCandidate],
     *,
@@ -83,23 +94,90 @@ def rank_size_peers(
     anchor_key = _required(anchor_id, field="anchor_id")
 
     candidates = tuple(financial_candidates)
-    by_id = {candidate.institution_id: candidate for candidate in candidates}
-    if len(by_id) != len(candidates):
-        raise SizePeerEligibilityEvidenceError("duplicate financial candidate")
+    by_id: dict[str, TwoAxisFinancialCandidate] = {}
+    for candidate in candidates:
+        institution_id = _required(candidate.institution_id, field="candidate.institution_id")
+        if institution_id in by_id:
+            raise SizePeerEligibilityEvidenceError("duplicate financial candidate")
+        _required(candidate.canonical_name, field="candidate.canonical_name")
+        _required(candidate.sector, field="candidate.sector")
+        _positive_decimal(
+            candidate.deposit_liabilities_total,
+            field="candidate.deposit_liabilities_total",
+        )
+        _positive_decimal(candidate.total_assets, field="candidate.total_assets")
+        by_id[institution_id] = candidate
 
     eligible = tuple(sorted(set(eligible_ids)))
     if anchor_key not in eligible:
         raise SizePeerEligibilityEvidenceError("anchor is absent from eligible universe")
+    try:
+        anchor = by_id[anchor_key]
+    except KeyError as exc:
+        raise SizePeerEligibilityEvidenceError(
+            "anchor is absent from financial candidates"
+        ) from exc
 
-    gaps = relative_gap_distribution(
-        candidates,
-        eligible_ids=eligible,
-        anchor_id=anchor_key,
+    ranked: list[RankedSizePeer] = []
+    for institution_id in eligible:
+        if institution_id == anchor_key:
+            continue
+        try:
+            candidate = by_id[institution_id]
+        except KeyError as exc:
+            raise SizePeerEligibilityEvidenceError(
+                f"eligible institution absent from financial candidates: {institution_id}"
+            ) from exc
+
+        funding_gap = _log_ratio_gap(
+            candidate.deposit_liabilities_total,
+            anchor.deposit_liabilities_total,
+            field="deposit_liabilities_total",
+        )
+        assets_gap = _log_ratio_gap(
+            candidate.total_assets,
+            anchor.total_assets,
+            field="total_assets",
+        )
+        ranked.append(
+            RankedSizePeer(
+                rank=0,
+                institution_id=institution_id,
+                canonical_name=candidate.canonical_name,
+                sector=candidate.sector,
+                deposit_liabilities_total=candidate.deposit_liabilities_total,
+                total_assets=candidate.total_assets,
+                funding_gap=funding_gap,
+                assets_gap=assets_gap,
+                worst_axis_gap=max(funding_gap, assets_gap),
+                sum_gap=funding_gap + assets_gap,
+            )
+        )
+
+    ordered = sorted(
+        ranked,
+        key=lambda row: (
+            row.worst_axis_gap,
+            row.sum_gap,
+            row.institution_id,
+        ),
     )
     rows = tuple(
-        _ranked_row(rank, gap, by_id)
-        for rank, gap in enumerate(gaps, start=1)
+        RankedSizePeer(
+            rank=index,
+            institution_id=row.institution_id,
+            canonical_name=row.canonical_name,
+            sector=row.sector,
+            deposit_liabilities_total=row.deposit_liabilities_total,
+            total_assets=row.total_assets,
+            funding_gap=row.funding_gap,
+            assets_gap=row.assets_gap,
+            worst_axis_gap=row.worst_axis_gap,
+            sum_gap=row.sum_gap,
+        )
+        for index, row in enumerate(ordered, start=1)
     )
+
     return SizePeerRanking(
         policy_id=SIZE_PEER_RANKING_POLICY_ID,
         policy_version=SIZE_PEER_RANKING_POLICY_VERSION,
@@ -110,26 +188,6 @@ def rank_size_peers(
         eligible_count_including_anchor=len(eligible),
         ranked_count_excluding_anchor=len(rows),
         rows=rows,
-    )
-
-
-def _ranked_row(
-    rank: int,
-    gap: RelativeGapEvidence,
-    candidates: dict[str, TwoAxisFinancialCandidate],
-) -> RankedSizePeer:
-    candidate = candidates[gap.institution_id]
-    return RankedSizePeer(
-        rank=rank,
-        institution_id=gap.institution_id,
-        canonical_name=gap.canonical_name,
-        sector=gap.sector,
-        deposit_liabilities_total=candidate.deposit_liabilities_total,
-        total_assets=candidate.total_assets,
-        funding_gap=gap.funding_gap,
-        assets_gap=gap.assets_gap,
-        worst_axis_gap=gap.worst_axis_gap,
-        sum_gap=gap.sum_gap,
     )
 
 
