@@ -20,7 +20,6 @@ from __future__ import annotations
 import hashlib
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
@@ -258,8 +257,9 @@ def collect_total_assets_source(
         parsed = len(points)
         partitions = partition_validated_total_assets(points)
         if len(partitions) != 1:
+            count = len(partitions)
             raise FundingContractError(
-                f"{source_id}/{requested}: expected one validated asset partition, got {len(partitions)}"
+                f"{source_id}/{requested}: expected one validated asset partition, got {count}"
             )
         partition = partitions[0]
         aggregate_count = len(partition.aggregate_rows)
