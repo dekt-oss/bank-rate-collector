@@ -109,6 +109,10 @@ jobs:
           set -euo pipefail
           uv run python - <<'PY'
           import hashlib, json, sqlite3
+          from rate_monitor.collectors.data_go_funding.aggregate_policy import (
+              AGRI_COOP_AGGREGATE_KEYS,
+          )
+
           c = sqlite3.connect("work/rate_monitor.sqlite3")
           c.row_factory = sqlite3.Row
           before = json.load(open("artifacts/funding-before.json"))
@@ -130,8 +134,7 @@ jobs:
           assert by_source.get("data_go_savings_bank_funding", 0) > 0, by_source
           assert by_source.get("data_go_agri_coop_funding", 0) > 1000, by_source
 
-          aggregate_keys = ["030350S", "030801S"]
-          aggregate_keys.extend([f"0308{i:02d}S" for i in range(2, 18)])
+          aggregate_keys = ["030350S", *sorted(AGRI_COOP_AGGREGATE_KEYS)]
           q = ",".join("?" for _ in aggregate_keys)
           aggregate_rows = c.execute(
               f"SELECT source_institution_key FROM institution_funding_observations "
