@@ -27,6 +27,9 @@ from rate_monitor.services.public_structural_v2_cockpit_presentation import (
 from rate_monitor.services.public_structural_v2_cockpit_visual_refinement import (
     inject_public_structural_v2_cockpit_visual_refinement,
 )
+from rate_monitor.services.rate_decision_simulator_presentation import (
+    inject_rate_decision_simulator,
+)
 from rate_monitor.services.special_offer_radar_presentation import (
     inject_special_offer_radar_presentation,
 )
@@ -178,4 +181,5 @@ def inject_strategy_decision_cockpit(html: str) -> str:
             rendered = inject_strategy_decision_evidence_refinement(rendered)
             rendered = inject_public_structural_v2_cockpit(rendered)
             rendered = inject_public_structural_v2_cockpit_visual_refinement(rendered)
+            rendered = inject_rate_decision_simulator(rendered)
     return rendered
