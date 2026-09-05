@@ -7,7 +7,6 @@ from rate_monitor.services.rate_decision_simulator_presentation import (
     inject_rate_decision_simulator,
 )
 
-
 BASE_HTML = """<!doctype html>
 <html>
 <head></head>
