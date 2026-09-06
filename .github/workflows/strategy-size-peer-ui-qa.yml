@@ -57,7 +57,7 @@ jobs:
   production-copy-browser:
     needs: contract
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
 
@@ -82,7 +82,7 @@ jobs:
           R2_REGION: ${{ vars.R2_REGION }}
         run: |
           set -euo pipefail
-          mkdir -p work
+          mkdir -p work data/raw
           BACKEND=$(uv run python -c "
           from pathlib import Path
           from rate_monitor.services.storage_service import load_backend
@@ -104,7 +104,52 @@ jobs:
           RATE_MONITOR_DB_URL: sqlite+pysqlite:///${{ github.workspace }}/work/rate_monitor.sqlite3
         run: uv run alembic upgrade head
 
-      - name: Measure production Size Peer payload
+      - name: Inspect authoritative production Size Peer readiness
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          from rate_monitor.services.size_peer_strategy_payload import build_size_peer_strategy_payload
+
+          payload = build_size_peer_strategy_payload(Path("work/rate_monitor.sqlite3"))
+          Path("work/strategy-size-peer-production-before.json").write_text(
+              json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          ready = (
+              payload.get("status") == "ready"
+              and payload.get("modes", {}).get("remote", {}).get("status") == "ready"
+              and payload.get("modes", {}).get("branch_busan", {}).get("status") == "ready"
+              and bool(payload.get("modes", {}).get("remote", {}).get("display_rows"))
+              and bool(payload.get("modes", {}).get("branch_busan", {}).get("display_rows"))
+          )
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env:
+              env.write(f"PRODUCTION_SIZE_PEER_READY={1 if ready else 0}\n")
+          print(json.dumps({
+              "production_ready": ready,
+              "status": payload.get("status"),
+              "reason": payload.get("reason"),
+              "financial_as_of": payload.get("financial_as_of"),
+              "eligibility_as_of": payload.get("eligibility_as_of"),
+          }, ensure_ascii=False))
+          PY
+
+      - name: Prime runner-local copy with validated total-assets vintage for UI proof
+        if: ${{ env.PRODUCTION_SIZE_PEER_READY != '1' }}
+        env:
+          DATA_GO_KR_SERVICE_KEY_SB: ${{ secrets.DATA_GO_KR_SERVICE_KEY_SB }}
+          DATA_GO_KR_SERVICE_KEY_NH: ${{ secrets.DATA_GO_KR_SERVICE_KEY_NH }}
+        run: |
+          set -euo pipefail
+          uv run python -m rate_monitor.collectors.data_go_funding.cli collect-total-assets \
+            --db work/rate_monitor.sqlite3 \
+            --raw-root data/raw \
+            --bas-ym 202512 \
+            --json work/strategy-size-peer-prime-total-assets.json
+
+      - name: Measure browser-validation Size Peer payload
         run: |
           set -euo pipefail
           uv run python - <<'PY'
@@ -192,7 +237,18 @@ jobs:
           path: |
             work/strategy-size-peer-*.png
             work/strategy-size-peer-runtime-metrics.json
+            work/strategy-size-peer-production-before.json
             work/strategy-size-peer-production-payload.json
+            work/strategy-size-peer-prime-total-assets.json
             work/strategy-size-peer-http.log
           retention-days: 30
           if-no-files-found: warn
+
+      - name: Enforce authoritative production readiness
+        if: always()
+        run: |
+          set -euo pipefail
+          if [ "${PRODUCTION_SIZE_PEER_READY:-0}" != "1" ]; then
+            echo "authoritative production R2 is not Size Peer ready; run the approved total-assets production workflow before merge" >&2
+            exit 1
+          fi
