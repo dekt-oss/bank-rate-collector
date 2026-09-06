@@ -1,0 +1,254 @@
+name: Strategy Size Peer UI QA
+
+on:
+  pull_request:
+    paths:
+      - "src/rate_monitor/services/size_peer_strategy_payload.py"
+      - "src/rate_monitor/services/strategy_service.py"
+      - "src/rate_monitor/services/rate_decision_simulator_presentation.py"
+      - "web/public-structural-v2/rate_decision_simulator.js"
+      - "tests/test_size_peer_strategy_payload.py"
+      - "tests/test_rate_decision_simulator_presentation.py"
+      - "scripts/strategy_size_peer_runtime_smoke.js"
+      - ".github/workflows/strategy-size-peer-ui-qa.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Sync dependencies
+        run: uv sync --locked
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Targeted lint and syntax
+        run: |
+          uv run ruff check \
+            src/rate_monitor/services/size_peer_strategy_payload.py \
+            src/rate_monitor/services/strategy_service.py \
+            src/rate_monitor/services/rate_decision_simulator_presentation.py \
+            tests/test_size_peer_strategy_payload.py \
+            tests/test_rate_decision_simulator_presentation.py
+          node --check web/public-structural-v2/rate_decision_simulator.js
+          node --check scripts/strategy_size_peer_runtime_smoke.js
+
+      - name: Targeted tests
+        run: |
+          uv run pytest -q \
+            tests/test_size_peer_strategy_payload.py \
+            tests/test_rate_decision_simulator_presentation.py
+
+  production-copy-browser:
+    needs: contract
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Sync dependencies
+        run: uv sync --locked
+
+      - name: Restore production database into runner-local copy
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+          R2_REGION: ${{ vars.R2_REGION }}
+        run: |
+          set -euo pipefail
+          mkdir -p work data/raw
+          BACKEND=$(uv run python -c "
+          from pathlib import Path
+          from rate_monitor.services.storage_service import load_backend
+          print(load_backend(Path('config/storage.yaml')).backend.value)
+          ")
+          echo "strategy size-peer QA source backend=$BACKEND"
+          if [ "$BACKEND" = "r2" ]; then
+            uv run rate-monitor storage restore --dest work/rate_monitor.sqlite3
+          else
+            git fetch --force origin +rate-data:refs/remotes/origin/rate-data --depth=1
+            git show refs/remotes/origin/rate-data:latest/rate_monitor.sqlite3.gz > work/rate_monitor.sqlite3.gz
+            gunzip work/rate_monitor.sqlite3.gz
+          fi
+          test -s work/rate_monitor.sqlite3
+          echo "restored bytes=$(stat -c%s work/rate_monitor.sqlite3)"
+
+      - name: Apply migrations to runner-local copy
+        env:
+          RATE_MONITOR_DB_URL: sqlite+pysqlite:///${{ github.workspace }}/work/rate_monitor.sqlite3
+        run: uv run alembic upgrade head
+
+      - name: Inspect authoritative production Size Peer readiness
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          from rate_monitor.services.size_peer_strategy_payload import build_size_peer_strategy_payload
+
+          payload = build_size_peer_strategy_payload(Path("work/rate_monitor.sqlite3"))
+          Path("work/strategy-size-peer-production-before.json").write_text(
+              json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          ready = (
+              payload.get("status") == "ready"
+              and payload.get("modes", {}).get("remote", {}).get("status") == "ready"
+              and payload.get("modes", {}).get("branch_busan", {}).get("status") == "ready"
+              and bool(payload.get("modes", {}).get("remote", {}).get("display_rows"))
+              and bool(payload.get("modes", {}).get("branch_busan", {}).get("display_rows"))
+          )
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env:
+              env.write(f"PRODUCTION_SIZE_PEER_READY={1 if ready else 0}\n")
+          print(json.dumps({
+              "production_ready": ready,
+              "status": payload.get("status"),
+              "reason": payload.get("reason"),
+              "financial_as_of": payload.get("financial_as_of"),
+              "eligibility_as_of": payload.get("eligibility_as_of"),
+          }, ensure_ascii=False))
+          PY
+
+      - name: Prime runner-local copy with validated total-assets vintage for UI proof
+        if: ${{ env.PRODUCTION_SIZE_PEER_READY != '1' }}
+        env:
+          DATA_GO_KR_SERVICE_KEY_SB: ${{ secrets.DATA_GO_KR_SERVICE_KEY_SB }}
+          DATA_GO_KR_SERVICE_KEY_NH: ${{ secrets.DATA_GO_KR_SERVICE_KEY_NH }}
+        run: |
+          set -euo pipefail
+          uv run python -m rate_monitor.collectors.data_go_funding.cli collect-total-assets \
+            --db work/rate_monitor.sqlite3 \
+            --raw-root data/raw \
+            --bas-ym 202512 \
+            --json work/strategy-size-peer-prime-total-assets.json
+
+      - name: Measure browser-validation Size Peer payload
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+          from rate_monitor.services.size_peer_strategy_payload import build_size_peer_strategy_payload
+
+          payload = build_size_peer_strategy_payload(Path("work/rate_monitor.sqlite3"))
+          assert payload["status"] == "ready", payload
+          assert payload["anchor"]["institution"] == "고려저축은행", payload["anchor"]
+          assert payload["supported_sectors"] == ["savings_bank", "nh_local"]
+          assert payload["unsupported_sectors"] == ["cu", "kfcc"]
+          assert payload["modes"]["remote"]["status"] == "ready", payload["modes"]["remote"]
+          assert payload["modes"]["branch_busan"]["status"] == "ready", payload["modes"]["branch_busan"]
+          assert payload["modes"]["remote"]["display_rows"], payload["modes"]["remote"]
+          assert payload["modes"]["branch_busan"]["display_rows"], payload["modes"]["branch_busan"]
+          Path("work/strategy-size-peer-production-payload.json").write_text(
+              json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          print(json.dumps({
+              "financial_as_of": payload["financial_as_of"],
+              "eligibility_as_of": payload["eligibility_as_of"],
+              "remote": {
+                  "eligible": payload["modes"]["remote"]["eligible_count"],
+                  "ranked": payload["modes"]["remote"]["ranked_count"],
+              },
+              "branch_busan": {
+                  "eligible": payload["modes"]["branch_busan"]["eligible_count"],
+                  "ranked": payload["modes"]["branch_busan"]["ranked_count"],
+              },
+          }, ensure_ascii=False))
+          PY
+
+      - name: Build isolated Strategy site from production copy
+        env:
+          RATE_MONITOR_STRATEGY_DASHBOARD: "1"
+        run: |
+          set -euo pipefail
+          uv run rate-monitor build-site \
+            --db work/rate_monitor.sqlite3 \
+            --template web/templates/site.html \
+            --out work/site-public
+          test -s work/site-public/strategy.html
+          grep -q 'id="rate-decision-simulator-v1-bundle"' work/site-public/strategy.html
+          grep -q '유사 규모 기관' work/site-public/strategy.html
+          grep -q '가격 경쟁기관과 별도 기준' work/site-public/strategy.html
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install browser QA dependencies
+        run: |
+          set -euo pipefail
+          command -v google-chrome
+          google-chrome --version
+          npm install --no-save --package-lock=false @playwright/test@1.61.1
+          node --check scripts/strategy_size_peer_runtime_smoke.js
+
+      - name: Run desktop and mobile production-copy browser smoke
+        env:
+          STRATEGY_PREVIEW_BASE_URL: http://127.0.0.1:4173
+          CHROME_BIN: /usr/bin/google-chrome
+        run: |
+          set -euo pipefail
+          python -m http.server 4173 --directory work/site-public > work/strategy-size-peer-http.log 2>&1 &
+          SERVER_PID=$!
+          trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:4173/strategy.html >/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:4173/strategy.html >/dev/null
+          node scripts/strategy_size_peer_runtime_smoke.js
+
+      - name: Upload Size Peer runtime evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: strategy-size-peer-ui-${{ github.run_id }}
+          path: |
+            work/strategy-size-peer-*.png
+            work/strategy-size-peer-runtime-metrics.json
+            work/strategy-size-peer-production-before.json
+            work/strategy-size-peer-production-payload.json
+            work/strategy-size-peer-prime-total-assets.json
+            work/strategy-size-peer-http.log
+          retention-days: 30
+          if-no-files-found: warn
+
+      - name: Enforce authoritative production readiness
+        if: always()
+        run: |
+          set -euo pipefail
+          if [ "${PRODUCTION_SIZE_PEER_READY:-0}" != "1" ]; then
+            echo "authoritative production R2 is not Size Peer ready; run the approved total-assets production workflow before merge" >&2
+            exit 1
+          fi

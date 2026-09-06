@@ -14,6 +14,7 @@
   };
   let tablePromise=null;
   let mode="rate";
+  let sizePeerMode="remote";
   let renderToken=0;
 
   const finite=value=>{
@@ -30,8 +31,26 @@
   const signed=value=>Number.isFinite(value)
     ?`${value>=0?"+":""}${Number(value).toLocaleString("ko-KR",{maximumFractionDigits:1})}억원`:"—";
   const bp=value=>Number.isFinite(value)?`${value>=0?"+":""}${Math.round(value)}bp`:"—";
+  const millionKrw=value=>{
+    const number=finite(value);
+    return number===null?"자료없음":`${(number/100).toLocaleString("ko-KR",{maximumFractionDigits:1})}억원`;
+  };
   const SECTOR_LABELS={savings_bank:"저축은행",cu:"신협",kfcc:"새마을금고",nh_local:"농·축협"};
   const sectorLabel=value=>SECTOR_LABELS[value]||String(value||"업권 미상");
+  const SIZE_PEER_REASON_LABELS={
+    database_missing:"DB 자료 없음",
+    anchor_missing:"고려저축은행 기준기관 없음",
+    anchor_financial_pair_missing:"고려저축은행 동일월 재무 2축 없음",
+    identity_conflict:"기관 식별 충돌",
+    common_financial_month_missing:"수신잔액·총자산 공통 기준월 없음",
+    current_product_evidence_missing:"현재 12개월 정기예금 가입가능성 근거 없음",
+    financial_candidates_missing:"규모 비교 후보 없음",
+    eligibility_as_of_missing:"가입가능성 기준일 없음",
+    anchor_not_eligible:"현재 가입조건에서 고려저축은행 기준상품을 확인할 수 없음",
+    no_ranked_peers:"현재 조건에서 순위를 만들 수 있는 유사 규모 기관 없음",
+    no_ready_mode:"표시 가능한 가입조건 없음",
+    database_not_production_ready:"Production-ready DB 계약을 확인할 수 없음"
+  };
 
   function inlineData(){
     const node=$("rate-monitor-data");
@@ -163,7 +182,7 @@
       candidate_rates:candidateRates,
       baseline_new_money:args.baseline_new_money,
       maturity_amount:args.maturity_amount,
-      current_rollover_rate_pct:args.current_rollover_rate_pct,
+      current_rollover_rate_pct:inputs.current_rollover_rate_pct,
       current_own_rate:args.current_own_rate,
       term_months:args.term_months
     },PublicStructuralV2Inflow,inflowConfig);
@@ -214,8 +233,47 @@
     return `<div class="rds-table-wrap"><table class="rds-table"><thead><tr><th>기관</th><th>대표금리</th><th>검토 대비</th><th>수신잔액</th><th>6M 변화</th></tr></thead><tbody>${peers.map(peer=>`<tr><td>${esc(peer.institution||peer.institution_id||"기관 미상")}</td><td>${pct(peer.rate)}</td><td>${bp(peer.gap)}</td><td>${finite(peer.funding_balance_million_krw)===null?"자료없음":`${Number(peer.funding_balance_million_krw).toLocaleString("ko-KR",{maximumFractionDigits:0})}백만원`}</td><td>${finite(peer.funding_change_6m_pct)===null?"자료없음":`${Number(peer.funding_change_6m_pct).toFixed(1)}%`}</td></tr>`).join("")}</tbody></table></div>`;
   }
 
+  function sizePeerReason(reason){
+    const text=String(reason||"근거 미충족");
+    if(text.startsWith("required_table_missing:"))return"필수 Production DB fact가 아직 준비되지 않았습니다.";
+    return SIZE_PEER_REASON_LABELS[text]||text;
+  }
+
+  function sizePeerHtml(){
+    const payload=inlineData().strategy?.size_peer;
+    if(!payload){
+      return'<div class="rds-empty">Size Peer payload가 없습니다. 이전 표를 재사용하지 않습니다.</div>';
+    }
+    if(selectedTerm()!==Number(payload.term_months||12)){
+      return`<div class="rds-empty">Size Peer는 현재 ${Number(payload.term_months||12)}개월 대표 시나리오만 근거가 완결되었습니다. 선택 기간에서는 이전 순위를 남기지 않습니다.</div>`;
+    }
+    if(payload.status!=="ready"){
+      return `<div class="rds-empty">유사 규모 기관을 표시하지 않습니다 · ${esc(sizePeerReason(payload.reason))}</div>`;
+    }
+    const selected=payload.modes?.[sizePeerMode];
+    if(!selected||selected.status!=="ready"){
+      return `<div class="rds-empty">${sizePeerMode==="remote"?"비대면":"부산 대면"} 조건에서 유사 규모 기관을 표시하지 않습니다 · ${esc(sizePeerReason(selected?.reason))}</div>`;
+    }
+    const rows=Array.isArray(selected.display_rows)?selected.display_rows:[];
+    if(!rows.length){
+      return'<div class="rds-empty">현재 조건에서 표시할 유사 규모 기관이 없습니다.</div>';
+    }
+    const meta=`<div class="rds-size-peer-meta"><span>재무 기준 ${esc(selected.financial_as_of||payload.financial_as_of||"자료없음")}</span><span>가입가능성 기준 ${esc(selected.eligibility_as_of||payload.eligibility_as_of||"자료없음")}</span><span>${esc(payload.coverage_note||"비교 가능 업권: 저축은행 · 농·축협")}</span><span>가격 경쟁기관과 별도 기준</span><span>eligible ${Number(selected.eligible_count||0)} · ranked ${Number(selected.ranked_count||0)} · 화면 ${Number(selected.display_count||rows.length)}</span></div>`;
+    const body=rows.map(row=>{
+      const worst=finite(row.worst_axis_gap_ratio_pct),funding=finite(row.funding_gap_ratio_pct),assets=finite(row.assets_gap_ratio_pct);
+      const similarity=worst===null?"자료없음":`<b>최대축 ${worst.toFixed(1)}%</b><small>수신 ${funding===null?"—":funding.toFixed(1)+"%"} · 자산 ${assets===null?"—":assets.toFixed(1)+"%"}</small>`;
+      return `<tr data-size-peer-id="${esc(row.institution_id)}"><td data-label="순위">${Number(row.rank||0)}위</td><td data-label="기관"><b>${esc(row.institution||row.institution_id||"기관 미상")}</b></td><td data-label="업권">${esc(sectorLabel(row.sector))}</td><td data-label="수신잔액">${millionKrw(row.deposit_liabilities_total)}</td><td data-label="총자산">${millionKrw(row.total_assets)}</td><td data-label="규모 유사성" class="rds-size-similarity">${similarity}</td><td data-label="재무 기준월">${esc(row.financial_as_of||selected.financial_as_of||"자료없음")}</td></tr>`;
+    }).join("");
+    return `${meta}<div class="rds-size-peer-count">순위는 전체 eligible universe에서 계산합니다. 화면 행 수는 표시용 slice이며 peer membership cutoff가 아닙니다.</div><div class="rds-table-wrap rds-size-peer-wrap"><table class="rds-table rds-size-peer-table"><thead><tr><th>순위</th><th>기관</th><th>업권</th><th>수신잔액</th><th>총자산</th><th>규모 유사성</th><th>재무 기준월</th></tr></thead><tbody>${body}</tbody></table></div>`;
+  }
+
+  function renderSizePeers(){
+    const host=$("rds-size-peers");
+    if(host)host.innerHTML=sizePeerHtml();
+  }
+
   function shell(){
-    return `<div class="rds-head"><div><h3>금리결정 시뮬레이터</h3><p>검토금리 또는 목표 수신액을 기준으로 시장 위치·경쟁사·미보정 수신 시나리오를 비교합니다.</p></div><span class="rds-safety">내부 실적 미보정 · 구조 시나리오</span></div><div class="rds-tabs"><button class="rds-tab active" data-rds-mode="rate" type="button">금리로 계산</button><button class="rds-tab" data-rds-mode="target" type="button">목표금액으로 찾기</button></div><div class="rds-controls"><label class="rds-rate-mode">검토금리 <input id="rds-review-rate" type="number" step="0.01" min="0" max="15"> %</label><label class="rds-target-mode" hidden>목표 총수신 <input id="rds-target-total" type="number" step="1" min="0"> 억원</label></div><div class="rds-metrics"><div><span>검토금리</span><b id="rds-rate">—</b><small id="rds-rate-note">입력 확인 중</small></div><div><span>예상 총수신 · 구조 시나리오</span><b id="rds-total">—</b><small id="rds-range">입력 확인 중</small></div><div><span>현재 대비</span><b id="rds-delta">—</b></div><div><span>시장 위치</span><b id="rds-rank">—</b><small id="rds-threshold">—</small></div></div><div class="rds-grid"><section><h4>현재 이 금리 주변 경쟁상품</h4><div id="rds-nearby"></div></section><section><h4>공식 가격 경쟁기관</h4><div id="rds-peers"></div></section></div><div class="rds-evidence"><div><b>비슷한 급 경쟁사</b><span>수신잔액 + 총자산이 모두 연결되기 전에는 규모 peer를 만들지 않습니다.</span></div><div><b>과거 당사 사례</b><span>당시 시장 snapshot과 상품별 실적 연결 전에는 사례를 추정하지 않습니다.</span></div><div><b>목표금액 해석</b><span>existing candidate finder · 보간/외삽/자동 최적화 아님</span></div></div><details class="rds-details"><summary>상세 분석 · 후보금리표 / Response Surface / Market Position Ladder</summary><div id="rds-legacy"></div></details>`;
+    return `<div class="rds-head"><div><h3>금리결정 시뮬레이터</h3><p>검토금리 또는 목표 수신액을 기준으로 시장 위치·가격 경쟁기관·유사 규모 기관·미보정 수신 시나리오를 비교합니다.</p></div><span class="rds-safety">내부 실적 미보정 · 구조 시나리오</span></div><div class="rds-tabs"><button class="rds-tab active" data-rds-mode="rate" type="button">금리로 계산</button><button class="rds-tab" data-rds-mode="target" type="button">목표금액으로 찾기</button></div><div class="rds-controls"><label class="rds-rate-mode">검토금리 <input id="rds-review-rate" type="number" step="0.01" min="0" max="15"> %</label><label class="rds-target-mode" hidden>목표 총수신 <input id="rds-target-total" type="number" step="1" min="0"> 억원</label></div><div class="rds-metrics"><div><span>검토금리</span><b id="rds-rate">—</b><small id="rds-rate-note">입력 확인 중</small></div><div><span>예상 총수신 · 구조 시나리오</span><b id="rds-total">—</b><small id="rds-range">입력 확인 중</small></div><div><span>현재 대비</span><b id="rds-delta">—</b></div><div><span>시장 위치</span><b id="rds-rank">—</b><small id="rds-threshold">—</small></div></div><div class="rds-grid"><section><h4>현재 이 금리 주변 경쟁상품</h4><div id="rds-nearby"></div></section><section><h4>공식 가격 경쟁기관 <small>Relative Pricing R1</small></h4><div id="rds-peers"></div></section></div><section class="rds-size-peer-section"><div class="rds-size-peer-head"><div><h4>유사 규모 기관 <small>Size Peer</small></h4><p>우리와 규모가 비슷하면서 현재 이 가입조건으로 경쟁 가능한 기관입니다. 금리 추천·가격 순위와는 분리됩니다.</p></div><div class="rds-enrollment" role="group" aria-label="Size Peer 가입조건"><button class="rds-choice active" data-size-peer-mode="remote" type="button">비대면</button><button class="rds-choice" data-size-peer-mode="branch_busan" type="button">부산 대면</button></div></div><div id="rds-size-peers"></div></section><div class="rds-evidence"><div><b>과거 당사 사례</b><span>당시 시장 snapshot과 상품별 실적 연결 전에는 사례를 추정하지 않습니다.</span></div><div><b>목표금액 해석</b><span>existing candidate finder · 보간/외삽/자동 최적화 아님</span></div></div><details class="rds-details"><summary>상세 분석 · 후보금리표 / Response Surface / Market Position Ladder</summary><div id="rds-legacy"></div></details>`;
   }
 
   function renderFacts(context,rate,surface){
@@ -228,6 +286,7 @@
       :"시장 위치 근거 없음";
     $("rds-nearby").innerHTML=nearbyHtml(context,rate);
     $("rds-peers").innerHTML=peerHtml(rate);
+    renderSizePeers();
     if(forecast){
       $("rds-total").textContent=amount(forecast.predicted_total);
       $("rds-range").textContent=`stress ${amount(forecast.predicted_total_lower)} ~ ${amount(forecast.predicted_total_upper)}`;
@@ -249,6 +308,7 @@
     $("rds-threshold").textContent="candidate 미선택";
     $("rds-nearby").innerHTML='<div class="rds-empty">현재 계산이 차단되어 주변 상품을 표시하지 않습니다.</div>';
     $("rds-peers").innerHTML='<div class="rds-empty">현재 계산이 차단되어 pricing peer gap을 표시하지 않습니다.</div>';
+    renderSizePeers();
   }
 
   function clearUnsupported(target){
@@ -270,6 +330,7 @@
   async function render(){
     const token=++renderToken,host=$("strategy-rate-decision-simulator");
     if(!host)return;
+    renderSizePeers();
     try{
       const rows=await loadTable();
       if(token!==renderToken)return;
@@ -342,6 +403,11 @@
       host.querySelector(".rds-target-mode").hidden=mode!=="target";
       render();
     }));
+    host.querySelectorAll("[data-size-peer-mode]").forEach(button=>button.addEventListener("click",()=>{
+      sizePeerMode=button.dataset.sizePeerMode||"remote";
+      host.querySelectorAll("[data-size-peer-mode]").forEach(item=>item.classList.toggle("active",item===button));
+      renderSizePeers();
+    }));
     $("rds-review-rate")?.addEventListener("input",render);
     $("rds-target-total")?.addEventListener("input",render);
     ["baseline-new","maturity-amount","rollover-rate","base-n","bonus-n"].forEach(id=>
@@ -352,6 +418,7 @@
     );
     setTimeout(moveLegacy,0);
     new MutationObserver(()=>setTimeout(moveLegacy,0)).observe(panel,{childList:true});
+    renderSizePeers();
     render();
   }
 
