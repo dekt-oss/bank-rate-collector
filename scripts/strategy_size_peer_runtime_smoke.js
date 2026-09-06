@@ -156,7 +156,10 @@ async function runMobile(browser, payload) {
     const payload = await readPayload(probe.page);
     invariant(payload, "Size Peer payload missing");
     invariant(payload.status === "ready", `Size Peer payload not ready: ${payload.reason}`);
-    invariant(payload.policy_id === "strategy-size-peer-ranking", "ranking policy id changed");
+    invariant(
+      payload.policy_id === "strategy-size-peer-worst-axis-log-ratio",
+      "ranking policy id changed",
+    );
     invariant(payload.term_months === 12, "Size Peer term contract changed");
     invariant(payload.anchor?.institution === "고려저축은행", "anchor institution changed");
     invariant(Number(payload.anchor?.deposit_liabilities_total) > 0, "anchor funding missing");
