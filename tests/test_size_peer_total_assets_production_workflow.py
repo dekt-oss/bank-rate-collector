@@ -1,11 +1,9 @@
-from pathlib import Path
-
-
-WORKFLOW = Path(".github/workflows/collect-size-peer-total-assets.yml")
+WORKFLOW = ".github/workflows/collect-size-peer-total-assets.yml"
 
 
 def _text() -> str:
-    return WORKFLOW.read_text(encoding="utf-8")
+    with open(WORKFLOW, encoding="utf-8") as handle:
+        return handle.read()
 
 
 def test_total_assets_writer_uses_existing_serialized_rate_data_writer_lane() -> None:
