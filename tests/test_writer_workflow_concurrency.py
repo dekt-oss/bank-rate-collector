@@ -12,6 +12,7 @@ EXPECTED_WRITER_WORKFLOWS = {
     "collect-institution-funding.yml",
     "collect-nh.yml",
     "collect-savings-fast.yml",
+    "collect-size-peer-total-assets.yml",
     "storage-check.yml",
 }
 
