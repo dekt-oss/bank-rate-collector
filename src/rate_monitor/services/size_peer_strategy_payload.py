@@ -169,7 +169,9 @@ def _anchor_id(conn: sqlite3.Connection) -> str:
 def _financial_rows(conn: sqlite3.Connection) -> list[sqlite3.Row]:
     statuses = sorted(VERIFIED_IDENTITY_STATUSES)
     placeholders = ",".join("?" for _ in statuses)
-    source_clauses = " OR ".join("(ifo.sector = ? AND ifo.source_id = ?)" for _ in SUPPORTED_SECTORS)
+    source_clauses = " OR ".join(
+        "(ifo.sector = ? AND ifo.source_id = ?)" for _ in SUPPORTED_SECTORS
+    )
     params: list[object] = [*statuses]
     for sector in SUPPORTED_SECTORS:
         params.extend((sector, FINANCIAL_SOURCE_BY_SECTOR[sector]))
@@ -196,7 +198,13 @@ def _financial_rows(conn: sqlite3.Connection) -> list[sqlite3.Row]:
           AND ({source_clauses})
         ORDER BY ifo.source_effective_month, ifo.sector, ifo.institution_id, ifo.metric_code
         """,
-        (*params[: len(statuses)], FUNDING_METRIC, ASSETS_METRIC, NORMALIZED_UNIT, *params[len(statuses) :]),
+        (
+            *params[: len(statuses)],
+            FUNDING_METRIC,
+            ASSETS_METRIC,
+            NORMALIZED_UNIT,
+            *params[len(statuses) :],
+        ),
     ).fetchall()
 
 
