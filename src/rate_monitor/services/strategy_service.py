@@ -24,6 +24,7 @@ from rate_monitor.services.relative_pricing_live_service import build_relative_p
 from rate_monitor.services.relative_pricing_strategy_payload import (
     build_relative_pricing_unavailable_payload,
 )
+from rate_monitor.services.size_peer_strategy_payload import build_size_peer_strategy_payload
 from rate_monitor.services.special_offer_radar_service import build_special_offer_radar
 from rate_monitor.services.strategy_product_history_service import build_product_history
 from rate_monitor.services.strategy_savings_trend_policy import (
@@ -111,6 +112,10 @@ def build_strategy_summary(db_path: Path) -> dict[str, Any]:
     # before the early-return gates below so an unresolved Strategy anchor does not
     # silently remove the market-radar evidence status from the page payload.
     summary["special_offer_radar"] = build_special_offer_radar(db_path)
+    # Size Peer is a separate financial/eligibility contract, not an R1 pricing input.
+    # Build it before the Relative Pricing early returns so an R1 availability failure
+    # can never remove or mutate the Size Peer evidence surface.
+    summary["size_peer"] = build_size_peer_strategy_payload(db_path)
 
     availability = _relative_pricing_availability(db_path)
     if availability is None:
