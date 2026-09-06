@@ -307,7 +307,7 @@ def test_strategy_size_peer_payload_keeps_two_clocks_and_scenario_universes(
     payload = build_size_peer_strategy_payload(db_path)
 
     assert payload["status"] == "ready"
-    assert payload["policy_id"] == "strategy-size-peer-ranking"
+    assert payload["policy_id"] == "strategy-size-peer-worst-axis-log-ratio"
     assert payload["policy_version"] == "1"
     assert payload["financial_as_of"] == "2025-12"
     assert payload["eligibility_as_of"] == "2026-09-04"
