@@ -117,6 +117,7 @@ def _current_product(
     last_seen: str,
     outlet_id: str | None = None,
 ) -> None:
+    del sector
     product_id = f"p-{institution_id}"
     variant_id = f"v-{institution_id}"
     run_id = f"run-{institution_id}"
@@ -320,8 +321,8 @@ def test_strategy_size_peer_payload_keeps_two_clocks_and_scenario_universes(
         "institution_id": "koryo",
         "institution": "고려저축은행",
         "sector": "savings_bank",
-        "deposit_liabilities_total": "1804862.0000",
-        "total_assets": "2059073.0000",
+        "deposit_liabilities_total": "1804862",
+        "total_assets": "2059073",
     }
     assert payload["financial_candidate_count"] == 4
 
