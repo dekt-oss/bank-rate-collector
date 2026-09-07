@@ -26,7 +26,8 @@ def test_cu_total_assets_bootstrap_requires_production_funding_first() -> None:
     assert prerequisite < evidence < persistence
     assert "minimum_funding = math.ceil(exact_targets * 0.97)" in text
     assert "active_rows >= minimum_funding" in text
-    assert "duplicate_active_institutions == 0" in text
+    assert "duplicate_institutions == 0" in text
+    assert "duplicate_natural_keys == 0" in text
     assert "mapped_exact_cu_ingno" in text
     assert "COUNT(DISTINCT source_id) > 1" in text
 
@@ -61,8 +62,8 @@ def test_cu_total_assets_bootstrap_requires_provenance_and_r2_readback() -> None
     state_upload = text.index("- name: Upload authoritative state to R2")
     readback = text.index("- name: Verify authoritative R2 restore byte-for-byte")
     assert qc < snapshot < raw_upload < state_upload < readback
-    assert "missing_raw_provenance == 0" in text
-    assert "bad_asset_rows == 0" in text
+    assert "missing_provenance == 0" in text
+    assert "bad_assets == 0" in text
     assert "foreign_key_violations" in text
 
 
