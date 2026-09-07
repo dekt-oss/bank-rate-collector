@@ -11,11 +11,6 @@ on:
         description: "두 검증 업권에 공통 적용할 재무 기준월 (YYYYMM)"
         required: true
         default: "202512"
-  push:
-    branches:
-      - main
-    paths:
-      - .github/workflows/collect-size-peer-total-assets.yml
   schedule:
     # Total-assets disclosures are slow-moving. Scheduled runs keep the
     # evidence idempotently present; advancing the common vintage stays explicit.
@@ -32,7 +27,6 @@ on:
       - src/rate_monitor/services/size_peer_current_eligibility.py
       - src/rate_monitor/services/size_peer_similarity.py
       - tests/test_size_peer_total_assets_production_workflow.py
-      - tests/test_size_peer_total_assets_bootstrap_trigger.py
 
 concurrency:
   group: rate-data-writer
