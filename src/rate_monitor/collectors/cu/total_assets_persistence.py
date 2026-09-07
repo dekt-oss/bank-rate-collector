@@ -13,16 +13,16 @@ from __future__ import annotations
 
 import calendar
 import hashlib
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
-from typing import Iterable
 
 from sqlalchemy import select
 
 from rate_monitor.collectors.cu.funding import (
     IDENTITY_STATUS,
-    METRIC_CODE as FUNDING_METRIC_CODE,
+    METRIC_CODE,
     NORMALIZED_UNIT,
     OBSERVATION_BASIS,
     POPULATION_SCOPE,
@@ -101,7 +101,7 @@ def _require_matching_funding(
             select(InstitutionFundingObservation).where(
                 InstitutionFundingObservation.source_id == SOURCE_ID,
                 InstitutionFundingObservation.source_institution_key == pair.cu_ingno,
-                InstitutionFundingObservation.metric_code == FUNDING_METRIC_CODE,
+                InstitutionFundingObservation.metric_code == METRIC_CODE,
                 InstitutionFundingObservation.source_effective_month
                 == pair.source_effective_month,
                 InstitutionFundingObservation.valid_to.is_(None),
