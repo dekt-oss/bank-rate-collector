@@ -109,7 +109,7 @@ def test_strategy_preview_smoke_uses_search_handoff_instead_of_hidden_map() -> N
 def test_strategy_workspace_smoke_locks_decision_first_order_and_role_split() -> None:
     text = WORKSPACE_SMOKE.read_text(encoding="utf-8")
 
-    assert "readiness -> insight -> TOP5 -> planning order=" in text
+    assert "market -> readiness -> TOP5 -> secondary insight -> planning order=" in text
     assert "product section label/order wrong" in text
     assert "duplicated legacy/detail shell not hidden" in text
     assert "Search 지역 상세 handoff가 유지되지 않음" in text
