@@ -1,0 +1,1 @@
+Temporary operational note: `collect-size-peer-total-assets.yml` has a narrow `main` push trigger only to bootstrap the already-validated 2025-12 Size Peer total-assets facts into authoritative R2. Remove that trigger after successful R2 readback and Strategy Size Peer runtime verification.
