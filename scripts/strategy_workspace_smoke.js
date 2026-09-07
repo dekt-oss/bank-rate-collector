@@ -70,17 +70,29 @@ async function assertNavigation(browser, strategyPage, viewport, label) {
 async function assertDecisionIA(page, label) {
   const result = await page.evaluate(() => {
     const precedes = (a, b) => Boolean(a && b && (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING));
+    const marketDirection = document.querySelector(".strategy-market-direction");
     const readiness = document.querySelector(".ux-decision-readiness");
-    const insight = document.querySelector(".decision-integrated-insight");
     const top5 = document.querySelector(".decision-integrated-top5");
+    const secondary = document.querySelector("details.strategy-secondary-insights");
+    const insight = secondary?.querySelector(".decision-integrated-insight") || document.querySelector(".decision-integrated-insight");
     const planning = document.getElementById("planning-zone");
     const productLabel = document.getElementById("workspace-label-product");
     const preference = document.getElementById("preference-intelligence");
     const hiddenLegacy = document.querySelector(".workspace-insights");
     const hiddenDetail = document.querySelector(".workspace-detail.primary");
     const handoff = document.querySelector(".ux-region-handoff");
+    const menuLabels = [...document.querySelectorAll(".ux-decision-menu .ux-decision-step-copy b")].map((x) => x.textContent.trim());
     return {
-      order: [precedes(readiness, insight), precedes(insight, top5), precedes(top5, planning)],
+      order: [
+        precedes(marketDirection, readiness),
+        precedes(readiness, top5),
+        precedes(top5, secondary),
+        precedes(secondary, planning),
+      ],
+      insightInSecondary: Boolean(secondary && insight && insight.closest("details.strategy-secondary-insights") === secondary),
+      secondaryOpen: Boolean(secondary?.open),
+      secondarySummary: secondary?.querySelector("summary")?.textContent.trim() || "",
+      menuLabels,
       insightTitle: insight?.querySelector(".head h2")?.textContent.trim() || "",
       insightTags: [...(insight?.querySelectorAll(".insight em") || [])].map((x) => x.textContent.trim()),
       productTitle: productLabel?.querySelector("strong")?.textContent.trim() || "",
@@ -93,8 +105,17 @@ async function assertDecisionIA(page, label) {
       clientWidth: document.documentElement.clientWidth,
     };
   });
-  invariant(result.order.every(Boolean), `${label}: readiness -> insight -> TOP5 -> planning order=${result.order}`);
-  invariant(result.insightTitle === "금리결정 인사이트", `${label}: insight title=${result.insightTitle}`);
+  invariant(
+    result.order.every(Boolean),
+    `${label}: market -> readiness -> TOP5 -> secondary insight -> planning order=${result.order}`,
+  );
+  invariant(
+    JSON.stringify(result.menuLabels) === JSON.stringify(["시장 방향", "경쟁사 TOP5", "세부 비교", "자동추천 범위"]),
+    `${label}: decision menu labels/order=${result.menuLabels}`,
+  );
+  invariant(result.insightInSecondary && !result.secondaryOpen, `${label}: detailed insight must start collapsed after TOP5`);
+  invariant(result.secondarySummary === "세부 인사이트", `${label}: secondary insight summary=${result.secondarySummary}`);
+  invariant(result.insightTitle === "세부 시장 인사이트", `${label}: insight title=${result.insightTitle}`);
   invariant(!result.insightTags.includes("저축은행 시장 방향") && !result.insightTags.includes("당사 위치"), `${label}: duplicated decision insight remains=${result.insightTags}`);
   invariant(result.productTitle === "상품·우대조건 설계" && result.productBeforePreference, `${label}: product section label/order wrong`);
   invariant(result.legacyHidden && result.detailHidden, `${label}: duplicated legacy/detail shell not hidden`);
