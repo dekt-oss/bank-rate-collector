@@ -9,6 +9,7 @@ WRITER_CONCURRENCY_BLOCK = (
 )
 EXPECTED_WRITER_WORKFLOWS = {
     "collect.yml",
+    "collect-cu-funding-bootstrap.yml",
     "collect-institution-funding.yml",
     "collect-nh.yml",
     "collect-savings-fast.yml",

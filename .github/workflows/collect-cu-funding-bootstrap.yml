@@ -1,0 +1,427 @@
+name: 수집 — 신협 수신잔액 Production Bootstrap
+
+on:
+  workflow_dispatch:
+    inputs:
+      password:
+        description: "관리자 수집 암호"
+        required: true
+        default: ""
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/collect-cu-funding-bootstrap.yml
+
+# Canonical R2 writers share one serialized lane. A queued stale writer is
+# additionally rejected by snapshot/storage canonical_writer_guard.
+concurrency:
+  group: rate-data-writer
+  queue: max
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  bootstrap:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 420
+    steps:
+      - name: Check collect password
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        env:
+          EXPECTED: ${{ secrets.DASHBOARD_PASSWORD }}
+          GIVEN: ${{ inputs.password }}
+        run: |
+          set -euo pipefail
+          test -n "$EXPECTED"
+          test "$GIVEN" = "$EXPECTED"
+
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Sync dependencies
+        run: uv sync --locked
+
+      - name: Require authoritative R2 backend
+        env:
+          STORAGE_BACKEND: ${{ vars.STORAGE_BACKEND }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+          R2_REGION: ${{ vars.R2_REGION }}
+        run: |
+          set -euo pipefail
+          BACKEND=$(uv run python - <<'PY'
+          from pathlib import Path
+          from rate_monitor.services.storage_service import load_backend
+          print(load_backend(Path("config/storage.yaml")).backend.value)
+          PY
+          )
+          test "$BACKEND" = "r2"
+          echo "authoritative backend=$BACKEND"
+
+      - name: Restore authoritative R2 database as runner-local baseline
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+          R2_REGION: ${{ vars.R2_REGION }}
+        run: |
+          set -euo pipefail
+          mkdir -p work publish data/raw
+          uv run rate-monitor storage restore --dest work/rate_monitor.sqlite3
+          test -s work/rate_monitor.sqlite3
+
+      - name: Apply migrations
+        env:
+          RATE_MONITOR_DB_URL: sqlite+pysqlite:///${{ github.workspace }}/work/rate_monitor.sqlite3
+        run: uv run alembic upgrade head
+
+      - name: Inventory exact CU production baseline
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          import json
+          import sqlite3
+          from pathlib import Path
+
+          conn = sqlite3.connect("work/rate_monitor.sqlite3")
+          conn.row_factory = sqlite3.Row
+          active_targets = conn.execute(
+              "SELECT COUNT(*) FROM source_entity_links "
+              "WHERE source_id='cu' AND entity_type='institution' "
+              "AND source_entity_key LIKE 'cu:%' AND valid_to IS NULL"
+          ).fetchone()[0]
+          duplicate_links = conn.execute(
+              "SELECT COUNT(*) FROM ("
+              "SELECT source_entity_key FROM source_entity_links "
+              "WHERE source_id='cu' AND entity_type='institution' "
+              "AND source_entity_key LIKE 'cu:%' AND valid_to IS NULL "
+              "GROUP BY source_entity_key HAVING COUNT(*) > 1)"
+          ).fetchone()[0]
+          baseline_rows = conn.execute(
+              "SELECT COUNT(*) FROM institution_funding_observations "
+              "WHERE source_id='cu_disclosure_funding' "
+              "AND metric_code='deposit_liabilities_total' AND valid_to IS NULL"
+          ).fetchone()[0]
+          payload = {
+              "active_exact_cu_targets": active_targets,
+              "duplicate_active_cu_links": duplicate_links,
+              "active_production_funding_rows_before": baseline_rows,
+          }
+          Path("publish/cu-funding-production-baseline.json").write_text(
+              json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          print(json.dumps(payload, ensure_ascii=False))
+          assert active_targets >= 800, payload
+          assert duplicate_links == 0, payload
+          PY
+
+      - name: Collect latest official CU funding nationwide
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+
+          from rate_monitor.collectors.cu.funding import collect_cu_disclosure_funding
+
+          result = collect_cu_disclosure_funding(
+              db_path=Path("work/rate_monitor.sqlite3"),
+              raw_root=Path("data/raw"),
+              periods=1,
+              request_interval=1.0,
+          )
+          payload = {
+              "status": result.status,
+              "target_count": result.target_count,
+              "completed_targets": result.completed_targets,
+              "failed_targets": list(result.failed_targets),
+              "fetched_artifacts": result.fetched_artifacts,
+              "parsed_points": result.parsed_points,
+              "stored": result.stored,
+              "unchanged": result.unchanged,
+              "revisions": result.revisions,
+              "warning_count": result.warning_count,
+              "message": result.message,
+          }
+          Path("publish/cu-funding-production-first-run.json").write_text(
+              json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          print(json.dumps(payload, ensure_ascii=False))
+          PY
+
+      - name: Enforce nationwide coverage and identity gate
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          import json
+          import math
+          import sqlite3
+          from pathlib import Path
+
+          baseline = json.loads(
+              Path("publish/cu-funding-production-baseline.json").read_text(encoding="utf-8")
+          )
+          run = json.loads(
+              Path("publish/cu-funding-production-first-run.json").read_text(encoding="utf-8")
+          )
+          target_count = run["target_count"]
+          completed = run["completed_targets"]
+          minimum_complete = math.ceil(target_count * 0.97)
+          assert target_count == baseline["active_exact_cu_targets"], (baseline, run)
+          assert run["status"] in {"success", "partial"}, run
+          assert completed >= minimum_complete, {
+              "minimum_complete": minimum_complete,
+              **run,
+          }
+          assert len(run["failed_targets"]) == target_count - completed, run
+          assert run["parsed_points"] == completed, run
+          assert (
+              run["stored"] + run["unchanged"] + run["revisions"]
+              == run["parsed_points"]
+          ), run
+          # Bootstrap/retry may encounter already-present identical rows, but a
+          # source-value revision during this one-time activation is not silently accepted.
+          assert run["revisions"] == 0, run
+
+          conn = sqlite3.connect("work/rate_monitor.sqlite3")
+          conn.row_factory = sqlite3.Row
+          active_rows = conn.execute(
+              "SELECT COUNT(*) FROM institution_funding_observations "
+              "WHERE source_id='cu_disclosure_funding' "
+              "AND metric_code='deposit_liabilities_total' AND valid_to IS NULL"
+          ).fetchone()[0]
+          duplicate_keys = conn.execute(
+              "SELECT COUNT(*) FROM ("
+              "SELECT source_institution_key, source_effective_month "
+              "FROM institution_funding_observations "
+              "WHERE source_id='cu_disclosure_funding' "
+              "AND metric_code='deposit_liabilities_total' AND valid_to IS NULL "
+              "GROUP BY source_institution_key, source_effective_month "
+              "HAVING COUNT(*) > 1)"
+          ).fetchone()[0]
+          bad_identity = conn.execute(
+              "SELECT COUNT(*) FROM institution_funding_observations "
+              "WHERE source_id='cu_disclosure_funding' "
+              "AND metric_code='deposit_liabilities_total' AND valid_to IS NULL "
+              "AND (institution_id IS NULL OR identity_status!='mapped_exact_cu_ingno')"
+          ).fetchone()[0]
+          bad_unit = conn.execute(
+              "SELECT COUNT(*) FROM institution_funding_observations "
+              "WHERE source_id='cu_disclosure_funding' "
+              "AND metric_code='deposit_liabilities_total' AND valid_to IS NULL "
+              "AND (unit!='million_krw' OR source_unit!='million_krw')"
+          ).fetchone()[0]
+          link_mismatch = conn.execute(
+              "SELECT COUNT(*) FROM institution_funding_observations o "
+              "LEFT JOIN source_entity_links l "
+              "ON l.source_id='cu' AND l.entity_type='institution' "
+              "AND l.source_entity_key=('cu:' || o.source_institution_key) "
+              "AND l.entity_id=o.institution_id AND l.valid_to IS NULL "
+              "WHERE o.source_id='cu_disclosure_funding' "
+              "AND o.metric_code='deposit_liabilities_total' AND o.valid_to IS NULL "
+              "AND l.id IS NULL"
+          ).fetchone()[0]
+          collisions = conn.execute(
+              "SELECT source_effective_month, GROUP_CONCAT(DISTINCT source_id) sources "
+              "FROM institution_funding_observations "
+              "WHERE sector='cu' AND metric_code='deposit_liabilities_total' "
+              "AND valid_to IS NULL GROUP BY source_effective_month "
+              "HAVING COUNT(DISTINCT source_id) > 1"
+          ).fetchall()
+          if baseline["active_production_funding_rows_before"] == 0:
+              assert active_rows == completed, {
+                  "active_rows": active_rows,
+                  "completed": completed,
+              }
+          assert duplicate_keys == 0
+          assert bad_identity == 0
+          assert bad_unit == 0
+          assert link_mismatch == 0
+          assert not collisions, [dict(row) for row in collisions]
+
+          payload = {
+              "coverage_ratio": completed / target_count,
+              "minimum_coverage_ratio": 0.97,
+              "minimum_complete": minimum_complete,
+              "active_rows": active_rows,
+              "duplicate_active_natural_keys": duplicate_keys,
+              "bad_identity_rows": bad_identity,
+              "bad_unit_rows": bad_unit,
+              "exact_link_mismatches": link_mismatch,
+              "source_collisions": [dict(row) for row in collisions],
+              "failed_targets": run["failed_targets"],
+          }
+          Path("publish/cu-funding-production-qc.json").write_text(
+              json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          print(json.dumps(payload, ensure_ascii=False))
+          PY
+
+      - name: Bounded idempotency regression on exact controls
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+
+          from rate_monitor.collectors.cu.funding import collect_cu_disclosure_funding
+
+          controls = {"02002", "02022", "03087", "10154"}
+          result = collect_cu_disclosure_funding(
+              db_path=Path("work/rate_monitor.sqlite3"),
+              raw_root=Path("data/raw"),
+              periods=1,
+              only_cu_nos=controls,
+              request_interval=1.0,
+          )
+          payload = {
+              "status": result.status,
+              "target_count": result.target_count,
+              "completed_targets": result.completed_targets,
+              "failed_targets": list(result.failed_targets),
+              "parsed_points": result.parsed_points,
+              "stored": result.stored,
+              "revisions": result.revisions,
+              "unchanged": result.unchanged,
+              "warning_count": result.warning_count,
+          }
+          Path("publish/cu-funding-production-idempotency.json").write_text(
+              json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          print(json.dumps(payload, ensure_ascii=False))
+          assert result.status == "success", payload
+          assert result.target_count == len(controls), payload
+          assert result.completed_targets == len(controls), payload
+          assert not result.failed_targets, payload
+          assert result.parsed_points == len(controls), payload
+          assert result.stored == 0, payload
+          assert result.revisions == 0, payload
+          assert result.unchanged == len(controls), payload
+          PY
+
+      - name: Snapshot and validate candidate
+        run: |
+          set -euo pipefail
+          uv run rate-monitor snapshot \
+            --db work/rate_monitor.sqlite3 \
+            --publish-db publish/rate_monitor.sqlite3 \
+            --manifest publish/manifest.json
+          uv run rate-monitor validate --db publish/rate_monitor.sqlite3
+          uv run python - <<'PY'
+          import sqlite3
+          conn = sqlite3.connect("publish/rate_monitor.sqlite3")
+          assert conn.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+          assert not conn.execute("PRAGMA foreign_key_check").fetchall()
+          print("CU funding production candidate integrity/FK PASS")
+          PY
+
+      - name: Persist raw CU funding evidence to R2 long-term tier
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+          R2_REGION: ${{ vars.R2_REGION }}
+        run: |
+          set -euo pipefail
+          uv run python -m rate_monitor.services.evidence_lifecycle_service upload-raw \
+            --root data/raw \
+            --category cu-disclosure-funding \
+            --run-id "${{ github.run_id }}"
+
+      - name: Upload authoritative state to R2
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+          R2_REGION: ${{ vars.R2_REGION }}
+        run: uv run rate-monitor storage upload --db publish/rate_monitor.sqlite3
+
+      - name: Verify authoritative R2 restore byte-for-byte
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+          R2_REGION: ${{ vars.R2_REGION }}
+        run: |
+          set -euo pipefail
+          uv run rate-monitor storage restore --dest work/cu-funding-from-r2.sqlite3
+          cmp -s publish/rate_monitor.sqlite3 work/cu-funding-from-r2.sqlite3
+          uv run python - <<'PY'
+          import json
+          import sqlite3
+          from pathlib import Path
+
+          expected = json.loads(
+              Path("publish/cu-funding-production-qc.json").read_text(encoding="utf-8")
+          )
+          conn = sqlite3.connect("work/cu-funding-from-r2.sqlite3")
+          active_rows = conn.execute(
+              "SELECT COUNT(*) FROM institution_funding_observations "
+              "WHERE source_id='cu_disclosure_funding' "
+              "AND metric_code='deposit_liabilities_total' AND valid_to IS NULL"
+          ).fetchone()[0]
+          bad_identity = conn.execute(
+              "SELECT COUNT(*) FROM institution_funding_observations "
+              "WHERE source_id='cu_disclosure_funding' "
+              "AND metric_code='deposit_liabilities_total' AND valid_to IS NULL "
+              "AND (institution_id IS NULL OR identity_status!='mapped_exact_cu_ingno')"
+          ).fetchone()[0]
+          integrity = conn.execute("PRAGMA integrity_check").fetchone()[0]
+          fk = conn.execute("PRAGMA foreign_key_check").fetchall()
+          payload = {
+              "active_rows": active_rows,
+              "bad_identity_rows": bad_identity,
+              "integrity_check": integrity,
+              "foreign_key_violations": len(fk),
+              "byte_for_byte_restore": True,
+          }
+          Path("publish/cu-funding-production-r2-readback.json").write_text(
+              json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          print(json.dumps(payload, ensure_ascii=False))
+          assert active_rows == expected["active_rows"], (payload, expected)
+          assert bad_identity == 0, payload
+          assert integrity == "ok", payload
+          assert not fk, payload
+          PY
+
+      - name: Upload CU funding production evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cu-funding-production-bootstrap-${{ github.run_id }}
+          retention-days: 90
+          if-no-files-found: warn
+          path: |
+            publish/cu-funding-production-baseline.json
+            publish/cu-funding-production-first-run.json
+            publish/cu-funding-production-qc.json
+            publish/cu-funding-production-idempotency.json
+            publish/cu-funding-production-r2-readback.json
+            publish/manifest.json
