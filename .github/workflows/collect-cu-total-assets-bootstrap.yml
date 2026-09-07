@@ -1,0 +1,514 @@
+name: 수집 — Size Peer 신협 총자산 Production Bootstrap
+
+on:
+  workflow_dispatch:
+    inputs:
+      password:
+        description: "관리자 수집 암호"
+        required: true
+        default: ""
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/collect-cu-total-assets-bootstrap.yml
+
+concurrency:
+  group: rate-data-writer
+  queue: max
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  bootstrap:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 420
+    steps:
+      - name: Check collect password
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        env:
+          EXPECTED: ${{ secrets.DASHBOARD_PASSWORD }}
+          GIVEN: ${{ inputs.password }}
+        run: |
+          set -euo pipefail
+          test -n "$EXPECTED"
+          test "$GIVEN" = "$EXPECTED"
+
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Sync dependencies
+        run: uv sync --locked
+
+      - name: Require authoritative R2 backend
+        env:
+          STORAGE_BACKEND: ${{ vars.STORAGE_BACKEND }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+          R2_REGION: ${{ vars.R2_REGION }}
+        run: |
+          set -euo pipefail
+          BACKEND=$(uv run python - <<'PY'
+          from pathlib import Path
+          from rate_monitor.services.storage_service import load_backend
+          print(load_backend(Path("config/storage.yaml")).backend.value)
+          PY
+          )
+          test "$BACKEND" = "r2"
+          echo "authoritative backend=$BACKEND"
+
+      - name: Restore authoritative R2 database as runner-local baseline
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+          R2_REGION: ${{ vars.R2_REGION }}
+        run: |
+          set -euo pipefail
+          mkdir -p work publish data/raw work/cu-size-peer-raw
+          uv run rate-monitor storage restore --dest work/rate_monitor.sqlite3
+          test -s work/rate_monitor.sqlite3
+
+      - name: Apply migrations
+        env:
+          RATE_MONITOR_DB_URL: sqlite+pysqlite:///${{ github.workspace }}/work/rate_monitor.sqlite3
+        run: uv run alembic upgrade head
+
+      - name: Require production CU funding prerequisite and seal it
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          import hashlib
+          import json
+          import math
+          import sqlite3
+          from pathlib import Path
+
+          conn = sqlite3.connect("work/rate_monitor.sqlite3")
+          conn.row_factory = sqlite3.Row
+          exact_targets = conn.execute(
+              "SELECT COUNT(*) FROM source_entity_links "
+              "WHERE source_id='cu' AND entity_type='institution' "
+              "AND source_entity_key LIKE 'cu:%' AND valid_to IS NULL"
+          ).fetchone()[0]
+          rows = conn.execute(
+              "SELECT * FROM institution_funding_observations "
+              "WHERE source_id='cu_disclosure_funding' "
+              "AND metric_code='deposit_liabilities_total' AND valid_to IS NULL "
+              "ORDER BY id"
+          ).fetchall()
+          active_rows = len(rows)
+          minimum_funding = math.ceil(exact_targets * 0.97)
+          duplicate_institutions = conn.execute(
+              "SELECT COUNT(*) FROM ("
+              "SELECT source_institution_key FROM institution_funding_observations "
+              "WHERE source_id='cu_disclosure_funding' "
+              "AND metric_code='deposit_liabilities_total' AND valid_to IS NULL "
+              "GROUP BY source_institution_key HAVING COUNT(*) != 1)"
+          ).fetchone()[0]
+          duplicate_natural_keys = conn.execute(
+              "SELECT COUNT(*) FROM ("
+              "SELECT source_institution_key, source_effective_month "
+              "FROM institution_funding_observations "
+              "WHERE source_id='cu_disclosure_funding' "
+              "AND metric_code='deposit_liabilities_total' AND valid_to IS NULL "
+              "GROUP BY source_institution_key, source_effective_month HAVING COUNT(*) > 1)"
+          ).fetchone()[0]
+          bad_identity = conn.execute(
+              "SELECT COUNT(*) FROM institution_funding_observations "
+              "WHERE source_id='cu_disclosure_funding' "
+              "AND metric_code='deposit_liabilities_total' AND valid_to IS NULL "
+              "AND (institution_id IS NULL OR identity_status!='mapped_exact_cu_ingno')"
+          ).fetchone()[0]
+          link_mismatch = conn.execute(
+              "SELECT COUNT(*) FROM institution_funding_observations o "
+              "LEFT JOIN source_entity_links l "
+              "ON l.source_id='cu' AND l.entity_type='institution' "
+              "AND l.source_entity_key=('cu:' || o.source_institution_key) "
+              "AND l.entity_id=o.institution_id AND l.valid_to IS NULL "
+              "WHERE o.source_id='cu_disclosure_funding' "
+              "AND o.metric_code='deposit_liabilities_total' AND o.valid_to IS NULL "
+              "AND l.id IS NULL"
+          ).fetchone()[0]
+          collisions = conn.execute(
+              "SELECT source_effective_month, GROUP_CONCAT(DISTINCT source_id) sources "
+              "FROM institution_funding_observations "
+              "WHERE sector='cu' AND metric_code='deposit_liabilities_total' "
+              "AND valid_to IS NULL GROUP BY source_effective_month "
+              "HAVING COUNT(DISTINCT source_id) > 1"
+          ).fetchall()
+          encoded = json.dumps(
+              [dict(row) for row in rows], default=str, sort_keys=True
+          ).encode()
+          payload = {
+              "active_exact_cu_targets": exact_targets,
+              "minimum_required_funding_rows": minimum_funding,
+              "active_funding_rows": active_rows,
+              "duplicate_active_institutions": duplicate_institutions,
+              "duplicate_active_natural_keys": duplicate_natural_keys,
+              "bad_identity_rows": bad_identity,
+              "exact_link_mismatches": link_mismatch,
+              "source_collisions": [dict(row) for row in collisions],
+              "funding_sha256": hashlib.sha256(encoded).hexdigest(),
+          }
+          Path("publish/cu-total-assets-funding-baseline.json").write_text(
+              json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          print(json.dumps(payload, ensure_ascii=False))
+          assert exact_targets >= 800, payload
+          assert active_rows >= minimum_funding, payload
+          assert duplicate_institutions == 0, payload
+          assert duplicate_natural_keys == 0, payload
+          assert bad_identity == 0, payload
+          assert link_mismatch == 0, payload
+          assert not collisions, payload
+          PY
+
+      - name: Collect same-disclosure CU size pairs for every funded institution
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          import json
+          import sqlite3
+          from pathlib import Path
+
+          from rate_monitor.collectors.cu.total_assets_evidence import (
+              collect_cu_size_pair_evidence,
+          )
+
+          db = Path("work/rate_monitor.sqlite3")
+          conn = sqlite3.connect(db)
+          funded_keys = {
+              row[0]
+              for row in conn.execute(
+                  "SELECT source_institution_key FROM institution_funding_observations "
+                  "WHERE source_id='cu_disclosure_funding' "
+                  "AND metric_code='deposit_liabilities_total' AND valid_to IS NULL"
+              )
+          }
+          assert funded_keys
+          evidence = collect_cu_size_pair_evidence(
+              db_path=db,
+              periods=1,
+              only_cu_nos=funded_keys,
+              request_interval=1.0,
+              raw_root=Path("work/cu-size-peer-raw"),
+          )
+          payload = {
+              "status": evidence.status,
+              "target_count": evidence.target_count,
+              "completed_targets": evidence.completed_targets,
+              "failed_targets": list(evidence.failed_targets),
+              "pair_count": len(evidence.pairs),
+              "warning_count": evidence.warning_count,
+              "message": evidence.message,
+              "pairs": [
+                  {
+                      "cu_ingno": pair.cu_ingno,
+                      "institution_id": pair.institution_id,
+                      "institution_name": pair.institution_name,
+                      "source_effective_month": pair.source_effective_month,
+                      "disclosure_no": pair.disclosure_no,
+                      "deposit_liabilities_total": str(pair.deposit_liabilities_total),
+                      "total_assets": str(pair.total_assets),
+                      "raw_sha256": pair.raw_sha256,
+                  }
+                  for pair in evidence.pairs
+              ],
+          }
+          Path("publish/cu-total-assets-production-evidence.json").write_text(
+              json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          print(json.dumps({k: v for k, v in payload.items() if k != "pairs"}, ensure_ascii=False))
+          assert evidence.status == "success", payload
+          assert evidence.target_count == len(funded_keys), payload
+          assert evidence.completed_targets == len(funded_keys), payload
+          assert not evidence.failed_targets, payload
+          assert len(evidence.pairs) == len(funded_keys), payload
+          assert {pair.cu_ingno for pair in evidence.pairs} == funded_keys, payload
+          PY
+
+      - name: Persist CU total assets twice and require idempotency
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+
+          from rate_monitor.collectors.cu.total_assets_evidence import (
+              collect_cu_size_pair_evidence,
+          )
+          from rate_monitor.collectors.cu.total_assets_persistence import (
+              persist_cu_total_assets_pairs,
+          )
+
+          # Rebuild typed evidence from the same official pages rather than trusting
+          # serialized JSON as a persistence input. This also re-checks source drift.
+          evidence_json = json.loads(
+              Path("publish/cu-total-assets-production-evidence.json").read_text(encoding="utf-8")
+          )
+          funded_keys = {row["cu_ingno"] for row in evidence_json["pairs"]}
+          evidence = collect_cu_size_pair_evidence(
+              db_path=Path("work/rate_monitor.sqlite3"),
+              periods=1,
+              only_cu_nos=funded_keys,
+              request_interval=1.0,
+              raw_root=Path("work/cu-size-peer-raw"),
+          )
+          assert evidence.status == "success", evidence
+          assert evidence.completed_targets == len(funded_keys), evidence
+          assert not evidence.failed_targets, evidence
+          assert len(evidence.pairs) == len(funded_keys), evidence
+
+          first = persist_cu_total_assets_pairs(
+              db_path=Path("work/rate_monitor.sqlite3"),
+              evidence_raw_root=Path("work/cu-size-peer-raw"),
+              artifact_root=Path("data/raw"),
+              pairs=evidence.pairs,
+          )
+          second = persist_cu_total_assets_pairs(
+              db_path=Path("work/rate_monitor.sqlite3"),
+              evidence_raw_root=Path("work/cu-size-peer-raw"),
+              artifact_root=Path("data/raw"),
+              pairs=evidence.pairs,
+          )
+          payload = {
+              "target_count": len(funded_keys),
+              "first": {
+                  "status": first.status,
+                  "stored": first.stored,
+                  "revisions": first.revisions,
+                  "unchanged": first.unchanged,
+              },
+              "second": {
+                  "status": second.status,
+                  "stored": second.stored,
+                  "revisions": second.revisions,
+                  "unchanged": second.unchanged,
+              },
+          }
+          Path("publish/cu-total-assets-production-persistence.json").write_text(
+              json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          print(json.dumps(payload, ensure_ascii=False))
+          assert first.status == "success", payload
+          assert first.stored + first.unchanged == len(funded_keys), payload
+          assert first.revisions == 0, payload
+          assert second.status == "success", payload
+          assert second.stored == 0, payload
+          assert second.revisions == 0, payload
+          assert second.unchanged == len(funded_keys), payload
+          PY
+
+      - name: Verify funding isolation and exact pair completeness
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          import hashlib
+          import json
+          import sqlite3
+          from pathlib import Path
+
+          baseline = json.loads(
+              Path("publish/cu-total-assets-funding-baseline.json").read_text(encoding="utf-8")
+          )
+          conn = sqlite3.connect("work/rate_monitor.sqlite3")
+          conn.row_factory = sqlite3.Row
+          funding = conn.execute(
+              "SELECT * FROM institution_funding_observations "
+              "WHERE source_id='cu_disclosure_funding' "
+              "AND metric_code='deposit_liabilities_total' AND valid_to IS NULL "
+              "ORDER BY id"
+          ).fetchall()
+          encoded = json.dumps(
+              [dict(row) for row in funding], default=str, sort_keys=True
+          ).encode()
+          funding_sha = hashlib.sha256(encoded).hexdigest()
+          assert len(funding) == baseline["active_funding_rows"], baseline
+          assert funding_sha == baseline["funding_sha256"], baseline
+
+          assets = conn.execute(
+              "SELECT o.*, r.sha256 AS raw_sha256 FROM institution_funding_observations o "
+              "LEFT JOIN raw_artifacts r ON r.id=o.raw_artifact_id "
+              "WHERE o.source_id='cu_disclosure_funding' "
+              "AND o.metric_code='total_assets' AND o.valid_to IS NULL "
+              "ORDER BY o.source_institution_key"
+          ).fetchall()
+          duplicate_assets = conn.execute(
+              "SELECT COUNT(*) FROM ("
+              "SELECT source_institution_key, source_effective_month "
+              "FROM institution_funding_observations "
+              "WHERE source_id='cu_disclosure_funding' "
+              "AND metric_code='total_assets' AND valid_to IS NULL "
+              "GROUP BY source_institution_key, source_effective_month HAVING COUNT(*) > 1)"
+          ).fetchone()[0]
+          bad_assets = conn.execute(
+              "SELECT COUNT(*) FROM institution_funding_observations "
+              "WHERE source_id='cu_disclosure_funding' "
+              "AND metric_code='total_assets' AND valid_to IS NULL "
+              "AND (institution_id IS NULL OR identity_status!='mapped_exact_cu_ingno' "
+              "OR unit!='million_krw' OR source_unit!='million_krw' OR raw_artifact_id IS NULL)"
+          ).fetchone()[0]
+          pair_matches = conn.execute(
+              "SELECT COUNT(*) FROM institution_funding_observations a "
+              "JOIN institution_funding_observations f "
+              "ON f.source_id=a.source_id "
+              "AND f.source_institution_key=a.source_institution_key "
+              "AND f.source_effective_month=a.source_effective_month "
+              "AND f.institution_id=a.institution_id "
+              "AND f.metric_code='deposit_liabilities_total' AND f.valid_to IS NULL "
+              "WHERE a.source_id='cu_disclosure_funding' "
+              "AND a.metric_code='total_assets' AND a.valid_to IS NULL"
+          ).fetchone()[0]
+          missing_provenance = sum(not row["raw_sha256"] for row in assets)
+          integrity = conn.execute("PRAGMA integrity_check").fetchone()[0]
+          fk = conn.execute("PRAGMA foreign_key_check").fetchall()
+          payload = {
+              "funding_rows_unchanged": len(funding),
+              "funding_sha256_unchanged": funding_sha,
+              "active_asset_rows": len(assets),
+              "exact_pair_matches": pair_matches,
+              "duplicate_asset_natural_keys": duplicate_assets,
+              "bad_asset_rows": bad_assets,
+              "missing_raw_provenance": missing_provenance,
+              "integrity_check": integrity,
+              "foreign_key_violations": len(fk),
+          }
+          Path("publish/cu-total-assets-production-qc.json").write_text(
+              json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          print(json.dumps(payload, ensure_ascii=False))
+          assert len(assets) == len(funding), payload
+          assert pair_matches == len(funding), payload
+          assert duplicate_assets == 0, payload
+          assert bad_assets == 0, payload
+          assert missing_provenance == 0, payload
+          assert integrity == "ok", payload
+          assert not fk, payload
+          PY
+
+      - name: Snapshot and validate candidate
+        run: |
+          set -euo pipefail
+          uv run rate-monitor snapshot \
+            --db work/rate_monitor.sqlite3 \
+            --publish-db publish/rate_monitor.sqlite3 \
+            --manifest publish/manifest.json
+          uv run rate-monitor validate --db publish/rate_monitor.sqlite3
+
+      - name: Persist raw CU total-assets evidence to R2 long-term tier
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+          R2_REGION: ${{ vars.R2_REGION }}
+        run: |
+          set -euo pipefail
+          uv run python -m rate_monitor.services.evidence_lifecycle_service upload-raw \
+            --root data/raw \
+            --category cu-total-assets \
+            --run-id "${{ github.run_id }}"
+
+      - name: Upload authoritative state to R2
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+          R2_REGION: ${{ vars.R2_REGION }}
+        run: uv run rate-monitor storage upload --db publish/rate_monitor.sqlite3
+
+      - name: Verify authoritative R2 restore byte-for-byte
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+          R2_REGION: ${{ vars.R2_REGION }}
+        run: |
+          set -euo pipefail
+          uv run rate-monitor storage restore --dest work/cu-total-assets-from-r2.sqlite3
+          cmp -s publish/rate_monitor.sqlite3 work/cu-total-assets-from-r2.sqlite3
+          uv run python - <<'PY'
+          import json
+          import sqlite3
+          from pathlib import Path
+
+          expected = json.loads(
+              Path("publish/cu-total-assets-production-qc.json").read_text(encoding="utf-8")
+          )
+          conn = sqlite3.connect("work/cu-total-assets-from-r2.sqlite3")
+          funding = conn.execute(
+              "SELECT COUNT(*) FROM institution_funding_observations "
+              "WHERE source_id='cu_disclosure_funding' "
+              "AND metric_code='deposit_liabilities_total' AND valid_to IS NULL"
+          ).fetchone()[0]
+          assets = conn.execute(
+              "SELECT COUNT(*) FROM institution_funding_observations "
+              "WHERE source_id='cu_disclosure_funding' "
+              "AND metric_code='total_assets' AND valid_to IS NULL"
+          ).fetchone()[0]
+          bad_assets = conn.execute(
+              "SELECT COUNT(*) FROM institution_funding_observations "
+              "WHERE source_id='cu_disclosure_funding' "
+              "AND metric_code='total_assets' AND valid_to IS NULL "
+              "AND (institution_id IS NULL OR identity_status!='mapped_exact_cu_ingno')"
+          ).fetchone()[0]
+          integrity = conn.execute("PRAGMA integrity_check").fetchone()[0]
+          fk = conn.execute("PRAGMA foreign_key_check").fetchall()
+          payload = {
+              "funding_rows": funding,
+              "asset_rows": assets,
+              "bad_asset_identity_rows": bad_assets,
+              "integrity_check": integrity,
+              "foreign_key_violations": len(fk),
+              "byte_for_byte_restore": True,
+          }
+          Path("publish/cu-total-assets-production-r2-readback.json").write_text(
+              json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          print(json.dumps(payload, ensure_ascii=False))
+          assert funding == expected["funding_rows_unchanged"], (payload, expected)
+          assert assets == expected["active_asset_rows"], (payload, expected)
+          assert bad_assets == 0, payload
+          assert integrity == "ok", payload
+          assert not fk, payload
+          PY
+
+      - name: Upload CU total-assets production evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cu-total-assets-production-bootstrap-${{ github.run_id }}
+          retention-days: 90
+          if-no-files-found: warn
+          path: |
+            publish/cu-total-assets-funding-baseline.json
+            publish/cu-total-assets-production-evidence.json
+            publish/cu-total-assets-production-persistence.json
+            publish/cu-total-assets-production-qc.json
+            publish/cu-total-assets-production-r2-readback.json
+            publish/manifest.json
