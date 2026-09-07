@@ -6,8 +6,8 @@ financial state.
 
 Two clocks remain separate:
 
-* ``financial_as_of`` is the latest exact month where both supported sectors have
-  both financial axes in the canonical funding table.
+* ``financial_as_of`` is the latest exact month where all active supported sectors
+  have both financial axes in the canonical funding table.
 * ``eligibility_as_of`` is current selected-product evidence from rate observations.
 
 Missing axes, unsupported identity, ambiguous identity and unsupported channel
@@ -57,17 +57,36 @@ FUNDING_METRIC = "deposit_liabilities_total"
 ASSETS_METRIC = "total_assets"
 NORMALIZED_UNIT = "million_krw"
 
-SUPPORTED_SECTORS = ("savings_bank", "nh_local")
-UNSUPPORTED_SECTORS = ("cu", "kfcc")
+# Savings banks and local agricultural co-ops are the already proven baseline.
+# CU is promoted only when production contains an exact common-vintage two-axis
+# financial pair. This keeps the existing Size Peer surface ready if CU evidence is
+# absent or temporally incompatible, instead of taking the whole surface down.
+REQUIRED_SECTORS = ("savings_bank", "nh_local")
+OPTIONAL_SECTORS = ("cu",)
+FINANCIAL_SECTORS = (*REQUIRED_SECTORS, *OPTIONAL_SECTORS)
+ALWAYS_UNSUPPORTED_SECTORS = ("kfcc",)
+
 FINANCIAL_SOURCE_BY_SECTOR = {
     "savings_bank": "data_go_savings_bank_funding",
     "nh_local": "data_go_agri_coop_funding",
+    "cu": "cu_disclosure_funding",
 }
 RATE_SOURCE_BY_SECTOR = {
     "savings_bank": "fsb",
     "nh_local": "nh_local",
+    "cu": "cu",
+}
+_SECTOR_LABEL = {
+    "savings_bank": "저축은행",
+    "nh_local": "농·축협",
+    "cu": "신협",
+    "kfcc": "새마을금고",
 }
 _REMOTE_CHANNELS = frozenset({"internet", "mobile", "smartphone", "smart_phone"})
+_REMOTE_EVIDENCE_SECTORS = frozenset({"nh_local", "cu"})
+# CU rate disclosure region is a query condition, not an official outlet address.
+# Therefore only NH local product/outlet rows may establish branch locality here.
+_BRANCH_PRODUCT_LOCALITY_SECTORS = frozenset({"nh_local"})
 
 _REQUIRED_TABLES = frozenset(
     {
@@ -83,7 +102,25 @@ _REQUIRED_TABLES = frozenset(
 )
 
 
-def _base_payload(*, reason: str | None = None) -> dict[str, Any]:
+def _unsupported_sectors(supported_sectors: tuple[str, ...]) -> tuple[str, ...]:
+    supported = set(supported_sectors)
+    return tuple(
+        sector
+        for sector in (*OPTIONAL_SECTORS, *ALWAYS_UNSUPPORTED_SECTORS)
+        if sector not in supported
+    )
+
+
+def _coverage_note(supported_sectors: tuple[str, ...]) -> str:
+    labels = [_SECTOR_LABEL[sector] for sector in supported_sectors]
+    return "현재 총자산 비교 가능 업권: " + " · ".join(labels)
+
+
+def _base_payload(
+    *,
+    reason: str | None = None,
+    supported_sectors: tuple[str, ...] = REQUIRED_SECTORS,
+) -> dict[str, Any]:
     return {
         "status": "unavailable" if reason else "ready",
         "reason": reason,
@@ -94,9 +131,9 @@ def _base_payload(*, reason: str | None = None) -> dict[str, Any]:
         "universe_policy_id": SIZE_PEER_UNIVERSE_POLICY_ID,
         "universe_policy_version": SIZE_PEER_UNIVERSE_POLICY_VERSION,
         "term_months": TERM_MONTHS,
-        "supported_sectors": list(SUPPORTED_SECTORS),
-        "unsupported_sectors": list(UNSUPPORTED_SECTORS),
-        "coverage_note": "현재 총자산 비교 가능 업권: 저축은행 · 농·축협",
+        "supported_sectors": list(supported_sectors),
+        "unsupported_sectors": list(_unsupported_sectors(supported_sectors)),
+        "coverage_note": _coverage_note(supported_sectors),
         "financial_as_of": None,
         "eligibility_as_of": None,
         "eligibility_source_as_of": {},
@@ -170,10 +207,10 @@ def _financial_rows(conn: sqlite3.Connection) -> list[sqlite3.Row]:
     statuses = sorted(VERIFIED_IDENTITY_STATUSES)
     placeholders = ",".join("?" for _ in statuses)
     source_clauses = " OR ".join(
-        "(ifo.sector = ? AND ifo.source_id = ?)" for _ in SUPPORTED_SECTORS
+        "(ifo.sector = ? AND ifo.source_id = ?)" for _ in FINANCIAL_SECTORS
     )
     params: list[object] = [*statuses]
-    for sector in SUPPORTED_SECTORS:
+    for sector in FINANCIAL_SECTORS:
         params.extend((sector, FINANCIAL_SOURCE_BY_SECTOR[sector]))
     return conn.execute(
         f"""
@@ -208,9 +245,9 @@ def _financial_rows(conn: sqlite3.Connection) -> list[sqlite3.Row]:
     ).fetchall()
 
 
-def _latest_exact_common_month(rows: list[sqlite3.Row]) -> str:
-    by_sector: dict[str, dict[str, set[str]]] = {
-        sector: defaultdict(set) for sector in SUPPORTED_SECTORS
+def _complete_months_by_sector(rows: list[sqlite3.Row]) -> dict[str, set[str]]:
+    metrics_by_sector_month: dict[str, dict[str, set[str]]] = {
+        sector: defaultdict(set) for sector in FINANCIAL_SECTORS
     }
     for row in rows:
         value = _positive_decimal(row["value"])
@@ -219,30 +256,58 @@ def _latest_exact_common_month(rows: list[sqlite3.Row]) -> str:
         sector = str(row["sector"])
         month = str(row["source_effective_month"] or "").strip()
         metric = str(row["metric_code"])
-        if sector in by_sector and len(month) == 7:
-            by_sector[sector][month].add(metric)
+        if sector in metrics_by_sector_month and len(month) == 7:
+            metrics_by_sector_month[sector][month].add(metric)
 
-    common: set[str] | None = None
     required = {FUNDING_METRIC, ASSETS_METRIC}
-    for sector in SUPPORTED_SECTORS:
-        complete_months = {
-            month for month, metrics in by_sector[sector].items() if required.issubset(metrics)
+    return {
+        sector: {
+            month
+            for month, metrics in metrics_by_sector_month[sector].items()
+            if required.issubset(metrics)
         }
-        common = complete_months if common is None else common & complete_months
+        for sector in FINANCIAL_SECTORS
+    }
+
+
+def _active_sectors_and_common_month(
+    rows: list[sqlite3.Row],
+) -> tuple[tuple[str, ...], str]:
+    """Promote optional sectors only when an exact common two-axis month exists."""
+    complete = _complete_months_by_sector(rows)
+    common: set[str] | None = None
+    for sector in REQUIRED_SECTORS:
+        sector_months = complete[sector]
+        common = sector_months if common is None else common & sector_months
     if not common:
         raise SizePeerEligibilityEvidenceError("common_financial_month_missing")
-    return max(common)
+
+    supported = list(REQUIRED_SECTORS)
+    for sector in OPTIONAL_SECTORS:
+        overlap = common & complete[sector]
+        if overlap:
+            supported.append(sector)
+            common = overlap
+
+    return tuple(supported), max(common)
 
 
 def _financial_candidates(
-    rows: list[sqlite3.Row], *, month: str
+    rows: list[sqlite3.Row],
+    *,
+    month: str,
+    sectors: tuple[str, ...],
 ) -> tuple[TwoAxisFinancialCandidate, ...]:
     grouped: dict[str, dict[str, sqlite3.Row]] = defaultdict(dict)
     identity_keys: dict[str, set[tuple[str, str, str]]] = defaultdict(set)
     names: dict[str, tuple[str, str]] = {}
+    allowed_sectors = set(sectors)
 
     for row in rows:
         if str(row["source_effective_month"]) != month:
+            continue
+        sector = str(row["sector"])
+        if sector not in allowed_sectors:
             continue
         value = _positive_decimal(row["value"])
         if value is None:
@@ -259,7 +324,7 @@ def _financial_candidates(
                 str(row["source_crno"] or ""),
             )
         )
-        names[institution_id] = (str(row["canonical_name"]), str(row["sector"]))
+        names[institution_id] = (str(row["canonical_name"]), sector)
 
     result: list[TwoAxisFinancialCandidate] = []
     for institution_id in sorted(grouped):
@@ -300,10 +365,17 @@ def _current_product_evidence(
     conn: sqlite3.Connection,
     *,
     candidate_ids: set[str],
+    sectors: tuple[str, ...],
 ) -> tuple[set[str], tuple[EligibilityEvidenceFact, ...], str, dict[str, str]]:
     if not candidate_ids:
         raise SizePeerEligibilityEvidenceError("financial_candidates_missing")
     placeholders = ",".join("?" for _ in candidate_ids)
+    source_clauses = " OR ".join(
+        "(i.sector = ? AND cr.source_id = ?)" for _ in sectors
+    )
+    source_params: list[str] = []
+    for sector in sectors:
+        source_params.extend((sector, RATE_SOURCE_BY_SECTOR[sector]))
     rows = conn.execute(
         f"""
         SELECT i.id AS institution_id,
@@ -327,13 +399,10 @@ def _current_product_evidence(
           AND p.product_type = 'term_deposit'
           AND pv.term_months = ?
           AND i.id IN ({placeholders})
-          AND (
-                (i.sector = 'savings_bank' AND cr.source_id = 'fsb')
-             OR (i.sector = 'nh_local' AND cr.source_id = 'nh_local')
-          )
+          AND ({source_clauses})
         ORDER BY i.id, ro.last_seen_at DESC
         """,
-        (TERM_MONTHS, *sorted(candidate_ids)),
+        (TERM_MONTHS, *sorted(candidate_ids), *source_params),
     ).fetchall()
     if not rows:
         raise SizePeerEligibilityEvidenceError("current_product_evidence_missing")
@@ -341,7 +410,7 @@ def _current_product_evidence(
     current_ids: set[str] = set()
     channels: dict[str, set[str]] = defaultdict(set)
     districts: dict[str, set[str]] = defaultdict(set)
-    sectors: dict[str, str] = {}
+    sector_by_id: dict[str, str] = {}
     source_dates: dict[str, str] = {}
 
     for row in rows:
@@ -349,15 +418,17 @@ def _current_product_evidence(
         sector = str(row["sector"])
         source_id = str(row["source_id"])
         current_ids.add(institution_id)
-        sectors[institution_id] = sector
+        sector_by_id[institution_id] = sector
         last_seen = str(row["last_seen_at"] or "")[:10]
         if len(last_seen) == 10:
             source_dates[source_id] = max(source_dates.get(source_id, ""), last_seen)
 
-        if sector == "nh_local":
+        if sector in _REMOTE_EVIDENCE_SECTORS:
             channel = str(row["join_channel"] or "").strip().lower()
             if channel in _REMOTE_CHANNELS:
                 channels[institution_id].add(channel)
+
+        if sector in _BRANCH_PRODUCT_LOCALITY_SECTORS:
             sido = str(row["outlet_sido"] or "").strip()
             sigungu = str(row["outlet_sigungu"] or "").strip()
             address = str(row["outlet_address"] or "").strip()
@@ -370,7 +441,7 @@ def _current_product_evidence(
     savings_ids = sorted(
         institution_id
         for institution_id in current_ids
-        if sectors.get(institution_id) == "savings_bank"
+        if sector_by_id.get(institution_id) == "savings_bank"
     )
     if savings_ids:
         savings_placeholders = ",".join("?" for _ in savings_ids)
@@ -403,12 +474,12 @@ def _current_product_evidence(
             source_channels=tuple(sorted(channels[institution_id])),
             busan_districts=tuple(sorted(districts[institution_id])),
             channel_evidence_source_id=(
-                RATE_SOURCE_BY_SECTOR[sectors[institution_id]]
+                RATE_SOURCE_BY_SECTOR[sector_by_id[institution_id]]
                 if channels[institution_id]
                 else None
             ),
             locality_evidence_source_id=(
-                RATE_SOURCE_BY_SECTOR[sectors[institution_id]]
+                RATE_SOURCE_BY_SECTOR[sector_by_id[institution_id]]
                 if districts[institution_id]
                 else None
             ),
@@ -418,8 +489,8 @@ def _current_product_evidence(
     eligibility_dates = sorted(source_dates.values())
     if not eligibility_dates:
         raise SizePeerEligibilityEvidenceError("eligibility_as_of_missing")
-    # Conservative two-source clock: the surface claims only the date through which
-    # all currently represented source families have been observed.
+    # Conservative multi-source clock: the surface claims only the date through
+    # which every currently represented source family has been observed.
     eligibility_as_of = min(eligibility_dates)
     return current_ids, facts, eligibility_as_of, dict(sorted(source_dates.items()))
 
@@ -486,8 +557,12 @@ def build_size_peer_strategy_payload(db_path: Path) -> dict[str, Any]:
         try:
             anchor_id = _anchor_id(conn)
             financial_rows = _financial_rows(conn)
-            financial_as_of = _latest_exact_common_month(financial_rows)
-            candidates = _financial_candidates(financial_rows, month=financial_as_of)
+            supported_sectors, financial_as_of = _active_sectors_and_common_month(financial_rows)
+            candidates = _financial_candidates(
+                financial_rows,
+                month=financial_as_of,
+                sectors=supported_sectors,
+            )
             by_id = {candidate.institution_id: candidate for candidate in candidates}
             anchor = by_id.get(anchor_id)
             if anchor is None:
@@ -496,6 +571,7 @@ def build_size_peer_strategy_payload(db_path: Path) -> dict[str, Any]:
             current_ids, facts, eligibility_as_of, source_dates = _current_product_evidence(
                 conn,
                 candidate_ids=set(by_id),
+                sectors=supported_sectors,
             )
             current_candidates = tuple(
                 candidate for candidate in candidates if candidate.institution_id in current_ids
@@ -533,7 +609,10 @@ def build_size_peer_strategy_payload(db_path: Path) -> dict[str, Any]:
             ready_modes = [
                 mode for mode, payload in mode_payloads.items() if payload["status"] == "ready"
             ]
-            payload = _base_payload(reason=None)
+            payload = _base_payload(
+                reason=None,
+                supported_sectors=supported_sectors,
+            )
             payload.update(
                 {
                     "status": "ready" if ready_modes else "unavailable",
