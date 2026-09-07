@@ -255,6 +255,24 @@ async function assertTrend(page, label) {
 }
 
 async function assertVisualRuntimeContracts(page, label) {
+  await page.waitForSelector("#strategy-rate-decision-simulator", { state: "visible", timeout: 10_000 });
+  const legacyDetails = page.locator("#strategy-rate-decision-simulator details.rds-details");
+  await legacyDetails.waitFor({ state: "visible", timeout: 10_000 });
+  const legacyState = await page.evaluate(() => {
+    const details = document.querySelector("#strategy-rate-decision-simulator details.rds-details");
+    const cockpit = document.getElementById("public-structural-v2-cockpit");
+    const finder = document.getElementById("public-structural-v2-factual-rate-finder");
+    return {
+      open: Boolean(details?.open),
+      cockpitInLegacy: Boolean(details && cockpit && details.contains(cockpit)),
+      finderInCockpit: Boolean(cockpit && finder && cockpit.contains(finder)),
+    };
+  });
+  invariant(!legacyState.open, `${label}: detailed structural analysis must start collapsed`);
+  invariant(legacyState.cockpitInLegacy, `${label}: Public Structural cockpit must stay inside detailed analysis`);
+  invariant(legacyState.finderInCockpit, `${label}: Factual Finder must stay inside Public Structural detail`);
+  await legacyDetails.locator("summary").click();
+  await page.waitForFunction(() => document.querySelector("#strategy-rate-decision-simulator details.rds-details")?.open === true, null, { timeout: 10_000 });
   await page.waitForSelector("#public-structural-v2-cockpit", { state: "visible", timeout: 10_000 });
   await page.waitForSelector("#public-structural-v2-factual-rate-finder", { state: "visible", timeout: 10_000 });
   const result = await page.evaluate(() => {

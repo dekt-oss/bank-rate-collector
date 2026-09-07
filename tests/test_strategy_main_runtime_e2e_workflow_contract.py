@@ -120,6 +120,9 @@ def test_strategy_workspace_smoke_locks_decision_first_order_and_role_split() ->
     assert "assertVisualRuntimeContracts" in text
     assert "computed brand accent=" in text
     assert "Strategy regional map resurfaced" in text
+    assert "detailed structural analysis must start collapsed" in text
+    assert "Public Structural cockpit must stay inside detailed analysis" in text
+    assert "Factual Finder must stay inside Public Structural detail" in text
     assert "active Public Structural Response Surface missing" in text
     assert "Public Structural Response Surface not rendered" in text
     assert "Factual Finder runtime host missing" in text
