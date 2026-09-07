@@ -19,7 +19,9 @@ def test_cu_total_assets_bootstrap_uses_serialized_authoritative_writer_lane() -
 def test_cu_total_assets_bootstrap_requires_production_funding_first() -> None:
     text = _text()
     prerequisite = text.index("- name: Require production CU funding prerequisite and seal it")
-    evidence = text.index("- name: Collect same-disclosure CU size pairs for every funded institution")
+    evidence = text.index(
+        "- name: Collect same-disclosure CU size pairs for every funded institution"
+    )
     persistence = text.index("- name: Persist CU total assets twice and require idempotency")
     assert prerequisite < evidence < persistence
     assert "minimum_funding = math.ceil(exact_targets * 0.97)" in text
