@@ -69,7 +69,92 @@ jobs:
           RATE_MONITOR_DB_URL: sqlite+pysqlite:///${{ github.workspace }}/work/rate_monitor.sqlite3
         run: uv run alembic upgrade head
 
-      - name: Seal existing CU funding observations
+      - name: Inventory production CU funding baseline
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          import json
+          import sqlite3
+          from pathlib import Path
+
+          conn = sqlite3.connect("work/rate_monitor.sqlite3")
+          rows = conn.execute(
+              "SELECT COUNT(*) FROM institution_funding_observations "
+              "WHERE source_id='cu_disclosure_funding' "
+              "AND metric_code='deposit_liabilities_total'"
+          ).fetchone()[0]
+          payload = {"production_baseline_rows": rows, "production_write": False}
+          Path("publish/cu-funding-production-baseline.json").write_text(
+              json.dumps(payload, indent=2) + "\n", encoding="utf-8"
+          )
+          print(payload)
+          PY
+
+      - name: Seed bounded CU funding on candidate twice
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+
+          from rate_monitor.collectors.cu.funding import collect_cu_disclosure_funding
+
+          controls = {"02002", "02022", "03087", "10154"}
+          kwargs = {
+              "db_path": Path("work/rate_monitor.sqlite3"),
+              "raw_root": Path("data/raw"),
+              "periods": 1,
+              "only_cu_nos": controls,
+              "request_interval": 0.2,
+          }
+          first = collect_cu_disclosure_funding(**kwargs)
+          second = collect_cu_disclosure_funding(**kwargs)
+          payload = {
+              "first": {
+                  "status": first.status,
+                  "target_count": first.target_count,
+                  "completed_targets": first.completed_targets,
+                  "failed_targets": list(first.failed_targets),
+                  "parsed_points": first.parsed_points,
+                  "stored": first.stored,
+                  "revisions": first.revisions,
+                  "unchanged": first.unchanged,
+                  "warning_count": first.warning_count,
+              },
+              "second": {
+                  "status": second.status,
+                  "target_count": second.target_count,
+                  "completed_targets": second.completed_targets,
+                  "failed_targets": list(second.failed_targets),
+                  "parsed_points": second.parsed_points,
+                  "stored": second.stored,
+                  "revisions": second.revisions,
+                  "unchanged": second.unchanged,
+                  "warning_count": second.warning_count,
+              },
+              "production_write": False,
+          }
+          Path("publish/cu-funding-candidate.json").write_text(
+              json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          print(json.dumps(payload, ensure_ascii=False))
+          assert first.status == "success", payload
+          assert first.target_count == len(controls), payload
+          assert first.completed_targets == len(controls), payload
+          assert not first.failed_targets, payload
+          assert first.parsed_points == len(controls), payload
+          assert first.revisions == 0, payload
+          assert first.stored + first.unchanged == len(controls), payload
+          assert second.status == "success", payload
+          assert second.completed_targets == len(controls), payload
+          assert not second.failed_targets, payload
+          assert second.stored == 0, payload
+          assert second.revisions == 0, payload
+          assert second.unchanged == len(controls), payload
+          PY
+
+      - name: Seal candidate CU funding before assets
         run: |
           set -euo pipefail
           uv run python - <<'PY'
@@ -93,14 +178,13 @@ jobs:
               "sha256": hashlib.sha256(encoded).hexdigest(),
           }
           Path("publish/cu-funding-before-assets.json").write_text(
-              json.dumps(payload, indent=2) + "\n",
-              encoding="utf-8",
+              json.dumps(payload, indent=2) + "\n", encoding="utf-8"
           )
           print(payload)
-          assert payload["rows"] > 0
+          assert payload["rows"] >= 4
           PY
 
-      - name: Collect and persist bounded same-disclosure controls twice
+      - name: Collect and persist bounded same-disclosure total assets twice
         run: |
           set -euo pipefail
           uv run python - <<'PY'
@@ -177,13 +261,13 @@ jobs:
               encoding="utf-8",
           )
           print(json.dumps(payload, ensure_ascii=False))
-          assert first.status == "success"
-          assert first.stored + first.unchanged == len(controls)
-          assert first.revisions == 0
-          assert second.status == "success"
-          assert second.stored == 0
-          assert second.revisions == 0
-          assert second.unchanged == len(controls)
+          assert first.status == "success", payload
+          assert first.stored + first.unchanged == len(controls), payload
+          assert first.revisions == 0, payload
+          assert second.status == "success", payload
+          assert second.stored == 0, payload
+          assert second.revisions == 0, payload
+          assert second.unchanged == len(controls), payload
           PY
 
       - name: Verify funding isolation, pair completeness and provenance
@@ -243,7 +327,7 @@ jobs:
           integrity = conn.execute("PRAGMA integrity_check").fetchone()[0]
           fk = conn.execute("PRAGMA foreign_key_check").fetchall()
           payload = {
-              "funding_rows_unchanged": len(funding),
+              "funding_rows_unchanged_after_assets": len(funding),
               "asset_rows_for_controls": len(assets),
               "integrity_check": integrity,
               "foreign_key_violations": len(fk),
@@ -272,6 +356,8 @@ jobs:
           retention-days: 30
           if-no-files-found: error
           path: |
+            publish/cu-funding-production-baseline.json
+            publish/cu-funding-candidate.json
             publish/cu-funding-before-assets.json
             publish/cu-total-assets-persistence.json
             publish/cu-total-assets-persistence-readback.json
