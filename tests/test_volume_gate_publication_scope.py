@@ -23,6 +23,8 @@ def test_rate_publication_ignores_only_known_funding_data_products():
             _run("data_go_agri_coop_funding", 11_273),
             _run("data_go_savings_bank_funding", 240),
             _run("data_go_savings_bank_funding", 1_840),
+            _run("cu_disclosure_funding", 4),
+            _run("cu_disclosure_funding", 828),
             _run("cu", 30_521),
             _run("cu", 30_400),
         ]
@@ -34,18 +36,18 @@ def test_rate_publication_ignores_only_known_funding_data_products():
     assert report(changes) == 0
 
 
-def test_diagnostic_mode_still_detects_funding_collapse():
+def test_diagnostic_mode_still_detects_production_cu_funding_collapse():
     summary = {
         "runs": [
-            _run("data_go_agri_coop_funding", 1_126),
-            _run("data_go_agri_coop_funding", 11_273),
+            _run("cu_disclosure_funding", 4),
+            _run("cu_disclosure_funding", 828),
         ]
     }
 
     changes = compare(summary, include_separate_data_products=True)
 
     assert len(changes) == 1
-    assert changes[0].source_id == "data_go_agri_coop_funding"
+    assert changes[0].source_id == "cu_disclosure_funding"
     assert changes[0].collapsed is True
     assert report(changes) == 1
 
@@ -85,6 +87,7 @@ def test_known_separate_data_product_contract_is_narrow():
         "data_go_savings_bank_funding",
         "data_go_credit_union_funding",
         "data_go_agri_coop_funding",
+        "cu_disclosure_funding",
     } == SEPARATE_DATA_PRODUCT_SOURCE_IDS
 
 
@@ -94,8 +97,8 @@ def test_cli_diagnostic_switch_restores_all_source_check(tmp_path):
         json.dumps(
             {
                 "runs": [
-                    _run("data_go_savings_bank_funding", 240),
-                    _run("data_go_savings_bank_funding", 1_840),
+                    _run("cu_disclosure_funding", 4),
+                    _run("cu_disclosure_funding", 828),
                 ]
             }
         ),

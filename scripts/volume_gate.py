@@ -66,6 +66,7 @@ SEPARATE_DATA_PRODUCT_SOURCE_IDS = frozenset(
         "data_go_savings_bank_funding",
         "data_go_credit_union_funding",
         "data_go_agri_coop_funding",
+        "cu_disclosure_funding",
     }
 )
 
