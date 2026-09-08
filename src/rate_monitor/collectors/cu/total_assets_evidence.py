@@ -3,6 +3,10 @@
 This module intentionally does not persist observations or publish R2 state. It reuses the
 current-main CU disclosure list, reporting-period selection, and exact ``cuIngno`` identity
 contract, then reads ``예수부채`` and ``자산합계`` from the same structured summary page.
+
+When an explicit CU target set is supplied, the collector also binds every institution to its
+single active ``deposit_liabilities_total`` observation month. This prevents a newer disclosure
+from being paired with an older funding row during production recovery/bootstrap.
 """
 
 from __future__ import annotations
@@ -16,10 +20,16 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 import httpx
+from sqlalchemy import select
 
 from rate_monitor.collectors.cu.funding import (
+    IDENTITY_STATUS,
+    LIST_PAGE_SIZE,
+    MAX_LIST_PAGES,
+    METRIC_CODE,
     REQUEST_INTERVAL_SECONDS,
     REQUEST_TIMEOUT,
+    SOURCE_ID,
     USER_AGENT,
     CuFundingContractError,
     DisclosureRecord,
@@ -29,13 +39,15 @@ from rate_monitor.collectors.cu.funding import (
     _targets,
     extract_table_rows,
 )
-from rate_monitor.db.session import create_db_engine, make_session_factory
+from rate_monitor.db.institution_funding_models import InstitutionFundingObservation
+from rate_monitor.db.session import create_db_engine, make_session_factory, session_scope
 from rate_monitor.db.types import quantize_quantity
 
 DEPOSIT_LABEL = "예수부채"
 TOTAL_ASSETS_LABEL = "자산합계"
 SOURCE_UNIT = "million_krw"
 _YEAR = re.compile(r"^\s*(20\d{2})")
+_EFFECTIVE_MONTH = re.compile(r"^20\d{2}-(?:06|12)$")
 
 
 @dataclass(frozen=True)
@@ -156,6 +168,99 @@ def _write_bytes(root: Path | None, filename: str, content: bytes) -> None:
     (root / filename).write_bytes(content)
 
 
+def select_disclosure_for_effective_month(
+    rows: list[dict[str, object]],
+    *,
+    cu_ingno: str,
+    source_effective_month: str,
+) -> tuple[DisclosureRecord, list[str]]:
+    """Select exactly one official CU disclosure for a required funding month.
+
+    The list endpoint is fully paginated before this selector runs. Corrections for the same
+    reporting period are resolved by the existing highest-``disclosureNo`` policy. A missing
+    required month is a contract failure; callers must never silently fall back to the latest
+    disclosure because that would break same-period persistence.
+    """
+    required_month = str(source_effective_month or "").strip()
+    if _EFFECTIVE_MONTH.fullmatch(required_month) is None:
+        raise CuFundingContractError(
+            "신협 Size Peer required funding month 형식 오류: "
+            f"cuIngno={cu_ingno} month={source_effective_month!r}"
+        )
+
+    disclosures, warnings = _select_latest_disclosures_with_warnings(
+        rows,
+        cu_ingno=cu_ingno,
+        periods=MAX_LIST_PAGES * LIST_PAGE_SIZE,
+    )
+    matches = [
+        disclosure
+        for disclosure in disclosures
+        if disclosure.source_effective_month == required_month
+    ]
+    if len(matches) != 1:
+        available = sorted(
+            {disclosure.source_effective_month for disclosure in disclosures},
+            reverse=True,
+        )
+        raise CuFundingContractError(
+            "신협 Size Peer funding month와 일치하는 요약공시는 정확히 1개여야 한다: "
+            f"cuIngno={cu_ingno} required={required_month} "
+            f"count={len(matches)} available={available}"
+        )
+    return matches[0], warnings
+
+
+def _active_funding_months_for_targets(
+    factory: object,
+    cu_nos: set[str],
+) -> dict[str, str]:
+    """Load one exact active funding month for each explicitly targeted CU institution."""
+    with session_scope(factory) as session:
+        observations = list(
+            session.scalars(
+                select(InstitutionFundingObservation).where(
+                    InstitutionFundingObservation.source_id == SOURCE_ID,
+                    InstitutionFundingObservation.metric_code == METRIC_CODE,
+                    InstitutionFundingObservation.valid_to.is_(None),
+                    InstitutionFundingObservation.source_institution_key.in_(cu_nos),
+                )
+            )
+        )
+
+    required: dict[str, str] = {}
+    for observation in observations:
+        cu_ingno = str(observation.source_institution_key or "").strip()
+        if cu_ingno not in cu_nos:
+            continue
+        if observation.institution_id is None or observation.identity_status != IDENTITY_STATUS:
+            raise CuFundingContractError(
+                "신협 Size Peer active funding identity 계약 불일치: "
+                f"cuIngno={cu_ingno} institution_id={observation.institution_id!r} "
+                f"identity_status={observation.identity_status!r}"
+            )
+        if cu_ingno in required:
+            raise CuFundingContractError(
+                "신협 Size Peer active funding observation은 기관별 정확히 1개여야 한다: "
+                f"cuIngno={cu_ingno}"
+            )
+        month = str(observation.source_effective_month or "").strip()
+        if _EFFECTIVE_MONTH.fullmatch(month) is None:
+            raise CuFundingContractError(
+                "신협 Size Peer active funding month 형식 오류: "
+                f"cuIngno={cu_ingno} month={month!r}"
+            )
+        required[cu_ingno] = month
+
+    missing = sorted(cu_nos - set(required))
+    if missing:
+        raise CuFundingContractError(
+            "신협 Size Peer active funding observation이 없는 target이 있다: "
+            f"{missing}"
+        )
+    return required
+
+
 def collect_cu_size_pair_evidence(
     *,
     db_path: Path,
@@ -164,13 +269,23 @@ def collect_cu_size_pair_evidence(
     request_interval: float = REQUEST_INTERVAL_SECONDS,
     raw_root: Path | None = None,
 ) -> CuSizePairEvidenceResult:
-    """Fetch CU size-pair evidence without mutating the database or canonical storage."""
+    """Fetch CU size-pair evidence without mutating the database or canonical storage.
+
+    If ``only_cu_nos`` is supplied, each requested CU is pinned to the effective month of its
+    unique active funding observation. This is the production recovery/bootstrap contract and
+    intentionally differs from a generic "latest disclosure" lookup.
+    """
     if periods < 1:
         raise ValueError("periods는 1 이상이어야 한다")
 
     engine = create_db_engine(db_path)
     factory = make_session_factory(engine)
     targets = _targets(factory, only_cu_nos)
+    required_months = (
+        _active_funding_months_for_targets(factory, set(only_cu_nos))
+        if only_cu_nos is not None
+        else None
+    )
     timeout = httpx.Timeout(REQUEST_TIMEOUT)
     pairs: list[CuSizePairEvidence] = []
     failures: dict[str, str] = {}
@@ -192,11 +307,20 @@ def collect_cu_size_pair_evidence(
                 )
                 for artifact in artifacts:
                     _write_bytes(raw_root, artifact.filename, artifact.content)
-                disclosures, warnings = _select_latest_disclosures_with_warnings(
-                    rows,
-                    cu_ingno=cu_ingno,
-                    periods=periods,
-                )
+
+                if required_months is None:
+                    disclosures, warnings = _select_latest_disclosures_with_warnings(
+                        rows,
+                        cu_ingno=cu_ingno,
+                        periods=periods,
+                    )
+                else:
+                    disclosure, warnings = select_disclosure_for_effective_month(
+                        rows,
+                        cu_ingno=cu_ingno,
+                        source_effective_month=required_months[cu_ingno],
+                    )
+                    disclosures = [disclosure]
                 warning_count += len(warnings)
                 if not disclosures:
                     raise CuFundingContractError(
