@@ -1,12 +1,11 @@
 from pathlib import Path
 
-
 COLLECT = Path(".github/workflows/collect.yml")
 
 
 def test_main_push_does_not_enter_canonical_collection_writer() -> None:
     text = COLLECT.read_text(encoding="utf-8")
-    trigger_block = text.split("# 모든 수집 workflow", 1)[0]
+    trigger_block = text.split("concurrency:", 1)[0]
     assert "\n  push:\n" not in trigger_block
     assert "github.event_name == 'push'" not in text
 
