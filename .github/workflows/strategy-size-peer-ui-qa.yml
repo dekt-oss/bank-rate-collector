@@ -107,6 +107,81 @@ jobs:
           RATE_MONITOR_DB_URL: sqlite+pysqlite:///${{ github.workspace }}/work/rate_monitor.sqlite3
         run: uv run alembic upgrade head
 
+      - name: Record authoritative financial-axis evidence
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          import json
+          import sqlite3
+          from pathlib import Path
+
+          db = Path("work/rate_monitor.sqlite3")
+          c = sqlite3.connect(db)
+          c.row_factory = sqlite3.Row
+          source_by_sector = {
+              "savings_bank": "data_go_savings_bank_funding",
+              "nh_local": "data_go_agri_coop_funding",
+              "cu": "cu_disclosure_funding",
+          }
+          active_rows = []
+          pair_rows = []
+          for sector, source_id in source_by_sector.items():
+              metrics = c.execute(
+                  """
+                  SELECT source_effective_month, metric_code,
+                         COUNT(*) AS active_rows,
+                         SUM(CASE WHEN institution_id IS NOT NULL THEN 1 ELSE 0 END) AS mapped_rows,
+                         COUNT(DISTINCT institution_id) AS mapped_institutions
+                  FROM institution_funding_observations
+                  WHERE valid_to IS NULL
+                    AND sector = ?
+                    AND source_id = ?
+                    AND metric_code IN ('deposit_liabilities_total', 'total_assets')
+                  GROUP BY source_effective_month, metric_code
+                  ORDER BY source_effective_month, metric_code
+                  """,
+                  (sector, source_id),
+              ).fetchall()
+              active_rows.extend(
+                  {"sector": sector, "source_id": source_id, **dict(row)} for row in metrics
+              )
+              pairs = c.execute(
+                  """
+                  SELECT a.source_effective_month,
+                         COUNT(*) AS exact_pair_rows,
+                         COUNT(DISTINCT a.institution_id) AS exact_pair_institutions
+                  FROM institution_funding_observations AS a
+                  JOIN institution_funding_observations AS f
+                    ON f.source_id = a.source_id
+                   AND f.source_institution_key = a.source_institution_key
+                   AND f.source_effective_month = a.source_effective_month
+                   AND f.institution_id = a.institution_id
+                   AND f.metric_code = 'deposit_liabilities_total'
+                   AND f.valid_to IS NULL
+                  WHERE a.valid_to IS NULL
+                    AND a.institution_id IS NOT NULL
+                    AND a.sector = ?
+                    AND a.source_id = ?
+                    AND a.metric_code = 'total_assets'
+                  GROUP BY a.source_effective_month
+                  ORDER BY a.source_effective_month
+                  """,
+                  (sector, source_id),
+              ).fetchall()
+              pair_rows.extend(
+                  {"sector": sector, "source_id": source_id, **dict(row)} for row in pairs
+              )
+          payload = {
+              "active_metric_rows": active_rows,
+              "exact_pair_rows": pair_rows,
+          }
+          Path("work/strategy-size-peer-financial-evidence.json").write_text(
+              json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          print(json.dumps(payload, ensure_ascii=False))
+          PY
+
       - name: Inspect authoritative production Size Peer readiness
         run: |
           set -euo pipefail
@@ -234,6 +309,7 @@ jobs:
           path: |
             work/strategy-size-peer-*.png
             work/strategy-size-peer-runtime-metrics.json
+            work/strategy-size-peer-financial-evidence.json
             work/strategy-size-peer-production-before.json
             work/strategy-size-peer-production-payload.json
             work/strategy-size-peer-http.log
