@@ -26,7 +26,7 @@ jobs:
         run: uv python install 3.12
       - name: Sync dependencies
         run: uv sync --locked
-      - name: Recovery workflow and CU exact-month contract tests
+      - name: Recovery workflow contract tests + CU exact-month
         run: >-
           uv run pytest -q
           tests/test_cu_total_assets_evidence.py
