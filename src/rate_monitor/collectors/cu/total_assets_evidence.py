@@ -18,6 +18,7 @@ import time
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
+from typing import Any
 
 import httpx
 from sqlalchemy import select
@@ -169,7 +170,7 @@ def _write_bytes(root: Path | None, filename: str, content: bytes) -> None:
 
 
 def select_disclosure_for_effective_month(
-    rows: list[dict[str, object]],
+    rows: list[dict[str, Any]],
     *,
     cu_ingno: str,
     source_effective_month: str,
@@ -212,7 +213,7 @@ def select_disclosure_for_effective_month(
 
 
 def _active_funding_months_for_targets(
-    factory: object,
+    factory: Any,
     cu_nos: set[str],
 ) -> dict[str, str]:
     """Load one exact active funding month for each explicitly targeted CU institution."""
