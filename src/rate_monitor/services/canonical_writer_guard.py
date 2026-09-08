@@ -40,6 +40,9 @@ _WORKFLOW_SCOPES: dict[str, frozenset[str]] = {
         {"size_peer_recovery"}
     ),
 }
+_KNOWN_WRITER_SCOPES = frozenset(
+    scope for scopes in _WORKFLOW_SCOPES.values() for scope in scopes
+)
 _SOURCE_PREFIX_SCOPES: tuple[tuple[str, frozenset[str]], ...] = (
     ("src/rate_monitor/collectors/finlife/", frozenset({"collect", "fast_bank"})),
     ("src/rate_monitor/collectors/fsb/", frozenset({"collect", "fast_bank"})),
@@ -140,7 +143,7 @@ def _is_scope_irrelevant_stale_path(path: str, writer_scope: str) -> bool:
     """
 
     scope = writer_scope.strip()
-    if not scope:
+    if scope not in _KNOWN_WRITER_SCOPES:
         return False
 
     normalized = path.strip().replace("\\", "/")
