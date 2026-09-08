@@ -1,3 +1,5 @@
+import os
+
 from rate_monitor.services.canonical_writer_guard import (
     _infer_writer_scope,
     _is_publish_safe_stale_path,
@@ -51,7 +53,7 @@ def test_workflow_ref_infers_known_writer_scope(monkeypatch) -> None:
         "GITHUB_WORKFLOW_REF",
         "dekt-oss/bank-rate-collector/.github/workflows/collect-nh.yml@refs/heads/main",
     )
-    assert _workflow_path_from_ref(monkeypatch.getenv("GITHUB_WORKFLOW_REF")) == (
+    assert _workflow_path_from_ref(os.environ["GITHUB_WORKFLOW_REF"]) == (
         ".github/workflows/collect-nh.yml"
     )
     assert _infer_writer_scope() == "nh_local"
