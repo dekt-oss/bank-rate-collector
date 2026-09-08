@@ -54,10 +54,6 @@ _SOURCE_PREFIX_SCOPES: tuple[tuple[str, frozenset[str]], ...] = (
         "src/rate_monitor/collectors/data_go_funding/",
         frozenset({"institution_funding", "size_peer_total_assets", "size_peer_recovery"}),
     ),
-    (
-        "src/rate_monitor/services/size_peer_",
-        frozenset({"size_peer_total_assets", "size_peer_recovery"}),
-    ),
 )
 
 
@@ -140,7 +136,7 @@ def _is_scope_irrelevant_stale_path(path: str, writer_scope: str) -> bool:
     """Return True only for an explicitly source-local path outside this writer scope.
 
     An absent/unknown writer scope deliberately preserves the historical strict guard.
-    Shared persistence/schema/runtime paths are never inferred to be safe.
+    Shared persistence/schema/runtime/read-model paths are never inferred to be safe.
     """
 
     scope = writer_scope.strip()
