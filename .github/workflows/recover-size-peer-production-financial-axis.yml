@@ -16,13 +16,6 @@ on:
       - .github/workflows/recover-size-peer-production-financial-axis.yml
       - tests/test_size_peer_production_recovery_workflow.py
 
-# This is a one-writer corrective path. Restore authoritative R2 once, recover all
-# Size Peer financial axes in one candidate DB, then move current.json once.
-concurrency:
-  group: rate-data-writer
-  queue: max
-  cancel-in-progress: false
-
 permissions:
   contents: read
 
@@ -50,6 +43,12 @@ jobs:
     if: ${{ github.event_name != 'pull_request' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 420
+    # Only the production writer takes the canonical serialization lane. PR contract
+    # checks must never queue behind long-running collectors.
+    concurrency:
+      group: rate-data-writer
+      queue: max
+      cancel-in-progress: false
     steps:
       - name: Check collect password
         if: ${{ github.event_name == 'workflow_dispatch' }}
