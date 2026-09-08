@@ -3,7 +3,10 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-from rate_monitor.services.size_peer_strategy_payload import build_size_peer_strategy_payload
+from rate_monitor.services.size_peer_strategy_payload import (
+    _active_sectors_and_common_month,
+    build_size_peer_strategy_payload,
+)
 from tests.test_size_peer_strategy_payload import _busan_outlet, _current_product, _fixture
 
 
@@ -163,3 +166,26 @@ def test_cu_without_exact_common_vintage_does_not_break_existing_size_peer(
     assert payload["supported_sectors"] == ["savings_bank", "nh_local"]
     assert payload["unsupported_sectors"] == ["cu", "kfcc"]
     assert payload["coverage_note"] == "현재 총자산 비교 가능 업권: 저축은행 · 농·축협"
+
+
+def test_cu_cannot_roll_baseline_financial_month_backward() -> None:
+    rows = [
+        {
+            "sector": sector,
+            "source_effective_month": month,
+            "metric_code": metric,
+            "value": "1",
+        }
+        for sector, months in (
+            ("savings_bank", ("2025-12", "2026-03")),
+            ("nh_local", ("2025-12", "2026-03")),
+            ("cu", ("2025-12",)),
+        )
+        for month in months
+        for metric in ("deposit_liabilities_total", "total_assets")
+    ]
+
+    supported, financial_as_of = _active_sectors_and_common_month(rows)  # type: ignore[arg-type]
+
+    assert financial_as_of == "2026-03"
+    assert supported == ("savings_bank", "nh_local")
