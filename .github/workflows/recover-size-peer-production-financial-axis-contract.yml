@@ -1,0 +1,31 @@
+name: Contract — Size Peer production financial-axis recovery
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/recover-size-peer-production-financial-axis.yml
+      - .github/workflows/recover-size-peer-production-financial-axis-contract.yml
+      - tests/test_size_peer_production_recovery_workflow.py
+      - tests/test_writer_workflow_concurrency.py
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Set up Python
+        run: uv python install 3.12
+      - name: Sync dependencies
+        run: uv sync --locked
+      - name: Recovery workflow contract tests
+        run: >-
+          uv run pytest -q
+          tests/test_size_peer_production_recovery_workflow.py
+          tests/test_writer_workflow_concurrency.py
