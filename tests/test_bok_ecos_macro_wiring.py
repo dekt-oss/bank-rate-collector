@@ -78,8 +78,9 @@ def test_macro_wiring_uses_reference_only_or_general_collection_gate() -> None:
     assert "--raw-root data/raw" in block
 
 
-def test_main_push_still_publishes_only_and_does_not_collect_macro() -> None:
+def test_main_push_no_longer_enters_collection_writer() -> None:
     source = WORKFLOW.read_text(encoding="utf-8")
+    trigger_block = source.split("concurrency:", 1)[0]
 
-    assert "PUBLISH_ONLY: ${{ github.event_name == 'push'" in source
-    assert "# main 머지는 원천을 다시 긁지 않고 화면만 재발행한다." in source
+    assert "\n  push:\n" not in trigger_block
+    assert "github.event_name == 'push'" not in source
