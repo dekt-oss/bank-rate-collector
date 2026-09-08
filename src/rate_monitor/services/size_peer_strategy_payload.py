@@ -273,7 +273,7 @@ def _complete_months_by_sector(rows: list[sqlite3.Row]) -> dict[str, set[str]]:
 def _active_sectors_and_common_month(
     rows: list[sqlite3.Row],
 ) -> tuple[tuple[str, ...], str]:
-    """Promote optional sectors only when an exact common two-axis month exists."""
+    """Keep the latest baseline month; promote optional sectors only at that month."""
     complete = _complete_months_by_sector(rows)
     common: set[str] | None = None
     for sector in REQUIRED_SECTORS:
@@ -282,14 +282,13 @@ def _active_sectors_and_common_month(
     if not common:
         raise SizePeerEligibilityEvidenceError("common_financial_month_missing")
 
+    baseline_month = max(common)
     supported = list(REQUIRED_SECTORS)
     for sector in OPTIONAL_SECTORS:
-        overlap = common & complete[sector]
-        if overlap:
+        if baseline_month in complete[sector]:
             supported.append(sector)
-            common = overlap
 
-    return tuple(supported), max(common)
+    return tuple(supported), baseline_month
 
 
 def _financial_candidates(
