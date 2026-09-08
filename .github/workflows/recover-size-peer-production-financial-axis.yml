@@ -303,12 +303,17 @@ jobs:
               "message": evidence.message,
               "pairs": [
                   {
-                      "cu_ingno": pair.cu_ingno,
                       "institution_id": pair.institution_id,
+                      "cu_ingno": pair.cu_ingno,
+                      "institution_name": pair.institution_name,
                       "source_effective_month": pair.source_effective_month,
                       "disclosure_no": pair.disclosure_no,
+                      "disclosure_type": pair.disclosure_type,
                       "deposit_liabilities_total": str(pair.deposit_liabilities_total),
                       "total_assets": str(pair.total_assets),
+                      "deposit_source_text": pair.deposit_source_text,
+                      "total_assets_source_text": pair.total_assets_source_text,
+                      "source_locator": pair.source_locator,
                       "raw_sha256": pair.raw_sha256,
                   }
                   for pair in evidence.pairs
@@ -331,6 +336,7 @@ jobs:
           set -euo pipefail
           uv run python - <<'PY'
           import json
+          from decimal import Decimal
           from pathlib import Path
 
           from rate_monitor.collectors.cu.total_assets_evidence import CuSizePairEvidence
@@ -339,13 +345,17 @@ jobs:
           raw = json.loads(Path("publish/recovery-cu-evidence.json").read_text(encoding="utf-8"))
           pairs = tuple(
               CuSizePairEvidence(
-                  cu_ingno=row["cu_ingno"],
                   institution_id=row["institution_id"],
-                  institution_name="",
+                  cu_ingno=row["cu_ingno"],
+                  institution_name=row["institution_name"],
                   source_effective_month=row["source_effective_month"],
                   disclosure_no=int(row["disclosure_no"]),
-                  deposit_liabilities_total=row["deposit_liabilities_total"],
-                  total_assets=row["total_assets"],
+                  disclosure_type=row["disclosure_type"],
+                  deposit_liabilities_total=Decimal(row["deposit_liabilities_total"]),
+                  total_assets=Decimal(row["total_assets"]),
+                  deposit_source_text=row["deposit_source_text"],
+                  total_assets_source_text=row["total_assets_source_text"],
+                  source_locator=row["source_locator"],
                   raw_sha256=row["raw_sha256"],
               )
               for row in raw["pairs"]
@@ -476,6 +486,32 @@ jobs:
           assert not conn.execute("PRAGMA foreign_key_check").fetchall()
           PY
 
+      - name: Require baseline Strategy Size Peer ready before publish
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+
+          from rate_monitor.services.size_peer_strategy_payload import build_size_peer_strategy_payload
+
+          payload = build_size_peer_strategy_payload(Path("work/rate_monitor.sqlite3"))
+          Path("publish/recovery-size-peer-payload.json").write_text(
+              json.dumps(payload, ensure_ascii=False, indent=2, default=str) + "\n",
+              encoding="utf-8",
+          )
+          print(json.dumps({
+              "status": payload.get("status"),
+              "reason": payload.get("reason"),
+              "financial_as_of": payload.get("financial_as_of"),
+              "supported_sectors": payload.get("supported_sectors"),
+          }, ensure_ascii=False))
+          assert payload.get("status") == "ready", payload
+          assert payload.get("financial_as_of") == "2025-12", payload
+          assert payload.get("supported_sectors")[:2] == ["savings_bank", "nh_local"], payload
+          assert payload.get("anchor", {}).get("institution") == "고려저축은행", payload
+          PY
+
       - name: Snapshot and validate recovered candidate
         run: |
           set -euo pipefail
@@ -527,6 +563,8 @@ jobs:
           import sqlite3
           from pathlib import Path
 
+          from rate_monitor.services.size_peer_strategy_payload import build_size_peer_strategy_payload
+
           expected = json.loads(Path("publish/recovery-financial-axis-qc.json").read_text(encoding="utf-8"))
           conn = sqlite3.connect("work/size-peer-recovery-from-r2.sqlite3")
           assets = {
@@ -538,9 +576,13 @@ jobs:
               ).fetchone()[0]
               for sector in ("savings_bank", "nh_local", "cu")
           }
+          size_peer = build_size_peer_strategy_payload(Path("work/size-peer-recovery-from-r2.sqlite3"))
           payload = {
               "byte_for_byte_restore": True,
               "mapped_active_total_assets": assets,
+              "size_peer_status": size_peer.get("status"),
+              "size_peer_reason": size_peer.get("reason"),
+              "size_peer_financial_as_of": size_peer.get("financial_as_of"),
               "integrity_check": conn.execute("PRAGMA integrity_check").fetchone()[0],
               "foreign_key_violations": len(conn.execute("PRAGMA foreign_key_check").fetchall()),
           }
@@ -551,6 +593,8 @@ jobs:
           print(json.dumps(payload, ensure_ascii=False))
           assert payload["integrity_check"] == "ok", payload
           assert payload["foreign_key_violations"] == 0, payload
+          assert payload["size_peer_status"] == "ready", payload
+          assert payload["size_peer_financial_as_of"] == "2025-12", payload
           for sector, count in assets.items():
               assert count == expected["total_assets_by_sector"][sector], (sector, count, expected)
           PY
@@ -570,5 +614,6 @@ jobs:
             publish/recovery-cu-evidence.json
             publish/recovery-cu-persistence.json
             publish/recovery-financial-axis-qc.json
+            publish/recovery-size-peer-payload.json
             publish/recovery-r2-readback.json
             publish/manifest.json
