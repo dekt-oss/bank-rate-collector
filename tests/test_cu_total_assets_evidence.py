@@ -5,7 +5,10 @@ from decimal import Decimal
 import pytest
 
 from rate_monitor.collectors.cu.funding import CuFundingContractError, DisclosureRecord
-from rate_monitor.collectors.cu.total_assets_evidence import parse_summary_size_pair
+from rate_monitor.collectors.cu.total_assets_evidence import (
+    parse_summary_size_pair,
+    select_disclosure_for_effective_month,
+)
 
 
 def _disclosure(*, year: int = 2025, disclosure_type: str = "1") -> DisclosureRecord:
@@ -62,6 +65,26 @@ def _parse(text: str, *, disclosure: DisclosureRecord | None = None):
     )
 
 
+def _list_row(
+    *,
+    disclosure_no: int,
+    year: int,
+    disclosure_type: str,
+    reg_date: str,
+) -> dict[str, object]:
+    kind = "결산정기공시" if disclosure_type == "1" else "반기공시"
+    return {
+        "cuIngno": "02002",
+        "disclosureNo": str(disclosure_no),
+        "disclosureTy": disclosure_type,
+        "disclosureName": f"{year}년도 {kind}",
+        "regDate": reg_date,
+        "shortFileName": f"{disclosure_no}.pdf",
+        "bogoTy": "Y",
+        "chkYn3": "Y",
+    }
+
+
 def test_size_pair_parser_reads_exact_rows_from_same_disclosure() -> None:
     pair = _parse(_summary_html())
 
@@ -108,3 +131,82 @@ def test_size_pair_parser_rejects_missing_deposit_liabilities() -> None:
 def test_size_pair_parser_rejects_header_year_mismatch() -> None:
     with pytest.raises(CuFundingContractError, match="header 불일치"):
         _parse(_summary_html(year=2024, prior=2023), disclosure=_disclosure(year=2025))
+
+
+def test_effective_month_selector_does_not_substitute_newer_disclosure() -> None:
+    rows = [
+        _list_row(
+            disclosure_no=300,
+            year=2026,
+            disclosure_type="2",
+            reg_date="2026-08-10",
+        ),
+        _list_row(
+            disclosure_no=220,
+            year=2025,
+            disclosure_type="1",
+            reg_date="2026-02-10",
+        ),
+    ]
+
+    disclosure, warnings = select_disclosure_for_effective_month(
+        rows,
+        cu_ingno="02002",
+        source_effective_month="2025-12",
+    )
+
+    assert disclosure.disclosure_no == 220
+    assert disclosure.source_effective_month == "2025-12"
+    assert warnings == []
+
+
+def test_effective_month_selector_uses_latest_correction_within_required_period() -> None:
+    rows = [
+        _list_row(
+            disclosure_no=220,
+            year=2025,
+            disclosure_type="1",
+            reg_date="2026-02-10",
+        ),
+        _list_row(
+            disclosure_no=225,
+            year=2025,
+            disclosure_type="1",
+            reg_date="2026-02-12",
+        ),
+    ]
+
+    disclosure, _warnings = select_disclosure_for_effective_month(
+        rows,
+        cu_ingno="02002",
+        source_effective_month="2025-12",
+    )
+
+    assert disclosure.disclosure_no == 225
+
+
+def test_effective_month_selector_fails_closed_when_required_period_is_absent() -> None:
+    rows = [
+        _list_row(
+            disclosure_no=300,
+            year=2026,
+            disclosure_type="2",
+            reg_date="2026-08-10",
+        )
+    ]
+
+    with pytest.raises(CuFundingContractError, match="required=2025-12"):
+        select_disclosure_for_effective_month(
+            rows,
+            cu_ingno="02002",
+            source_effective_month="2025-12",
+        )
+
+
+def test_effective_month_selector_rejects_non_disclosure_month() -> None:
+    with pytest.raises(CuFundingContractError, match="month 형식 오류"):
+        select_disclosure_for_effective_month(
+            [],
+            cu_ingno="02002",
+            source_effective_month="2025-09",
+        )

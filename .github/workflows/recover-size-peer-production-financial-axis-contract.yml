@@ -5,6 +5,8 @@ on:
     paths:
       - .github/workflows/recover-size-peer-production-financial-axis.yml
       - .github/workflows/recover-size-peer-production-financial-axis-contract.yml
+      - src/rate_monitor/collectors/cu/total_assets_evidence.py
+      - tests/test_cu_total_assets_evidence.py
       - tests/test_size_peer_production_recovery_workflow.py
       - tests/test_writer_workflow_concurrency.py
 
@@ -24,8 +26,9 @@ jobs:
         run: uv python install 3.12
       - name: Sync dependencies
         run: uv sync --locked
-      - name: Recovery workflow contract tests
+      - name: Recovery workflow contract tests + CU exact-month
         run: >-
           uv run pytest -q
+          tests/test_cu_total_assets_evidence.py
           tests/test_size_peer_production_recovery_workflow.py
           tests/test_writer_workflow_concurrency.py
