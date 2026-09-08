@@ -121,12 +121,12 @@ def test_cu_is_promoted_only_on_common_vintage_and_remote_evidence(tmp_path: Pat
         "savings_bank": {
             "source_id": "data_go_savings_bank_funding",
             "financial_as_of": "2025-12",
-            "pair_complete_institutions": 3,
+            "pair_complete_institutions": 2,
         },
         "nh_local": {
             "source_id": "data_go_agri_coop_funding",
             "financial_as_of": "2025-12",
-            "pair_complete_institutions": 3,
+            "pair_complete_institutions": 2,
         },
         "cu": {
             "source_id": "cu_disclosure_funding",
@@ -135,7 +135,7 @@ def test_cu_is_promoted_only_on_common_vintage_and_remote_evidence(tmp_path: Pat
         },
     }
     assert enriched["coverage_note"].endswith(
-        "공통월 pair: 저축은행 3 · 농·축협 3 · 신협 2"
+        "공통월 pair: 저축은행 2 · 농·축협 2 · 신협 2"
     )
 
     remote_ids = {
@@ -193,7 +193,7 @@ def test_cu_without_exact_common_vintage_does_not_break_existing_size_peer(
     enriched = _size_peer_with_pair_coverage(db_path, payload)
     assert set(enriched["financial_pair_coverage"]) == {"savings_bank", "nh_local"}
     assert "신협" not in enriched["coverage_note"]
-    assert "공통월 pair: 저축은행 3 · 농·축협 3" in enriched["coverage_note"]
+    assert "공통월 pair: 저축은행 2 · 농·축협 2" in enriched["coverage_note"]
 
 
 def test_cu_cannot_roll_baseline_financial_month_backward() -> None:
