@@ -26,12 +26,15 @@ def test_source_specific_collector_change_only_blocks_affected_scope() -> None:
     assert _is_scope_irrelevant_stale_path(nh_path, "collect")
 
 
-def test_shared_schema_and_storage_paths_remain_fail_closed() -> None:
+def test_shared_schema_storage_and_read_side_services_remain_fail_closed() -> None:
     assert not _is_scope_irrelevant_stale_path(
         "alembic/versions/999_add_column.py", "nh_local"
     )
     assert not _is_scope_irrelevant_stale_path(
         "src/rate_monitor/services/storage_service.py", "nh_local"
+    )
+    assert not _is_scope_irrelevant_stale_path(
+        "src/rate_monitor/services/size_peer_strategy_payload.py", "nh_local"
     )
     assert not _is_scope_irrelevant_stale_path(
         "src/rate_monitor/collectors/base.py", "nh_local"
