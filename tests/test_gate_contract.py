@@ -197,16 +197,16 @@ def test_scope_default_lives_in_config_for_kfcc_and_nh() -> None:
     assert "||" not in nh["run"]
 
 
-def test_a_merge_to_main_republishes_the_screen_by_itself() -> None:
+def test_a_merge_to_main_does_not_enter_the_collection_writer() -> None:
     triggers = _triggers(_workflow())
-    assert triggers["push"]["branches"] == ["main"]
-    assert "paths" not in triggers["push"]
+    assert "push" not in triggers
 
 
-def test_a_push_never_hits_a_source_but_a_schedule_does() -> None:
+def test_publish_only_is_manual_only_and_schedule_still_collects() -> None:
     gate = _workflow()["jobs"]["collect"]["env"]["PUBLISH_ONLY"]
-    assert "github.event_name == 'push'" in gate
+    assert "github.event_name == 'workflow_dispatch'" in gate
     assert "inputs.manual_target == '화면만 재발행'" in gate
+    assert "github.event_name == 'push'" not in gate
     assert "schedule" not in gate
 
 
@@ -253,6 +253,6 @@ def test_the_password_is_compared_in_the_shell_not_in_a_condition() -> None:
     assert "DASHBOARD_PASSWORD" not in str(step["if"])
 
 
-def test_the_scheduled_and_merge_runs_never_need_a_password() -> None:
+def test_scheduled_runs_never_need_a_password() -> None:
     step = _workflow()["jobs"]["collect"]["steps"][0]
     assert "github.event_name == 'workflow_dispatch'" in str(step["if"])
