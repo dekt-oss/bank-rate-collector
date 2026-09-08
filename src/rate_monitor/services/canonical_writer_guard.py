@@ -25,10 +25,10 @@ _SAFE_SMOKE_SUFFIXES = ("_smoke.js", "_smoke.py")
 # Source-aware writer scopes. A long-running collector must not be discarded because
 # an unrelated collector/workflow changed while it was acquiring data. Only paths
 # explicitly mapped here may be ignored for another scope; every unknown/shared path
-# remains fail-closed. This intentionally does NOT make schema, persistence, storage,
-# shared collector helpers, dependencies, or arbitrary services scope-local.
+# remains fail-closed. ``collect.yml`` intentionally uses one broad scope because the
+# same workflow can collect core rates or KFCC depending on the trigger.
 _WORKFLOW_SCOPES: dict[str, frozenset[str]] = {
-    ".github/workflows/collect.yml": frozenset({"core", "kfcc"}),
+    ".github/workflows/collect.yml": frozenset({"collect"}),
     ".github/workflows/collect-nh.yml": frozenset({"nh_local"}),
     ".github/workflows/nh-attempt.yml": frozenset({"nh_local"}),
     ".github/workflows/collect-savings-fast.yml": frozenset({"fast_bank"}),
@@ -41,14 +41,14 @@ _WORKFLOW_SCOPES: dict[str, frozenset[str]] = {
     ),
 }
 _SOURCE_PREFIX_SCOPES: tuple[tuple[str, frozenset[str]], ...] = (
-    ("src/rate_monitor/collectors/finlife/", frozenset({"core", "fast_bank"})),
-    ("src/rate_monitor/collectors/fsb/", frozenset({"core", "fast_bank"})),
-    ("src/rate_monitor/collectors/bok_ecos/", frozenset({"core"})),
+    ("src/rate_monitor/collectors/finlife/", frozenset({"collect", "fast_bank"})),
+    ("src/rate_monitor/collectors/fsb/", frozenset({"collect", "fast_bank"})),
+    ("src/rate_monitor/collectors/bok_ecos/", frozenset({"collect"})),
     (
         "src/rate_monitor/collectors/cu/",
-        frozenset({"core", "cu_funding", "cu_total_assets", "size_peer_recovery"}),
+        frozenset({"collect", "cu_funding", "cu_total_assets", "size_peer_recovery"}),
     ),
-    ("src/rate_monitor/collectors/kfcc/", frozenset({"kfcc"})),
+    ("src/rate_monitor/collectors/kfcc/", frozenset({"collect"})),
     ("src/rate_monitor/collectors/nh_local/", frozenset({"nh_local"})),
     (
         "src/rate_monitor/collectors/data_go_funding/",
@@ -109,6 +109,31 @@ def _is_publish_safe_stale_path(path: str) -> bool:
     ):
         return True
     return normalized.startswith("scripts/") and normalized.endswith(_SAFE_SMOKE_SUFFIXES)
+
+
+def _workflow_path_from_ref(workflow_ref: str) -> str:
+    """Extract ``.github/workflows/*.yml`` from GITHUB_WORKFLOW_REF fail-closed."""
+
+    marker = "/.github/workflows/"
+    value = workflow_ref.strip().replace("\\", "/")
+    if marker not in value:
+        return ""
+    tail = value.split(marker, 1)[1]
+    filename = tail.split("@", 1)[0]
+    if not filename or "/" in filename:
+        return ""
+    return f".github/workflows/{filename}"
+
+
+def _infer_writer_scope() -> str:
+    explicit = os.environ.get("RATE_MONITOR_WRITER_SCOPE", "").strip()
+    if explicit:
+        return explicit
+    workflow_path = _workflow_path_from_ref(os.environ.get("GITHUB_WORKFLOW_REF", ""))
+    scopes = _WORKFLOW_SCOPES.get(workflow_path, frozenset())
+    if len(scopes) != 1:
+        return ""
+    return next(iter(scopes))
 
 
 def _is_scope_irrelevant_stale_path(path: str, writer_scope: str) -> bool:
@@ -189,9 +214,10 @@ def ensure_current_main_writer() -> None:
 
     Local runs, PR/evidence branches and other non-main Actions are intentionally
     untouched. A stale production writer is blocked whenever current main changes a
-    shared/unknown path or a path mapped to this writer's ``RATE_MONITOR_WRITER_SCOPE``.
+    shared/unknown path or a path mapped to this writer's inferred source scope.
     Explicitly mapped changes for another source do not invalidate hours of unrelated
-    acquisition. With no scope configured, behavior remains strictly backward-compatible.
+    acquisition. If workflow scope cannot be inferred, behavior remains strictly
+    backward-compatible and fail-closed.
 
     Presentation-only safe paths are refreshed from the verified current main commit
     before publication. Scope-irrelevant operational paths are not refreshed.
@@ -213,7 +239,7 @@ def ensure_current_main_writer() -> None:
         return
 
     changed = _changed_paths(run_sha, remote_sha)
-    writer_scope = os.environ.get("RATE_MONITOR_WRITER_SCOPE", "").strip()
+    writer_scope = _infer_writer_scope()
     unsafe = tuple(
         path
         for path in changed
