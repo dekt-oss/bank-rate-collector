@@ -7,6 +7,7 @@ from rate_monitor.services.size_peer_strategy_payload import (
     _active_sectors_and_common_month,
     build_size_peer_strategy_payload,
 )
+from rate_monitor.services.strategy_service import _size_peer_with_pair_coverage
 from tests.test_size_peer_strategy_payload import _busan_outlet, _current_product, _fixture
 
 
@@ -115,6 +116,28 @@ def test_cu_is_promoted_only_on_common_vintage_and_remote_evidence(tmp_path: Pat
         "nh_local": "2026-09-04",
     }
 
+    enriched = _size_peer_with_pair_coverage(db_path, payload)
+    assert enriched["financial_pair_coverage"] == {
+        "savings_bank": {
+            "source_id": "data_go_savings_bank_funding",
+            "financial_as_of": "2025-12",
+            "pair_complete_institutions": 3,
+        },
+        "nh_local": {
+            "source_id": "data_go_agri_coop_funding",
+            "financial_as_of": "2025-12",
+            "pair_complete_institutions": 3,
+        },
+        "cu": {
+            "source_id": "cu_disclosure_funding",
+            "financial_as_of": "2025-12",
+            "pair_complete_institutions": 2,
+        },
+    }
+    assert enriched["coverage_note"].endswith(
+        "공통월 pair: 저축은행 3 · 농·축협 3 · 신협 2"
+    )
+
     remote_ids = {
         row["institution_id"] for row in payload["modes"]["remote"]["display_rows"]
     }
@@ -166,6 +189,11 @@ def test_cu_without_exact_common_vintage_does_not_break_existing_size_peer(
     assert payload["supported_sectors"] == ["savings_bank", "nh_local"]
     assert payload["unsupported_sectors"] == ["cu", "kfcc"]
     assert payload["coverage_note"] == "현재 총자산 비교 가능 업권: 저축은행 · 농·축협"
+
+    enriched = _size_peer_with_pair_coverage(db_path, payload)
+    assert set(enriched["financial_pair_coverage"]) == {"savings_bank", "nh_local"}
+    assert "신협" not in enriched["coverage_note"]
+    assert "공통월 pair: 저축은행 3 · 농·축협 3" in enriched["coverage_note"]
 
 
 def test_cu_cannot_roll_baseline_financial_month_backward() -> None:
