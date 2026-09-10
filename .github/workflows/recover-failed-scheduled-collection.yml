@@ -9,11 +9,12 @@ on:
       - "Collect bank rates fast"
     types: [completed]
 
-# 이 workflow는 DB를 직접 쓰지 않는다. 실패한 *정기* 수집만 최신 main에서
-# 딱 한 번 workflow_dispatch하고 끝낸다. 재실행은 workflow_dispatch 이벤트라
-# 이 job의 schedule-only 조건을 다시 만족하지 않아 무한 retry가 되지 않는다.
-# child workflow가 기존 rate-data-writer lock을 그대로 사용하므로 canonical
-# write 직렬화도 유지된다.
+# 이 workflow는 DB를 직접 쓰지 않는다. 정기 수집이 전체 실패했거나,
+# continue-on-error 원천만 실패해서 부모 workflow가 success로 끝난 경우를
+# 구분해 최신 main에서 딱 한 번 workflow_dispatch한다. 재실행은
+# workflow_dispatch 이벤트라 schedule-only 조건을 다시 만족하지 않아 무한
+# retry가 되지 않는다. child workflow가 기존 rate-data-writer lock을 그대로
+# 사용하므로 canonical write 직렬화도 유지된다.
 concurrency:
   group: failed-scheduled-collection-recovery-control-plane
   cancel-in-progress: false
@@ -24,40 +25,48 @@ permissions:
 
 jobs:
   recover:
-    if: >-
-      ${{ github.event.workflow_run.conclusion == 'failure' &&
-          github.event.workflow_run.event == 'schedule' }}
+    if: ${{ github.event.workflow_run.event == 'schedule' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       COLLECT_PASSWORD: ${{ secrets.DASHBOARD_PASSWORD }}
-      FAILED_RUN_ID: ${{ github.event.workflow_run.id }}
-      FAILED_WORKFLOW: ${{ github.event.workflow_run.name }}
+      PARENT_RUN_ID: ${{ github.event.workflow_run.id }}
+      PARENT_WORKFLOW: ${{ github.event.workflow_run.name }}
+      PARENT_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+      PARENT_RUN_STARTED_AT: ${{ github.event.workflow_run.run_started_at }}
     steps:
+      - name: Checkout current main control plane
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
       - name: Validate recovery context
         run: |
           set -euo pipefail
           test -n "$COLLECT_PASSWORD"
-          test -n "$FAILED_RUN_ID"
-          test -n "$FAILED_WORKFLOW"
-          echo "failed scheduled workflow=$FAILED_WORKFLOW run_id=$FAILED_RUN_ID"
+          test -n "$PARENT_RUN_ID"
+          test -n "$PARENT_WORKFLOW"
+          test -n "$PARENT_CONCLUSION"
+          test -n "$PARENT_RUN_STARTED_AT"
+          echo "scheduled workflow=$PARENT_WORKFLOW run_id=$PARENT_RUN_ID conclusion=$PARENT_CONCLUSION"
 
-      - name: Dispatch one current-main recovery
+      - name: Dispatch one current-main recovery for terminal failure
+        if: ${{ env.PARENT_CONCLUSION == 'failure' }}
         run: |
           set -euo pipefail
 
-          case "$FAILED_WORKFLOW" in
+          case "$PARENT_WORKFLOW" in
             "수집 — 일반·새마을금고")
               # collect.yml has two schedules. Infer the failed schedule from the
               # immutable job environment printed in the completed run. If logs
               # cannot prove which schedule ran, fail closed instead of launching
               # the wrong acquisition scope.
-              gh run view "$FAILED_RUN_ID" \
+              gh run view "$PARENT_RUN_ID" \
                 --repo "$GITHUB_REPOSITORY" \
-                --log > failed-run.log
+                --log > parent-run.log
 
-              if grep -q 'KFCC_ONLY: true' failed-run.log; then
+              if grep -q 'KFCC_ONLY: true' parent-run.log; then
                 echo "recovery target=KFCC nationwide"
                 gh workflow run collect.yml \
                   --repo "$GITHUB_REPOSITORY" \
@@ -67,7 +76,7 @@ jobs:
                   -f kfcc_scope="전국" \
                   -f kfcc_resume_mode=auto \
                   -f accept_volume_drop=false
-              elif grep -q 'KFCC_ONLY: false' failed-run.log; then
+              elif grep -q 'KFCC_ONLY: false' parent-run.log; then
                 echo "recovery target=general"
                 gh workflow run collect.yml \
                   --repo "$GITHUB_REPOSITORY" \
@@ -76,7 +85,7 @@ jobs:
                   -f manual_target="일반 전체" \
                   -f accept_volume_drop=false
               else
-                echo "::error::failed run logs do not prove KFCC_ONLY=true/false; refusing ambiguous recovery"
+                echo "::error::parent logs do not prove KFCC_ONLY=true/false; refusing ambiguous recovery"
                 exit 1
               fi
               ;;
@@ -107,11 +116,9 @@ jobs:
               ;;
 
             "Collect bank rates fast")
-              # The fast workflow has no manual trigger. Recover through the
-              # authenticated general workflow so FINLIFE bank/savings + FSB are
-              # all refreshed once on current main rather than silently waiting
-              # for the next fast schedule.
-              echo "recovery target=general after fast-bank failure"
+              # Hard failure in fast collection can be FINLIFE or a downstream
+              # publication gate. Refresh the complete small bank-rate scope once.
+              echo "recovery target=general after fast-bank terminal failure"
               gh workflow run collect.yml \
                 --repo "$GITHUB_REPOSITORY" \
                 --ref main \
@@ -121,9 +128,114 @@ jobs:
               ;;
 
             *)
-              echo "::error::unsupported scheduled workflow: $FAILED_WORKFLOW"
+              echo "::error::unsupported scheduled workflow: $PARENT_WORKFLOW"
               exit 1
               ;;
           esac
 
-          echo "one-shot recovery dispatched on current main"
+          echo "one-shot terminal recovery dispatched on current main"
+
+      - name: Build recovery plan for soft-source failures
+        id: soft_plan
+        if: >-
+          ${{ env.PARENT_CONCLUSION == 'success' &&
+              (env.PARENT_WORKFLOW == '수집 — 일반·새마을금고' ||
+               env.PARENT_WORKFLOW == 'Collect bank rates fast') }}
+        run: |
+          set -euo pipefail
+          rm -rf recovery-evidence work/soft-recovery-plan.json
+          mkdir -p recovery-evidence work
+
+          EXTRA_ARGS=()
+          case "$PARENT_WORKFLOW" in
+            "수집 — 일반·새마을금고")
+              ARTIFACT="collection-run-$PARENT_RUN_ID"
+              gh run view "$PARENT_RUN_ID" \
+                --repo "$GITHUB_REPOSITORY" \
+                --log > parent-run.log
+              if grep -q 'KFCC_ONLY: true' parent-run.log; then
+                EXTRA_ARGS=(--kfcc-only true)
+              elif grep -q 'KFCC_ONLY: false' parent-run.log; then
+                EXTRA_ARGS=(--kfcc-only false)
+              else
+                echo "::error::parent logs do not prove KFCC_ONLY=true/false; refusing ambiguous soft recovery"
+                exit 1
+              fi
+              ;;
+            "Collect bank rates fast")
+              ARTIFACT="bank-rates-fast-$PARENT_RUN_ID"
+              ;;
+            *)
+              echo "::error::unsupported soft-recovery workflow: $PARENT_WORKFLOW"
+              exit 1
+              ;;
+          esac
+
+          # The artifact belongs to this exact immutable parent run. Reading the
+          # mutable rate-data branch here would race with later queued writers.
+          gh run download "$PARENT_RUN_ID" \
+            --repo "$GITHUB_REPOSITORY" \
+            --name "$ARTIFACT" \
+            --dir recovery-evidence
+
+          SUMMARY=$(find recovery-evidence -type f -name summary.json -print -quit)
+          if [ -z "$SUMMARY" ]; then
+            echo "::error::summary.json missing from parent artifact $ARTIFACT"
+            exit 1
+          fi
+
+          python scripts/scheduled_soft_failure_recovery.py \
+            --summary "$SUMMARY" \
+            --workflow "$PARENT_WORKFLOW" \
+            --run-started-at "$PARENT_RUN_STARTED_AT" \
+            "${EXTRA_ARGS[@]}" \
+            --output work/soft-recovery-plan.json
+
+          TARGET_COUNT=$(python -c "import json; print(len(json.load(open('work/soft-recovery-plan.json', encoding='utf-8'))['targets']))")
+          echo "target_count=$TARGET_COUNT" >> "$GITHUB_OUTPUT"
+          echo "soft recovery target_count=$TARGET_COUNT"
+          cat work/soft-recovery-plan.json
+
+      - name: Dispatch bounded recovery for soft-failed sources
+        if: ${{ steps.soft_plan.outputs.target_count != '' && steps.soft_plan.outputs.target_count != '0' }}
+        run: |
+          set -euo pipefail
+          mapfile -t TARGETS < <(
+            python -c "import json; print('\\n'.join(json.load(open('work/soft-recovery-plan.json', encoding='utf-8'))['targets']))"
+          )
+
+          for target in "${TARGETS[@]}"; do
+            case "$target" in
+              "일반 전체"|"참고지표만"|"저축은행만"|"신협만")
+                echo "soft recovery target=$target"
+                gh workflow run collect.yml \
+                  --repo "$GITHUB_REPOSITORY" \
+                  --ref main \
+                  -f password="$COLLECT_PASSWORD" \
+                  -f manual_target="$target" \
+                  -f accept_volume_drop=false
+                ;;
+              "새마을금고만")
+                echo "soft recovery target=KFCC nationwide"
+                gh workflow run collect.yml \
+                  --repo "$GITHUB_REPOSITORY" \
+                  --ref main \
+                  -f password="$COLLECT_PASSWORD" \
+                  -f manual_target="새마을금고만" \
+                  -f kfcc_scope="전국" \
+                  -f kfcc_resume_mode=auto \
+                  -f accept_volume_drop=false
+                ;;
+              *)
+                echo "::error::unmapped recovery target: $target"
+                exit 1
+                ;;
+            esac
+          done
+
+          echo "bounded soft-source recovery dispatched on current main"
+
+      - name: Report non-recoverable workflow conclusion
+        if: ${{ env.PARENT_CONCLUSION != 'success' && env.PARENT_CONCLUSION != 'failure' }}
+        run: |
+          echo "::notice::scheduled workflow conclusion=$PARENT_CONCLUSION; automatic retry is intentionally limited to failure or successful runs with proven soft-source failure"
