@@ -2,10 +2,17 @@
 
 from pathlib import Path
 
+import yaml
+
 CORE = Path(".github/workflows/collect.yml").read_text(encoding="utf-8")
 NH = Path(".github/workflows/collect-nh.yml").read_text(encoding="utf-8")
 FUNDING = Path(".github/workflows/collect-institution-funding.yml").read_text(encoding="utf-8")
 FAST = Path(".github/workflows/collect-savings-fast.yml").read_text(encoding="utf-8")
+
+
+def test_morning_sla_workflow_yaml_parses() -> None:
+    for workflow in (CORE, NH, FUNDING, FAST):
+        assert isinstance(yaml.safe_load(workflow), dict)
 
 
 def test_morning_sla_crons_are_reserved_in_kst_order() -> None:
