@@ -38,7 +38,12 @@ def test_strategy_main_runtime_e2e_is_isolated_and_observable() -> None:
     assert "source_contract_mismatch" not in text
     assert "schema_unavailable" not in text
     assert "invalid_previous_balance" not in text
-    assert "secrets.SITE_ACCESS_PASSWORD || secrets.DASHBOARD_PASSWORD" in text
+    assert "timeout-minutes: 60" in text
+    assert "scripts/rate_history_audit.py" in text
+    assert "work/rate-history-audit.json" in text
+    assert "work/strategy-runtime-timing.txt" in text
+    assert "SITE_ACCESS_PASSWORD: ${{ secrets.DASHBOARD_PASSWORD }}" in text
+    assert "secrets.SITE_ACCESS_PASSWORD || secrets.DASHBOARD_PASSWORD" not in text
     assert "https://bank-rate-collector.vercel.app" in text
     assert "bank-rate-collector-dekt-oss-projects.vercel.app" not in text
 
