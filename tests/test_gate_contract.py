@@ -109,42 +109,42 @@ def _triggers(workflow: dict) -> dict:
     return workflow.get("on", workflow.get(True))
 
 
-def test_core_and_kfcc_schedules_keep_their_kst_times() -> None:
-    """core 00:17, KFCC 04:17은 기존 시간 계약을 유지한다."""
+def test_core_and_kfcc_schedules_match_morning_sla_kst_times() -> None:
+    """core 01:17과 전날 KFCC 17:40이 다음 영업일 07:30 SLA를 지원한다."""
     import datetime as dt
 
     crons = [s["cron"] for s in _triggers(_workflow())["schedule"]]
-    assert crons == ["17 15 * * 0-4", "17 19 * * 0-4"]
+    assert crons == ["17 16 * * 0-4", "40 8 * * 0-4"]
 
     kst = dt.timezone(dt.timedelta(hours=9))
-    cases = [(0, 17, 15), (4, 17, 19)]
-    for local_hour, local_minute, utc_hour in cases:
-        for day in range(10, 17):
-            local = dt.datetime(
-                2026, 8, day, local_hour, local_minute, tzinfo=kst
-            )
-            utc = local.astimezone(dt.UTC)
-            assert (utc.hour, utc.minute) == (utc_hour, 17)
-            cron_weekday = (utc.weekday() + 1) % 7
-            caught = 0 <= cron_weekday <= 4
-            weekday = local.weekday() < 5
-            assert caught is weekday, f"{local:%m-%d %a %H:%M}가 어긋난다"
+    # UTC 일~목 스케줄이 다음 영업일(월~금) morning SLA를 준비한다.
+    for day in range(9, 14):  # 2026-08-09(일)~13(목)
+        core_utc = dt.datetime(2026, 8, day, 16, 17, tzinfo=dt.UTC)
+        core_local = core_utc.astimezone(kst)
+        assert (core_local.hour, core_local.minute) == (1, 17)
+        assert core_local.weekday() < 5
+
+        kfcc_utc = dt.datetime(2026, 8, day, 8, 40, tzinfo=dt.UTC)
+        kfcc_local = kfcc_utc.astimezone(kst)
+        assert (kfcc_local.hour, kfcc_local.minute) == (17, 40)
+        target_day = kfcc_local + dt.timedelta(days=1)
+        assert target_day.weekday() < 5
 
 
-def test_nh_has_its_own_0037_kst_schedule() -> None:
-    """NH는 core/KFCC와 별도 workflow에서 평일 00:37 KST에 시작한다."""
+def test_nh_has_previous_evening_1730_kst_schedule() -> None:
+    """NH는 다음 영업일 07:30 SLA를 위해 전날 17:30 KST에 시작한다."""
     import datetime as dt
 
     crons = [s["cron"] for s in _triggers(_nh_workflow())["schedule"]]
-    assert crons == ["37 15 * * 0-4"]
+    assert crons == ["30 8 * * 0-4"]
 
     kst = dt.timezone(dt.timedelta(hours=9))
-    for day in range(10, 17):
-        local = dt.datetime(2026, 8, day, 0, 37, tzinfo=kst)
-        utc = local.astimezone(dt.UTC)
-        assert (utc.hour, utc.minute) == (15, 37)
-        cron_weekday = (utc.weekday() + 1) % 7
-        assert (0 <= cron_weekday <= 4) is (local.weekday() < 5)
+    for day in range(9, 14):  # 2026-08-09(일)~13(목)
+        utc = dt.datetime(2026, 8, day, 8, 30, tzinfo=dt.UTC)
+        local = utc.astimezone(kst)
+        assert (local.hour, local.minute) == (17, 30)
+        target_day = local + dt.timedelta(days=1)
+        assert target_day.weekday() < 5
 
 
 def test_core_workflow_no_longer_contains_nh_collection() -> None:
