@@ -2,7 +2,6 @@ import sqlite3
 from pathlib import Path
 
 import pytest
-
 from scripts.rate_history_compact import compact_rate_history
 
 
@@ -169,7 +168,9 @@ def test_dry_run_reports_candidates_without_mutating_database(tmp_path: Path) ->
     assert db.read_bytes() == before
 
 
-def test_apply_collapses_only_consecutive_equal_values_and_preserves_current(tmp_path: Path) -> None:
+def test_apply_collapses_only_consecutive_equal_values_and_preserves_current(
+    tmp_path: Path,
+) -> None:
     db = tmp_path / "rates.sqlite3"
     compacted = tmp_path / "rates-compacted.sqlite3"
     _build_db(db)
