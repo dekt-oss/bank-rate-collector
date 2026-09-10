@@ -70,11 +70,11 @@ def test_checkpoint_workflows_keep_schedule_and_single_writer_contract() -> None
     core = _core_workflow()
     nh = _nh_workflow()
     assert [item["cron"] for item in _triggers(core)["schedule"]] == [
-        "17 15 * * 0-4",
-        "17 19 * * 0-4",
+        "17 16 * * 0-4",
+        "40 8 * * 0-4",
     ]
     assert [item["cron"] for item in _triggers(nh)["schedule"]] == [
-        "37 15 * * 0-4"
+        "30 8 * * 0-4"
     ]
     expected = {
         "group": "rate-data-writer",
