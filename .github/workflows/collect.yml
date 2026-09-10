@@ -37,17 +37,15 @@ on:
         required: false
         default: false
 
-  # main 머지는 원천을 다시 긁지 않고 화면만 재발행한다.
-  push:
-    branches: [main]
-
   schedule:
-    # 평일 00:17 KST = 15:17 UTC 전날. NH는 00:37 독립 workflow로 분리했다.
-    - cron: "17 15 * * 0-4"
-    # 평일 04:17 KST = 19:17 UTC 전날. 새마을금고만.
-    - cron: "17 19 * * 0-4"
+    # 다음 영업일 07:30 SLA: 일반 금리수집은 01:17 KST = 16:17 UTC 전날에 큐를 예약한다.
+    # GitHub Actions 정각 집중을 피하면서 funding보다 충분히 뒤에 생성되도록 한다.
+    - cron: "17 16 * * 0-4"
+    # 장시간 새마을금고 전국수집은 전날 일~목 17:40 KST = 08:40 UTC에 먼저 큐를 예약한다.
+    - cron: "40 8 * * 0-4"
 
-# 모든 수집 workflow가 같은 canonical DB/R2/rate-data writer 줄을 쓴다.
+# 실제 canonical DB/R2/rate-data 쓰기만 이 줄에 세운다.
+# main 코드 merge 자체는 더 이상 이 writer workflow를 실행하지 않는다.
 concurrency:
   group: rate-data-writer
   queue: max
@@ -62,9 +60,9 @@ jobs:
     runs-on: ubuntu-latest
     env:
       RATE_MONITOR_STRATEGY_DASHBOARD: "1"
-      PUBLISH_ONLY: ${{ github.event_name == 'push' || inputs.manual_target == '화면만 재발행' }}
-      KFCC_ONLY: ${{ github.event.schedule == '17 19 * * 0-4' || inputs.manual_target == '새마을금고만' }}
-      SKIP_KFCC_THIS_RUN: ${{ github.event.schedule == '17 15 * * 0-4' || (github.event_name == 'workflow_dispatch' && inputs.manual_target != '새마을금고만') }}
+      PUBLISH_ONLY: ${{ github.event_name == 'workflow_dispatch' && inputs.manual_target == '화면만 재발행' }}
+      KFCC_ONLY: ${{ github.event.schedule == '40 8 * * 0-4' || inputs.manual_target == '새마을금고만' }}
+      SKIP_KFCC_THIS_RUN: ${{ github.event.schedule == '17 16 * * 0-4' || (github.event_name == 'workflow_dispatch' && inputs.manual_target != '새마을금고만') }}
     steps:
       - name: Check collect password
         if: ${{ github.event_name == 'workflow_dispatch' }}
@@ -387,18 +385,6 @@ jobs:
           path: site-public/
           if-no-files-found: warn
 
-      - name: Upload state to R2
-        if: steps.storage.outputs.backend != 'github_legacy'
-        continue-on-error: ${{ steps.storage.outputs.backend == 'r2_migration' }}
-        env:
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
-          R2_BUCKET: ${{ vars.R2_BUCKET }}
-          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
-          R2_REGION: ${{ vars.R2_REGION }}
-        run: uv run rate-monitor storage upload --db publish/rate_monitor.sqlite3
-
       - name: Stage rate-data payload
         env:
           BACKEND: ${{ steps.storage.outputs.backend }}
@@ -427,6 +413,18 @@ jobs:
           uv run python scripts/volume_gate.py \
             --summary publish/summary.json \
             ${{ inputs.accept_volume_drop && '--accept' || '' }}
+
+      - name: Upload state to R2
+        if: steps.storage.outputs.backend != 'github_legacy'
+        continue-on-error: ${{ steps.storage.outputs.backend == 'r2_migration' }}
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+          R2_REGION: ${{ vars.R2_REGION }}
+        run: uv run rate-monitor storage upload --db publish/rate_monitor.sqlite3
 
       - name: Publish to rate-data branch
         run: |

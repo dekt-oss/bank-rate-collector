@@ -22,6 +22,43 @@ _SAFE_STRATEGY_WORKFLOW_PREFIX = ".github/workflows/strategy-"
 _SAFE_PRESENTATION_SERVICE_SUFFIX = "_presentation.py"
 _SAFE_SMOKE_SUFFIXES = ("_smoke.js", "_smoke.py")
 
+# Source-aware writer scopes. A long-running collector must not be discarded because
+# an unrelated collector/workflow changed while it was acquiring data. Only paths
+# explicitly mapped here may be ignored for another scope; every unknown/shared path
+# remains fail-closed. ``collect.yml`` intentionally uses one broad scope because the
+# same workflow can collect core rates or KFCC depending on the trigger.
+_WORKFLOW_SCOPES: dict[str, frozenset[str]] = {
+    ".github/workflows/collect.yml": frozenset({"collect"}),
+    ".github/workflows/collect-nh.yml": frozenset({"nh_local"}),
+    ".github/workflows/nh-attempt.yml": frozenset({"nh_local"}),
+    ".github/workflows/collect-savings-fast.yml": frozenset({"fast_bank"}),
+    ".github/workflows/collect-institution-funding.yml": frozenset({"institution_funding"}),
+    ".github/workflows/collect-cu-funding-bootstrap.yml": frozenset({"cu_funding"}),
+    ".github/workflows/collect-cu-total-assets-bootstrap.yml": frozenset({"cu_total_assets"}),
+    ".github/workflows/collect-size-peer-total-assets.yml": frozenset({"size_peer_total_assets"}),
+    ".github/workflows/recover-size-peer-production-financial-axis.yml": frozenset(
+        {"size_peer_recovery"}
+    ),
+}
+_KNOWN_WRITER_SCOPES = frozenset(
+    scope for scopes in _WORKFLOW_SCOPES.values() for scope in scopes
+)
+_SOURCE_PREFIX_SCOPES: tuple[tuple[str, frozenset[str]], ...] = (
+    ("src/rate_monitor/collectors/finlife/", frozenset({"collect", "fast_bank"})),
+    ("src/rate_monitor/collectors/fsb/", frozenset({"collect", "fast_bank"})),
+    ("src/rate_monitor/collectors/bok_ecos/", frozenset({"collect"})),
+    (
+        "src/rate_monitor/collectors/cu/",
+        frozenset({"collect", "cu_funding", "cu_total_assets", "size_peer_recovery"}),
+    ),
+    ("src/rate_monitor/collectors/kfcc/", frozenset({"collect"})),
+    ("src/rate_monitor/collectors/nh_local/", frozenset({"nh_local"})),
+    (
+        "src/rate_monitor/collectors/data_go_funding/",
+        frozenset({"institution_funding", "size_peer_total_assets", "size_peer_recovery"}),
+    ),
+)
+
 
 class CanonicalWriterGuardError(RuntimeError):
     """A canonical main writer cannot prove that its checkout is publish-safe."""
@@ -73,6 +110,53 @@ def _is_publish_safe_stale_path(path: str) -> bool:
     return normalized.startswith("scripts/") and normalized.endswith(_SAFE_SMOKE_SUFFIXES)
 
 
+def _workflow_path_from_ref(workflow_ref: str) -> str:
+    """Extract ``.github/workflows/*.yml`` from GITHUB_WORKFLOW_REF fail-closed."""
+
+    marker = "/.github/workflows/"
+    value = workflow_ref.strip().replace("\\", "/")
+    if marker not in value:
+        return ""
+    tail = value.split(marker, 1)[1]
+    filename = tail.split("@", 1)[0]
+    if not filename or "/" in filename:
+        return ""
+    return f".github/workflows/{filename}"
+
+
+def _infer_writer_scope() -> str:
+    explicit = os.environ.get("RATE_MONITOR_WRITER_SCOPE", "").strip()
+    if explicit:
+        return explicit
+    workflow_path = _workflow_path_from_ref(os.environ.get("GITHUB_WORKFLOW_REF", ""))
+    scopes = _WORKFLOW_SCOPES.get(workflow_path, frozenset())
+    if len(scopes) != 1:
+        return ""
+    return next(iter(scopes))
+
+
+def _is_scope_irrelevant_stale_path(path: str, writer_scope: str) -> bool:
+    """Return True only for an explicitly source-local path outside this writer scope.
+
+    An absent/unknown writer scope deliberately preserves the historical strict guard.
+    Shared persistence/schema/runtime/read-model paths are never inferred to be safe.
+    """
+
+    scope = writer_scope.strip()
+    if scope not in _KNOWN_WRITER_SCOPES:
+        return False
+
+    normalized = path.strip().replace("\\", "/")
+    workflow_scopes = _WORKFLOW_SCOPES.get(normalized)
+    if workflow_scopes is not None:
+        return scope not in workflow_scopes
+
+    for prefix, affected_scopes in _SOURCE_PREFIX_SCOPES:
+        if normalized.startswith(prefix):
+            return scope not in affected_scopes
+    return False
+
+
 def _changed_paths(run_sha: str, remote_sha: str) -> tuple[str, ...]:
     """Return tree changes between the queued run and current main.
 
@@ -108,6 +192,10 @@ def _refresh_safe_paths(remote_sha: str, changed: tuple[str, ...]) -> None:
     the drift. Refresh only the allow-listed paths from the exact verified main SHA.
     Subsequent build commands are separate processes and therefore consume these
     current-main presentation files. Any checkout failure is fail-closed.
+
+    Source-local paths belonging to another collector are deliberately *not* refreshed:
+    they are irrelevant to this run and refreshing operational code after acquisition
+    could create a mixed-code runtime. They are merely ignored by the stale decision.
     """
 
     if not changed:
@@ -121,17 +209,17 @@ def _refresh_safe_paths(remote_sha: str, changed: tuple[str, ...]) -> None:
 
 
 def ensure_current_main_writer() -> None:
-    """Allow current main, or narrowly compatible presentation-only main drift.
+    """Allow current main, compatible presentation drift, or unrelated source drift.
 
     Local runs, PR/evidence branches and other non-main Actions are intentionally
-    untouched. A stale production writer is still blocked whenever current main has
-    *any* change outside the explicit presentation/test/docs allow-list. This keeps
-    the #293 schema/canonical-state rollback protection while avoiding loss of a long
-    collection merely because a Strategy presentation PR merged during acquisition.
+    untouched. A stale production writer is blocked whenever current main changes a
+    shared/unknown path or a path mapped to this writer's inferred source scope.
+    Explicitly mapped changes for another source do not invalidate hours of unrelated
+    acquisition. If workflow scope cannot be inferred, behavior remains strictly
+    backward-compatible and fail-closed.
 
-    When drift is safe, the allow-listed files are refreshed from the verified current
-    main commit before the workflow proceeds, preventing a later rate-data publish
-    from rolling the presentation back to the stale run's version.
+    Presentation-only safe paths are refreshed from the verified current main commit
+    before publication. Scope-irrelevant operational paths are not refreshed.
     """
 
     if os.environ.get("GITHUB_ACTIONS") != "true":
@@ -150,16 +238,24 @@ def ensure_current_main_writer() -> None:
         return
 
     changed = _changed_paths(run_sha, remote_sha)
-    unsafe = tuple(path for path in changed if not _is_publish_safe_stale_path(path))
+    writer_scope = _infer_writer_scope()
+    unsafe = tuple(
+        path
+        for path in changed
+        if not _is_publish_safe_stale_path(path)
+        and not _is_scope_irrelevant_stale_path(path, writer_scope)
+    )
     if unsafe:
         preview = ", ".join(unsafe[:8])
         if len(unsafe) > 8:
             preview += f", ... (+{len(unsafe) - 8})"
+        scope_note = f" writer_scope={writer_scope}." if writer_scope else ""
         raise CanonicalWriterGuardError(
             "stale-main writer blocked: "
-            f"run_sha={run_sha} current_main_sha={remote_sha}. "
+            f"run_sha={run_sha} current_main_sha={remote_sha}.{scope_note} "
             f"canonical/acquisition-sensitive changes={preview}. "
             "오래 대기한 writer는 변경된 계약으로 canonical R2/rate-data를 갱신할 수 없다"
         )
 
-    _refresh_safe_paths(remote_sha, changed)
+    refreshable = tuple(path for path in changed if _is_publish_safe_stale_path(path))
+    _refresh_safe_paths(remote_sha, refreshable)

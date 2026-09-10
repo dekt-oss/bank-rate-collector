@@ -5,9 +5,9 @@ name: 수집 — 농·축협
 # target reachability can differ by fresh GitHub-hosted runner even in one region.
 on:
   schedule:
-    # 평일 00:37 KST = 15:37 UTC 전날 → 일~목(0-4).
-    # 00:17 core가 보통 먼저 끝나고, 늦어져도 rate-data-writer queue에서 기다린다.
-    - cron: "37 15 * * 0-4"
+    # 다음 영업일 07:30 SLA를 위해 전날 일~목 17:30 KST = 08:30 UTC에 먼저 시작한다.
+    # 장시간 acquisition 자체는 그대로 두고 canonical writer 직렬화 안전계약을 유지한다.
+    - cron: "30 8 * * 0-4"
   workflow_dispatch:
     inputs:
       password:

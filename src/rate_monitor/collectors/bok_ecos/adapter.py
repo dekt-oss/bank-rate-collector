@@ -17,8 +17,9 @@ from datetime import date, timedelta
 
 import httpx
 
-from rate_monitor.collectors.base import CollectorError, SourceBlockedError
+from rate_monitor.collectors.base import CollectorError
 from rate_monitor.collectors.bok_ecos import parser
+from rate_monitor.collectors.bok_ecos.transport import get_ecos_response
 from rate_monitor.domain.enums import CollectionMode, Sector, SourceRole, TrustLevel
 from rate_monitor.domain.schemas import CollectionRequest, RawArtifactData
 from rate_monitor.domain.timeutil import now_kst
@@ -37,8 +38,6 @@ PAGE_SIZE = 700
 
 CONNECT_TIMEOUT = 10.0
 READ_TIMEOUT = 30.0
-
-BLOCK_STATUSES = (401, 403, 429)
 
 
 class BokEcosAdapter:
@@ -89,12 +88,7 @@ class BokEcosAdapter:
 
         timeout = httpx.Timeout(READ_TIMEOUT, connect=CONNECT_TIMEOUT)
         async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
-            response = await client.get(url)
-            if response.status_code in BLOCK_STATUSES:
-                raise SourceBlockedError(
-                    f"차단 응답 {response.status_code} — 우회하지 않고 중단한다"
-                )
-            response.raise_for_status()
+            response = await get_ecos_response(client, url)
             body = response.content
 
         return [

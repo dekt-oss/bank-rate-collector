@@ -24,7 +24,7 @@ def _attempt_steps() -> list[dict]:
 def test_nh_is_an_independent_scheduled_workflow() -> None:
     workflow = _load(COLLECT_NH)
     triggers = _triggers(workflow)
-    assert [item["cron"] for item in triggers["schedule"]] == ["37 15 * * 0-4"]
+    assert [item["cron"] for item in triggers["schedule"]] == ["30 8 * * 0-4"]
     assert workflow["concurrency"]["group"] == "rate-data-writer"
     assert workflow["concurrency"]["cancel-in-progress"] is False
 

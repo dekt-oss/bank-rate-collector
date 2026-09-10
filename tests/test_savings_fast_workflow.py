@@ -1,7 +1,8 @@
 """은행권 경량 수집 lane의 실행 계약.
 
 긴 전국 수집과 분리한 목적은 FINLIFE 시중은행·저축은행과 저축은행중앙회만
-하루 중 세 번 다시 확인하는 것이다. 크론 시간이나 수집원 범위가 조용히 넓어지면
+낮 시간대에 다시 확인하는 것이다. 다음 영업일 07:30 SLA를 위해 18:00 refresh는
+야간 writer lane에서 제거한다. 크론 시간이나 수집원 범위가 조용히 넓어지면
 비용·원천 부하·최신성 계약이 모두 달라지므로 정적으로 고정한다.
 """
 
@@ -28,14 +29,14 @@ def _steps() -> list[dict]:
     return _workflow()["jobs"]["collect-bank-rates"]["steps"]
 
 
-def test_fast_lane_runs_weekdays_at_ten_three_and_six_kst() -> None:
+def test_fast_lane_runs_weekdays_at_ten_and_three_kst() -> None:
     workflow = _workflow()
     schedules = _triggers(workflow)["schedule"]
     crons = [item["cron"] for item in schedules]
-    assert crons == ["0 1 * * 1-5", "0 6 * * 1-5", "0 9 * * 1-5"]
+    assert crons == ["0 1 * * 1-5", "0 6 * * 1-5"]
 
     kst = dt.timezone(dt.timedelta(hours=9))
-    expected_hours = [10, 15, 18]
+    expected_hours = [10, 15]
     for cron, expected_hour in zip(crons, expected_hours, strict=True):
         utc_hour = int(cron.split()[1])
         for day in range(10, 15):  # 2026-08-10(월)~14(금)

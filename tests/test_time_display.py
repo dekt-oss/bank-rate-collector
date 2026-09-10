@@ -15,22 +15,22 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_the_scheduled_run_lands_on_the_right_korean_day() -> None:
-    """core 정기 수집은 전날 15:17 UTC, 한국에서는 다음 날 00:17이다.
+    """core 정기 수집은 전날 16:17 UTC, 한국에서는 다음 날 01:17이다.
 
     UTC 날짜로 파일 이름과 원본 디렉터리를 만들면 하루 전 날짜가 붙는다.
     """
-    scheduled = datetime(2026, 8, 5, 15, 17, tzinfo=UTC)
-    assert to_kst(scheduled).strftime("%Y-%m-%d %H:%M") == "2026-08-06 00:17"
+    scheduled = datetime(2026, 8, 5, 16, 17, tzinfo=UTC)
+    assert to_kst(scheduled).strftime("%Y-%m-%d %H:%M") == "2026-08-06 01:17"
     assert kst_date_stamp(scheduled) == "20260806"
     assert kst_path_stamp(scheduled) == "2026/08/06"
 
 
-def test_the_core_cron_matches_twelve_seventeen_korea_time() -> None:
-    """워크플로우의 첫 cron이 실제로 한국시간 00:17인지 값에서 확인한다.
+def test_the_core_cron_matches_one_seventeen_korea_time() -> None:
+    """워크플로우의 첫 cron이 실제로 한국시간 01:17인지 값에서 확인한다.
 
-    08:00 hard deadline에 여유를 두기 위해 core를 00:17 KST로 앞당겼다.
-    00:17 KST는 전날 15:17 UTC다. 요일 이동과 두 번째 KFCC cron까지의
-    계약은 `test_gate_contract`가 별도로 검증한다.
+    다음 영업일 07:30 SLA를 위해 core를 01:17 KST에 예약한다.
+    01:17 KST는 전날 16:17 UTC다. 요일 이동과 KFCC 전날 스케줄까지의
+    계약은 `test_gate_contract`와 `test_morning_collection_sla`가 별도로 검증한다.
     """
     import re
 
@@ -39,7 +39,7 @@ def test_the_core_cron_matches_twelve_seventeen_korea_time() -> None:
     assert match, "cron을 찾지 못했다"
     minute, hour = int(match.group(1)), int(match.group(2))
     utc = datetime(2026, 8, 5, hour, minute, tzinfo=UTC)
-    assert to_kst(utc).strftime("%H:%M") == "00:17"
+    assert to_kst(utc).strftime("%H:%M") == "01:17"
 
 
 def test_the_page_carries_korean_time(tmp_path: Path) -> None:
