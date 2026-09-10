@@ -16,11 +16,14 @@ def test_recovery_workflow_yaml_parses() -> None:
     assert isinstance(payload, dict)
 
 
-def test_recovery_is_bounded_to_failed_schedules() -> None:
+def test_recovery_is_bounded_to_terminal_schedules_and_proven_soft_failures() -> None:
     text = _text()
-    assert "github.event.workflow_run.conclusion == 'failure'" in text
     assert "github.event.workflow_run.event == 'schedule'" in text
     assert "types: [completed]" in text
+    assert "env.PARENT_CONCLUSION == 'failure'" in text
+    assert "env.PARENT_CONCLUSION == 'success'" in text
+    assert "Build recovery plan for soft-source failures" in text
+    assert "soft-recovery-plan.json" in text
     assert "--ref main" in text
 
 
