@@ -38,8 +38,9 @@ on:
         default: false
 
   schedule:
-    # 다음 영업일 07:30 SLA: 일반 금리수집은 01:00 KST = 16:00 UTC 전날에 큐를 예약한다.
-    - cron: "0 16 * * 0-4"
+    # 다음 영업일 07:30 SLA: 일반 금리수집은 01:17 KST = 16:17 UTC 전날에 큐를 예약한다.
+    # GitHub Actions 정각 집중을 피하면서 funding보다 충분히 뒤에 생성되도록 한다.
+    - cron: "17 16 * * 0-4"
     # 장시간 새마을금고 전국수집은 전날 일~목 17:40 KST = 08:40 UTC에 먼저 큐를 예약한다.
     - cron: "40 8 * * 0-4"
 
@@ -61,7 +62,7 @@ jobs:
       RATE_MONITOR_STRATEGY_DASHBOARD: "1"
       PUBLISH_ONLY: ${{ github.event_name == 'workflow_dispatch' && inputs.manual_target == '화면만 재발행' }}
       KFCC_ONLY: ${{ github.event.schedule == '40 8 * * 0-4' || inputs.manual_target == '새마을금고만' }}
-      SKIP_KFCC_THIS_RUN: ${{ github.event.schedule == '0 16 * * 0-4' || (github.event_name == 'workflow_dispatch' && inputs.manual_target != '새마을금고만') }}
+      SKIP_KFCC_THIS_RUN: ${{ github.event.schedule == '17 16 * * 0-4' || (github.event_name == 'workflow_dispatch' && inputs.manual_target != '새마을금고만') }}
     steps:
       - name: Check collect password
         if: ${{ github.event_name == 'workflow_dispatch' }}
