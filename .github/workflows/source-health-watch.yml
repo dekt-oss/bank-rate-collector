@@ -1,0 +1,156 @@
+name: 운영 — source health 감시·신협 1회 복구
+
+on:
+  workflow_run:
+    workflows:
+      - "수집 — 일반·새마을금고"
+      - "수집 — 농·축협"
+    types: [completed]
+
+# Canonical DB를 읽고 issue/dispatch만 수행한다. DB/R2 writer가 아니다.
+concurrency:
+  group: source-health-watch-${{ github.event.workflow_run.id }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  actions: write
+  issues: write
+
+jobs:
+  inspect:
+    # Fork/비-main 실행이 운영 이슈와 복구 workflow를 건드리지 못하게 한다.
+    if: ${{ github.event.workflow_run.head_branch == 'main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      cu_incident: ${{ steps.inspect_cu.outputs.incident }}
+      cu_code: ${{ steps.inspect_cu.outputs.code }}
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Sync dependencies
+        run: uv sync --locked
+
+      - name: Decide storage backend
+        id: storage
+        env:
+          STORAGE_BACKEND: ${{ vars.STORAGE_BACKEND }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+          R2_REGION: ${{ vars.R2_REGION }}
+        run: |
+          set -euo pipefail
+          BACKEND=$(uv run python -c "
+          from pathlib import Path
+          from rate_monitor.services.storage_service import load_backend
+          print(load_backend(Path('config/storage.yaml')).backend.value)
+          ")
+          echo "backend=$BACKEND" >> "$GITHUB_OUTPUT"
+          echo "source health storage backend: $BACKEND"
+
+      - name: Restore current canonical database read-only
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+          R2_REGION: ${{ vars.R2_REGION }}
+        run: |
+          set -euo pipefail
+          mkdir -p work
+          if [ "${{ steps.storage.outputs.backend }}" = "r2" ]; then
+            uv run rate-monitor storage restore --dest work/rate_monitor.sqlite3
+          else
+            git fetch origin rate-data --depth=1
+            git checkout origin/rate-data -- latest/rate_monitor.sqlite3.gz
+            gunzip -c latest/rate_monitor.sqlite3.gz > work/rate_monitor.sqlite3
+          fi
+          test -s work/rate_monitor.sqlite3
+
+      - name: Inspect CU final source state
+        id: inspect_cu
+        if: ${{ github.event.workflow_run.name == '수집 — 일반·새마을금고' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          import os
+          from pathlib import Path
+          from scripts.source_health_incident import classify_run, latest_run
+
+          run = latest_run(Path("work/rate_monitor.sqlite3"), "cu")
+          state = classify_run(run)
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as f:
+              f.write(f"incident={'true' if state.incident else 'false'}\n")
+              f.write(f"code={state.code}\n")
+          print(f"CU incident={state.incident} code={state.code} run={(run or {}).get('id')}")
+          PY
+
+      - name: Synchronize CU/KFCC incident issues
+        if: ${{ github.event.workflow_run.name == '수집 — 일반·새마을금고' }}
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          uv run python scripts/source_health_incident.py \
+            --db work/rate_monitor.sqlite3 \
+            --source cu \
+            --source kfcc
+
+      - name: Synchronize NH incident issue
+        if: ${{ github.event.workflow_run.name == '수집 — 농·축협' }}
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          uv run python scripts/source_health_incident.py \
+            --db work/rate_monitor.sqlite3 \
+            --source nh_local
+
+  retry_cu_once:
+    needs: inspect
+    # Scheduled general collection gets exactly one fresh-process retry. The retry is
+    # a workflow_dispatch run, and workflow_dispatch triggers are deliberately not
+    # retried again, preventing an incident loop.
+    if: >-
+      ${{
+        github.event.workflow_run.name == '수집 — 일반·새마을금고' &&
+        github.event.workflow_run.event != 'workflow_dispatch' &&
+        needs.inspect.outputs.cu_incident == 'true'
+      }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      COLLECT_PASSWORD: ${{ secrets.DASHBOARD_PASSWORD }}
+    steps:
+      - name: Dispatch one CU-only recovery on current main
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$COLLECT_PASSWORD"
+          echo "CU source incident detected: ${{ needs.inspect.outputs.cu_code }}"
+          gh workflow run collect.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref main \
+            -f password="$COLLECT_PASSWORD" \
+            -f manual_target="신협만" \
+            -f accept_volume_drop=false
+          echo "CU one-shot recovery dispatched; workflow_dispatch runs are not auto-retried."
