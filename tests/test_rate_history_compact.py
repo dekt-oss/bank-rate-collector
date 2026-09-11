@@ -34,6 +34,9 @@ def _build_db(path: Path, *, with_fk_reference: bool = False) -> None:
               content_hash TEXT NOT NULL,
               source_effective_at TEXT
             );
+            CREATE UNIQUE INDEX uq_rate_observations_current
+              ON rate_observations(variant_id)
+              WHERE valid_to IS NULL;
             CREATE TABLE manual_overrides (
               id TEXT PRIMARY KEY,
               target_type TEXT NOT NULL,
@@ -189,11 +192,13 @@ def test_apply_collapses_only_consecutive_equal_values_and_preserves_current(
     assert [row[8] for row in rows] == ["003.1000", "003.2000"]
     # The first semantic segment keeps its first-seen identity but accumulates sightings.
     assert rows[0][0:3] == ("o1", "r1", "r2")
+    assert rows[0][4] == "2026-09-02"
     assert rows[0][5] == 3
     assert rows[0][7] == "2026-09-03"
     assert rows[0][9] == "2026-09-02"
     # The current segment remains current and carries the latest provenance/run.
     assert rows[1][0:3] == ("o3", "r3", "r4")
+    assert rows[1][4] == "2026-09-05"
     assert rows[1][5] == 4
     assert rows[1][7] is None
     assert rows[1][9] == "2026-09-04"
