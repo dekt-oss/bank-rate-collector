@@ -1,0 +1,296 @@
+name: R2 rate-history production maintenance
+
+# This workflow is deliberately one-shot on merge: adding this file to main is
+# the trigger. Future collection/code changes do not re-run destructive state
+# maintenance. workflow_dispatch remains available for an explicitly reviewed rerun.
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/rate-history-production-maintenance.yml
+  workflow_dispatch:
+
+# Canonical R2 writers must never overlap. A stale main checkout is additionally
+# rejected by storage_service's canonical writer guard immediately before R2 mutation.
+concurrency:
+  group: rate-data-writer
+  queue: max
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  compact:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+      R2_BUCKET: ${{ vars.R2_BUCKET }}
+      R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+      R2_REGION: ${{ vars.R2_REGION }}
+      STORAGE_BACKEND: ${{ vars.STORAGE_BACKEND }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Sync dependencies
+        run: uv sync --locked
+
+      - name: Require authoritative R2 backend
+        run: |
+          set -euo pipefail
+          BACKEND=$(uv run python - <<'PY'
+          from pathlib import Path
+          from rate_monitor.services.storage_service import load_backend
+          print(load_backend(Path("config/storage.yaml")).backend.value)
+          PY
+          )
+          test "$BACKEND" = "r2"
+          echo "authoritative backend=$BACKEND"
+
+      - name: Capture current R2 pointer before maintenance
+        run: |
+          set -euo pipefail
+          mkdir -p work
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+          from rate_monitor.services.storage_service import CURRENT_KEY, R2Config, SnapshotRef, open_store
+
+          config = R2Config.from_env()
+          assert config is not None
+          store = open_store(config)
+          assert store.exists(CURRENT_KEY), CURRENT_KEY
+          ref = SnapshotRef.from_json(store.get(CURRENT_KEY))
+          Path("work/r2-current-before.json").write_text(ref.to_json() + "\n", encoding="utf-8")
+          print(json.dumps({
+              "object_key": ref.object_key,
+              "sqlite_bytes": ref.sqlite_bytes,
+              "compressed_bytes": ref.compressed_bytes,
+              "generated_at": ref.generated_at,
+              "rate_observations": ref.row_counts.get("rate_observations"),
+          }))
+          PY
+
+      - name: Restore authoritative R2 database
+        run: |
+          set -euo pipefail
+          date +%s > work/restore-start.txt
+          uv run rate-monitor storage restore --dest work/rate_monitor.sqlite3
+          date +%s > work/restore-end.txt
+          test -s work/rate_monitor.sqlite3
+          stat -c 'source_bytes=%s' work/rate_monitor.sqlite3 | tee work/source-size.txt
+
+      - name: Apply migrations to runner-local copy
+        env:
+          RATE_MONITOR_DB_URL: sqlite+pysqlite:///${{ github.workspace }}/work/rate_monitor.sqlite3
+        run: uv run alembic upgrade head
+
+      - name: Plan production compaction without mutation
+        run: |
+          set -euo pipefail
+          date +%s > work/dry-run-start.txt
+          uv run python scripts/rate_history_compact.py \
+            --db work/rate_monitor.sqlite3 \
+            --output work/rate-history-compaction-dry-run.json
+          date +%s > work/dry-run-end.txt
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          report = json.loads(Path("work/rate-history-compaction-dry-run.json").read_text())
+          assert report["candidate_rows"] >= 1_000_000, report
+          assert not report["reference_blockers"], report
+          assert report["estimated_rate_observations_after"] > 0, report
+          assert report["estimated_rate_observations_after"] < report["before_rate_observations"], report
+          print(json.dumps(report, ensure_ascii=False))
+          PY
+
+      - name: Compact local copy and VACUUM into separate candidate
+        run: |
+          set -euo pipefail
+          date +%s > work/apply-start.txt
+          uv run python scripts/rate_history_compact.py \
+            --db work/rate_monitor.sqlite3 \
+            --apply \
+            --vacuum-into work/rate_monitor_compacted.sqlite3 \
+            --output work/rate-history-compaction-apply.json
+          date +%s > work/apply-end.txt
+          test -s work/rate_monitor_compacted.sqlite3
+          stat -c 'compacted_bytes=%s' work/rate_monitor_compacted.sqlite3 \
+            | tee work/compacted-size.txt
+
+      - name: Validate compacted candidate before R2 mutation
+        run: |
+          set -euo pipefail
+          uv run rate-monitor validate --db work/rate_monitor_compacted.sqlite3 \
+            | tee work/compacted-validate.txt
+          uv run python scripts/rate_history_audit.py \
+            --db work/rate_monitor_compacted.sqlite3 \
+            --output work/rate-history-compacted-audit.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          apply = json.loads(Path("work/rate-history-compaction-apply.json").read_text())
+          audit = json.loads(Path("work/rate-history-compacted-audit.json").read_text())
+          assert apply["integrity_check"] == "ok", apply
+          assert apply["foreign_key_errors"] == 0, apply
+          assert apply["after_current_observations"] == apply["before_current_observations"], apply
+          assert audit["semantic_redundant_rows"] == 0, audit
+          assert audit["rate_observations"] == apply["after_rate_observations"], (audit, apply)
+          print(json.dumps({
+              "before_file_bytes": apply["before_file_bytes"],
+              "after_file_bytes": apply["after_file_bytes"],
+              "bytes_reclaimed": apply["bytes_reclaimed"],
+              "size_ratio": apply["size_ratio"],
+              "before_rate_observations": apply["before_rate_observations"],
+              "after_rate_observations": apply["after_rate_observations"],
+              "current_observations": apply["after_current_observations"],
+          }))
+          PY
+
+      - name: Upload compacted candidate as new authoritative R2 snapshot
+        run: |
+          set -euo pipefail
+          uv run rate-monitor storage upload --db work/rate_monitor_compacted.sqlite3 \
+            | tee work/r2-upload.txt
+
+      - name: Restore new current pointer and verify byte-for-byte
+        run: |
+          set -euo pipefail
+          uv run rate-monitor storage restore --dest work/rate_monitor_r2_readback.sqlite3 \
+            | tee work/r2-readback.txt
+          cmp -s work/rate_monitor_compacted.sqlite3 work/rate_monitor_r2_readback.sqlite3
+          uv run rate-monitor validate --db work/rate_monitor_r2_readback.sqlite3 \
+            | tee work/r2-readback-validate.txt
+          uv run python scripts/rate_history_audit.py \
+            --db work/rate_monitor_r2_readback.sqlite3 \
+            --output work/rate-history-r2-readback-audit.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          audit = json.loads(Path("work/rate-history-r2-readback-audit.json").read_text())
+          assert audit["semantic_redundant_rows"] == 0, audit
+          print(json.dumps({
+              "r2_readback_bytes": audit["file_bytes"],
+              "rate_observations": audit["rate_observations"],
+              "current_observations": audit["current_observations"],
+          }))
+          PY
+
+      - name: Retain new current plus one pre-compaction rollback snapshot
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY' | tee work/r2-prune.txt
+          import json
+          from pathlib import Path
+          from rate_monitor.services.storage_service import (
+              CURRENT_KEY,
+              SNAPSHOT_PREFIX,
+              R2Config,
+              SnapshotRef,
+              open_store,
+          )
+
+          config = R2Config.from_env()
+          assert config is not None
+          store = open_store(config)
+          before = SnapshotRef.from_json(Path("work/r2-current-before.json").read_text())
+          after = SnapshotRef.from_json(store.get(CURRENT_KEY))
+          assert after.object_key != before.object_key, (before, after)
+          assert after.sqlite_bytes < before.sqlite_bytes, (before, after)
+
+          keys = sorted(store.list(SNAPSHOT_PREFIX))
+          assert before.object_key in keys, before.object_key
+          assert after.object_key in keys, after.object_key
+          keep = {before.object_key, after.object_key}
+          removed = []
+          for key in keys:
+              if key in keep:
+                  continue
+              store.delete(key)
+              removed.append(key)
+
+          remaining = sorted(store.list(SNAPSHOT_PREFIX))
+          assert set(remaining) == keep, {"remaining": remaining, "keep": sorted(keep)}
+          payload = {
+              "old_current": {
+                  "object_key": before.object_key,
+                  "sqlite_bytes": before.sqlite_bytes,
+                  "compressed_bytes": before.compressed_bytes,
+              },
+              "new_current": {
+                  "object_key": after.object_key,
+                  "sqlite_bytes": after.sqlite_bytes,
+                  "compressed_bytes": after.compressed_bytes,
+              },
+              "removed_snapshot_count": len(removed),
+              "retained_snapshot_count": len(remaining),
+              "retained_keys": remaining,
+          }
+          Path("work/r2-maintenance-final.json").write_text(
+              json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          print(json.dumps(payload, ensure_ascii=False))
+          PY
+
+      - name: Final authoritative R2 verification
+        run: |
+          set -euo pipefail
+          rm -f work/rate_monitor_final.sqlite3
+          uv run rate-monitor storage verify | tee work/r2-final-verify.txt
+          uv run rate-monitor storage status | tee work/r2-final-status.txt
+
+      - name: Record timings
+        if: always()
+        run: |
+          python - <<'PY' | tee work/rate-history-production-timing.txt
+          from pathlib import Path
+
+          def elapsed(name):
+              start = Path(f"work/{name}-start.txt")
+              end = Path(f"work/{name}-end.txt")
+              if start.exists() and end.exists():
+                  return int(end.read_text()) - int(start.read_text())
+              return None
+
+          for phase in ("restore", "dry-run", "apply"):
+              print(f"{phase}_seconds={elapsed(phase)}")
+          PY
+
+      - name: Upload production maintenance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rate-history-production-maintenance-${{ github.run_id }}
+          path: |
+            work/r2-current-before.json
+            work/rate-history-compaction-dry-run.json
+            work/rate-history-compaction-apply.json
+            work/rate-history-compacted-audit.json
+            work/rate-history-r2-readback-audit.json
+            work/r2-maintenance-final.json
+            work/source-size.txt
+            work/compacted-size.txt
+            work/compacted-validate.txt
+            work/r2-upload.txt
+            work/r2-readback.txt
+            work/r2-readback-validate.txt
+            work/r2-prune.txt
+            work/r2-final-verify.txt
+            work/r2-final-status.txt
+            work/rate-history-production-timing.txt
+          retention-days: 30
+          if-no-files-found: warn
