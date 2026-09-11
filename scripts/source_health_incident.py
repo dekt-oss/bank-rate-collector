@@ -120,6 +120,10 @@ def _workflow_url() -> str:
 def _body(source_id: str, run: dict[str, Any] | None, state: IncidentState) -> str:
     run = run or {}
     workflow = _workflow_url()
+    counts = (
+        f"{run.get('raw_count', 0)} / {run.get('parsed_count', 0)} / "
+        f"{run.get('valid_count', 0)}"
+    )
     lines = [
         f"<!-- source-health:{source_id} -->",
         f"## {source_id} 수집 장애",
@@ -127,7 +131,7 @@ def _body(source_id: str, run: dict[str, Any] | None, state: IncidentState) -> s
         f"- code: `{state.code}`",
         f"- status: `{run.get('status', 'missing')}`",
         f"- run_id: `{run.get('id', '-')}`",
-        f"- raw / parsed / valid: `{run.get('raw_count', 0)} / {run.get('parsed_count', 0)} / {run.get('valid_count', 0)}`",
+        f"- raw / parsed / valid: `{counts}`",
         f"- warning / error: `{run.get('warning_count', 0)} / {run.get('error_count', 0)}`",
         f"- started_at: `{run.get('started_at', '-')}`",
         f"- finished_at: `{run.get('finished_at', '-')}`",
