@@ -52,12 +52,23 @@ def _utcnow() -> datetime:
 
 
 def _content_hash(row: ParsedRateRow) -> str:
-    """값 중복 검출용. 이전 실행과 같은 값인지 판정한다 (v3 §5.9)."""
-    payload = "|".join(
-        str(x)
-        for x in (row.base_rate, row.max_rate, row.preference_raw, row.source_effective_at)
-    )
+    """금리값 중복 검출용 해시.
+
+    ``source_effective_at``은 원천 provenance다. NH는 조회일, KFCC는
+    조회기준일처럼 금리가 그대로여도 날짜가 움직일 수 있으므로 변경값에
+    포함하지 않는다. 날짜는 동일 값 재확인 시 최신값으로 별도 갱신한다.
+    """
+    payload = "|".join(str(x) for x in (row.base_rate, row.max_rate, row.preference_raw))
     return "sha256:" + hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _same_semantic_value(current: RateObservation, row: ParsedRateRow) -> bool:
+    """Legacy date-sensitive hash를 안전하게 새 의미 계약으로 전환한다."""
+    return (
+        current.base_rate == row.base_rate
+        and current.max_rate == row.max_rate
+        and current.raw_preference_text == row.preference_raw
+    )
 
 
 def save_raw_artifacts(
@@ -161,7 +172,13 @@ def _record_observation(
         )
     )
 
-    if current is not None and current.content_hash == content_hash:
+    # 2026-09-10 이전 content_hash에는 source_effective_at이 들어갔다.
+    # 따라서 새 의미 해시와 다르더라도 실제 금리/우대조건이 같으면 새 행을
+    # 만들지 않고 현재 행의 해시만 새 계약으로 lazy-upgrade한다.
+    if current is not None and (
+        current.content_hash == content_hash or _same_semantic_value(current, row)
+    ):
+        current.content_hash = content_hash
         current.last_seen_at = now
         current.seen_count += 1
         current.last_run_id = run.id
