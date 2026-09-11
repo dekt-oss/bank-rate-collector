@@ -28,6 +28,7 @@ from rate_monitor.domain.enums import RunStatus, ValidationStatus
 from rate_monitor.domain.schemas import CollectionRequest, ParsedRateRow, RawArtifactData
 from rate_monitor.domain.timeutil import kst_path_stamp
 from rate_monitor.services import entity_service
+from rate_monitor.services.source_volume_contract import evaluate_source_volume
 from rate_monitor.services.special_offer_evidence_service import (
     append_unknown_fsb_snapshot,
 )
@@ -353,7 +354,7 @@ async def collect_source(
         _finalize_failure(factory, run_id, RunStatus.FAILED, f"{type(exc).__name__}: {exc}")
         return CollectionRunResult(run_id, RunStatus.FAILED, 0, 0, 0, 0, 0, str(exc))
 
-    return _process(adapter, artifacts, factory, run_id, raw_root, now)
+    return _process(adapter, request, artifacts, factory, run_id, raw_root, now)
 
 
 def _new_run(
@@ -415,6 +416,7 @@ def _schema_change_is_systemic(
 
 def _process(
     adapter,  # noqa: ANN001
+    request: CollectionRequest,
     artifacts: list[RawArtifactData],
     factory: sessionmaker[Session],
     run_id: str,
@@ -428,42 +430,89 @@ def _process(
 
             parsed = valid = errors = 0
             warnings: list[str] = []
-            # 구조가 어긋난 페이지. 한 장 때문에 실행 전체를 버리지 않는다.
-            #
-            # 2026-08-05 전국 수집(2,520장)에서 한 장이 SchemaChangedError를
-            # 냈고, 그 예외가 트랜잭션 밖으로 나가면서 **2시간치 원본이 통째로
-            # 롤백**됐다. raw_count가 0으로 남아 어느 금고의 어떤 페이지였는지
-            # 조차 알 수 없게 됐다.
-            #
-            # 이제는 페이지마다 잡아 검수항목으로 남기고 계속 간다. 다만
-            # 명세서 v3.1 §8의 "구조 변경은 멈춘다"를 버리는 것은 아니다 —
-            # 어긋난 비율이 임계를 넘으면 그때 실행을 schema_changed로 끝낸다.
-            # 한 장은 그 원천의 사정이고, 여러 장은 우리 파서가 틀린 것이다.
             schema_failures: list[tuple[str, str]] = []
-            # 실행 단위로 유지한다. 페이지마다 초기화하면 페이지 경계를 넘는
-            # 중복을 놓쳐 (variant_id, run_id) 유니크 제약에 걸린다.
             seen_variants: set[str] = set()
             tally = ChangeTally()
-            for artifact_data, artifact_row in zip(artifacts, saved, strict=True):
-                try:
-                    rows, page_warnings = adapter.parse_with_warnings(artifact_data)
-                except SchemaChangedError as exc:
-                    schema_failures.append((artifact_data.filename, str(exc)))
-                    continue
-                warnings.extend(page_warnings)
-                parsed += len(rows)
-                page_valid, page_errors = persist_rows(
-                    session, run, rows, artifact_row, now, seen_variants, tally
-                )
-                valid += page_valid
-                errors += page_errors
+
+            # 원본 증거는 바깥 트랜잭션에 남기고, 관측/엔터티 변경만 savepoint에
+            # 둔다. 전국 수집량이 비정상적으로 작으면 savepoint만 되돌려서
+            # "부분 응답"이 최신 정상 관측을 오염시키지 않게 한다.
+            observation_tx = session.begin_nested()
+            try:
+                for artifact_data, artifact_row in zip(artifacts, saved, strict=True):
+                    try:
+                        rows, page_warnings = adapter.parse_with_warnings(artifact_data)
+                    except SchemaChangedError as exc:
+                        schema_failures.append((artifact_data.filename, str(exc)))
+                        continue
+                    warnings.extend(page_warnings)
+                    parsed += len(rows)
+                    page_valid, page_errors = persist_rows(
+                        session, run, rows, artifact_row, now, seen_variants, tally
+                    )
+                    valid += page_valid
+                    errors += page_errors
+
+                volume = evaluate_source_volume(adapter.source_id, request, parsed)
+                if volume is not None and not volume.ok:
+                    observation_tx.rollback()
+                    session.add(
+                        ReviewItem(
+                            run_id=run.id,
+                            issue_type="source_volume",
+                            severity="error",
+                            message=volume.message,
+                            payload_json={
+                                "source_id": volume.source_id,
+                                "code": volume.code,
+                                "parsed_count": volume.parsed_count,
+                                "minimum": volume.minimum,
+                                "full_scope": volume.full_scope,
+                            },
+                            created_at=now,
+                        )
+                    )
+                    run.status = RunStatus.FAILED
+                    run.finished_at = _utcnow()
+                    run.raw_count = len(artifacts)
+                    run.parsed_count = parsed
+                    run.valid_count = valid
+                    run.warning_count = len(warnings)
+                    run.error_count = max(errors, 1)
+                    run.schema_fingerprint = artifacts[0].schema_fingerprint if artifacts else None
+                    run.message = volume.message
+                    session.add(
+                        CollectionRunStat(
+                            run_id=run.id,
+                            source_id=run.source_id,
+                            fetched_count=len(artifacts),
+                            parsed_count=parsed,
+                            unchanged_count=0,
+                            changed_count=0,
+                            new_variant_count=0,
+                            missing_variant_count=0,
+                            error_count=max(errors, 1),
+                            created_at=now,
+                        )
+                    )
+                    result = CollectionRunResult(
+                        run_id,
+                        run.status,
+                        len(artifacts),
+                        parsed,
+                        valid,
+                        len(warnings),
+                        max(errors, 1),
+                        run.message,
+                    )
+                    return result
+                observation_tx.commit()
+            except Exception:
+                if observation_tx.is_active:
+                    observation_tx.rollback()
+                raise
 
             # 원천이 조회를 무시하고 같은 답을 되풀이했다.
-            #
-            # **받은 것은 그대로 저장한다.** 두 시간을 받고 나서 통째로 버리면
-            # 원래 고치려던 손실과 같은 일이 된다. 대신 실행을 성공으로
-            # 끝내지 않고 검수항목을 남긴다 — 경남이 사라졌을 때 없던 것이
-            # 바로 이것이다.
             alert = getattr(adapter, "fetch_alert", "")
             if alert:
                 session.add(
@@ -506,11 +555,6 @@ def _process(
                     )
                 )
 
-            # 구조가 어긋나 건너뛴 페이지가 있으면 success가 아니다.
-            # 조용히 success로 끝나면 그 금고가 통째로 빠진 것을 아무도 모른다.
-            #
-            # 응답 되풀이도 마찬가지다. 경남 186장이 사라진 실행은 오류 0으로
-            # 끝났고, 상태도 검수항목도 그 사실을 말하지 않았다.
             complete = errors == 0 and not schema_failures and not alert
             run.status = RunStatus.SUCCESS if complete else RunStatus.PARTIAL
             run.finished_at = _utcnow()
@@ -521,10 +565,6 @@ def _process(
             run.error_count = errors
             run.schema_fingerprint = artifacts[0].schema_fingerprint if artifacts else None
 
-            # 실행별 품질·건수 (선행 수정안 §3.2).
-            #
-            # parsed_count만 보면 4,010행을 받고 관측이 안 늘어난 것이 실패인지
-            # "아무것도 안 바뀐 것"인지 알 수 없다. 여기서 갈라 남긴다.
             session.add(
                 CollectionRunStat(
                     run_id=run.id,
@@ -534,9 +574,6 @@ def _process(
                     unchanged_count=tally.unchanged,
                     changed_count=tally.changed,
                     new_variant_count=tally.new_variants,
-                    # 직전 실행에 있었는데 이번에 안 온 비교 단위는 아직 세지
-                    # 않는다. 부산만 돌린 실행이 전국 단위를 "사라졌다"고
-                    # 셀 수 있어서다 — 원천별 범위를 알기 전에는 0으로 둔다.
                     missing_variant_count=0,
                     error_count=errors,
                     created_at=now,
@@ -545,9 +582,6 @@ def _process(
             skipped = (
                 f", 구조 어긋나 건너뜀 {len(schema_failures)}장" if schema_failures else ""
             )
-            # 어댑터가 응답 되풀이를 봤으면 그 요약도 남긴다. **0건이어도
-            # 적는다** — 안 적으면 "검사를 안 했나"와 "검사했는데 0이었나"를
-            # 구별할 수 없다. 경남 186장이 사라졌을 때 흔적이 정확히 0이었다.
             repeats = getattr(adapter, "fetch_note", "")
             run.message = (
                 f"{len(artifacts)}개 원본에서 {parsed}행 파싱,"
