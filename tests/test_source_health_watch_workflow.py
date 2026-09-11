@@ -1,6 +1,5 @@
 from pathlib import Path
 
-
 WORKFLOW = Path(".github/workflows/source-health-watch.yml")
 
 
@@ -14,12 +13,14 @@ def test_source_health_watch_has_independent_issue_permission() -> None:
     assert "--source nh_local" in text
 
 
-def test_cu_retry_is_bounded_to_non_dispatch_trigger() -> None:
+def test_cu_retry_is_bounded_to_triggering_attempt_and_non_dispatch() -> None:
     text = WORKFLOW.read_text(encoding="utf-8")
     assert "retry_cu_once:" in text
     assert "github.event.workflow_run.event != 'workflow_dispatch'" in text
     assert 'manual_target="신협만"' in text
+    assert "needs.inspect.outputs.cu_attempted == 'true'" in text
     assert "needs.inspect.outputs.cu_incident == 'true'" in text
+    assert "TRIGGER_STARTED_AT" in text
 
 
 def test_watch_only_operates_on_main_collection_runs() -> None:
