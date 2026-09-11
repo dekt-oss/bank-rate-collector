@@ -4,11 +4,13 @@ ROOT = Path(__file__).resolve().parents[1]
 PRODUCTION_SMOKE = ROOT / ".github" / "workflows" / "production-smoke.yml"
 
 
-def test_production_smoke_uses_exact_middleware_password_namespace() -> None:
+def test_production_smoke_uses_site_access_credential_with_legacy_fallback() -> None:
     text = PRODUCTION_SMOKE.read_text(encoding="utf-8")
 
-    assert "DASHBOARD_PASSWORD: ${{ secrets.DASHBOARD_PASSWORD }}" in text
-    assert "secrets.SITE_ACCESS_PASSWORD || secrets.DASHBOARD_PASSWORD" not in text
+    assert (
+        "DASHBOARD_PASSWORD: "
+        "${{ secrets.SITE_ACCESS_PASSWORD || secrets.DASHBOARD_PASSWORD }}"
+    ) in text
     assert "https://bank-rate-collector.vercel.app" in text
 
 
