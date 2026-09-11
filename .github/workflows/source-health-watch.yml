@@ -26,6 +26,7 @@ jobs:
     outputs:
       cu_incident: ${{ steps.inspect_cu.outputs.incident }}
       cu_code: ${{ steps.inspect_cu.outputs.code }}
+      cu_attempted: ${{ steps.inspect_cu.outputs.attempted }}
     env:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
@@ -87,20 +88,36 @@ jobs:
       - name: Inspect CU final source state
         id: inspect_cu
         if: ${{ github.event.workflow_run.name == '수집 — 일반·새마을금고' }}
+        env:
+          TRIGGER_STARTED_AT: ${{ github.event.workflow_run.run_started_at }}
         shell: bash
         run: |
           set -euo pipefail
           uv run python - <<'PY'
           import os
+          from datetime import datetime
           from pathlib import Path
           from scripts.source_health_incident import classify_run, latest_run
 
           run = latest_run(Path("work/rate_monitor.sqlite3"), "cu")
           state = classify_run(run)
+          trigger = datetime.fromisoformat(
+              os.environ["TRIGGER_STARTED_AT"].replace("Z", "+00:00")
+          ).replace(tzinfo=None)
+          run_started = None
+          if run and run.get("started_at"):
+              run_started = datetime.fromisoformat(str(run["started_at"]).replace("Z", "+00:00"))
+              if run_started.tzinfo is not None:
+                  run_started = run_started.replace(tzinfo=None)
+          attempted = run_started is not None and run_started >= trigger
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as f:
               f.write(f"incident={'true' if state.incident else 'false'}\n")
               f.write(f"code={state.code}\n")
-          print(f"CU incident={state.incident} code={state.code} run={(run or {}).get('id')}")
+              f.write(f"attempted={'true' if attempted else 'false'}\n")
+          print(
+              f"CU attempted={attempted} incident={state.incident} "
+              f"code={state.code} run={(run or {}).get('id')}"
+          )
           PY
 
       - name: Synchronize CU/KFCC incident issues
@@ -128,11 +145,13 @@ jobs:
     needs: inspect
     # Scheduled general collection gets exactly one fresh-process retry. The retry is
     # a workflow_dispatch run, and workflow_dispatch triggers are deliberately not
-    # retried again, preventing an incident loop.
+    # retried again, preventing an incident loop. A KFCC-only schedule must not retry
+    # a stale CU failure, so the latest CU run also has to belong to the triggering run.
     if: >-
       ${{
         github.event.workflow_run.name == '수집 — 일반·새마을금고' &&
         github.event.workflow_run.event != 'workflow_dispatch' &&
+        needs.inspect.outputs.cu_attempted == 'true' &&
         needs.inspect.outputs.cu_incident == 'true'
       }}
     runs-on: ubuntu-latest
