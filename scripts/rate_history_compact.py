@@ -34,11 +34,6 @@ def _quote_identifier(value: str) -> str:
     return '"' + value.replace('"', '""') + '"'
 
 
-def _semantic_hash(base_rate: object, max_rate: object, preference: object) -> str:
-    payload = "|".join(str(value) for value in (base_rate, max_rate, preference or ""))
-    return "sha256:" + hashlib.sha256(payload.encode("utf-8")).hexdigest()
-
-
 def _scalar(conn: sqlite3.Connection, sql: str) -> int:
     row = conn.execute(sql).fetchone()
     return int(row[0]) if row and row[0] is not None else 0
@@ -82,6 +77,11 @@ def _create_plan(conn: sqlite3.Connection) -> None:
           grp INTEGER NOT NULL,
           keep_id TEXT NOT NULL,
           last_id TEXT NOT NULL,
+          last_run_id TEXT NOT NULL,
+          max_last_seen_at TEXT NOT NULL,
+          last_valid_to TEXT,
+          last_as_of TEXT,
+          last_source_effective_at TEXT,
           rows_in_group INTEGER NOT NULL,
           total_seen_count INTEGER NOT NULL,
           PRIMARY KEY (variant_id, grp)
@@ -92,7 +92,17 @@ def _create_plan(conn: sqlite3.Connection) -> None:
         );
 
         INSERT INTO _compact_groups(
-          variant_id, grp, keep_id, last_id, rows_in_group, total_seen_count
+          variant_id,
+          grp,
+          keep_id,
+          last_id,
+          last_run_id,
+          max_last_seen_at,
+          last_valid_to,
+          last_as_of,
+          last_source_effective_at,
+          rows_in_group,
+          total_seen_count
         )
         WITH ordered AS (
           SELECT
@@ -149,6 +159,13 @@ def _create_plan(conn: sqlite3.Connection) -> None:
           grp,
           MAX(CASE WHEN rn_first = 1 THEN id END) AS keep_id,
           MAX(CASE WHEN rn_last = 1 THEN id END) AS last_id,
+          MAX(CASE WHEN rn_last = 1 THEN COALESCE(last_run_id, run_id) END)
+            AS last_run_id,
+          MAX(last_seen_at) AS max_last_seen_at,
+          MAX(CASE WHEN rn_last = 1 THEN valid_to END) AS last_valid_to,
+          MAX(CASE WHEN rn_last = 1 THEN as_of END) AS last_as_of,
+          MAX(CASE WHEN rn_last = 1 THEN source_effective_at END)
+            AS last_source_effective_at,
           MAX(rows_in_group),
           MAX(total_seen_count)
         FROM ranked
@@ -291,22 +308,25 @@ def _candidate_counts_by_source(conn: sqlite3.Connection) -> dict[str, int]:
 
 
 def _apply_plan(conn: sqlite3.Connection) -> None:
-    conn.create_function("rate_semantic_hash", 3, _semantic_hash)
+    # The production schema has a partial unique index allowing only one
+    # ``valid_to IS NULL`` row per variant. A current duplicate can therefore not
+    # be promoted onto the historical keeper until the redundant current row is
+    # gone. All tail metadata needed after deletion is captured in
+    # ``_compact_groups`` by _create_plan().
+    conn.execute("DELETE FROM rate_observations WHERE id IN (SELECT delete_id FROM _compact_map)")
     conn.execute(
         """
         UPDATE rate_observations AS keep
         SET
           last_run_id = (
-            SELECT COALESCE(last.last_run_id, last.run_id)
+            SELECT grp.last_run_id
             FROM _compact_groups grp
-            JOIN rate_observations last ON last.id = grp.last_id
             WHERE grp.keep_id = keep.id
           ),
           last_seen_at = (
-            SELECT MAX(member.last_seen_at)
-            FROM _compact_map map
-            JOIN rate_observations member ON member.id = map.delete_id
-            WHERE map.keep_id = keep.id
+            SELECT grp.max_last_seen_at
+            FROM _compact_groups grp
+            WHERE grp.keep_id = keep.id
           ),
           seen_count = (
             SELECT grp.total_seen_count
@@ -314,30 +334,23 @@ def _apply_plan(conn: sqlite3.Connection) -> None:
             WHERE grp.keep_id = keep.id
           ),
           valid_to = (
-            SELECT last.valid_to
+            SELECT grp.last_valid_to
             FROM _compact_groups grp
-            JOIN rate_observations last ON last.id = grp.last_id
             WHERE grp.keep_id = keep.id
           ),
           as_of = (
-            SELECT last.as_of
+            SELECT grp.last_as_of
             FROM _compact_groups grp
-            JOIN rate_observations last ON last.id = grp.last_id
             WHERE grp.keep_id = keep.id
           ),
           source_effective_at = (
-            SELECT last.source_effective_at
+            SELECT grp.last_source_effective_at
             FROM _compact_groups grp
-            JOIN rate_observations last ON last.id = grp.last_id
             WHERE grp.keep_id = keep.id
-          ),
-          content_hash = rate_semantic_hash(
-            keep.base_rate, keep.max_rate, keep.raw_preference_text
           )
         WHERE keep.id IN (SELECT keep_id FROM _compact_groups)
         """
     )
-    conn.execute("DELETE FROM rate_observations WHERE id IN (SELECT delete_id FROM _compact_map)")
 
 
 def _integrity(conn: sqlite3.Connection) -> tuple[str, int]:
