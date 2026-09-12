@@ -120,7 +120,9 @@ def build_recovery_plan(
     if not isinstance(runs, list):
         raise RecoveryPlanError("summary.runs must be a list")
 
-    attempts: dict[str, list[tuple[datetime, str]]] = {source: [] for source in expected}
+    attempts: dict[str, list[tuple[datetime, str, bool]]] = {
+        source: [] for source in expected
+    }
     for record in runs:
         if not isinstance(record, dict):
             continue
@@ -133,7 +135,13 @@ def build_recovery_plan(
         status = record.get("status")
         if not isinstance(status, str) or not status:
             raise RecoveryPlanError(f"{source_id}.status is missing")
-        attempts[source_id].append((started, status))
+        raw_count = record.get("raw_count")
+        parsed_count = record.get("parsed_count")
+        empty_result = (
+            isinstance(raw_count, int) and raw_count > 0
+            and isinstance(parsed_count, int) and parsed_count == 0
+        )
+        attempts[source_id].append((started, status, empty_result))
 
     failed: set[str] = set()
     evidence: dict[str, dict[str, Any]] = {}
@@ -144,13 +152,19 @@ def build_recovery_plan(
             evidence[source_id] = {"attempted": False, "status": None}
             continue
 
-        latest_started, latest_status = source_attempts[-1]
+        latest_started, latest_status, latest_empty = source_attempts[-1]
         if latest_status not in CONFIRMED_RUN_STATUSES:
+            failed.add(source_id)
+        elif latest_empty:
+            # 상태는 success인데 원본은 있고 파싱은 0건인 실행. 2026-09-11 04:14
+            # KST 신협 136장 `[]`가 이 형태였고, 그때 이 계획은 "확인됨"으로
+            # 보고 아무것도 재실행하지 않았다. 확인된 것이 아니다.
             failed.add(source_id)
         evidence[source_id] = {
             "attempted": True,
             "status": latest_status,
             "started_at": latest_started.isoformat(),
+            "empty_result": latest_empty,
         }
 
     return {

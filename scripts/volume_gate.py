@@ -109,14 +109,35 @@ def last_two_runs(
     """
     counted = ("success", "partial", "no_change")
     grouped: dict[str, list[dict]] = {}
+
+    def _excluded(source_id: str) -> bool:
+        return (
+            not include_separate_data_products
+            and source_id in SEPARATE_DATA_PRODUCT_SOURCE_IDS
+        )
+
+    # 수집원별 이력이 있으면 그것을 먼저 쓴다. `runs`는 전체 10개 창이라 다른
+    # 수집원이 사이에 끼면 직전 실행이 밀려나고, 그러면 "비교할 직전 실행이
+    # 없다"로 조용히 통과했다 — 2026-09-11 04:14 KST 신협 0건 실행이 그렇게
+    # 발행됐다 (Data.go 수신잔액 4회가 창을 차지했다).
+    for entry in summary.get("source_run_history") or []:
+        source_id = entry.get("source_id", "?")
+        if _excluded(source_id):
+            continue
+        confirmed = [
+            run for run in entry.get("confirmed_runs") or []
+            if run.get("status") in counted
+        ]
+        if confirmed:
+            grouped[source_id] = confirmed[:2]
+    if grouped:
+        return grouped
+
     for run in summary.get("runs") or []:
         if run.get("status") not in counted:
             continue
         source_id = run.get("source_id", "?")
-        if (
-            not include_separate_data_products
-            and source_id in SEPARATE_DATA_PRODUCT_SOURCE_IDS
-        ):
+        if _excluded(source_id):
             continue
         grouped.setdefault(source_id, []).append(run)
     return {k: v[:2] for k, v in grouped.items()}
