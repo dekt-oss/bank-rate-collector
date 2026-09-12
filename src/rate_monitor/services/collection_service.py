@@ -7,6 +7,7 @@
 """
 
 import hashlib
+import os
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -29,9 +30,13 @@ from rate_monitor.domain.schemas import CollectionRequest, ParsedRateRow, RawArt
 from rate_monitor.domain.timeutil import kst_path_stamp
 from rate_monitor.services import entity_service
 from rate_monitor.services.source_volume_contract import (
+    CODE_DROP,
+    CODE_EMPTY,
     POLICIES,
     SourceVolumeDecision,
+    accept_volume_drop_requested,
     evaluate_source_volume,
+    is_full_scope_context,
 )
 from rate_monitor.services.special_offer_evidence_service import (
     append_unknown_fsb_snapshot,
@@ -358,13 +363,18 @@ async def collect_source(
         _finalize_failure(factory, run_id, RunStatus.FAILED, f"{type(exc).__name__}: {exc}")
         return CollectionRunResult(run_id, RunStatus.FAILED, 0, 0, 0, 0, 0, str(exc))
 
-    decision = _preflight_source_volume(adapter, request, artifacts)
+    decision, parsed_cache = _preflight_source_volume(
+        adapter, request, artifacts, factory, run_id
+    )
     if decision is not None and not decision.ok:
         return _finalize_volume_failure(
-            factory, run_id, artifacts, raw_root, now, decision
+            factory, run_id, artifacts, raw_root, now, decision,
+            fetch_note=str(getattr(adapter, "fetch_note", "") or ""),
         )
 
-    return _process(adapter, artifacts, factory, run_id, raw_root, now)
+    return _process(
+        adapter, artifacts, factory, run_id, raw_root, now, parsed_cache=parsed_cache
+    )
 
 
 def _new_run(
@@ -424,39 +434,97 @@ def _schema_change_is_systemic(
     return len(failures) / len(artifacts) > SCHEMA_FAIL_RATIO
 
 
+ParsedCache = dict[int, tuple[list[ParsedRateRow], list[str]]]
+
+
+def _previous_full_scope_parsed(
+    factory: sessionmaker[Session], source_id: str, current_run_id: str
+) -> int | None:
+    """같은 원천의 **직전 정상 전국 실행**이 파싱한 건수.
+
+    급감 판정의 기준선이다. 실패 실행은 세지 않고(0건과 비교하면 늘 급감이다),
+    지정 범위 실행(부산만 등)은 전국과 비교할 수 없으므로 건너뛴다. 이번
+    실행 자체는 아직 running 상태라 제외한다.
+    """
+    with session_scope(factory) as session:
+        runs = session.scalars(
+            select(CollectionRun)
+            .where(
+                CollectionRun.source_id == source_id,
+                CollectionRun.id != current_run_id,
+                CollectionRun.status.in_(
+                    (RunStatus.SUCCESS, RunStatus.PARTIAL, RunStatus.NO_CHANGE)
+                ),
+            )
+            .order_by(CollectionRun.started_at.desc())
+            .limit(50)
+        ).all()
+        for run in runs:
+            if not is_full_scope_context(source_id, run.query_context_json):
+                continue
+            if run.parsed_count is None:
+                continue
+            return int(run.parsed_count)
+    return None
+
+
 def _preflight_source_volume(
     adapter,  # noqa: ANN001
     request: CollectionRequest,
     artifacts: list[RawArtifactData],
-) -> SourceVolumeDecision | None:
+    factory: sessionmaker[Session] | None = None,
+    run_id: str | None = None,
+) -> tuple[SourceVolumeDecision | None, ParsedCache | None]:
     """Persist 전에 governed source의 전체 파싱 건수를 확인한다.
 
     HTTP 200/정상 JSON만으로 성공을 인정하지 않는다. CU처럼 모든 조회가
-    빈 배열을 돌려줘도 예외가 없던 사고를 막기 위해, canonical local source는
-    관측 저장 전에 전체 응답을 한 번 파싱해 최소 정상 건수를 통과해야 한다.
+    빈 배열을 돌려줘도 예외가 없던 사고(2026-09-08 04:14, 09-11 04:11 KST,
+    136장 전부 `[]`)를 막기 위해, canonical local source는 관측 저장 전에
+    전체 응답을 한 번 파싱해 최소 정상 건수를 통과해야 한다. 여기서 만든
+    파싱 결과는 `_process`가 다시 쓰므로 원본을 두 번 파싱하지 않는다.
+
+    전국 실행은 추가로 **직전 정상 전국 실행 대비 75%** 를 지켜야 한다
+    (2026-09-09 04:01 KST, 550장/22,257행으로 잘린 실행이 success로 발행됐다).
 
     구조 변경이 systemic하면 기존 schema-change 경로가 더 정확하므로 여기서
     volume failure로 덮지 않고 `_process`가 기존 계약대로 판정하게 둔다.
     """
     if adapter.source_id not in POLICIES:
-        return None
+        return None, None
 
     parsed = 0
+    cache: ParsedCache = {}
     schema_failures: list[tuple[str, str]] = []
     try:
-        for artifact in artifacts:
+        for index, artifact in enumerate(artifacts):
             try:
-                rows, _ = adapter.parse_with_warnings(artifact)
+                rows, page_warnings = adapter.parse_with_warnings(artifact)
             except SchemaChangedError as exc:
                 schema_failures.append((artifact.filename, str(exc)))
                 continue
+            cache[index] = (rows, page_warnings)
             parsed += len(rows)
     except Exception:  # noqa: BLE001 — 기존 parse/failure 분류를 보존한다
-        return None
+        return None, None
 
     if _schema_change_is_systemic(schema_failures, artifacts):
-        return None
-    return evaluate_source_volume(adapter.source_id, request, parsed)
+        return None, None
+
+    previous = None
+    if factory is not None and run_id is not None:
+        try:
+            previous = _previous_full_scope_parsed(factory, adapter.source_id, run_id)
+        except Exception:  # noqa: BLE001 — 기준선 조회 실패가 수집을 막지는 않는다
+            previous = None
+
+    decision = evaluate_source_volume(
+        adapter.source_id,
+        request,
+        parsed,
+        previous_parsed=previous,
+        accept_drop=accept_volume_drop_requested(request, dict(os.environ)),
+    )
+    return decision, cache
 
 
 def _finalize_volume_failure(
@@ -466,8 +534,17 @@ def _finalize_volume_failure(
     raw_root: Path,
     now: datetime,
     decision: SourceVolumeDecision,
+    *,
+    fetch_note: str = "",
 ) -> CollectionRunResult:
-    """저건수 실행은 원본 증거만 보존하고 canonical 관측은 쓰지 않는다."""
+    """저건수 실행은 원본 증거만 보존하고 canonical 관측은 쓰지 않는다.
+
+    실행 메시지에는 판정(코드·건수·기준)과 함께 어댑터의 fetch 요약(되풀이·빈 응답
+    창 대기)을 남겨, 운영자가 화면·Issue에서 실제 원인을 그대로 읽을 수 있게 한다.
+    """
+    message = decision.message
+    if fetch_note:
+        message = f"{message} · {fetch_note}"
     try:
         with session_scope(factory) as session:
             run = session.get(CollectionRun, run_id)
@@ -483,13 +560,14 @@ def _finalize_volume_failure(
             run.warning_count = 0
             run.error_count = 1
             run.schema_fingerprint = artifacts[0].schema_fingerprint if artifacts else None
-            run.message = decision.message[:2000]
+            run.message = message[:2000]
 
-            issue_type = (
-                "source_empty_result"
-                if decision.code == "SOURCE_EMPTY_RESULT"
-                else "source_volume_below_minimum"
-            )
+            if decision.code == CODE_EMPTY:
+                issue_type = "source_empty_result"
+            elif decision.code == CODE_DROP:
+                issue_type = "source_volume_drop"
+            else:
+                issue_type = "source_volume_below_minimum"
             session.add(
                 ReviewItem(
                     run_id=run.id,
@@ -502,6 +580,7 @@ def _finalize_volume_failure(
                         "parsed_count": decision.parsed_count,
                         "minimum": decision.minimum,
                         "full_scope": decision.full_scope,
+                        "previous_parsed": decision.previous_parsed,
                     },
                     created_at=now,
                 )
@@ -529,7 +608,7 @@ def _finalize_volume_failure(
             valid_count=0,
             warning_count=0,
             error_count=1,
-            message=decision.message,
+            message=message,
         )
     except Exception as exc:  # noqa: BLE001
         message = f"volume gate evidence persistence failed: {type(exc).__name__}: {exc}"
@@ -547,6 +626,8 @@ def _process(
     run_id: str,
     raw_root: Path,
     now: datetime,
+    *,
+    parsed_cache: ParsedCache | None = None,
 ) -> CollectionRunResult:
     try:
         with session_scope(factory) as session:
@@ -571,9 +652,15 @@ def _process(
             # 중복을 놓쳐 (variant_id, run_id) 유니크 제약에 걸린다.
             seen_variants: set[str] = set()
             tally = ChangeTally()
-            for artifact_data, artifact_row in zip(artifacts, saved, strict=True):
+            for index, (artifact_data, artifact_row) in enumerate(
+                zip(artifacts, saved, strict=True)
+            ):
+                cached = parsed_cache.get(index) if parsed_cache else None
                 try:
-                    rows, page_warnings = adapter.parse_with_warnings(artifact_data)
+                    rows, page_warnings = (
+                        cached if cached is not None
+                        else adapter.parse_with_warnings(artifact_data)
+                    )
                 except SchemaChangedError as exc:
                     schema_failures.append((artifact_data.filename, str(exc)))
                     continue
