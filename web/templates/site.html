@@ -170,6 +170,7 @@
   .health-src { border:1px solid var(--line-soft); border-radius:6px; padding:9px 10px; }
   .health-src .ht { display:flex; align-items:center; gap:7px; font-weight:650; font-size:12.5px; }
   .health-src .hm { margin-top:5px; font-size:11.5px; color:var(--ink-2); line-height:1.6; }
+  .health-src .health-failure-cause { color:var(--red, #b42318); font-weight:600; word-break:break-all; }
   .health-dot { width:9px; height:9px; border-radius:50%; display:inline-block; flex:none; }
   .health-dot.green { background:var(--ok); }
   .health-dot.yellow { background:var(--warn); }
@@ -2875,9 +2876,10 @@
         + `${esc(HEALTH_KO[s.signal] || s.signal)}</span></div>`
         + `<div class="hm">마지막 시도 ${healthDate(r.finished_at || r.started_at)} · ${esc(r.status || "없음")}<br>`
         + `마지막 정상 ${healthDate(s.last_success_at)} · 최신성 ${esc((s.freshness || {}).label || "—")}<br>`
-        + `raw ${num(r.raw_count)} / valid ${num(r.valid_count)} / 경고 ${num(r.actionable_warning_count || 0)} / 오류 ${num(r.error_count || 0)}`
+        + `raw ${num(r.raw_count)} / parsed ${num(r.parsed_count)} / valid ${num(r.valid_count)} / 경고 ${num(r.actionable_warning_count || 0)} / 오류 ${num(r.error_count || 0)}`
         + (r.info_count ? ` · 정보 ${num(r.info_count)}` : "")
         + (reasons.length ? `<br>이유 ${reasons.map((x) => `${esc(x.code)} ${num(x.count)}`).join(" · ")}` : "")
+        + (s.failure_message ? `<br><span class="health-failure-cause" data-source-failure-cause="${esc(s.source_id)}">실패 원인 ${esc(s.failure_message)}</span>` : "")
         + `</div></div>`;
     }).join("") || '<div class="hm">아직 수집 이력이 없습니다.</div>';
   };

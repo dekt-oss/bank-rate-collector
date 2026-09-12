@@ -25,7 +25,9 @@ permissions:
 
 jobs:
   recover:
-    if: ${{ github.event.workflow_run.event == 'schedule' }}
+    # 정기 실행(schedule)만, 그리고 default branch에서 돈 실행만 재실행한다.
+    # 재실행 결과(workflow_dispatch)는 이 조건을 다시 만족하지 않아 loop가 없다.
+    if: ${{ github.event.workflow_run.event == 'schedule' && github.event.workflow_run.head_branch == 'main' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
