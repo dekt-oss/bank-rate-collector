@@ -200,20 +200,47 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--db", type=Path, required=True)
     parser.add_argument("--source", action="append", dest="sources", required=True)
     parser.add_argument("--repo", default=os.getenv("GITHUB_REPOSITORY", ""))
+    parser.add_argument(
+        "--report-only",
+        action="store_true",
+        help="GitHub Issue를 건드리지 않고 canonical DB의 source 상태만 출력한다",
+    )
     return parser.parse_args()
+
+
+def report(db_path: Path, source_id: str) -> str:
+    """운영자가 로그에서 바로 읽는 한 줄 증거. Issue API를 쓰지 않는다."""
+    run = latest_run(db_path, source_id)
+    state = classify_run(run)
+    run = run or {}
+    return (
+        f"{source_id}: incident={'yes' if state.incident else 'no'} code={state.code}"
+        f" status={run.get('status', 'missing')} run={run.get('id', '-')}"
+        f" started={run.get('started_at', '-')} finished={run.get('finished_at', '-')}"
+        f" raw/parsed/valid={run.get('raw_count', 0)}/{run.get('parsed_count', 0)}"
+        f"/{run.get('valid_count', 0)}"
+        f" warning/error={run.get('warning_count', 0)}/{run.get('error_count', 0)}"
+        f" message={str(run.get('message') or '')[:200]!r}"
+    )
 
 
 def main() -> int:
     args = parse_args()
+    if not args.db.exists():
+        print(f"database not found: {args.db}", file=sys.stderr)
+        return 2
+
+    if args.report_only:
+        for source_id in args.sources:
+            print(report(args.db, source_id))
+        return 0
+
     token = os.getenv("GITHUB_TOKEN", "")
     if not args.repo:
         print("GITHUB_REPOSITORY/--repo is required", file=sys.stderr)
         return 2
     if not token:
         print("GITHUB_TOKEN is required", file=sys.stderr)
-        return 2
-    if not args.db.exists():
-        print(f"database not found: {args.db}", file=sys.stderr)
         return 2
 
     for source_id in args.sources:

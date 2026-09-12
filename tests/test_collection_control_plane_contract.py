@@ -35,7 +35,10 @@ def test_r2_upload_remains_after_validation_and_p1a_gate() -> None:
 def test_scheduled_recovery_inspects_successful_soft_failures_without_owning_writer_lock() -> None:
     text = RECOVERY.read_text(encoding="utf-8")
 
-    assert "if: ${{ github.event.workflow_run.event == 'schedule' }}" in text
+    assert (
+        "if: ${{ github.event.workflow_run.event == 'schedule'"
+        " && github.event.workflow_run.head_branch == 'main' }}"
+    ) in text
     assert "PARENT_CONCLUSION: ${{ github.event.workflow_run.conclusion }}" in text
     assert "scripts/scheduled_soft_failure_recovery.py" in text
     assert "collection-run-$PARENT_RUN_ID" in text
