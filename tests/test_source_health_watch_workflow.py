@@ -13,6 +13,13 @@ def test_source_health_watch_has_independent_issue_permission() -> None:
     assert "--source nh_local" in text
 
 
+def test_incident_issue_sync_is_fail_closed() -> None:
+    text = WORKFLOW.read_text(encoding="utf-8")
+    assert "Synchronize CU/KFCC incident issues" in text
+    assert "Synchronize NH incident issue" in text
+    assert "continue-on-error: true" not in text
+
+
 def test_cu_retry_is_bounded_to_triggering_attempt_and_non_dispatch() -> None:
     text = WORKFLOW.read_text(encoding="utf-8")
     assert "retry_cu_once:" in text
