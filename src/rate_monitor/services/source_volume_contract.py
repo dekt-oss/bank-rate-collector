@@ -1,13 +1,13 @@
 """Source-specific minimum-volume contracts for canonical local-rate collectors.
 
 The three local collectors can return syntactically valid but catastrophically small
-responses.  HTTP success is therefore not enough to call the acquisition healthy.
+responses. HTTP success is therefore not enough to call the acquisition healthy.
 
-Only canonical nationwide runs use the non-zero source floor.  Manually scoped runs
-(Busan, capital area, explicit CU regions) still get the universal zero-row guard, but
-must not be compared with nationwide volume.
+Only canonical nationwide runs use the non-zero source floor. Manually scoped runs
+(Busan, capital area, explicit CU/KFCC regions) still get the universal zero-row guard,
+but must not be compared with nationwide volume.
 
-The floors intentionally sit far below repository-observed normal volume.  They are
+The floors intentionally sit far below repository-observed normal volume. They are
 circuit breakers, not expected counts:
 
 - CU: repository recon documents about 30,994 rows -> floor 7,500
@@ -49,12 +49,24 @@ POLICIES: dict[str, SourceVolumePolicy] = {
 
 
 def is_full_scope(source_id: str, request: CollectionRequest) -> bool:
-    """Whether *request* represents the canonical nationwide acquisition."""
+    """Whether *request* represents the canonical nationwide acquisition.
+
+    Request precedence must mirror the adapters. In particular, KFCC accepts an
+    explicit ``regions`` subset even when ``scope`` is absent; treating that request
+    as nationwide makes every legitimate Busan fixture/manual collection fail the
+    20,000-row circuit breaker.
+    """
     if source_id == "cu":
-        # CU uses explicit regions when a subset is requested.  No regions means the
-        # adapter walks every known SIDO bucket.
+        # CU walks every known SIDO bucket only when no explicit region list exists.
         return not request.regions
-    if source_id in {"kfcc", "nh_local"}:
+    if source_id == "kfcc":
+        # KFCC explicit regions take precedence over the named scope in the adapter.
+        if request.regions:
+            return False
+        scope = request.options.get("scope")
+        return scope in {None, "", "전국"}
+    if source_id == "nh_local":
+        # NH does not accept --regions; the named scope is the only scope selector.
         scope = request.options.get("scope")
         return scope in {None, "", "전국"}
     return False
@@ -67,7 +79,7 @@ def evaluate_source_volume(
 ) -> SourceVolumeDecision | None:
     """Return a decision for governed sources, otherwise ``None``.
 
-    Zero rows are never healthy, even for a deliberately scoped manual run.  The
+    Zero rows are never healthy, even for a deliberately scoped manual run. The
     stronger absolute floor applies only to the canonical nationwide scope.
     """
     policy = POLICIES.get(source_id)
