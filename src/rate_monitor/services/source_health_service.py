@@ -33,6 +33,15 @@ EXPECTED_BY_HOUR_KST: dict[str, int] = {
 }
 DEFAULT_EXPECTED_BY_HOUR_KST = 7
 
+# 평일 주기가 아닌 수집원. 신협중앙회 경영공시 요약재무현황(총자산·수신잔액)은
+# 월 단위 공시이고 workflow도 매월 2일 01:17 KST에만 돈다
+# (collect-size-peer-total-assets.yml, cron "17 16 1 * *"). 평일 주기로 재면
+# 매일 "예정 수집 N회 지연" RED가 되어 실제 금리 수집 장애와 구분되지 않는다
+# (2026-09-11 화면의 신협 RED 카드가 이것이었다).
+MONTHLY_SOURCES: frozenset[str] = frozenset({"cu_disclosure_funding"})
+# 월 주기 수집이 완료됐어야 하는 날. 매월 2일 01:17 KST 실행이므로 2일 07:00.
+MONTHLY_EXPECTED_DAY = 2
+
 _SIGNAL_RANK = {"gray": 0, "green": 1, "blue": 2, "yellow": 3, "red": 4}
 
 
@@ -79,10 +88,37 @@ def _missed_business_cycles(last_success: date, expected: date) -> int:
     return missed
 
 
+def expected_monthly_collection_date(moment: datetime) -> date:
+    """월 주기 수집원이 이 시각까지 완료됐어야 하는 가장 최근 월의 기준일."""
+    local = moment.astimezone(KST) if moment.tzinfo else moment.replace(tzinfo=KST)
+    cutoff = DEFAULT_EXPECTED_BY_HOUR_KST
+    due_this_month = local.date().replace(day=MONTHLY_EXPECTED_DAY)
+    if local.date() > due_this_month or (
+        local.date() == due_this_month and local.hour >= cutoff
+    ):
+        return due_this_month
+    first = due_this_month.replace(day=1) - timedelta(days=1)
+    return first.replace(day=MONTHLY_EXPECTED_DAY)
+
+
+def _missed_monthly_cycles(last_success: date, expected: date) -> int:
+    """마지막 정상 수집 이후 놓친 월 기준일 수. 같은 달 안이면 0이다."""
+    last_month = (last_success.year, last_success.month)
+    expected_month = (expected.year, expected.month)
+    if last_month >= expected_month:
+        return 0
+    return (expected.year - last_success.year) * 12 + (expected.month - last_success.month)
+
+
 def _freshness(
     source_id: str, last_success_at: str | datetime | None, moment: datetime
 ) -> dict[str, Any]:
-    expected = expected_collection_date(source_id, moment)
+    monthly = source_id in MONTHLY_SOURCES
+    expected = (
+        expected_monthly_collection_date(moment)
+        if monthly
+        else expected_collection_date(source_id, moment)
+    )
     local = to_kst(last_success_at)
     if local is None:
         return {
@@ -90,6 +126,21 @@ def _freshness(
             "label": "정상 수집 이력 없음",
             "expected_date": expected.isoformat(),
             "missed_cycles": None,
+        }
+    if monthly:
+        missed = _missed_monthly_cycles(local.date(), expected)
+        if missed == 0:
+            signal, label = "green", "정상 (월 주기)"
+        elif missed == 1:
+            signal, label = "yellow", "월 주기 수집 1회 지연"
+        else:
+            signal, label = "red", f"월 주기 수집 {missed}회 지연"
+        return {
+            "signal": signal,
+            "label": label,
+            "expected_date": expected.isoformat(),
+            "missed_cycles": missed,
+            "cadence": "monthly",
         }
     missed = _missed_business_cycles(local.date(), expected)
     if missed == 0:
@@ -347,6 +398,12 @@ def build_collection_health(
                     "query_context": latest["query_context_json"],
                     "stats": _run_stat(conn, latest["id"]),
                 },
+                # 실패 원인을 카드에서 바로 읽게 한다. 단순 "failed"가 아니라
+                # "SOURCE_EMPTY_RESULT: cu 전국 파싱 건수 0건이 …"처럼 실제 수치가
+                # 담긴 실행 메시지다. 정상일 때는 비워 둔다.
+                "failure_message": (
+                    (latest or {}).get("message") if run_signal == "red" and latest else None
+                ),
                 "last_success_at": None if success is None else kst_iso(
                     success["finished_at"] or success["started_at"]
                 ),
