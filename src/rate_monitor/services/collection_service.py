@@ -28,6 +28,11 @@ from rate_monitor.domain.enums import RunStatus, ValidationStatus
 from rate_monitor.domain.schemas import CollectionRequest, ParsedRateRow, RawArtifactData
 from rate_monitor.domain.timeutil import kst_path_stamp
 from rate_monitor.services import entity_service
+from rate_monitor.services.source_volume_contract import (
+    POLICIES,
+    SourceVolumeDecision,
+    evaluate_source_volume,
+)
 from rate_monitor.services.special_offer_evidence_service import (
     append_unknown_fsb_snapshot,
 )
@@ -353,6 +358,12 @@ async def collect_source(
         _finalize_failure(factory, run_id, RunStatus.FAILED, f"{type(exc).__name__}: {exc}")
         return CollectionRunResult(run_id, RunStatus.FAILED, 0, 0, 0, 0, 0, str(exc))
 
+    decision = _preflight_source_volume(adapter, request, artifacts)
+    if decision is not None and not decision.ok:
+        return _finalize_volume_failure(
+            factory, run_id, artifacts, raw_root, now, decision
+        )
+
     return _process(adapter, artifacts, factory, run_id, raw_root, now)
 
 
@@ -411,6 +422,122 @@ def _schema_change_is_systemic(
     if len(artifacts) < SCHEMA_FAIL_MIN_SAMPLE:
         return True
     return len(failures) / len(artifacts) > SCHEMA_FAIL_RATIO
+
+
+def _preflight_source_volume(
+    adapter,  # noqa: ANN001
+    request: CollectionRequest,
+    artifacts: list[RawArtifactData],
+) -> SourceVolumeDecision | None:
+    """Persist 전에 governed source의 전체 파싱 건수를 확인한다.
+
+    HTTP 200/정상 JSON만으로 성공을 인정하지 않는다. CU처럼 모든 조회가
+    빈 배열을 돌려줘도 예외가 없던 사고를 막기 위해, canonical local source는
+    관측 저장 전에 전체 응답을 한 번 파싱해 최소 정상 건수를 통과해야 한다.
+
+    구조 변경이 systemic하면 기존 schema-change 경로가 더 정확하므로 여기서
+    volume failure로 덮지 않고 `_process`가 기존 계약대로 판정하게 둔다.
+    """
+    if adapter.source_id not in POLICIES:
+        return None
+
+    parsed = 0
+    schema_failures: list[tuple[str, str]] = []
+    try:
+        for artifact in artifacts:
+            try:
+                rows, _ = adapter.parse_with_warnings(artifact)
+            except SchemaChangedError as exc:
+                schema_failures.append((artifact.filename, str(exc)))
+                continue
+            parsed += len(rows)
+    except Exception:  # noqa: BLE001 — 기존 parse/failure 분류를 보존한다
+        return None
+
+    if _schema_change_is_systemic(schema_failures, artifacts):
+        return None
+    return evaluate_source_volume(adapter.source_id, request, parsed)
+
+
+def _finalize_volume_failure(
+    factory: sessionmaker[Session],
+    run_id: str,
+    artifacts: list[RawArtifactData],
+    raw_root: Path,
+    now: datetime,
+    decision: SourceVolumeDecision,
+) -> CollectionRunResult:
+    """저건수 실행은 원본 증거만 보존하고 canonical 관측은 쓰지 않는다."""
+    try:
+        with session_scope(factory) as session:
+            run = session.get(CollectionRun, run_id)
+            if run is None:
+                raise RuntimeError(f"collection run not found: {run_id}")
+
+            save_raw_artifacts(session, run, artifacts, raw_root, now)
+            run.status = RunStatus.FAILED
+            run.finished_at = _utcnow()
+            run.raw_count = len(artifacts)
+            run.parsed_count = decision.parsed_count
+            run.valid_count = 0
+            run.warning_count = 0
+            run.error_count = 1
+            run.schema_fingerprint = artifacts[0].schema_fingerprint if artifacts else None
+            run.message = decision.message[:2000]
+
+            issue_type = (
+                "source_empty_result"
+                if decision.code == "SOURCE_EMPTY_RESULT"
+                else "source_volume_below_minimum"
+            )
+            session.add(
+                ReviewItem(
+                    run_id=run.id,
+                    issue_type=issue_type,
+                    severity="error",
+                    message=decision.message,
+                    payload_json={
+                        "source_id": decision.source_id,
+                        "code": decision.code,
+                        "parsed_count": decision.parsed_count,
+                        "minimum": decision.minimum,
+                        "full_scope": decision.full_scope,
+                    },
+                    created_at=now,
+                )
+            )
+            session.add(
+                CollectionRunStat(
+                    run_id=run.id,
+                    source_id=run.source_id,
+                    fetched_count=len(artifacts),
+                    parsed_count=decision.parsed_count,
+                    unchanged_count=0,
+                    changed_count=0,
+                    new_variant_count=0,
+                    missing_variant_count=0,
+                    error_count=1,
+                    created_at=now,
+                )
+            )
+
+        return CollectionRunResult(
+            run_id=run_id,
+            status=RunStatus.FAILED,
+            raw_count=len(artifacts),
+            parsed_count=decision.parsed_count,
+            valid_count=0,
+            warning_count=0,
+            error_count=1,
+            message=decision.message,
+        )
+    except Exception as exc:  # noqa: BLE001
+        message = f"volume gate evidence persistence failed: {type(exc).__name__}: {exc}"
+        _finalize_failure(factory, run_id, RunStatus.FAILED, message)
+        return CollectionRunResult(
+            run_id, RunStatus.FAILED, len(artifacts), decision.parsed_count,
+            0, 0, 1, message,
+        )
 
 
 def _process(
