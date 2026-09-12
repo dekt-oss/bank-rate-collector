@@ -122,7 +122,6 @@ jobs:
 
       - name: Synchronize CU/KFCC incident issues
         if: ${{ github.event.workflow_run.name == '수집 — 일반·새마을금고' }}
-        continue-on-error: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -133,7 +132,6 @@ jobs:
 
       - name: Synchronize NH incident issue
         if: ${{ github.event.workflow_run.name == '수집 — 농·축협' }}
-        continue-on-error: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
