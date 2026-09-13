@@ -760,6 +760,52 @@ def _stale_sources(conn: sqlite3.Connection) -> list[dict[str, Any]]:
     )
 
 
+def _source_run_history(conn: sqlite3.Connection) -> list[dict[str, Any]]:
+    """수집원별 최근 **확인된** 실행 두 개와 마지막 시도.
+
+    발행 게이트(scripts/volume_gate.py)가 직전 실행과 견줄 때 쓴다. 전체
+    `runs` 10개 창과 달리 수집원마다 따로 세므로, 다른 수집원이 사이에
+    몇 번을 돌았든 직전 실행이 사라지지 않는다.
+    """
+    placeholders = ",".join("?" for _ in CONFIRMED_RUN_STATUSES)
+    confirmed = _rows(
+        conn,
+        "SELECT id, source_id, status, started_at, finished_at, raw_count,"
+        "       parsed_count, valid_count, error_count"
+        "  FROM collection_runs"
+        f" WHERE status IN ({placeholders})"
+        " ORDER BY source_id, started_at DESC",
+        tuple(CONFIRMED_RUN_STATUSES),
+    )
+    latest = _rows(
+        conn,
+        "SELECT r.id, r.source_id, r.status, r.started_at, r.finished_at, r.raw_count,"
+        "       r.parsed_count, r.valid_count, r.error_count, r.message"
+        "  FROM collection_runs r"
+        "  JOIN (SELECT source_id, MAX(started_at) AS started_at"
+        "          FROM collection_runs GROUP BY source_id) m"
+        "    ON m.source_id = r.source_id AND m.started_at = r.started_at",
+    )
+    by_source: dict[str, list[dict[str, Any]]] = {}
+    for run in confirmed:
+        bucket = by_source.setdefault(run["source_id"], [])
+        if len(bucket) < 2:
+            bucket.append(run)
+    latest_by_source = {run["source_id"]: run for run in latest}
+    history = []
+    for source_id in sorted(set(by_source) | set(latest_by_source)):
+        entry = {
+            "source_id": source_id,
+            "confirmed_runs": by_source.get(source_id, []),
+            "latest_attempt": latest_by_source.get(source_id),
+        }
+        _to_kst_times(entry["confirmed_runs"])
+        if entry["latest_attempt"] is not None:
+            _to_kst_times([entry["latest_attempt"]])
+        history.append(entry)
+    return history
+
+
 def build_summary(
     db_path: Path, *, include_product_id: bool = False
 ) -> dict[str, Any]:
@@ -775,10 +821,11 @@ def build_summary(
         )
         runs = _rows(
             conn,
-            "SELECT id, source_id, status, started_at, finished_at, parsed_count,"
-            "       valid_count, error_count"
+            "SELECT id, source_id, status, started_at, finished_at, raw_count,"
+            "       parsed_count, valid_count, error_count"
             "  FROM collection_runs ORDER BY started_at DESC LIMIT 10",
         )
+        source_run_history = _source_run_history(conn)
         # DB의 실행 시각은 naive UTC다. 화면에 그대로 내보내면 07:00에 도는
         # 정기 수집이 22:00으로 보인다 — 읽는 사람은 전부 한국에 있다.
         # 저장은 그대로 두고 나가는 자리에서만 바꾼다 (domain/timeutil.py).
@@ -1010,6 +1057,11 @@ def build_summary(
         "notice": HEAD_OFFICE_NOTICE,
         "latest_run": latest_run[0] if latest_run else None,
         "runs": runs,
+        # 수집원별 최근 확인 실행 2개 + 마지막 시도. `runs`는 전체 10개라 다른
+        # 수집원이 끼면 어떤 수집원의 직전 실행이 창 밖으로 밀려난다 —
+        # 2026-09-11 04:14 KST 신협 0건 실행이 그래서 급감 검사를 건너뛰고
+        # 발행됐다. 발행 게이트는 이 표를 먼저 본다.
+        "source_run_history": source_run_history,
         "totals": totals,
         "by_term": by_term,
         "by_district": by_district,

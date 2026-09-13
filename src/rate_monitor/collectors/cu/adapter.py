@@ -26,10 +26,24 @@ FSB와 달리 여기서는 `monTy`가 결과를 실제로 거른다. 응답 행�
 요청값과 항상 같다. 그래서 기간마다 요청을 나눈다.
 
 차단 우회는 하지 않는다 (v3 §0.2, §16.1).
+
+## 04:00 KST 전후의 빈 응답 창 (2026-09-13 실측)
+
+2026-09-08 04:14, 09-11 04:11 KST 실행은 136장 전부 `[]`였고, 09-09 03:46 실행은
+04:00을 지나면서 뒤쪽 39장이 `[]`로 바뀌었다(550장/22,257행). 요청 계약은 화면과
+같았고(브라우저 실측 동일 파라미터), 00시대 같은 요청은 정상 응답이었다. 즉 원천이
+특정 시간대에 조건과 무관하게 빈 배열을 주는 것이다.
+
+그래서 1페이지가 비면 **카나리**(같은 화면, 서울 01, 12개월 — 항상 수백 건)를
+한 번 더 조회한다. 카나리도 비면 원천 전체가 비어 있는 창이므로 조건 문제로
+보지 않고 잠시 기다렸다가 같은 조회를 다시 한다. 상한을 넘으면 그때부터는
+빈 응답을 그대로 기록하고, 저장 단계의 volume gate가 실행을 FAILED로 끝낸다.
+우회가 아니라 대기다 — 요청 빈도는 그대로다.
 """
 
 import asyncio
 import json
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 import httpx
@@ -94,6 +108,15 @@ PAGE_SIZE = 50
 MAX_PAGES = 200
 MAX_REQUESTS = 2000
 
+# 빈 응답 창 대기. 카나리는 서울(01) 12개월 — 두 화면 모두 항상 수백 건이다
+# (2026-09-13 실측 726건 / 626건).
+CANARY_SIDO = "01"
+CANARY_TERM = 12
+EMPTY_WINDOW_WAIT_SECONDS = 300.0
+EMPTY_WINDOW_MAX_WAIT_SECONDS = 3600.0
+
+Sleep = Callable[[float], Awaitable[None]]
+
 BLOCK_MARKERS = ("Request Blocked", "Access Denied", "접속이 차단")
 BLOCK_STATUSES = (400, 403, 429)
 
@@ -116,7 +139,31 @@ class CuAdapter:
     provides_max_rate = True
     coverage_status = "partial"
 
+    def __init__(
+        self,
+        *,
+        sleep: Sleep | None = None,
+        transport: httpx.AsyncBaseTransport | None = None,
+    ) -> None:
+        # 시험에서는 실제로 기다리지 않도록 sleep을, 실제 원천 대신 transport를 바꿔 끼운다.
+        self._sleep: Sleep = sleep or asyncio.sleep
+        self._transport = transport
+        self.fetch_note = ""
+        self.fetch_alert = ""
+        self.empty_window_waits = 0
+        self.empty_window_waited_seconds = 0.0
+
     # ── 요청 ────────────────────────────────────────────────────────────
+
+    async def _upstream_answers(self, client: httpx.AsyncClient, screen: str) -> bool:
+        """카나리 조회. 비어 있으면 원천 전체가 빈 응답을 주는 창이다."""
+        _, rows = await self._post(
+            client,
+            f"{PATH_PREFIX}/{screen}CmprListResult.do",
+            self._rate_body(page=1, sido=CANARY_SIDO, term=CANARY_TERM),
+        )
+        await self._sleep(REQUEST_INTERVAL_SECONDS)
+        return bool(rows)
 
     async def _post(
         self, client: httpx.AsyncClient, path: str, body: dict[str, Any]
@@ -163,21 +210,23 @@ class CuAdapter:
         # 새마을금고에서 이 구분을 안 해 경남 186장이 통째로 사라졌다.
         guard = RepeatGuard()
         requests_made = 0
+        waited_seconds = 0.0
+        wait_events: list[str] = []
+        wait_budget_exhausted = False
 
         timeout = httpx.Timeout(READ_TIMEOUT, connect=CONNECT_TIMEOUT)
         async with httpx.AsyncClient(
             timeout=timeout,
             follow_redirects=True,
             headers={"User-Agent": USER_AGENT},
+            transport=self._transport,
         ) as client:
             for screen in screens:
+                landing = f"{BASE_URL}{PATH_PREFIX}/{screen}CmprList.do"
                 # 화면을 먼저 GET해 세션 쿠키를 받는다.
-                await client.get(
-                    f"{BASE_URL}{PATH_PREFIX}/{screen}CmprList.do",
-                    params={"mi": SCREENS[screen]},
-                )
+                await client.get(landing, params={"mi": SCREENS[screen]})
                 requests_made += 1
-                await asyncio.sleep(REQUEST_INTERVAL_SECONDS)
+                await self._sleep(REQUEST_INTERVAL_SECONDS)
 
                 for sido in sidos:
                     for term in terms:
@@ -194,7 +243,28 @@ class CuAdapter:
                                 self._rate_body(page=page, sido=sido, term=term),
                             )
                             requests_made += 1
-                            await asyncio.sleep(REQUEST_INTERVAL_SECONDS)
+                            await self._sleep(REQUEST_INTERVAL_SECONDS)
+
+                            # 1페이지가 비었다. 조건상 없는 것인지, 원천 전체가 빈
+                            # 응답을 주는 창인지 카나리로 가른다 (모듈 설명 참조).
+                            if not rows and page == 1 and not wait_budget_exhausted:
+                                requests_made += 1
+                                if not await self._upstream_answers(client, screen):
+                                    if waited_seconds >= EMPTY_WINDOW_MAX_WAIT_SECONDS:
+                                        wait_budget_exhausted = True
+                                    else:
+                                        wait_events.append(
+                                            f"{screen} sido={sido} term={term}"
+                                        )
+                                        await self._sleep(EMPTY_WINDOW_WAIT_SECONDS)
+                                        waited_seconds += EMPTY_WINDOW_WAIT_SECONDS
+                                        # 세션을 새로 받고 같은 조회를 다시 한다.
+                                        await client.get(
+                                            landing, params={"mi": SCREENS[screen]}
+                                        )
+                                        requests_made += 1
+                                        await self._sleep(REQUEST_INTERVAL_SECONDS)
+                                        continue
 
                             guard.observe(
                                 raw,
@@ -222,7 +292,17 @@ class CuAdapter:
                             if not rows or total is None or page * PAGE_SIZE >= total:
                                 break
                             page += 1
-        self.fetch_note = guard.summary()
+        self.empty_window_waits = len(wait_events)
+        self.empty_window_waited_seconds = waited_seconds
+        note = guard.summary()
+        if wait_events:
+            note += (
+                f" · 빈 응답 창 대기 {len(wait_events)}회 {waited_seconds / 60:.0f}분"
+                f" (처음 {wait_events[0]})"
+            )
+            if wait_budget_exhausted:
+                note += f" · 대기 상한 {EMPTY_WINDOW_MAX_WAIT_SECONDS / 60:.0f}분 초과"
+        self.fetch_note = note
         self.fetch_alert = guard.tripped
         return artifacts
 

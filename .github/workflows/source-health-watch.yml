@@ -1,0 +1,132 @@
+name: 운영 — source health 감시
+
+on:
+  workflow_run:
+    workflows:
+      - "수집 — 일반·새마을금고"
+      - "수집 — 농·축협"
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      sources:
+        description: "점검할 source id (공백 구분). 비우면 cu kfcc nh_local"
+        required: false
+        default: "cu kfcc nh_local"
+
+# Canonical DB를 read-only로 읽고 GitHub Issue만 갱신한다. DB/R2 writer가 아니다.
+#
+# 재실행은 여기서 하지 않는다. 정기 수집의 1회 재실행은
+# recover-failed-scheduled-collection.yml 하나가 맡는다(schedule 이벤트만, 결과인
+# workflow_dispatch는 다시 재실행하지 않는다). 같은 완료 이벤트에 두 workflow가
+# 각각 "신협만"을 dispatch하면 재실행이 두 번 된다 — 그래서 한 곳에만 둔다.
+concurrency:
+  group: source-health-watch-${{ github.event.workflow_run.id || github.run_id }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  inspect:
+    # Fork/비-main 실행이 운영 이슈를 건드리지 못하게 한다. 수동 실행은 main에서만.
+    if: >-
+      ${{
+        (github.event_name == 'workflow_run' && github.event.workflow_run.head_branch == 'main')
+        || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
+      }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Sync dependencies
+        run: uv sync --locked
+
+      - name: Decide storage backend
+        id: storage
+        env:
+          STORAGE_BACKEND: ${{ vars.STORAGE_BACKEND }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+          R2_REGION: ${{ vars.R2_REGION }}
+        run: |
+          set -euo pipefail
+          BACKEND=$(uv run python -c "
+          from pathlib import Path
+          from rate_monitor.services.storage_service import load_backend
+          print(load_backend(Path('config/storage.yaml')).backend.value)
+          ")
+          echo "backend=$BACKEND" >> "$GITHUB_OUTPUT"
+          echo "source health storage backend: $BACKEND"
+
+      - name: Restore current canonical database read-only
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+          R2_REGION: ${{ vars.R2_REGION }}
+        run: |
+          set -euo pipefail
+          mkdir -p work
+          if [ "${{ steps.storage.outputs.backend }}" = "r2" ]; then
+            uv run rate-monitor storage restore --dest work/rate_monitor.sqlite3
+          else
+            git fetch origin rate-data --depth=1
+            git checkout origin/rate-data -- latest/rate_monitor.sqlite3.gz
+            gunzip -c latest/rate_monitor.sqlite3.gz > work/rate_monitor.sqlite3
+          fi
+          test -s work/rate_monitor.sqlite3
+
+      - name: Decide which sources this event proves
+        id: scope
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PARENT_WORKFLOW: ${{ github.event.workflow_run.name }}
+          REQUESTED: ${{ inputs.sources }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            SOURCES="${REQUESTED:-cu kfcc nh_local}"
+          elif [ "$PARENT_WORKFLOW" = "수집 — 농·축협" ]; then
+            SOURCES="nh_local"
+          else
+            SOURCES="cu kfcc"
+          fi
+          echo "sources=$SOURCES" >> "$GITHUB_OUTPUT"
+          echo "source health scope: $SOURCES"
+
+      - name: Print canonical source evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python scripts/source_health_incident.py \
+            --db work/rate_monitor.sqlite3 \
+            --report-only \
+            $(for s in ${{ steps.scope.outputs.sources }}; do printf -- "--source %s " "$s"; done)
+
+      - name: Synchronize source incident issues
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          uv run python scripts/source_health_incident.py \
+            --db work/rate_monitor.sqlite3 \
+            $(for s in ${{ steps.scope.outputs.sources }}; do printf -- "--source %s " "$s"; done)
