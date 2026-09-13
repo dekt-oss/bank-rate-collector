@@ -370,6 +370,8 @@ async def collect_source(
         return _finalize_volume_failure(
             factory, run_id, artifacts, raw_root, now, decision,
             fetch_note=str(getattr(adapter, "fetch_note", "") or ""),
+            fetch_alert=str(getattr(adapter, "fetch_alert", "") or ""),
+            source_id=adapter.source_id,
         )
 
     return _process(
@@ -436,6 +438,24 @@ def _schema_change_is_systemic(
 
 ParsedCache = dict[int, tuple[list[ParsedRateRow], list[str]]]
 
+# 파싱 결과를 들고 있으면 저장 단계가 원본을 다시 파싱하지 않아도 된다. 그러나
+# 큰 원천에서는 그 이득보다 메모리가 문제다.
+#
+# 실측 (2026-09-13, CU fixture 10,000행을 tracemalloc으로): **행당 2,601 bytes**.
+# 전국 실행 기준으로 환산하면
+#
+#     cu        30,482행 →  약  76 MB
+#     kfcc      93,248행 →  약 231 MB
+#     nh_local 310,157행 →  약 769 MB
+#
+# 농·축협 한 번에 769 MB를 더 얹는 것은 이득에 비해 위험하다. 원본 HTML
+# 9,747장과 저장 단계의 세션이 이미 같은 프로세스에 올라와 있다.
+#
+# 그래서 상한을 넘으면 캐시를 버리고 저장 단계가 예전처럼 다시 파싱한다.
+# **건수 판정은 캐시와 무관하게 그대로다** — 버리는 것은 속도 최적화뿐이다.
+# 50,000행은 실측 기준 약 130 MB이고, 신협 전국(30,482행)은 캐시를 유지한다.
+PARSED_CACHE_MAX_ROWS = 50_000
+
 
 def _previous_full_scope_parsed(
     factory: sessionmaker[Session], source_id: str, current_run_id: str
@@ -481,7 +501,8 @@ def _preflight_source_volume(
     빈 배열을 돌려줘도 예외가 없던 사고(2026-09-08 04:14, 09-11 04:11 KST,
     136장 전부 `[]`)를 막기 위해, canonical local source는 관측 저장 전에
     전체 응답을 한 번 파싱해 최소 정상 건수를 통과해야 한다. 여기서 만든
-    파싱 결과는 `_process`가 다시 쓰므로 원본을 두 번 파싱하지 않는다.
+    파싱 결과는 `_process`가 다시 쓰므로 원본을 두 번 파싱하지 않는다 —
+    단 `PARSED_CACHE_MAX_ROWS`를 넘으면 메모리 때문에 캐시를 버린다.
 
     전국 실행은 추가로 **직전 정상 전국 실행 대비 75%** 를 지켜야 한다
     (2026-09-09 04:01 KST, 550장/22,257행으로 잘린 실행이 success로 발행됐다).
@@ -493,7 +514,7 @@ def _preflight_source_volume(
         return None, None
 
     parsed = 0
-    cache: ParsedCache = {}
+    cache: ParsedCache | None = {}
     schema_failures: list[tuple[str, str]] = []
     try:
         for index, artifact in enumerate(artifacts):
@@ -502,8 +523,13 @@ def _preflight_source_volume(
             except SchemaChangedError as exc:
                 schema_failures.append((artifact.filename, str(exc)))
                 continue
-            cache[index] = (rows, page_warnings)
             parsed += len(rows)
+            if cache is not None:
+                if parsed > PARSED_CACHE_MAX_ROWS:
+                    # 큰 원천이다. 지금까지 모은 것도 버리고 저장 단계가 다시 파싱한다.
+                    cache = None
+                else:
+                    cache[index] = (rows, page_warnings)
     except Exception:  # noqa: BLE001 — 기존 parse/failure 분류를 보존한다
         return None, None
 
@@ -536,11 +562,17 @@ def _finalize_volume_failure(
     decision: SourceVolumeDecision,
     *,
     fetch_note: str = "",
+    fetch_alert: str = "",
+    source_id: str = "",
 ) -> CollectionRunResult:
     """저건수 실행은 원본 증거만 보존하고 canonical 관측은 쓰지 않는다.
 
     실행 메시지에는 판정(코드·건수·기준)과 함께 어댑터의 fetch 요약(되풀이·빈 응답
     창 대기)을 남겨, 운영자가 화면·Issue에서 실제 원인을 그대로 읽을 수 있게 한다.
+
+    어댑터가 응답 되풀이를 봤으면 그 검수항목도 여기서 남긴다. 이 경로는 `_process`를
+    건너뛰므로, 안 남기면 물량 판정이 되풀이 진단을 덮어 `REPEATED_RESPONSE`가 상태
+    화면에서 사라진다 — 경남 186장 사고에서 없던 것이 바로 그 신호다.
     """
     message = decision.message
     if fetch_note:
@@ -561,6 +593,18 @@ def _finalize_volume_failure(
             run.error_count = 1
             run.schema_fingerprint = artifacts[0].schema_fingerprint if artifacts else None
             run.message = message[:2000]
+
+            if fetch_alert:
+                session.add(
+                    ReviewItem(
+                        run_id=run.id,
+                        issue_type="repeated_response",
+                        severity="error",
+                        message=fetch_alert,
+                        payload_json={"source_id": source_id or run.source_id},
+                        created_at=now,
+                    )
+                )
 
             if decision.code == CODE_EMPTY:
                 issue_type = "source_empty_result"
