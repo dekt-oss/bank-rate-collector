@@ -34,11 +34,27 @@ FSB와 달리 여기서는 `monTy`가 결과를 실제로 거른다. 응답 행�
 같았고(브라우저 실측 동일 파라미터), 00시대 같은 요청은 정상 응답이었다. 즉 원천이
 특정 시간대에 조건과 무관하게 빈 배열을 주는 것이다.
 
-그래서 1페이지가 비면 **카나리**(같은 화면, 서울 01, 12개월 — 항상 수백 건)를
-한 번 더 조회한다. 카나리도 비면 원천 전체가 비어 있는 창이므로 조건 문제로
-보지 않고 잠시 기다렸다가 같은 조회를 다시 한다. 상한을 넘으면 그때부터는
-빈 응답을 그대로 기록하고, 저장 단계의 volume gate가 실행을 FAILED로 끝낸다.
-우회가 아니라 대기다 — 요청 빈도는 그대로다.
+**창의 길이 실측 (2026-09-13, 5분 간격 프로브 480회):**
+
+    00:16~01:07 KST   정상 (서울 726건 / 626건)
+    04:02:46          첫 빈 응답
+    05:40:03          여전히 빈 응답 — 프로브 종료 (끝을 못 봄)
+    14:50             정상
+
+즉 창은 **최소 97분**이고 끝은 관측하지 못했다. 상한은 같은 날 프로덕션 실행으로
+위에서 눌린다 — 09-08 08:56 KST 시작 실행이 702장/30,502행으로 정상이었다.
+그래서 창은 04:02부터 대략 1.6~4.7시간 사이다.
+
+그래서 처리는 두 겹이다.
+
+1. 전국 순회를 시작하기 전에 **카나리**(같은 화면, 서울 01, 12개월 — 항상 수백 건)를
+   먼저 물어 본다. 창이면 700여 회 요청을 낭비하지 않고 바로 기다린다.
+2. 순회 중에 1페이지가 비면 다시 카나리로 가른다. 광주(06)·전남(16)처럼 원래
+   비어 있는 조회와 창을 구분하기 위해서다.
+
+카나리가 비면 잠시 기다렸다가 세션을 새로 받고 같은 조회를 다시 한다. 대기 상한을
+넘으면 그때부터는 빈 응답을 그대로 기록하고, 저장 단계의 volume gate가 실행을
+FAILED로 끝낸다. 우회가 아니라 대기다 — 요청 빈도는 그대로다.
 """
 
 import asyncio
@@ -112,8 +128,26 @@ MAX_REQUESTS = 2000
 # (2026-09-13 실측 726건 / 626건).
 CANARY_SIDO = "01"
 CANARY_TERM = 12
+
+# 5분마다 다시 물어본다. 프로브도 5분 간격으로 창을 관측했다.
 EMPTY_WINDOW_WAIT_SECONDS = 300.0
-EMPTY_WINDOW_MAX_WAIT_SECONDS = 3600.0
+
+# 얼마나 기다릴 것인가.
+#
+# 처음에는 60분으로 뒀는데 **실측에 못 미친다.** 2026-09-13 창은 04:02:46에 열려
+# 05:40:03에도 닫히지 않았다 — 최소 97분이다.
+#
+# 150분으로 둔 근거는 두 가지다.
+#
+#   1. 관측된 최소 97분을 덮는다.
+#   2. 다음 영업일 07:30 KST 발행 SLA 안에 끝난다. 사고 때처럼 04:02에 창에 걸려도
+#      04:02 + 150분 = 06:32이라 수집·발행 시간이 남는다. 더 길게 기다리면 기다리다
+#      SLA를 넘겨, 실패로 끝내고 이전 값을 보여주는 것보다 나을 게 없다.
+#
+# 창의 실제 끝은 아직 관측하지 못했다. 09-08 08:56 KST 실행이 정상이었으므로
+# 4.7시간보다는 짧다. 이 값은 그 사이의 실측 기반 추정이며, 창이 150분보다 길면
+# 실행은 FAILED로 끝나고 이전 정상값이 화면에 남는다 — 조용히 깨지지는 않는다.
+EMPTY_WINDOW_MAX_WAIT_SECONDS = 9000.0
 
 Sleep = Callable[[float], Awaitable[None]]
 
@@ -221,12 +255,28 @@ class CuAdapter:
             headers={"User-Agent": USER_AGENT},
             transport=self._transport,
         ) as client:
-            for screen in screens:
+            for screen_index, screen in enumerate(screens):
                 landing = f"{BASE_URL}{PATH_PREFIX}/{screen}CmprList.do"
                 # 화면을 먼저 GET해 세션 쿠키를 받는다.
                 await client.get(landing, params={"mi": SCREENS[screen]})
                 requests_made += 1
                 await self._sleep(REQUEST_INTERVAL_SECONDS)
+
+                # 순회를 시작하기 전에 창인지 먼저 본다. 창이면 700여 회를
+                # 낭비하고 나서 기다리는 대신 여기서 기다린다.
+                while screen_index == 0 and not wait_budget_exhausted:
+                    requests_made += 1
+                    if await self._upstream_answers(client, screen):
+                        break
+                    if waited_seconds >= EMPTY_WINDOW_MAX_WAIT_SECONDS:
+                        wait_budget_exhausted = True
+                        break
+                    wait_events.append(f"{screen} 시작 전")
+                    await self._sleep(EMPTY_WINDOW_WAIT_SECONDS)
+                    waited_seconds += EMPTY_WINDOW_WAIT_SECONDS
+                    await client.get(landing, params={"mi": SCREENS[screen]})
+                    requests_made += 1
+                    await self._sleep(REQUEST_INTERVAL_SECONDS)
 
                 for sido in sidos:
                     for term in terms:

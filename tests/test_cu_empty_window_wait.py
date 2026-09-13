@@ -83,16 +83,28 @@ def test_empty_window_is_waited_out_and_the_same_query_is_retried() -> None:
 
     assert adapter.empty_window_waits == 2
     assert adapter.empty_window_waited_seconds == EMPTY_WINDOW_WAIT_SECONDS * 2
-    assert [a.content for a in artifacts] != [b"[]", b"[]"]
     assert all(a.content != b"[]" for a in artifacts)
-    # 서울 12개월이 첫 조회이자 카나리다. 창 안에서는 조회→카나리→대기→재조회.
+    # 순회를 시작하기 전에 카나리로 창을 먼저 확인한다.
     canaries = [c for c in upstream.calls if c[1] == CANARY_SIDO and c[2] == str(CANARY_TERM)]
     assert len(canaries) >= 3
     # 기다린 뒤 세션을 새로 받는다.
     assert upstream.landings == 1 + 2
     assert "빈 응답 창 대기 2회 10분" in adapter.fetch_note
+    assert "처음 findInrst15 시작 전" in adapter.fetch_note
     assert "대기 상한" not in adapter.fetch_note
     assert not adapter.fetch_alert
+
+
+def test_window_is_detected_before_the_walk_wastes_requests() -> None:
+    # 창이 열려 있는 동안에는 전국 순회를 시작하지 않는다.
+    upstream = FakeUpstream(empty_until=EMPTY_WINDOW_WAIT_SECONDS * 2 + 1)
+
+    adapter, artifacts = _fetch(upstream, _request("서울", "부산"))
+
+    window_calls = [c for c in upstream.calls if c[4] < EMPTY_WINDOW_WAIT_SECONDS * 2]
+    # 창 안에서 나간 조회는 카나리뿐이다 — 실제 수집 조회는 하나도 낭비하지 않았다.
+    assert all(c[1] == CANARY_SIDO and c[2] == str(CANARY_TERM) for c in window_calls)
+    assert len(artifacts) == 2
 
 
 def test_genuine_empty_region_does_not_wait_when_canary_answers() -> None:
@@ -105,9 +117,9 @@ def test_genuine_empty_region_does_not_wait_when_canary_answers() -> None:
     by_sido = {a.request_meta["sido"]: a.content for a in artifacts}
     assert by_sido["06"] == b"[]"
     assert by_sido["04"] != b"[]"
-    # 광주가 비었을 때 카나리 한 번만 더 물었고, 그 답이 있어 기다리지 않았다.
+    # 순회 전 카나리 1회 + 광주가 비었을 때 1회. 둘 다 답이 있어 기다리지 않았다.
     canaries = [c for c in upstream.calls if c[1] == CANARY_SIDO]
-    assert len(canaries) == 1
+    assert len(canaries) == 2
     assert "빈 응답 창" not in adapter.fetch_note
 
 
@@ -121,7 +133,7 @@ def test_wait_budget_is_bounded_and_empties_are_then_recorded_for_the_gate() -> 
     assert adapter.empty_window_waited_seconds == EMPTY_WINDOW_MAX_WAIT_SECONDS
     # 상한을 넘으면 그대로 기록한다 — 저장 단계 volume gate가 FAILED로 끝낸다.
     assert [a.content for a in artifacts] == [b"[]", b"[]"]
-    assert "대기 상한 60분 초과" in adapter.fetch_note
+    assert "대기 상한 150분 초과" in adapter.fetch_note
     # 요청 수는 유한하다: 조회 + 카나리 + 재조회들 + 세션 갱신.
     assert len(upstream.calls) <= 2 * (expected_waits + 1) * 2 + 4
     # 요청 간격은 그대로다 — 대기는 요청을 촘촘히 하지 않는다.
