@@ -187,6 +187,8 @@ def _create_plan(conn: sqlite3.Connection) -> None:
         WHERE rows_in_group > 1
         GROUP BY variant_id, grp;
 
+        CREATE UNIQUE INDEX _compact_groups_keep ON _compact_groups(keep_id);
+
         INSERT INTO _compact_map(delete_id, keep_id)
         WITH ordered AS (
           SELECT
