@@ -35,6 +35,7 @@ on:
       - "scripts/strategy_workspace_smoke.js"
       - "scripts/main_map_runtime_smoke.js"
       - "scripts/production_smoke.py"
+      - "scripts/rate_history_audit.py"
       - "tests/test_strategy_workspace_presentation.py"
       - "tests/test_strategy_light_theme_presentation.py"
       - "tests/test_strategy_brand_theme_presentation.py"
@@ -42,6 +43,7 @@ on:
       - "tests/test_strategy_main_runtime_e2e_workflow_contract.py"
       - "tests/test_strategy_production_release.py"
       - "tests/test_main_map_drilldown_refinement.py"
+      - "tests/test_rate_history_audit.py"
       - ".github/workflows/collect.yml"
       - ".github/workflows/collect-savings-fast.yml"
       - ".github/workflows/nh-attempt.yml"
@@ -64,7 +66,10 @@ permissions:
 jobs:
   runtime-e2e:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # 2026-09-10 production evidence: R2 restore took ~2m22s and build-site alone
+    # took ~19m44s on the 10.9 GB DB. 20 minutes cancelled before assertions.
+    # Keep enough budget for restore + audit + real build + browser verification.
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
 
@@ -111,6 +116,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p work
+          START=$(date +%s)
           BACKEND=$(uv run python -c "
           from pathlib import Path
           from rate_monitor.services.storage_service import load_backend
@@ -129,6 +135,8 @@ jobs:
           fi
 
           test -s work/rate_monitor.sqlite3
+          END=$(date +%s)
+          echo "restore_seconds=$((END - START))" | tee work/strategy-runtime-timing.txt
           echo "restored bytes=$(stat -c%s work/rate_monitor.sqlite3)"
 
       - name: Apply migrations to runner-local copy
@@ -136,15 +144,28 @@ jobs:
           RATE_MONITOR_DB_URL: sqlite+pysqlite:///${{ github.workspace }}/work/rate_monitor.sqlite3
         run: uv run alembic upgrade head
 
+      - name: Audit production rate-history growth
+        run: |
+          set -euo pipefail
+          START=$(date +%s)
+          uv run python scripts/rate_history_audit.py \
+            --db work/rate_monitor.sqlite3 \
+            --output work/rate-history-audit.json
+          END=$(date +%s)
+          echo "rate_history_audit_seconds=$((END - START))" | tee -a work/strategy-runtime-timing.txt
+
       - name: Build isolated Strategy site from production data
         env:
           RATE_MONITOR_STRATEGY_DASHBOARD: "1"
         run: |
           set -euo pipefail
+          START=$(date +%s)
           uv run rate-monitor build-site \
             --db work/rate_monitor.sqlite3 \
             --template web/templates/site.html \
             --out work/site-public
+          END=$(date +%s)
+          echo "build_site_seconds=$((END - START))" | tee -a work/strategy-runtime-timing.txt
 
           test -s work/site-public/index.html
           test -s work/site-public/strategy.html
@@ -248,7 +269,10 @@ jobs:
       - name: Run desktop and mobile Chrome smoke against local build and production
         env:
           STRATEGY_PREVIEW_BASE_URL: http://127.0.0.1:4173
-          SITE_ACCESS_PASSWORD: ${{ secrets.SITE_ACCESS_PASSWORD || secrets.DASHBOARD_PASSWORD }}
+          # The production middleware authenticates against DASHBOARD_PASSWORD.
+          # The browser scripts consume SITE_ACCESS_PASSWORD as an input name, but
+          # its value must come from the same production credential namespace.
+          SITE_ACCESS_PASSWORD: ${{ secrets.DASHBOARD_PASSWORD }}
         run: |
           set -euo pipefail
           python -m http.server 4173 --directory work/site-public \
@@ -278,6 +302,8 @@ jobs:
         with:
           name: strategy-main-runtime-e2e-${{ github.run_id }}
           path: |
+            work/rate-history-audit.json
+            work/strategy-runtime-timing.txt
             work/strategy-runtime-external-features.json
             work/main-map-*-layout-metrics.json
             work/main-map-*.png
