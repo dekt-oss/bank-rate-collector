@@ -401,3 +401,58 @@ def test_duplicate_guard_is_shared_across_artifacts(factory, raw_root) -> None:
             select(m.ReviewItem).where(m.ReviewItem.issue_type == "duplicate")
         ).all()
         assert len(items) == len(rows), "중복은 조용히 버리지 말고 검수항목으로 남겨야 한다"
+
+
+def test_legacy_date_hash_drift_updates_current_observation(factory, raw_root) -> None:
+    """A provenance-only change must not create a rate-history row."""
+    from datetime import date
+
+    run_collect(factory, raw_root)
+    with factory() as session:
+        current = session.scalars(select(m.RateObservation)).first()
+        assert current is not None
+        original_id = current.id
+        original_effective_at = current.source_effective_at
+        current.source_effective_at = date(2000, 1, 1)
+        current.as_of = current.source_effective_at
+        current.content_hash = "sha256:legacy-date-sensitive"
+        session.commit()
+
+    run_collect(factory, raw_root)
+    with factory() as session:
+        assert session.scalar(select(func.count()).select_from(m.RateObservation)) == (
+            EXPECTED_OPTION_ROWS
+        )
+        same = session.get(m.RateObservation, original_id)
+        assert same is not None
+        assert same.valid_to is None
+        assert same.seen_count == 2
+        assert same.source_effective_at == original_effective_at
+
+
+def test_real_rate_change_keeps_history(factory, raw_root) -> None:
+    """The repair must still create history when a stored rate differs."""
+    run_collect(factory, raw_root)
+    with factory() as session:
+        current = session.scalars(select(m.RateObservation)).first()
+        assert current is not None
+        original_id = current.id
+        current.base_rate = Decimal("99.9900")
+        session.commit()
+
+    run_collect(factory, raw_root)
+    with factory() as session:
+        assert session.scalar(select(func.count()).select_from(m.RateObservation)) == (
+            EXPECTED_OPTION_ROWS + 1
+        )
+        previous = session.get(m.RateObservation, original_id)
+        assert previous is not None
+        assert previous.valid_to is not None
+        replacement = session.scalar(
+            select(m.RateObservation).where(
+                m.RateObservation.variant_id == previous.variant_id,
+                m.RateObservation.valid_to.is_(None),
+            )
+        )
+        assert replacement is not None
+        assert replacement.id != original_id

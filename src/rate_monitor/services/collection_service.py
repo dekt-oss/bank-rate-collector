@@ -62,13 +62,21 @@ def _utcnow() -> datetime:
 
 
 def _content_hash(row: ParsedRateRow) -> str:
-    """값 중복 검출용. 이전 실행과 같은 값인지 판정한다 (v3 §5.9)."""
+    """금리·우대조건 변경 판정용 해시. 원천 기준일은 provenance로만 저장한다."""
     payload = "|".join(
         str(x)
-        for x in (row.base_rate, row.max_rate, row.preference_raw, row.source_effective_at)
+        for x in (row.base_rate, row.max_rate, row.preference_raw)
     )
     return "sha256:" + hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
+
+def _same_semantic_value(current: RateObservation, row: ParsedRateRow) -> bool:
+    """Compare stored values directly while upgrading legacy date-sensitive hashes."""
+    return (
+        current.base_rate == row.base_rate
+        and current.max_rate == row.max_rate
+        and current.raw_preference_text == row.preference_raw
+    )
 
 def save_raw_artifacts(
     session: Session,
@@ -171,7 +179,8 @@ def _record_observation(
         )
     )
 
-    if current is not None and current.content_hash == content_hash:
+    if current is not None and _same_semantic_value(current, row):
+        current.content_hash = content_hash
         current.last_seen_at = now
         current.seen_count += 1
         current.last_run_id = run.id
