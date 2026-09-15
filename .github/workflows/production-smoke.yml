@@ -48,12 +48,41 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Diagnose Production credential namespace without revealing secrets
+        env:
+          DASHBOARD_PASSWORD: ${{ secrets.DASHBOARD_PASSWORD }}
+          SITE_ACCESS_PASSWORD: ${{ secrets.SITE_ACCESS_PASSWORD }}
+        run: |
+          python - <<'PY'
+          import os
+          from urllib.error import HTTPError
+          from urllib.request import Request, urlopen
+          from scripts.production_smoke import _session_cookie
+
+          url = "https://bank-rate-collector.vercel.app/"
+          for name in ("DASHBOARD_PASSWORD", "SITE_ACCESS_PASSWORD"):
+              password = os.environ.get(name, "")
+              if not password:
+                  print(f"{name}: missing")
+                  continue
+              request = Request(
+                  url,
+                  headers={"Accept": "application/json", "Cookie": _session_cookie(password)},
+              )
+              try:
+                  with urlopen(request, timeout=20) as response:
+                      status = response.status
+              except HTTPError as error:
+                  status = error.code
+              print(f"{name}: HTTP {status}")
+          PY
+
       - name: Verify production root, strategy, freshness and health endpoint
         env:
           PRODUCTION_URL: https://bank-rate-collector.vercel.app
-          # 사이트 접근용 secret을 수집 관리자 비밀번호와 분리한다.
-          # 기존 설치는 DASHBOARD_PASSWORD fallback으로 계속 동작한다.
-          DASHBOARD_PASSWORD: ${{ secrets.SITE_ACCESS_PASSWORD || secrets.DASHBOARD_PASSWORD }}
+          # Production middleware validates sessions with DASHBOARD_PASSWORD.
+          # Use the same GitHub secret; do not prefer a separate site credential.
+          DASHBOARD_PASSWORD: ${{ secrets.DASHBOARD_PASSWORD }}
         run: |
           set -o pipefail
           python scripts/production_smoke.py \
