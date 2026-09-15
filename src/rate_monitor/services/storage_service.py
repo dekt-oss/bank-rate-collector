@@ -36,6 +36,7 @@ import json
 import os
 import shutil
 import sqlite3
+from collections.abc import Collection
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
@@ -356,7 +357,12 @@ def snapshot_key(generated_at: datetime, digest: str) -> str:
 
 
 def upload_snapshot(
-    store: ObjectStore, db_path: Path, work_dir: Path, *, now: datetime | None = None
+    store: ObjectStore,
+    db_path: Path,
+    work_dir: Path,
+    *,
+    now: datetime | None = None,
+    preserve_keys: Collection[str] = (),
 ) -> SnapshotRef:
     """DB 한 벌을 올리고, 다시 받아 확인한 뒤에야 포인터를 바꾼다 (§6.3).
 
@@ -426,7 +432,7 @@ def upload_snapshot(
         store.delete(key)
         raise
     store.put(CURRENT_KEY, ref.to_json().encode("utf-8"))
-    prune_snapshots(store)
+    prune_snapshots(store, preserve_keys=preserve_keys)
     return ref
 
 
@@ -485,19 +491,24 @@ def check_round_trip(store: ObjectStore, *, now: datetime | None = None) -> dict
     return {"key": key, "sha256": expected, "bytes": len(body), "steps": steps}
 
 
-def prune_snapshots(store: ObjectStore, keep: int = KEEP_SNAPSHOTS) -> list[str]:
+def prune_snapshots(
+    store: ObjectStore,
+    keep: int = KEEP_SNAPSHOTS,
+    *,
+    preserve_keys: Collection[str] = (),
+) -> list[str]:
     """오래된 스냅샷을 지운다. 키에 시각이 들어 있어 이름순이 곧 시간순이다.
 
-    현재 포인터가 가리키는 것은 몇 번째든 지우지 않는다.
+    현재 포인터와 호출자가 명시한 rollback key는 몇 번째든 지우지 않는다.
     """
     keys = sorted(store.list(SNAPSHOT_PREFIX))
-    current: str | None = None
+    protected = set(preserve_keys)
     if store.exists(CURRENT_KEY):
-        current = SnapshotRef.from_json(store.get(CURRENT_KEY)).object_key
+        protected.add(SnapshotRef.from_json(store.get(CURRENT_KEY)).object_key)
 
     removed = []
     for key in keys[:-keep] if keep else keys:
-        if key == current:
+        if key in protected:
             continue
         store.delete(key)
         removed.append(key)

@@ -31,13 +31,15 @@ def test_canonical_maintenance_preserves_and_can_restore_rollback_pointer() -> N
     assert "store.put(CURRENT_KEY, before.to_json()" in text
     assert "prune_snapshots" not in text
     assert "store.delete(" not in text
+    assert "--preserve-snapshot \"$EXPECTED_CURRENT_OBJECT_KEY\"" in text
 
 
 def test_canonical_maintenance_validates_candidate_and_readback() -> None:
     text = WORKFLOW.read_text(encoding="utf-8")
 
     assert "--vacuum-into work/rate_monitor_compacted.sqlite3" in text
-    assert "storage upload --db work/rate_monitor_compacted.sqlite3" in text
+    assert "storage upload" in text
+    assert "--db work/rate_monitor_compacted.sqlite3" in text
     assert "storage restore --dest work/rate_monitor_r2_readback.sqlite3" in text
     assert (
         "cmp -s work/rate_monitor_compacted.sqlite3 work/rate_monitor_r2_readback.sqlite3"

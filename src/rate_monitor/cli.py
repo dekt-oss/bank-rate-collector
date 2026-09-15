@@ -318,7 +318,12 @@ def _storage(args: argparse.Namespace) -> int:
     work = Path(args.work_dir)
 
     if args.action in ("upload", "migrate"):
-        ref = upload_snapshot(store, Path(args.db), work)
+        ref = upload_snapshot(
+            store,
+            Path(args.db),
+            work,
+            preserve_keys=args.preserve_snapshot,
+        )
         ratio = ref.compressed_bytes / ref.sqlite_bytes if ref.sqlite_bytes else 0
         print(f"올림    : {ref.object_key}")
         print(f"  크기   : {ref.sqlite_bytes:,} → {ref.compressed_bytes:,} bytes"
@@ -461,6 +466,12 @@ def build_parser() -> argparse.ArgumentParser:
     storage.add_argument("--config", default="config/storage.yaml")
     storage.add_argument("--work-dir", default="work/storage",
                          help="압축·검증에 쓰는 임시 자리")
+    storage.add_argument(
+        "--preserve-snapshot",
+        action="append",
+        default=[],
+        help="upload 뒤 보관 개수 정리에서도 삭제하지 않을 snapshot key (반복 가능)",
+    )
     storage.add_argument(
         "--local-root", default=None,
         help="R2 대신 이 디렉터리를 저장소처럼 쓴다. 시크릿 없이 전 구간을 "

@@ -287,6 +287,34 @@ def test_pruning_never_removes_what_the_pointer_uses(db: Path, tmp_path: Path, s
     assert store.exists(ref.object_key)
 
 
+def test_pruning_keeps_an_explicit_rollback_snapshot(store) -> None:
+    rollback = f"{SNAPSHOT_PREFIX}20260101T000000-deadbeef.sqlite3.gz"
+    store.put(rollback, b"rollback")
+    for i in range(10):
+        store.put(f"{SNAPSHOT_PREFIX}2027010{i}T000000-{i:08d}.sqlite3.gz", b"x")
+
+    removed = prune_snapshots(store, keep=1, preserve_keys={rollback})
+
+    assert rollback not in removed
+    assert store.exists(rollback)
+
+
+def test_upload_preserves_an_explicit_rollback_snapshot(db: Path, tmp_path: Path, store) -> None:
+    rollback = f"{SNAPSHOT_PREFIX}20260101T000000-deadbeef.sqlite3.gz"
+    store.put(rollback, b"rollback")
+    for i in range(10):
+        store.put(f"{SNAPSHOT_PREFIX}2027010{i}T000000-{i:08d}.sqlite3.gz", b"x")
+
+    upload_snapshot(
+        store,
+        db,
+        tmp_path / "work-preserve",
+        preserve_keys={rollback},
+    )
+
+    assert store.exists(rollback)
+
+
 def test_snapshot_keys_sort_by_time() -> None:
     """이름순이 곧 시간순이라야 오래된 것을 고를 수 있다."""
     keys = [

@@ -223,7 +223,9 @@ jobs:
         id: publish
         run: |
           set -euo pipefail
-          uv run rate-monitor storage upload --db work/rate_monitor_compacted.sqlite3 \
+          uv run rate-monitor storage upload \
+            --db work/rate_monitor_compacted.sqlite3 \
+            --preserve-snapshot "$EXPECTED_CURRENT_OBJECT_KEY" \
             | tee work/r2-upload.txt
 
       - name: Read back and verify canonical candidate
