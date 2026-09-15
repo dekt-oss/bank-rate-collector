@@ -16,6 +16,7 @@ EXPECTED_WRITER_WORKFLOWS = {
     "collect-savings-fast.yml",
     "collect-size-peer-total-assets.yml",
     "recover-size-peer-production-financial-axis.yml",
+    "rate-history-production-maintenance.yml",
     "storage-check.yml",
 }
 

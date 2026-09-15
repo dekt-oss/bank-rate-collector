@@ -15,6 +15,7 @@ def test_canonical_maintenance_is_manual_and_fail_closed() -> None:
     assert "confirmation:" in text
     assert "push:" not in text
     assert "group: rate-data-writer" in text
+    assert "queue: max" in text
     assert 'test "$CONFIRMATION" = "COMPACT_CANONICAL_R2"' in text
     assert 'test "$GITHUB_SHA" = "$EXPECTED_MAIN_SHA"' in text
     assert "git ls-remote origin refs/heads/main" in text
