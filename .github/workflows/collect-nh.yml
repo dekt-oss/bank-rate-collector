@@ -71,7 +71,7 @@ jobs:
       attempt: 1
       max_attempts: 3
       scope: ${{ inputs.nh_local_scope || '' }}
-      resume_mode: ${{ inputs.nh_resume_mode || 'auto' }}
+      resume_mode: ${{ github.event_name == 'schedule' && 'fresh' || inputs.nh_resume_mode || 'auto' }}
       accept_volume_drop: ${{ inputs.accept_volume_drop || false }}
     secrets: inherit
 

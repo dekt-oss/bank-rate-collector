@@ -69,14 +69,18 @@ jobs:
                 --log > parent-run.log
 
               if grep -q 'KFCC_ONLY: true' parent-run.log; then
-                echo "recovery target=KFCC nationwide"
+                KFCC_RESUME_MODE="auto"
+                if grep -q 'COMPLETE_REPLAY_UNPROVEN' parent-run.log; then
+                  KFCC_RESUME_MODE="fresh"
+                fi
+                echo "recovery target=KFCC nationwide resume_mode=$KFCC_RESUME_MODE"
                 gh workflow run collect.yml \
                   --repo "$GITHUB_REPOSITORY" \
                   --ref main \
                   -f password="$COLLECT_PASSWORD" \
                   -f manual_target="새마을금고만" \
                   -f kfcc_scope="전국" \
-                  -f kfcc_resume_mode=auto \
+                  -f kfcc_resume_mode="$KFCC_RESUME_MODE" \
                   -f accept_volume_drop=false
               elif grep -q 'KFCC_ONLY: false' parent-run.log; then
                 echo "recovery target=general"
@@ -93,13 +97,20 @@ jobs:
               ;;
 
             "수집 — 농·축협")
-              echo "recovery target=NH nationwide"
+              gh run view "$PARENT_RUN_ID" \
+                --repo "$GITHUB_REPOSITORY" \
+                --log > parent-run.log
+              NH_RESUME_MODE="auto"
+              if grep -q 'COMPLETE_REPLAY_UNPROVEN' parent-run.log; then
+                NH_RESUME_MODE="fresh"
+              fi
+              echo "recovery target=NH nationwide resume_mode=$NH_RESUME_MODE"
               gh workflow run collect-nh.yml \
                 --repo "$GITHUB_REPOSITORY" \
                 --ref main \
                 -f password="$COLLECT_PASSWORD" \
                 -f nh_local_scope="전국" \
-                -f nh_resume_mode=auto \
+                -f nh_resume_mode="$NH_RESUME_MODE" \
                 -f accept_volume_drop=false
               ;;
 

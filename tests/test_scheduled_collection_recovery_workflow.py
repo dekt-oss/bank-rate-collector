@@ -48,3 +48,14 @@ def test_ambiguous_general_schedule_recovery_fails_closed() -> None:
     assert "KFCC_ONLY: true" in text
     assert "KFCC_ONLY: false" in text
     assert "refusing ambiguous recovery" in text
+
+
+def test_complete_checkpoint_terminal_recovery_restarts_fresh() -> None:
+    text = _text()
+    assert "COMPLETE_REPLAY_UNPROVEN" in text
+    assert 'KFCC_RESUME_MODE="fresh"' in text
+    assert 'NH_RESUME_MODE="fresh"' in text
+    assert '-f kfcc_resume_mode="$KFCC_RESUME_MODE"' in text
+    assert '-f nh_resume_mode="$NH_RESUME_MODE"' in text
+    assert text.count('-f kfcc_resume_mode="$KFCC_RESUME_MODE"') == 1
+    assert text.count('-f kfcc_resume_mode=auto') == 1

@@ -106,7 +106,7 @@ def test_long_running_source_steps_receive_complete_r2_configuration() -> None:
         assert set(env) >= R2_ENV_KEYS, f"{name} checkpoint R2 env 누락"
 
 
-def test_manual_fresh_is_operator_only_and_nh_retries_stay_auto() -> None:
+def test_scheduled_first_attempt_is_fresh_and_retries_stay_auto() -> None:
     core_input = _triggers(_core_workflow())["workflow_dispatch"]["inputs"][
         "kfcc_resume_mode"
     ]
@@ -120,13 +120,13 @@ def test_manual_fresh_is_operator_only_and_nh_retries_stay_auto() -> None:
 
     kfcc = _step(_core_steps(), "Collect KFCC")
     assert (kfcc.get("env") or {}).get("RESUME_MODE") == (
-        "${{ inputs.kfcc_resume_mode || 'auto' }}"
+        "${{ github.event_name == 'schedule' && 'fresh' || inputs.kfcc_resume_mode || 'auto' }}"
     )
     assert '--resume "$RESUME_MODE"' in kfcc["run"]
 
     caller_jobs = _nh_workflow()["jobs"]
     assert caller_jobs["attempt_1"]["with"]["resume_mode"] == (
-        "${{ inputs.nh_resume_mode || 'auto' }}"
+        "${{ github.event_name == 'schedule' && 'fresh' || inputs.nh_resume_mode || 'auto' }}"
     )
     assert caller_jobs["attempt_2"]["with"]["resume_mode"] == "auto"
     assert caller_jobs["attempt_3"]["with"]["resume_mode"] == "auto"
