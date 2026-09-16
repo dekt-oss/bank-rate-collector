@@ -1,13 +1,27 @@
 name: 수집 — 농·축협
 
-# NH is deliberately isolated from the core and KFCC schedules. Its nationwide
-# run is long (~3h37 measured), and the 2026-08-12 forensic matrix showed that
-# target reachability can differ by fresh GitHub-hosted runner even in one region.
+# NH nationwide acquisition stays isolated from the general/KFCC workflow because
+# one run is long and keeps its own three-attempt/checkpoint recovery contract.
+# The production schedule is owned by collect-morning-cycle.yml; this workflow is
+# invoked from that chain or manually by an operator.
 on:
-  schedule:
-    # 다음 영업일 07:30 SLA를 위해 전날 일~목 17:30 KST = 08:30 UTC에 먼저 시작한다.
-    # 장시간 acquisition 자체는 그대로 두고 canonical writer 직렬화 안전계약을 유지한다.
-    - cron: "30 8 * * 0-4"
+  workflow_call:
+    inputs:
+      nh_local_scope:
+        description: "수집 범위"
+        type: string
+        required: false
+        default: "전국"
+      nh_resume_mode:
+        description: "재시작 방식"
+        type: string
+        required: false
+        default: "auto"
+      accept_volume_drop:
+        description: "물량 급감 강제 승인"
+        type: boolean
+        required: false
+        default: false
   workflow_dispatch:
     inputs:
       password:
@@ -71,7 +85,7 @@ jobs:
       attempt: 1
       max_attempts: 3
       scope: ${{ inputs.nh_local_scope || '' }}
-      resume_mode: ${{ github.event_name == 'schedule' && 'fresh' || inputs.nh_resume_mode || 'auto' }}
+      resume_mode: ${{ inputs.nh_resume_mode || 'auto' }}
       accept_volume_drop: ${{ inputs.accept_volume_drop || false }}
     secrets: inherit
 
