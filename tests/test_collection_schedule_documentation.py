@@ -7,7 +7,7 @@ DOC = (ROOT / "docs/ops/collection-schedule.md").read_text(encoding="utf-8")
 
 SCHEDULES = {
     ".github/workflows/collect-morning-cycle.yml": (
-        ("0 6 * * 0-4", "전날 15:00"),
+        ("50 5 * * 0-4", "전날 14:50"),
     ),
     ".github/workflows/collect-savings-fast.yml": (
         ("0 1 * * 1-5", "10:00"),
@@ -67,6 +67,8 @@ def test_schedule_document_distinguishes_reservation_from_collection_runtime() -
 def test_schedule_document_records_reverse_calculation_and_residual_risk() -> None:
     assert "6시간 41분" in DOC
     assert "8시간 54분" in DOC
+    assert "50분" in DOC
+    assert "07:15" in DOC
     assert "07:30" in DOC
     assert "08:00" in DOC
     assert "10시간" in DOC
