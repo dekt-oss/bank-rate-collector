@@ -66,7 +66,7 @@ def test_schedule_document_distinguishes_reservation_from_collection_runtime() -
 
 def test_schedule_document_records_reverse_calculation_and_residual_risk() -> None:
     assert "6시간 41분" in DOC
-    assert "8시간 53분" in DOC
+    assert "8시간 54분" in DOC
     assert "07:30" in DOC
     assert "08:00" in DOC
     assert "10시간" in DOC
