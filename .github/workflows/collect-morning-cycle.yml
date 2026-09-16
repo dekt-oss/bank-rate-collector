@@ -1,14 +1,14 @@
 name: 수집 — 아침 SLA 체인
 
 # 예약 시각과 실제 원천수집 시각을 분리한다.
-# GitHub schedule은 최근 4개 cycle에서 약 4h46~6h41 지연됐고 과거에는
-# 약 10h 지연도 관측됐다. 따라서 15:00 KST에 control-plane run을 예약하되,
-# 제시간에 생성된 run은 20:30 KST까지 기다린 뒤에만 실제 NH 원천 요청을 시작한다.
-# 지연 생성된 run은 20:30 이후라면 즉시 시작한다.
+# 최근 production에서 GitHub schedule은 약 4h46~6h41 지연됐고 과거에는
+# 약 10h 지연도 관측됐다. 15:00 fast refresh와 동일 minute의 scheduler/writer
+# 경쟁을 피하려고 14:50 KST에 control-plane run을 예약하되, 실제 원천 요청은
+# 20:30 KST 전에는 시작하지 않는다. 지연 생성된 run이 20:30 이후라면 즉시 시작한다.
 on:
   schedule:
-    # Sunday-Thursday 15:00 KST = 06:00 UTC. Target cycle is next business morning.
-    - cron: "0 6 * * 0-4"
+    # Sunday-Thursday 14:50 KST = 05:50 UTC. Target cycle is next business morning.
+    - cron: "50 5 * * 0-4"
   workflow_dispatch:
     inputs:
       password:
@@ -34,7 +34,9 @@ permissions:
 jobs:
   gate:
     runs-on: ubuntu-latest
-    timeout-minutes: 345
+    # 14:50 -> 20:30 최대 340분 대기 + runner/setup 여유. GitHub-hosted job의
+    # 장시간 점유를 6시간 아래로 제한한다.
+    timeout-minutes: 358
     outputs:
       gate_released_at_kst: ${{ steps.wait.outputs.released_at_kst }}
       waited_seconds: ${{ steps.wait.outputs.waited_seconds }}
@@ -58,7 +60,7 @@ jobs:
           python - <<'PY'
           import os
           import time
-          from datetime import datetime, timedelta
+          from datetime import datetime
           from zoneinfo import ZoneInfo
 
           kst = ZoneInfo("Asia/Seoul")
@@ -67,17 +69,17 @@ jobs:
           wait_seconds = 0
 
           # A scheduled run created on its nominal day can only collect after 20:30.
-          # If GitHub creates the 15:00 reservation after 20:30 (or delays it past
-          # midnight into the next morning), start immediately instead of sleeping
-          # into the following business cycle.
+          # If GitHub creates the reservation after 20:30 (or delays it past midnight
+          # into the next morning), start immediately instead of sleeping into the
+          # following business cycle.
           minute_of_day = now.hour * 60 + now.minute
-          if not start_now and 15 * 60 <= minute_of_day < 20 * 60 + 30:
+          if not start_now and 14 * 60 + 50 <= minute_of_day < 20 * 60 + 30:
               target = now.replace(hour=20, minute=30, second=0, microsecond=0)
               wait_seconds = max(0, int((target - now).total_seconds()))
 
-          # 15:00 -> 20:30 is 19,800 seconds. A larger wait means the cycle-date
+          # 14:50 -> 20:30 is 20,400 seconds. A larger wait means the cycle-date
           # inference is wrong; fail closed instead of collecting on the wrong day.
-          if wait_seconds > 19_800:
+          if wait_seconds > 20_400:
               raise SystemExit(f"not-before wait exceeds contract: {wait_seconds}s")
 
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
@@ -97,8 +99,9 @@ jobs:
     uses: ./.github/workflows/collect-nh.yml
     with:
       nh_local_scope: "전국"
-      # New business cycle starts fresh. In-workflow retries remain auto/checkpointed.
-      nh_resume_mode: fresh
+      # A new business cycle starts fresh. rerun-failed-jobs keeps the same
+      # scheduled cycle, so parent attempt 2 must reuse the durable checkpoint.
+      nh_resume_mode: ${{ github.run_attempt == 1 && 'fresh' || 'auto' }}
       accept_volume_drop: false
     secrets: inherit
 
@@ -118,7 +121,7 @@ jobs:
       # shared snapshot/validation/site/P1-A/volume/R2/rate-data publish pass.
       manual_target: "아침 전체"
       kfcc_scope: "전국"
-      kfcc_resume_mode: fresh
+      kfcc_resume_mode: ${{ github.run_attempt == 1 && 'fresh' || 'auto' }}
       accept_volume_drop: false
     secrets: inherit
 
