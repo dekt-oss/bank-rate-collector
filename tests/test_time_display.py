@@ -6,7 +6,7 @@ KST 변환을 빠뜨리지 않는지 확인한다.
 """
 
 import sqlite3
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from rate_monitor.domain.timeutil import KST, kst_date_stamp, kst_path_stamp, to_kst
@@ -38,7 +38,7 @@ def test_morning_parent_cron_matches_fourteen_fifty_korea_time() -> None:
     utc = datetime(2026, 8, 9, hour, minute, tzinfo=UTC)
     local = to_kst(utc)
     assert local.strftime("%H:%M") == "14:50"
-    assert (local + __import__("datetime").timedelta(days=1)).weekday() < 5
+    assert (local + timedelta(days=1)).weekday() < 5
 
 
 def test_the_page_carries_korean_time(tmp_path: Path) -> None:
