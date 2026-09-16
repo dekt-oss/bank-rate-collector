@@ -3,6 +3,7 @@ name: 운영 — source health 감시
 on:
   workflow_run:
     workflows:
+      - "수집 — 아침 SLA 체인"
       - "수집 — 일반·새마을금고"
       - "수집 — 농·축협"
     types: [completed]
@@ -16,9 +17,8 @@ on:
 # Canonical DB를 read-only로 읽고 GitHub Issue만 갱신한다. DB/R2 writer가 아니다.
 #
 # 재실행은 여기서 하지 않는다. 정기 수집의 1회 재실행은
-# recover-failed-scheduled-collection.yml 하나가 맡는다(schedule 이벤트만, 결과인
-# workflow_dispatch는 다시 재실행하지 않는다). 같은 완료 이벤트에 두 workflow가
-# 각각 "신협만"을 dispatch하면 재실행이 두 번 된다 — 그래서 한 곳에만 둔다.
+# recover-failed-scheduled-collection.yml 하나가 맡는다. 같은 완료 이벤트에 두 workflow가
+# 각각 recovery를 dispatch하면 재실행이 두 번 되므로 한 곳에만 둔다.
 concurrency:
   group: source-health-watch-${{ github.event.workflow_run.id || github.run_id }}
   cancel-in-progress: false
@@ -105,6 +105,9 @@ jobs:
           set -euo pipefail
           if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
             SOURCES="${REQUESTED:-cu kfcc nh_local}"
+          elif [ "$PARENT_WORKFLOW" = "수집 — 아침 SLA 체인" ]; then
+            # Parent completion includes the NH child and combined general+KFCC child.
+            SOURCES="cu kfcc nh_local"
           elif [ "$PARENT_WORKFLOW" = "수집 — 농·축협" ]; then
             SOURCES="nh_local"
           else
