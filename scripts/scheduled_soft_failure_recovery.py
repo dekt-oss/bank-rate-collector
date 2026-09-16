@@ -23,6 +23,7 @@ from typing import Any
 CONFIRMED_RUN_STATUSES = frozenset({"success", "partial", "no_change"})
 
 GENERAL_WORKFLOW = "수집 — 일반·새마을금고"
+MORNING_WORKFLOW = "수집 — 아침 SLA 체인"
 FAST_WORKFLOW = "Collect bank rates fast"
 
 GENERAL_SOFT_SOURCES = frozenset(
@@ -59,6 +60,10 @@ def _parse_time(value: Any, *, label: str) -> datetime:
 def _expected_sources(workflow: str, *, kfcc_only: bool | None) -> frozenset[str]:
     if workflow == FAST_WORKFLOW:
         return FAST_SOFT_SOURCES
+    if workflow == MORNING_WORKFLOW:
+        # Morning production collection intentionally combines general sources and
+        # KFCC in one writer pass so the same safety gates run once over both.
+        return GENERAL_SOFT_SOURCES | KFCC_SOFT_SOURCES
     if workflow != GENERAL_WORKFLOW:
         raise RecoveryPlanError(f"unsupported workflow for soft recovery: {workflow!r}")
     if kfcc_only is None:
@@ -156,9 +161,7 @@ def build_recovery_plan(
         if latest_status not in CONFIRMED_RUN_STATUSES:
             failed.add(source_id)
         elif latest_empty:
-            # 상태는 success인데 원본은 있고 파싱은 0건인 실행. 2026-09-11 04:14
-            # KST 신협 136장 `[]`가 이 형태였고, 그때 이 계획은 "확인됨"으로
-            # 보고 아무것도 재실행하지 않았다. 확인된 것이 아니다.
+            # 상태는 success인데 원본은 있고 파싱은 0건인 실행. 확인된 것이 아니다.
             failed.add(source_id)
         evidence[source_id] = {
             "attempted": True,
