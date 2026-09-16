@@ -91,6 +91,18 @@ def _workflow() -> dict:
     return yaml.safe_load(path.read_text(encoding="utf-8"))
 
 
+def _morning_workflow() -> dict:
+    import yaml
+
+    path = (
+        Path(__file__).resolve().parents[1]
+        / ".github"
+        / "workflows"
+        / "collect-morning-cycle.yml"
+    )
+    return yaml.safe_load(path.read_text(encoding="utf-8"))
+
+
 def _nh_workflow() -> dict:
     import yaml
 
@@ -109,42 +121,29 @@ def _triggers(workflow: dict) -> dict:
     return workflow.get("on", workflow.get(True))
 
 
-def test_core_and_kfcc_schedules_match_morning_sla_kst_times() -> None:
-    """core 01:17과 전날 KFCC 17:40이 다음 영업일 07:30 SLA를 지원한다."""
+def test_morning_parent_schedule_maps_to_next_business_day() -> None:
+    """14:50 KST 일~목 예약이 다음 영업일 morning cycle을 준비한다."""
     import datetime as dt
 
-    crons = [s["cron"] for s in _triggers(_workflow())["schedule"]]
-    assert crons == ["17 16 * * 0-4", "40 8 * * 0-4"]
-
-    kst = dt.timezone(dt.timedelta(hours=9))
-    # UTC 일~목 스케줄이 다음 영업일(월~금) morning SLA를 준비한다.
-    for day in range(9, 14):  # 2026-08-09(일)~13(목)
-        core_utc = dt.datetime(2026, 8, day, 16, 17, tzinfo=dt.UTC)
-        core_local = core_utc.astimezone(kst)
-        assert (core_local.hour, core_local.minute) == (1, 17)
-        assert core_local.weekday() < 5
-
-        kfcc_utc = dt.datetime(2026, 8, day, 8, 40, tzinfo=dt.UTC)
-        kfcc_local = kfcc_utc.astimezone(kst)
-        assert (kfcc_local.hour, kfcc_local.minute) == (17, 40)
-        target_day = kfcc_local + dt.timedelta(days=1)
-        assert target_day.weekday() < 5
-
-
-def test_nh_has_previous_evening_1730_kst_schedule() -> None:
-    """NH는 다음 영업일 07:30 SLA를 위해 전날 17:30 KST에 시작한다."""
-    import datetime as dt
-
-    crons = [s["cron"] for s in _triggers(_nh_workflow())["schedule"]]
-    assert crons == ["30 8 * * 0-4"]
+    crons = [s["cron"] for s in _triggers(_morning_workflow())["schedule"]]
+    assert crons == ["50 5 * * 0-4"]
 
     kst = dt.timezone(dt.timedelta(hours=9))
     for day in range(9, 14):  # 2026-08-09(일)~13(목)
-        utc = dt.datetime(2026, 8, day, 8, 30, tzinfo=dt.UTC)
+        utc = dt.datetime(2026, 8, day, 5, 50, tzinfo=dt.UTC)
         local = utc.astimezone(kst)
-        assert (local.hour, local.minute) == (17, 30)
+        assert (local.hour, local.minute) == (14, 50)
         target_day = local + dt.timedelta(days=1)
         assert target_day.weekday() < 5
+
+
+def test_child_workflows_are_reusable_not_independently_scheduled() -> None:
+    core_triggers = _triggers(_workflow())
+    nh_triggers = _triggers(_nh_workflow())
+    assert "workflow_call" in core_triggers
+    assert "workflow_call" in nh_triggers
+    assert "schedule" not in core_triggers
+    assert "schedule" not in nh_triggers
 
 
 def test_core_workflow_no_longer_contains_nh_collection() -> None:
@@ -155,18 +154,18 @@ def test_core_workflow_no_longer_contains_nh_collection() -> None:
     assert "Recover NH local" not in names
 
 
-def test_the_two_core_crons_still_select_core_vs_kfcc() -> None:
+def test_morning_parent_selects_combined_general_and_kfcc_target() -> None:
     workflow = _workflow()
-    crons = {s["cron"] for s in _triggers(workflow)["schedule"]}
     env = workflow["jobs"]["collect"]["env"]
+    morning = _morning_workflow()["jobs"]["market"]["with"]
 
-    for key in ("KFCC_ONLY", "SKIP_KFCC_THIS_RUN"):
-        quoted = [c for c in crons if f"'{c}'" in env[key]]
-        assert len(quoted) == 1, f"{key}가 가리키는 크론이 schedule에 없다: {env[key]}"
-    assert env["KFCC_ONLY"] != env["SKIP_KFCC_THIS_RUN"]
+    assert morning["manual_target"] == "아침 전체"
+    assert env["MORNING_CYCLE"] == "${{ inputs.manual_target == '아침 전체' }}"
+    assert "inputs.manual_target != '아침 전체'" in env["SKIP_KFCC_THIS_RUN"]
+    assert env["KFCC_ONLY"] == "${{ inputs.manual_target == '새마을금고만' }}"
 
 
-def test_each_core_scheduled_run_collects_the_expected_group() -> None:
+def test_combined_morning_target_collects_general_sources_and_kfcc() -> None:
     steps = _workflow()["jobs"]["collect"]["steps"]
     collectors = {
         s["name"]: str(s.get("if") or "")
@@ -181,8 +180,8 @@ def test_each_core_scheduled_run_collects_the_expected_group() -> None:
     assert "env.KFCC_ONLY" not in kfcc
 
     for name, cond in collectors.items():
-        assert "env.KFCC_ONLY != 'true'" in cond, f"{name}이 KFCC 실행에서도 돈다"
-        assert "SKIP_KFCC_THIS_RUN" not in cond, f"{name}이 core 실행에서 빠진다"
+        assert "env.KFCC_ONLY != 'true'" in cond, f"{name}이 KFCC-only 실행에서도 돈다"
+        assert "inputs.manual_target == '아침 전체'" in cond, f"{name}이 morning target에서 빠진다"
 
 
 def test_scope_default_lives_in_config_for_kfcc_and_nh() -> None:
@@ -202,12 +201,15 @@ def test_a_merge_to_main_does_not_enter_the_collection_writer() -> None:
     assert "push" not in triggers
 
 
-def test_publish_only_is_manual_only_and_schedule_still_collects() -> None:
+def test_publish_only_is_manual_target_and_not_exposed_to_parent() -> None:
     gate = _workflow()["jobs"]["collect"]["env"]["PUBLISH_ONLY"]
-    assert "github.event_name == 'workflow_dispatch'" in gate
-    assert "inputs.manual_target == '화면만 재발행'" in gate
-    assert "github.event_name == 'push'" not in gate
-    assert "schedule" not in gate
+    assert gate == "${{ inputs.manual_target == '화면만 재발행' }}"
+
+    dispatch_inputs = _triggers(_workflow())["workflow_dispatch"]["inputs"]
+    call_inputs = _triggers(_workflow())["workflow_call"]["inputs"]
+    assert "화면만 재발행" in dispatch_inputs["manual_target"]["options"]
+    assert call_inputs["manual_target"]["default"] == "일반 전체"
+    assert _morning_workflow()["jobs"]["market"]["with"]["manual_target"] == "아침 전체"
 
 
 def test_publish_only_skips_every_core_collector_but_still_publishes() -> None:
@@ -233,6 +235,7 @@ def test_publish_only_skips_every_core_collector_but_still_publishes() -> None:
     inputs = _triggers(_workflow())["workflow_dispatch"]["inputs"]
     assert "publish_only" not in inputs
     assert "화면만 재발행" in inputs["manual_target"]["options"]
+    assert "아침 전체" not in inputs["manual_target"]["options"]
 
 
 # ── 수집 암호 ───────────────────────────────────────────────────────────
@@ -253,6 +256,6 @@ def test_the_password_is_compared_in_the_shell_not_in_a_condition() -> None:
     assert "DASHBOARD_PASSWORD" not in str(step["if"])
 
 
-def test_scheduled_runs_never_need_a_password() -> None:
+def test_non_manual_reusable_runs_never_need_a_password() -> None:
     step = _workflow()["jobs"]["collect"]["steps"][0]
     assert "github.event_name == 'workflow_dispatch'" in str(step["if"])
