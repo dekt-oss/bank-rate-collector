@@ -36,8 +36,19 @@ def test_schedule_document_matches_production_workflow_crons() -> None:
             assert kst_label in DOC
 
 
+def test_schedule_document_distinguishes_reservation_from_collection_runtime() -> None:
+    assert "Action 예약 시각" in DOC
+    assert "실제 수집 시각" in DOC
+    assert "예약 시각 ≠ 실제 수집 시각" in DOC
+    assert "created_at" in DOC
+    assert "run_started_at" in DOC
+    assert "실제 수집 시작 시각" in DOC
+    assert "실제 수집 종료 시각" in DOC
+    assert "canonical 반영 완료 시각" in DOC
+
+
 def test_schedule_document_locks_maintenance_contract() -> None:
     assert "같은 PR" in DOC
     assert "web/api/health.js" in DOC
     assert "rate-data-writer" in DOC
-    assert "GitHub Actions의 cron은 예약 목표 시각이지 실제 시작 보장이 아니다" in DOC
+    assert "GitHub Actions의 cron은 Action 예약 목표 시각이지 실제 수집 시작 보장이 아니다" in DOC
