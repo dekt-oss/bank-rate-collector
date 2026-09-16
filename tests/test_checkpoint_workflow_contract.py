@@ -1,8 +1,8 @@
 """NH/KFCC resumable-acquisition workflow 경계를 고정한다.
 
-KFCC는 core workflow 안의 기존 one-shot checkpoint recovery를 유지한다. NH는
-독립 workflow의 fresh-runner attempt chain으로 이동하되 같은 checkpoint/R2 계약과
-operator-only fresh semantics를 유지하는지 정적으로 검사한다.
+Morning parent가 새 business cycle의 fresh/auto 선택을 소유한다. KFCC는 core reusable
+workflow 안의 bounded checkpoint recovery를 유지하고, NH는 reusable fresh-runner attempt
+chain을 유지한다. 실제 canonical writer는 child workflow에만 둔다.
 """
 
 from pathlib import Path
@@ -10,6 +10,7 @@ from pathlib import Path
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
+MORNING_WORKFLOW_PATH = ROOT / ".github" / "workflows" / "collect-morning-cycle.yml"
 CORE_WORKFLOW_PATH = ROOT / ".github" / "workflows" / "collect.yml"
 NH_WORKFLOW_PATH = ROOT / ".github" / "workflows" / "collect-nh.yml"
 NH_ATTEMPT_PATH = ROOT / ".github" / "workflows" / "nh-attempt.yml"
@@ -29,6 +30,10 @@ def _load(path: Path) -> dict:
 
 def _triggers(workflow: dict) -> dict:
     return workflow.get("on", workflow.get(True))
+
+
+def _morning_workflow() -> dict:
+    return _load(MORNING_WORKFLOW_PATH)
 
 
 def _core_workflow() -> dict:
@@ -66,16 +71,17 @@ def test_checkpoint_workflows_can_read_authenticated_run_metadata() -> None:
         assert env.get("GITHUB_TOKEN") == "${{ secrets.GITHUB_TOKEN }}"
 
 
-def test_checkpoint_workflows_keep_schedule_and_single_writer_contract() -> None:
+def test_parent_owns_schedule_while_children_keep_single_writer_contract() -> None:
+    morning = _morning_workflow()
     core = _core_workflow()
     nh = _nh_workflow()
-    assert [item["cron"] for item in _triggers(core)["schedule"]] == [
-        "17 16 * * 0-4",
-        "40 8 * * 0-4",
+
+    assert [item["cron"] for item in _triggers(morning)["schedule"]] == [
+        "50 5 * * 0-4"
     ]
-    assert [item["cron"] for item in _triggers(nh)["schedule"]] == [
-        "30 8 * * 0-4"
-    ]
+    assert "schedule" not in _triggers(core)
+    assert "schedule" not in _triggers(nh)
+
     expected = {
         "group": "rate-data-writer",
         "queue": "max",
@@ -83,6 +89,10 @@ def test_checkpoint_workflows_keep_schedule_and_single_writer_contract() -> None
     }
     assert core["concurrency"] == expected
     assert nh["concurrency"] == expected
+    assert morning["concurrency"] == {
+        "group": "morning-sla-cycle",
+        "cancel-in-progress": False,
+    }
 
 
 def test_long_running_source_steps_receive_complete_r2_configuration() -> None:
@@ -106,7 +116,7 @@ def test_long_running_source_steps_receive_complete_r2_configuration() -> None:
         assert set(env) >= R2_ENV_KEYS, f"{name} checkpoint R2 env 누락"
 
 
-def test_scheduled_first_attempt_is_fresh_and_retries_stay_auto() -> None:
+def test_new_cycle_is_fresh_but_same_cycle_retries_stay_auto() -> None:
     core_input = _triggers(_core_workflow())["workflow_dispatch"]["inputs"][
         "kfcc_resume_mode"
     ]
@@ -118,15 +128,20 @@ def test_scheduled_first_attempt_is_fresh_and_retries_stay_auto() -> None:
         assert mode["default"] == "auto"
         assert mode["options"] == ["auto", "fresh"]
 
+    retry_mode = "${{ github.run_attempt == 1 && 'fresh' || 'auto' }}"
+    morning_jobs = _morning_workflow()["jobs"]
+    assert morning_jobs["nh"]["with"]["nh_resume_mode"] == retry_mode
+    assert morning_jobs["market"]["with"]["kfcc_resume_mode"] == retry_mode
+
     kfcc = _step(_core_steps(), "Collect KFCC")
     assert (kfcc.get("env") or {}).get("RESUME_MODE") == (
-        "${{ github.event_name == 'schedule' && 'fresh' || inputs.kfcc_resume_mode || 'auto' }}"
+        "${{ inputs.kfcc_resume_mode || 'auto' }}"
     )
     assert '--resume "$RESUME_MODE"' in kfcc["run"]
 
     caller_jobs = _nh_workflow()["jobs"]
     assert caller_jobs["attempt_1"]["with"]["resume_mode"] == (
-        "${{ github.event_name == 'schedule' && 'fresh' || inputs.nh_resume_mode || 'auto' }}"
+        "${{ inputs.nh_resume_mode || 'auto' }}"
     )
     assert caller_jobs["attempt_2"]["with"]["resume_mode"] == "auto"
     assert caller_jobs["attempt_3"]["with"]["resume_mode"] == "auto"
@@ -178,7 +193,7 @@ def test_nh_recovery_graph_lives_only_in_reusable_attempt_workflow() -> None:
     assert nh_names.count("Decide zero-progress fresh-runner recovery") == 1
 
 
-def test_source_split_conditions_match_new_independent_boundary() -> None:
+def test_source_split_conditions_match_reusable_boundary() -> None:
     kfcc = str(_step(_core_steps(), "Collect KFCC").get("if") or "")
     assert "env.SKIP_KFCC_THIS_RUN != 'true'" in kfcc
     assert "env.KFCC_ONLY" not in kfcc
