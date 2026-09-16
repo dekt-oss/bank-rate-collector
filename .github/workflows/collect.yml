@@ -1,6 +1,28 @@
 name: 수집 — 일반·새마을금고
 
 on:
+  workflow_call:
+    inputs:
+      manual_target:
+        description: "내부 호출 대상"
+        type: string
+        required: false
+        default: "일반 전체"
+      kfcc_scope:
+        description: "새마을금고 수집 범위"
+        type: string
+        required: false
+        default: "전국"
+      kfcc_resume_mode:
+        description: "새마을금고 재시작 방식"
+        type: string
+        required: false
+        default: "auto"
+      accept_volume_drop:
+        description: "물량 급감 강제 승인"
+        type: boolean
+        required: false
+        default: false
   workflow_dispatch:
     inputs:
       password:
@@ -37,15 +59,9 @@ on:
         required: false
         default: false
 
-  schedule:
-    # 다음 영업일 07:30 SLA: 일반 금리수집은 01:17 KST = 16:17 UTC 전날에 큐를 예약한다.
-    # GitHub Actions 정각 집중을 피하면서 funding보다 충분히 뒤에 생성되도록 한다.
-    - cron: "17 16 * * 0-4"
-    # 장시간 새마을금고 전국수집은 전날 일~목 17:40 KST = 08:40 UTC에 먼저 큐를 예약한다.
-    - cron: "40 8 * * 0-4"
-
 # 실제 canonical DB/R2/rate-data 쓰기만 이 줄에 세운다.
-# main 코드 merge 자체는 더 이상 이 writer workflow를 실행하지 않는다.
+# Production 정기시각은 collect-morning-cycle.yml이 소유한다. 이 workflow는
+# 아침 체인에서 일반+KFCC를 한 writer pass로 합치거나 수동 실행할 때만 호출된다.
 concurrency:
   group: rate-data-writer
   queue: max
@@ -60,12 +76,13 @@ jobs:
     runs-on: ubuntu-latest
     env:
       RATE_MONITOR_STRATEGY_DASHBOARD: "1"
-      PUBLISH_ONLY: ${{ github.event_name == 'workflow_dispatch' && inputs.manual_target == '화면만 재발행' }}
-      KFCC_ONLY: ${{ github.event.schedule == '40 8 * * 0-4' || inputs.manual_target == '새마을금고만' }}
+      PUBLISH_ONLY: ${{ inputs.manual_target == '화면만 재발행' }}
+      KFCC_ONLY: ${{ inputs.manual_target == '새마을금고만' }}
+      MORNING_CYCLE: ${{ inputs.manual_target == '아침 전체' }}
       # 저장 전 source volume gate(직전 정상 전국 실행 대비 75%)의 운영자 승인.
       # 발행 게이트의 --accept와 같은 입력이다. 절대 하한·0건 판정은 풀지 않는다.
       RATE_MONITOR_ACCEPT_VOLUME_DROP: ${{ inputs.accept_volume_drop || false }}
-      SKIP_KFCC_THIS_RUN: ${{ github.event.schedule == '17 16 * * 0-4' || (github.event_name == 'workflow_dispatch' && inputs.manual_target != '새마을금고만') }}
+      SKIP_KFCC_THIS_RUN: ${{ inputs.manual_target != '새마을금고만' && inputs.manual_target != '아침 전체' }}
     steps:
       - name: Check collect password
         if: ${{ github.event_name == 'workflow_dispatch' }}
@@ -163,7 +180,7 @@ jobs:
         run: uv run alembic upgrade head
 
       - name: Collect finlife savings bank
-        if: ${{ env.PUBLISH_ONLY != 'true' && env.KFCC_ONLY != 'true' && (github.event_name != 'workflow_dispatch' || inputs.manual_target == '일반 전체' || inputs.manual_target == '저축은행만') }}
+        if: ${{ env.PUBLISH_ONLY != 'true' && env.KFCC_ONLY != 'true' && (inputs.manual_target == '일반 전체' || inputs.manual_target == '저축은행만' || inputs.manual_target == '아침 전체') }}
         env:
           FINLIFE_API_KEY: ${{ secrets.FINLIFE_API_KEY }}
         run: |
@@ -174,7 +191,7 @@ jobs:
             --groups 030300
 
       - name: Collect finlife bank
-        if: ${{ env.PUBLISH_ONLY != 'true' && env.KFCC_ONLY != 'true' && (github.event_name != 'workflow_dispatch' || inputs.manual_target == '일반 전체' || inputs.manual_target == '참고지표만') }}
+        if: ${{ env.PUBLISH_ONLY != 'true' && env.KFCC_ONLY != 'true' && (inputs.manual_target == '일반 전체' || inputs.manual_target == '참고지표만' || inputs.manual_target == '아침 전체') }}
         continue-on-error: true
         env:
           FINLIFE_API_KEY: ${{ secrets.FINLIFE_API_KEY }}
@@ -186,7 +203,7 @@ jobs:
             --groups 020000
 
       - name: Collect BOK base rate
-        if: ${{ env.PUBLISH_ONLY != 'true' && env.KFCC_ONLY != 'true' && (github.event_name != 'workflow_dispatch' || inputs.manual_target == '일반 전체' || inputs.manual_target == '참고지표만') }}
+        if: ${{ env.PUBLISH_ONLY != 'true' && env.KFCC_ONLY != 'true' && (inputs.manual_target == '일반 전체' || inputs.manual_target == '참고지표만' || inputs.manual_target == '아침 전체') }}
         continue-on-error: true
         env:
           ECOS_API_KEY: ${{ secrets.ECOS_API_KEY }}
@@ -197,7 +214,7 @@ jobs:
             --raw-root data/raw
 
       - name: Collect BOK deposit macro indicators
-        if: ${{ env.PUBLISH_ONLY != 'true' && env.KFCC_ONLY != 'true' && (github.event_name != 'workflow_dispatch' || inputs.manual_target == '일반 전체' || inputs.manual_target == '참고지표만') }}
+        if: ${{ env.PUBLISH_ONLY != 'true' && env.KFCC_ONLY != 'true' && (inputs.manual_target == '일반 전체' || inputs.manual_target == '참고지표만' || inputs.manual_target == '아침 전체') }}
         continue-on-error: true
         env:
           ECOS_API_KEY: ${{ secrets.ECOS_API_KEY }}
@@ -207,7 +224,7 @@ jobs:
             --raw-root data/raw
 
       - name: Collect FSB
-        if: ${{ env.PUBLISH_ONLY != 'true' && env.KFCC_ONLY != 'true' && (github.event_name != 'workflow_dispatch' || inputs.manual_target == '일반 전체' || inputs.manual_target == '저축은행만') }}
+        if: ${{ env.PUBLISH_ONLY != 'true' && env.KFCC_ONLY != 'true' && (inputs.manual_target == '일반 전체' || inputs.manual_target == '저축은행만' || inputs.manual_target == '아침 전체') }}
         continue-on-error: true
         run: |
           uv run rate-monitor collect \
@@ -216,7 +233,7 @@ jobs:
             --raw-root data/raw
 
       - name: Collect CU
-        if: ${{ env.PUBLISH_ONLY != 'true' && env.KFCC_ONLY != 'true' && (github.event_name != 'workflow_dispatch' || inputs.manual_target == '일반 전체' || inputs.manual_target == '신협만') }}
+        if: ${{ env.PUBLISH_ONLY != 'true' && env.KFCC_ONLY != 'true' && (inputs.manual_target == '일반 전체' || inputs.manual_target == '신협만' || inputs.manual_target == '아침 전체') }}
         continue-on-error: true
         run: |
           uv run rate-monitor collect \
@@ -250,7 +267,7 @@ jobs:
         continue-on-error: true
         env:
           SCOPE: ${{ inputs.kfcc_scope }}
-          RESUME_MODE: ${{ github.event_name == 'schedule' && 'fresh' || inputs.kfcc_resume_mode || 'auto' }}
+          RESUME_MODE: ${{ inputs.kfcc_resume_mode || 'auto' }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
