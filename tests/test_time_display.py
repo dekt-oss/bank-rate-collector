@@ -1,8 +1,8 @@
 """화면에 나가는 시간은 한국시간이다 (domain/timeutil.py).
 
 이 저장소가 다루는 것은 한국 금융기관의 공시금리이고 읽는 사람도 한국에
-있다. 그런데 GitHub Actions는 UTC로 돌고, DB에도 UTC가 적힌다. 경계에서
-바꾸는 것을 잊으면 정기 수집 시각과 날짜가 하루씩 어긋나 보일 수 있다.
+있다. GitHub Actions와 DB 경계에서는 UTC를 쓰므로, 화면·경로·스케줄 해석에서
+KST 변환을 빠뜨리지 않는지 확인한다.
 """
 
 import sqlite3
@@ -14,32 +14,31 @@ from rate_monitor.domain.timeutil import KST, kst_date_stamp, kst_path_stamp, to
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_the_scheduled_run_lands_on_the_right_korean_day() -> None:
-    """core 정기 수집은 전날 16:17 UTC, 한국에서는 다음 날 01:17이다.
+def test_a_late_utc_timestamp_lands_on_the_right_korean_day() -> None:
+    """16:17 UTC는 한국에서는 다음 날 01:17이다.
 
-    UTC 날짜로 파일 이름과 원본 디렉터리를 만들면 하루 전 날짜가 붙는다.
+    UTC 날짜로 파일 이름과 원본 디렉터리를 만들면 하루 전 날짜가 붙을 수 있다.
     """
-    scheduled = datetime(2026, 8, 5, 16, 17, tzinfo=UTC)
-    assert to_kst(scheduled).strftime("%Y-%m-%d %H:%M") == "2026-08-06 01:17"
-    assert kst_date_stamp(scheduled) == "20260806"
-    assert kst_path_stamp(scheduled) == "2026/08/06"
+    instant = datetime(2026, 8, 5, 16, 17, tzinfo=UTC)
+    assert to_kst(instant).strftime("%Y-%m-%d %H:%M") == "2026-08-06 01:17"
+    assert kst_date_stamp(instant) == "20260806"
+    assert kst_path_stamp(instant) == "2026/08/06"
 
 
-def test_the_core_cron_matches_one_seventeen_korea_time() -> None:
-    """워크플로우의 첫 cron이 실제로 한국시간 01:17인지 값에서 확인한다.
-
-    다음 영업일 07:30 SLA를 위해 core를 01:17 KST에 예약한다.
-    01:17 KST는 전날 16:17 UTC다. 요일 이동과 KFCC 전날 스케줄까지의
-    계약은 `test_gate_contract`와 `test_morning_collection_sla`가 별도로 검증한다.
-    """
+def test_morning_parent_cron_matches_fourteen_fifty_korea_time() -> None:
+    """Morning parent의 05:50 UTC 예약은 한국시간 14:50이다."""
     import re
 
-    text = (REPO_ROOT / ".github/workflows/collect.yml").read_text(encoding="utf-8")
+    text = (
+        REPO_ROOT / ".github/workflows/collect-morning-cycle.yml"
+    ).read_text(encoding="utf-8")
     match = re.search(r'cron:\s*"(\d+)\s+(\d+)\s', text)
-    assert match, "cron을 찾지 못했다"
+    assert match, "morning parent cron을 찾지 못했다"
     minute, hour = int(match.group(1)), int(match.group(2))
-    utc = datetime(2026, 8, 5, hour, minute, tzinfo=UTC)
-    assert to_kst(utc).strftime("%H:%M") == "01:17"
+    utc = datetime(2026, 8, 9, hour, minute, tzinfo=UTC)
+    local = to_kst(utc)
+    assert local.strftime("%H:%M") == "14:50"
+    assert (local + __import__("datetime").timedelta(days=1)).weekday() < 5
 
 
 def test_the_page_carries_korean_time(tmp_path: Path) -> None:
