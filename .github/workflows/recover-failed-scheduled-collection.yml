@@ -3,18 +3,17 @@ name: 복구 — 실패한 정기 수집 1회 재실행
 on:
   workflow_run:
     workflows:
+      - "수집 — 아침 SLA 체인"
       - "수집 — 일반·새마을금고"
       - "수집 — 농·축협"
       - "수집 — Data.go 기관별 수신잔액"
       - "Collect bank rates fast"
     types: [completed]
 
-# 이 workflow는 DB를 직접 쓰지 않는다. 정기 수집이 전체 실패했거나,
-# continue-on-error 원천만 실패해서 부모 workflow가 success로 끝난 경우를
-# 구분해 최신 main에서 딱 한 번 workflow_dispatch한다. 재실행은
-# workflow_dispatch 이벤트라 schedule-only 조건을 다시 만족하지 않아 무한
-# retry가 되지 않는다. child workflow가 기존 rate-data-writer lock을 그대로
-# 사용하므로 canonical write 직렬화도 유지된다.
+# Morning production scheduling is owned by the parent SLA chain. A terminal parent
+# failure gets exactly one failed-jobs rerun; GitHub re-runs the failed job and its
+# dependent jobs, preserving the successful prefix of the chain. Standalone/manual
+# child workflows keep the legacy recovery paths below.
 concurrency:
   group: failed-scheduled-collection-recovery-control-plane
   cancel-in-progress: false
@@ -26,8 +25,12 @@ permissions:
 jobs:
   recover:
     # 정기 실행(schedule)만, 그리고 default branch에서 돈 실행만 재실행한다.
-    # 재실행 결과(workflow_dispatch)는 이 조건을 다시 만족하지 않아 loop가 없다.
-    if: ${{ github.event.workflow_run.event == 'schedule' && github.event.workflow_run.head_branch == 'main' }}
+    # Morning-chain rerun attempt 2는 다시 복구하지 않아 bounded one-shot을 보장한다.
+    if: >-
+      ${{ github.event.workflow_run.event == 'schedule' &&
+          github.event.workflow_run.head_branch == 'main' &&
+          (github.event.workflow_run.name != '수집 — 아침 SLA 체인' ||
+           github.event.workflow_run.run_attempt == 1) }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
@@ -37,6 +40,7 @@ jobs:
       PARENT_WORKFLOW: ${{ github.event.workflow_run.name }}
       PARENT_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
       PARENT_RUN_STARTED_AT: ${{ github.event.workflow_run.run_started_at }}
+      PARENT_RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
     steps:
       - name: Checkout current main control plane
         uses: actions/checkout@v4
@@ -51,7 +55,8 @@ jobs:
           test -n "$PARENT_WORKFLOW"
           test -n "$PARENT_CONCLUSION"
           test -n "$PARENT_RUN_STARTED_AT"
-          echo "scheduled workflow=$PARENT_WORKFLOW run_id=$PARENT_RUN_ID conclusion=$PARENT_CONCLUSION"
+          test -n "$PARENT_RUN_ATTEMPT"
+          echo "scheduled workflow=$PARENT_WORKFLOW run_id=$PARENT_RUN_ID attempt=$PARENT_RUN_ATTEMPT conclusion=$PARENT_CONCLUSION"
 
       - name: Dispatch one current-main recovery for terminal failure
         if: ${{ env.PARENT_CONCLUSION == 'failure' }}
@@ -59,11 +64,18 @@ jobs:
           set -euo pipefail
 
           case "$PARENT_WORKFLOW" in
+            "수집 — 아침 SLA 체인")
+              # GitHub rerun-failed-jobs re-runs failed jobs and their dependent
+              # jobs. The successful prefix (for example NH) is not repeated.
+              echo "recovery target=morning chain failed jobs + dependents"
+              gh run rerun "$PARENT_RUN_ID" \
+                --repo "$GITHUB_REPOSITORY" \
+                --failed
+              ;;
+
             "수집 — 일반·새마을금고")
-              # collect.yml has two schedules. Infer the failed schedule from the
-              # immutable job environment printed in the completed run. If logs
-              # cannot prove which schedule ran, fail closed instead of launching
-              # the wrong acquisition scope.
+              # Legacy/manual compatibility path. Scheduled production collection
+              # is now owned by the parent morning chain.
               gh run view "$PARENT_RUN_ID" \
                 --repo "$GITHUB_REPOSITORY" \
                 --log > parent-run.log
@@ -115,10 +127,6 @@ jobs:
               ;;
 
             "수집 — Data.go 기관별 수신잔액")
-              # The collector already performs bounded request retries and a
-              # source/month retry round. A terminal scheduled failure gets one
-              # fresh workflow/run/egress attempt, preserving its idempotent DB
-              # contract while avoiding an unbounded retry loop.
               echo "recovery target=Data.go incremental"
               gh workflow run collect-institution-funding.yml \
                 --repo "$GITHUB_REPOSITORY" \
@@ -129,8 +137,6 @@ jobs:
               ;;
 
             "Collect bank rates fast")
-              # Hard failure in fast collection can be FINLIFE or a downstream
-              # publication gate. Refresh the complete small bank-rate scope once.
               echo "recovery target=general after fast-bank terminal failure"
               gh workflow run collect.yml \
                 --repo "$GITHUB_REPOSITORY" \
@@ -146,13 +152,14 @@ jobs:
               ;;
           esac
 
-          echo "one-shot terminal recovery dispatched on current main"
+          echo "one-shot terminal recovery dispatched"
 
       - name: Build recovery plan for soft-source failures
         id: soft_plan
         if: >-
           ${{ env.PARENT_CONCLUSION == 'success' &&
-              (env.PARENT_WORKFLOW == '수집 — 일반·새마을금고' ||
+              (env.PARENT_WORKFLOW == '수집 — 아침 SLA 체인' ||
+               env.PARENT_WORKFLOW == '수집 — 일반·새마을금고' ||
                env.PARENT_WORKFLOW == 'Collect bank rates fast') }}
         run: |
           set -euo pipefail
@@ -161,6 +168,9 @@ jobs:
 
           EXTRA_ARGS=()
           case "$PARENT_WORKFLOW" in
+            "수집 — 아침 SLA 체인")
+              ARTIFACT="collection-run-$PARENT_RUN_ID"
+              ;;
             "수집 — 일반·새마을금고")
               ARTIFACT="collection-run-$PARENT_RUN_ID"
               gh run view "$PARENT_RUN_ID" \
