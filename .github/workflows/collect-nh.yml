@@ -7,6 +7,11 @@ name: 수집 — 농·축협
 on:
   workflow_call:
     inputs:
+      called_by_morning_cycle:
+        description: "내부 morning parent 호출 여부"
+        type: boolean
+        required: false
+        default: false
       nh_local_scope:
         description: "수집 범위"
         type: string
@@ -63,7 +68,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check collect password
-        if: ${{ github.event_name == 'workflow_dispatch' }}
+        # Reusable workflows inherit the caller github context. A manually dispatched
+        # morning parent therefore also has event_name=workflow_dispatch. The hidden
+        # workflow_call-only flag prevents that trusted parent call from being
+        # mistaken for a direct operator dispatch; direct manual runs still require
+        # DASHBOARD_PASSWORD and cannot set this flag from the UI.
+        if: ${{ github.event_name == 'workflow_dispatch' && !inputs.called_by_morning_cycle }}
         env:
           EXPECTED: ${{ secrets.DASHBOARD_PASSWORD }}
           GIVEN: ${{ inputs.password }}
