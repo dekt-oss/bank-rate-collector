@@ -19,10 +19,11 @@ def test_morning_sla_workflow_yaml_parses() -> None:
 def test_one_control_plane_schedule_owns_the_morning_cycle() -> None:
     # Reservation is deliberately earlier than collection. The gate prevents
     # source access before 20:30 KST while absorbing the observed GitHub delay.
-    assert '- cron: "0 6 * * 0-4"' in MORNING  # 15:00 KST reservation
+    assert '- cron: "50 5 * * 0-4"' in MORNING  # 14:50 KST reservation
     assert "20:30 KST" in MORNING
-    assert "15 * 60 <= minute_of_day < 20 * 60 + 30" in MORNING
-    assert "19_800" in MORNING  # maximum nominal 15:00 -> 20:30 hold
+    assert "14 * 60 + 50 <= minute_of_day < 20 * 60 + 30" in MORNING
+    assert "20_400" in MORNING  # maximum nominal 14:50 -> 20:30 hold
+    assert "timeout-minutes: 358" in MORNING
 
     # Child writers are no longer separately scheduled. One parent run determines
     # ordering, so downstream cron delays cannot add another 4-10 hours per stage.
@@ -42,8 +43,12 @@ def test_morning_chain_preserves_order_and_combines_general_with_kfcc() -> None:
     assert "needs: nh" in MORNING
     assert "needs: funding" in MORNING
     assert 'manual_target: "아침 전체"' in MORNING
-    assert "nh_resume_mode: fresh" in MORNING
-    assert "kfcc_resume_mode: fresh" in MORNING
+
+    # Parent attempt 1 starts a new business cycle fresh. rerun-failed-jobs keeps
+    # the same cycle and therefore must resume durable NH/KFCC checkpoints.
+    retry_mode = "${{ github.run_attempt == 1 && 'fresh' || 'auto' }}"
+    assert f"nh_resume_mode: {retry_mode}" in MORNING
+    assert f"kfcc_resume_mode: {retry_mode}" in MORNING
 
     # The internal morning target runs ordinary sources and KFCC in one canonical
     # writer pass, removing one duplicated restore/build/gate/R2 publication cycle.
@@ -52,10 +57,12 @@ def test_morning_chain_preserves_order_and_combines_general_with_kfcc() -> None:
     assert "inputs.manual_target == '아침 전체'" in CORE
 
 
-def test_evening_fast_refresh_does_not_compete_with_nightly_sla_lane() -> None:
+def test_fast_refresh_is_separate_but_budgeted_as_writer_contention() -> None:
     assert '- cron: "0 1 * * 1-5"' in FAST  # 10:00 KST
     assert '- cron: "0 6 * * 1-5"' in FAST  # 15:00 KST
     assert '- cron: "0 9 * * 1-5"' not in FAST  # retired 18:00 KST refresh
+    # Parent is deliberately not reserved on the same 15:00 minute.
+    assert '- cron: "0 6 * * 0-4"' not in MORNING
 
 
 def test_canonical_writer_safety_is_preserved() -> None:
@@ -71,20 +78,19 @@ def test_canonical_writer_safety_is_preserved() -> None:
     assert "cancel-in-progress: false" in MORNING
 
 
-def _modeled_finish(delay_minutes: int) -> int:
-    """Return finish minute on an axis starting reservation-day 00:00 KST."""
+def _modeled_finish(delay_minutes: int, writer_contention_minutes: int = 50) -> int:
+    """Return conservative finish minute on reservation-day 00:00 KST axis."""
 
-    reservation = 15 * 60
+    reservation = 14 * 60 + 50
     not_before = 20 * 60 + 30
 
-    # Conservative model from the recent successful production cycle:
-    # NH full writer pass ~265m -> 266m rounded up.
-    # funding full writer pass ~37m -> 38m rounded up.
-    # KFCC ~201m + general/core ~75m share one ~50m publication tail in the
-    # combined morning target, so 230m leaves margin above the de-duplicated path.
+    # Conservative recent-production budgets:
+    # NH full writer pass 266m, funding 38m, combined general+KFCC 230m.
+    # A separate 50m reserve covers the observed delayed 15:00 fast writer
+    # (recent production runs occupied the writer for about 45-47 minutes).
     chain_minutes = 266 + 38 + 230
     actual_start = max(not_before, reservation + delay_minutes)
-    return actual_start + chain_minutes
+    return actual_start + writer_contention_minutes + chain_minutes
 
 
 def test_reverse_scheduled_cycle_meets_0730_for_recent_observed_delay() -> None:
@@ -94,10 +100,11 @@ def test_reverse_scheduled_cycle_meets_0730_for_recent_observed_delay() -> None:
     on_time_finish = _modeled_finish(0)
     recent_max_finish = _modeled_finish(6 * 60 + 41)
 
-    # Prompt reservation waits until 20:30 and still leaves >2h before 07:30.
-    assert normal_deadline - on_time_finish >= 2 * 60
-    # Recent observed maximum scheduler delay (~6h41) starts around 21:41 and
-    # remains inside the normal 07:30 SLA with the conservative combined model.
+    # Prompt reservation waits until 20:30. Even with the 50m writer reserve it
+    # keeps more than one hour before the 07:30 normal target.
+    assert normal_deadline - on_time_finish >= 60
+    # 14:50 + observed 6h41 = 21:31; +50m writer reserve +8h54 chain = 07:15.
+    assert recent_max_finish == 24 * 60 + 7 * 60 + 15
     assert recent_max_finish <= normal_deadline
     assert recent_max_finish <= hard_deadline
 
