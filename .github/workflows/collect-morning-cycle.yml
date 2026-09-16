@@ -5,21 +5,15 @@ name: 수집 — 아침 SLA 체인
 # 약 10h 지연도 관측됐다. 15:00 fast refresh와 동일 minute의 scheduler/writer
 # 경쟁을 피하려고 14:50 KST에 control-plane run을 예약하되, 실제 원천 요청은
 # 20:30 KST 전에는 시작하지 않는다. 지연 생성된 run이 20:30 이후라면 즉시 시작한다.
+#
+# 이 parent는 schedule 전용이다. Reusable workflow는 caller의 github context를
+# 물려받으므로 workflow_dispatch parent를 섞으면 child의 direct-manual password
+# gate와 구분하기 어렵다. 운영자 수동 수집은 기존 child workflow를 직접 사용하고,
+# 외부 watchdog/fallback dispatch는 별도 인증된 control-plane 작업으로 분리한다.
 on:
   schedule:
     # Sunday-Thursday 14:50 KST = 05:50 UTC. Target cycle is next business morning.
     - cron: "50 5 * * 0-4"
-  workflow_dispatch:
-    inputs:
-      password:
-        description: "관리자 수집 암호"
-        required: true
-        default: ""
-      start_now:
-        description: "검증/복구용: 20:30 not-before gate를 건너뛰고 즉시 시작"
-        type: boolean
-        required: false
-        default: false
 
 # 동일 morning chain의 중복 실행만 막는다. 실제 canonical writer 직렬화는
 # 각 child workflow의 rate-data-writer concurrency가 계속 담당한다.
@@ -41,20 +35,8 @@ jobs:
       gate_released_at_kst: ${{ steps.wait.outputs.released_at_kst }}
       waited_seconds: ${{ steps.wait.outputs.waited_seconds }}
     steps:
-      - name: Check collect password
-        if: ${{ github.event_name == 'workflow_dispatch' }}
-        env:
-          EXPECTED: ${{ secrets.DASHBOARD_PASSWORD }}
-          GIVEN: ${{ inputs.password }}
-        run: |
-          set -euo pipefail
-          test -n "$EXPECTED"
-          test "$GIVEN" = "$EXPECTED"
-
       - name: Hold actual collection until 20:30 KST
         id: wait
-        env:
-          START_NOW: ${{ inputs.start_now || false }}
         run: |
           set -euo pipefail
           python - <<'PY'
@@ -65,7 +47,6 @@ jobs:
 
           kst = ZoneInfo("Asia/Seoul")
           now = datetime.now(kst)
-          start_now = os.environ.get("START_NOW", "false").lower() == "true"
           wait_seconds = 0
 
           # A scheduled run created on its nominal day can only collect after 20:30.
@@ -73,7 +54,7 @@ jobs:
           # into the next morning), start immediately instead of sleeping into the
           # following business cycle.
           minute_of_day = now.hour * 60 + now.minute
-          if not start_now and 14 * 60 + 50 <= minute_of_day < 20 * 60 + 30:
+          if 14 * 60 + 50 <= minute_of_day < 20 * 60 + 30:
               target = now.replace(hour=20, minute=30, second=0, microsecond=0)
               wait_seconds = max(0, int((target - now).total_seconds()))
 
