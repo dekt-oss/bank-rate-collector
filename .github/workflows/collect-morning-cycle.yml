@@ -1,0 +1,144 @@
+name: 수집 — 아침 SLA 체인
+
+# 예약 시각과 실제 원천수집 시각을 분리한다.
+# GitHub schedule은 최근 4개 cycle에서 약 4h46~6h41 지연됐고 과거에는
+# 약 10h 지연도 관측됐다. 따라서 15:00 KST에 control-plane run을 예약하되,
+# 제시간에 생성된 run은 20:30 KST까지 기다린 뒤에만 실제 NH 원천 요청을 시작한다.
+# 지연 생성된 run은 20:30 이후라면 즉시 시작한다.
+on:
+  schedule:
+    # Sunday-Thursday 15:00 KST = 06:00 UTC. Target cycle is next business morning.
+    - cron: "0 6 * * 0-4"
+  workflow_dispatch:
+    inputs:
+      password:
+        description: "관리자 수집 암호"
+        required: true
+        default: ""
+      start_now:
+        description: "검증/복구용: 20:30 not-before gate를 건너뛰고 즉시 시작"
+        type: boolean
+        required: false
+        default: false
+
+# 동일 morning chain의 중복 실행만 막는다. 실제 canonical writer 직렬화는
+# 각 child workflow의 rate-data-writer concurrency가 계속 담당한다.
+concurrency:
+  group: morning-sla-cycle
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 345
+    outputs:
+      gate_released_at_kst: ${{ steps.wait.outputs.released_at_kst }}
+      waited_seconds: ${{ steps.wait.outputs.waited_seconds }}
+    steps:
+      - name: Check collect password
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        env:
+          EXPECTED: ${{ secrets.DASHBOARD_PASSWORD }}
+          GIVEN: ${{ inputs.password }}
+        run: |
+          set -euo pipefail
+          test -n "$EXPECTED"
+          test "$GIVEN" = "$EXPECTED"
+
+      - name: Hold actual collection until 20:30 KST
+        id: wait
+        env:
+          START_NOW: ${{ inputs.start_now || false }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os
+          import time
+          from datetime import datetime, timedelta
+          from zoneinfo import ZoneInfo
+
+          kst = ZoneInfo("Asia/Seoul")
+          now = datetime.now(kst)
+          start_now = os.environ.get("START_NOW", "false").lower() == "true"
+          wait_seconds = 0
+
+          # A scheduled run created on its nominal day can only collect after 20:30.
+          # If GitHub creates the 15:00 reservation after 20:30 (or delays it past
+          # midnight into the next morning), start immediately instead of sleeping
+          # into the following business cycle.
+          minute_of_day = now.hour * 60 + now.minute
+          if not start_now and 15 * 60 <= minute_of_day < 20 * 60 + 30:
+              target = now.replace(hour=20, minute=30, second=0, microsecond=0)
+              wait_seconds = max(0, int((target - now).total_seconds()))
+
+          # 15:00 -> 20:30 is 19,800 seconds. A larger wait means the cycle-date
+          # inference is wrong; fail closed instead of collecting on the wrong day.
+          if wait_seconds > 19_800:
+              raise SystemExit(f"not-before wait exceeds contract: {wait_seconds}s")
+
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
+              fh.write(f"waited_seconds={wait_seconds}\n")
+          print(f"reservation_created_at_kst={now.isoformat()} wait_seconds={wait_seconds}")
+          if wait_seconds:
+              time.sleep(wait_seconds)
+
+          released = datetime.now(kst)
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
+              fh.write(f"released_at_kst={released.isoformat()}\n")
+          print(f"actual_collection_gate_released_at_kst={released.isoformat()}")
+          PY
+
+  nh:
+    needs: gate
+    uses: ./.github/workflows/collect-nh.yml
+    with:
+      nh_local_scope: "전국"
+      # New business cycle starts fresh. In-workflow retries remain auto/checkpointed.
+      nh_resume_mode: fresh
+      accept_volume_drop: false
+    secrets: inherit
+
+  funding:
+    needs: nh
+    uses: ./.github/workflows/collect-institution-funding.yml
+    with:
+      mode: incremental
+      periods: 12
+    secrets: inherit
+
+  market:
+    needs: funding
+    uses: ./.github/workflows/collect.yml
+    with:
+      # Internal-only target: collect all general sources and KFCC, then run one
+      # shared snapshot/validation/site/P1-A/volume/R2/rate-data publish pass.
+      manual_target: "아침 전체"
+      kfcc_scope: "전국"
+      kfcc_resume_mode: fresh
+      accept_volume_drop: false
+    secrets: inherit
+
+  surface:
+    needs: [gate, nh, funding, market]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Surface morning cycle result
+        env:
+          GATE_RESULT: ${{ needs.gate.result }}
+          NH_RESULT: ${{ needs.nh.result }}
+          FUNDING_RESULT: ${{ needs.funding.result }}
+          MARKET_RESULT: ${{ needs.market.result }}
+          GATE_RELEASED_AT_KST: ${{ needs.gate.outputs.gate_released_at_kst }}
+          GATE_WAITED_SECONDS: ${{ needs.gate.outputs.waited_seconds }}
+        run: |
+          set -euo pipefail
+          echo "gate=$GATE_RESULT nh=$NH_RESULT funding=$FUNDING_RESULT market=$MARKET_RESULT"
+          echo "gate_released_at_kst=$GATE_RELEASED_AT_KST waited_seconds=$GATE_WAITED_SECONDS"
+          for result in "$GATE_RESULT" "$NH_RESULT" "$FUNDING_RESULT" "$MARKET_RESULT"; do
+            test "$result" = "success"
+          done
