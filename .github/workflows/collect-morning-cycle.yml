@@ -1,0 +1,134 @@
+name: 수집 — 아침 SLA 체인
+
+# 예약 시각과 실제 원천수집 시각을 분리한다.
+# 최근 production에서 GitHub schedule은 약 4h46~6h41 지연됐고 과거에는
+# 약 10h 지연도 관측됐다. 15:00 fast refresh와 동일 minute의 scheduler/writer
+# 경쟁을 피하려고 14:50 KST에 control-plane run을 예약하되, 실제 원천 요청은
+# 20:45 KST 전에는 시작하지 않는다. 지연 생성된 run이 20:45 이후라면 즉시 시작한다.
+#
+# 2026-09-17 production 실측에서 기존 분리 스케줄은 NH 22:41~02:30,
+# KFCC 02:38~05:17, core publish 06:30, funding recovery/R2 verify 06:38이었다.
+# 기존 보수 capacity budget(8h54 + writer 50m)을 유지하면 20:45 release는
+# prompt-run 기준 07:30 target까지 61분 margin을 남긴다. 한 cycle 실측만으로
+# collector budget 자체를 줄이지 않는다.
+#
+# 이 parent는 schedule 전용이다. Reusable workflow는 caller의 github context를
+# 물려받으므로 workflow_dispatch parent를 섞으면 child의 direct-manual password
+# gate와 구분하기 어렵다. 운영자 수동 수집은 기존 child workflow를 직접 사용하고,
+# 외부 watchdog/fallback dispatch는 별도 인증된 control-plane 작업으로 분리한다.
+on:
+  schedule:
+    # Sunday-Thursday 14:50 KST = 05:50 UTC. Target cycle is next business morning.
+    - cron: "50 5 * * 0-4"
+
+# 동일 morning chain의 중복 실행만 막는다. 실제 canonical writer 직렬화는
+# 각 child workflow의 rate-data-writer concurrency가 계속 담당한다.
+concurrency:
+  group: morning-sla-cycle
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    # 14:50 -> 20:45 최대 355분 대기. GitHub-hosted job의 6시간 한도 안에서
+    # setup/teardown 여유를 포함해 360분 timeout을 사용한다.
+    timeout-minutes: 360
+    outputs:
+      gate_released_at_kst: ${{ steps.wait.outputs.released_at_kst }}
+      waited_seconds: ${{ steps.wait.outputs.waited_seconds }}
+    steps:
+      - name: Hold actual collection until 20:45 KST
+        id: wait
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os
+          import time
+          from datetime import datetime
+          from zoneinfo import ZoneInfo
+
+          kst = ZoneInfo("Asia/Seoul")
+          now = datetime.now(kst)
+          wait_seconds = 0
+
+          # A scheduled run created on its nominal day can only collect after 20:45.
+          # If GitHub creates the reservation after 20:45 (or delays it past midnight
+          # into the next morning), start immediately instead of sleeping into the
+          # following business cycle.
+          minute_of_day = now.hour * 60 + now.minute
+          if 14 * 60 + 50 <= minute_of_day < 20 * 60 + 45:
+              target = now.replace(hour=20, minute=45, second=0, microsecond=0)
+              wait_seconds = max(0, int((target - now).total_seconds()))
+
+          # 14:50 -> 20:45 is 21,300 seconds. A larger wait means the cycle-date
+          # inference is wrong; fail closed instead of collecting on the wrong day.
+          if wait_seconds > 21_300:
+              raise SystemExit(f"not-before wait exceeds contract: {wait_seconds}s")
+
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
+              fh.write(f"waited_seconds={wait_seconds}\n")
+          print(f"reservation_created_at_kst={now.isoformat()} wait_seconds={wait_seconds}")
+          if wait_seconds:
+              time.sleep(wait_seconds)
+
+          released = datetime.now(kst)
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
+              fh.write(f"released_at_kst={released.isoformat()}\n")
+          print(f"actual_collection_gate_released_at_kst={released.isoformat()}")
+          PY
+
+  nh:
+    needs: gate
+    uses: ./.github/workflows/collect-nh.yml
+    with:
+      nh_local_scope: "전국"
+      # A new business cycle starts fresh. rerun-failed-jobs keeps the same
+      # scheduled cycle, so parent attempt 2 must reuse the durable checkpoint.
+      nh_resume_mode: ${{ github.run_attempt == 1 && 'fresh' || 'auto' }}
+      accept_volume_drop: false
+    secrets: inherit
+
+  funding:
+    needs: nh
+    uses: ./.github/workflows/collect-institution-funding.yml
+    with:
+      mode: incremental
+      periods: 12
+    secrets: inherit
+
+  market:
+    needs: funding
+    uses: ./.github/workflows/collect.yml
+    with:
+      # Internal-only target: collect all general sources and KFCC, then run one
+      # shared snapshot/validation/site/P1-A/volume/R2/rate-data publish pass.
+      manual_target: "아침 전체"
+      kfcc_scope: "전국"
+      kfcc_resume_mode: ${{ github.run_attempt == 1 && 'fresh' || 'auto' }}
+      accept_volume_drop: false
+    secrets: inherit
+
+  surface:
+    needs: [gate, nh, funding, market]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Surface morning cycle result
+        env:
+          GATE_RESULT: ${{ needs.gate.result }}
+          NH_RESULT: ${{ needs.nh.result }}
+          FUNDING_RESULT: ${{ needs.funding.result }}
+          MARKET_RESULT: ${{ needs.market.result }}
+          GATE_RELEASED_AT_KST: ${{ needs.gate.outputs.gate_released_at_kst }}
+          GATE_WAITED_SECONDS: ${{ needs.gate.outputs.waited_seconds }}
+        run: |
+          set -euo pipefail
+          echo "gate=$GATE_RESULT nh=$NH_RESULT funding=$FUNDING_RESULT market=$MARKET_RESULT"
+          echo "gate_released_at_kst=$GATE_RELEASED_AT_KST waited_seconds=$GATE_WAITED_SECONDS"
+          for result in "$GATE_RESULT" "$NH_RESULT" "$FUNDING_RESULT" "$MARKET_RESULT"; do
+            test "$result" = "success"
+          done

@@ -1,4 +1,4 @@
-"""Workflow contract for independent bounded NH fresh-runner recovery."""
+"""Workflow contract for reusable bounded NH fresh-runner recovery."""
 
 from pathlib import Path
 
@@ -21,11 +21,14 @@ def _attempt_steps() -> list[dict]:
     return _load(ATTEMPT)["jobs"]["attempt"]["steps"]
 
 
-def test_nh_is_an_independent_scheduled_workflow() -> None:
+def test_nh_is_a_reusable_single_writer_workflow() -> None:
     workflow = _load(COLLECT_NH)
     triggers = _triggers(workflow)
-    assert [item["cron"] for item in triggers["schedule"]] == ["30 8 * * 0-4"]
+    assert "workflow_call" in triggers
+    assert "workflow_dispatch" in triggers
+    assert "schedule" not in triggers
     assert workflow["concurrency"]["group"] == "rate-data-writer"
+    assert workflow["concurrency"]["queue"] == "max"
     assert workflow["concurrency"]["cancel-in-progress"] is False
 
 

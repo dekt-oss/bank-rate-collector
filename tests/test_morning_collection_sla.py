@@ -4,6 +4,7 @@ from pathlib import Path
 
 import yaml
 
+MORNING = Path(".github/workflows/collect-morning-cycle.yml").read_text(encoding="utf-8")
 CORE = Path(".github/workflows/collect.yml").read_text(encoding="utf-8")
 NH = Path(".github/workflows/collect-nh.yml").read_text(encoding="utf-8")
 FUNDING = Path(".github/workflows/collect-institution-funding.yml").read_text(encoding="utf-8")
@@ -11,63 +12,122 @@ FAST = Path(".github/workflows/collect-savings-fast.yml").read_text(encoding="ut
 
 
 def test_morning_sla_workflow_yaml_parses() -> None:
-    for workflow in (CORE, NH, FUNDING, FAST):
+    for workflow in (MORNING, CORE, NH, FUNDING, FAST):
         assert isinstance(yaml.safe_load(workflow), dict)
 
 
-def test_morning_sla_crons_are_reserved_in_kst_order() -> None:
-    # Previous evening, Sunday-Thursday -> next business morning Monday-Friday.
-    assert '- cron: "30 8 * * 0-4"' in NH  # 17:30 KST NH
-    assert '- cron: "40 8 * * 0-4"' in CORE  # 17:40 KST KFCC
+def test_one_control_plane_schedule_owns_the_morning_cycle() -> None:
+    # Reservation is deliberately earlier than collection. The gate prevents
+    # source access before 20:45 KST while absorbing the observed GitHub delay.
+    assert '- cron: "50 5 * * 0-4"' in MORNING  # 14:50 KST reservation
+    assert "20:45 KST" in MORNING
+    assert "14 * 60 + 50 <= minute_of_day < 20 * 60 + 45" in MORNING
+    assert "21_300" in MORNING  # maximum nominal 14:50 -> 20:45 hold
+    assert "timeout-minutes: 360" in MORNING
 
-    # After midnight KST; UTC is still the previous calendar day.
-    assert '- cron: "15 15 * * 0-4"' in FUNDING  # 00:15 KST funding
-    assert '- cron: "17 16 * * 0-4"' in CORE  # 01:17 KST core
+    # Child writers are no longer separately scheduled. One parent run determines
+    # ordering, so downstream cron delays cannot add another 4-10 hours per stage.
+    for retired in (
+        '- cron: "30 8 * * 0-4"',
+        '- cron: "40 8 * * 0-4"',
+        '- cron: "15 15 * * 0-4"',
+        '- cron: "17 16 * * 0-4"',
+    ):
+        assert retired not in NH
+        assert retired not in CORE
+        assert retired not in FUNDING
 
-    # collect.yml has two schedules, so its source-routing conditions must use
-    # the exact same cron literals. Otherwise core and KFCC can swap scopes.
-    assert "github.event.schedule == '40 8 * * 0-4'" in CORE
-    assert "github.event.schedule == '17 16 * * 0-4'" in CORE
+
+def test_morning_chain_preserves_order_and_combines_general_with_kfcc() -> None:
+    assert "needs: gate" in MORNING
+    assert "needs: nh" in MORNING
+    assert "needs: funding" in MORNING
+    assert 'manual_target: "아침 전체"' in MORNING
+
+    # Parent attempt 1 starts a new business cycle fresh. rerun-failed-jobs keeps
+    # the same cycle and therefore must resume durable NH/KFCC checkpoints.
+    retry_mode = "${{ github.run_attempt == 1 && 'fresh' || 'auto' }}"
+    assert f"nh_resume_mode: {retry_mode}" in MORNING
+    assert f"kfcc_resume_mode: {retry_mode}" in MORNING
+
+    # The internal morning target runs ordinary sources and KFCC in one canonical
+    # writer pass, removing one duplicated restore/build/gate/R2 publication cycle.
+    assert "MORNING_CYCLE: ${{ inputs.manual_target == '아침 전체' }}" in CORE
+    assert "inputs.manual_target != '아침 전체'" in CORE
+    assert "inputs.manual_target == '아침 전체'" in CORE
 
 
-def test_evening_fast_refresh_does_not_compete_with_nightly_sla_lane() -> None:
+def test_fast_refresh_is_separate_but_budgeted_as_writer_contention() -> None:
     assert '- cron: "0 1 * * 1-5"' in FAST  # 10:00 KST
     assert '- cron: "0 6 * * 1-5"' in FAST  # 15:00 KST
     assert '- cron: "0 9 * * 1-5"' not in FAST  # retired 18:00 KST refresh
+    # Parent is deliberately not reserved on the same 15:00 minute.
+    assert '- cron: "0 6 * * 0-4"' not in MORNING
 
 
 def test_canonical_writer_safety_is_preserved() -> None:
+    # Child workflows still serialize every authoritative DB/R2/rate-data write.
     for workflow in (CORE, NH, FUNDING, FAST):
         assert "group: rate-data-writer" in workflow
         assert "queue: max" in workflow
         assert "cancel-in-progress: false" in workflow
 
-
-def _finish_time_with_uniform_scheduler_delay(delay_minutes: int) -> int:
-    """Return serialized finish minute on an axis starting previous-day 00:00 KST."""
-
-    # Recent production upper-bound observations used for scheduling capacity,
-    # including acquisition, validation, site build and canonical publication.
-    jobs = (
-        (17 * 60 + 30, 267),  # NH: 4h27
-        (17 * 60 + 40, 186),  # KFCC: ~3h06
-        (24 * 60 + 15, 40),  # funding: ~40m
-        (25 * 60 + 17, 69),  # core: ~1h09
-    )
-    writer_available = 0
-    for scheduled_minute, duration in jobs:
-        start = max(writer_available, scheduled_minute + delay_minutes)
-        writer_available = start + duration
-    return writer_available
+    # The parent has a separate control-plane lock and does not replace the writer lock.
+    assert "group: morning-sla-cycle" in MORNING
+    assert "group: rate-data-writer" not in MORNING
+    assert "cancel-in-progress: false" in MORNING
 
 
-def test_schedule_has_four_and_half_hour_scheduler_delay_budget_before_0730() -> None:
-    deadline = 24 * 60 + 7 * 60 + 30
-    nominal_finish = _finish_time_with_uniform_scheduler_delay(0)
-    delayed_finish = _finish_time_with_uniform_scheduler_delay(4 * 60 + 30)
+def _modeled_finish(delay_minutes: int, writer_contention_minutes: int = 50) -> int:
+    """Return conservative finish minute on reservation-day 00:00 KST axis."""
 
-    # Nominally the serialized chain finishes around 02:52 KST, leaving a wide
-    # recovery window. Even a uniform 4h30 GitHub schedule delay still finishes
-    # around 07:22 KST, before the 07:30 operational SLA.
-    assert deadline - nominal_finish >= 4 * 60
-    assert delayed_finish <= deadline
+    reservation = 14 * 60 + 50
+    not_before = 20 * 60 + 45
+
+    # Keep the pre-existing conservative capacity budget even after the 2026-09-17
+    # production cycle ran faster in several stages. One successful day is evidence
+    # for calibration, not enough evidence to shrink the safety budget itself:
+    # NH full writer pass 266m, funding 38m, combined general+KFCC 230m.
+    # A separate 50m reserve covers delayed 15:00 fast-writer contention.
+    chain_minutes = 266 + 38 + 230
+    actual_start = max(not_before, reservation + delay_minutes)
+    return actual_start + writer_contention_minutes + chain_minutes
+
+
+def test_reverse_scheduled_cycle_meets_0730_for_recent_observed_delay() -> None:
+    normal_deadline = 24 * 60 + 7 * 60 + 30
+    hard_deadline = 24 * 60 + 8 * 60
+
+    on_time_finish = _modeled_finish(0)
+    recent_max_finish = _modeled_finish(6 * 60 + 41)
+
+    # Prompt reservation waits until 20:45. With the deliberately unchanged
+    # conservative budgets it still leaves 61 minutes before the 07:30 target.
+    assert normal_deadline - on_time_finish == 61
+    # 14:50 + observed 6h41 = 21:31, so the gate no longer controls the start.
+    # +50m writer reserve +8h54 chain = 07:15, unchanged from the prior model.
+    assert recent_max_finish == 24 * 60 + 7 * 60 + 15
+    assert recent_max_finish <= normal_deadline
+    assert recent_max_finish <= hard_deadline
+
+
+def test_20260917_runtime_evidence_does_not_shrink_safety_budget() -> None:
+    # Production evidence used to move the lower bound 15 minutes later:
+    # NH collector 22:41-02:30, KFCC 02:38-05:17, core publish 06:30,
+    # funding retry/authoritative R2 verification completed 06:38.
+    # The new parent removes downstream cron delays and one duplicated market
+    # publish pass, but we intentionally retain the older 534m chain budget.
+    assert "2026-09-17 production 실측" in MORNING
+    assert "NH 22:41~02:30" in MORNING
+    assert "funding recovery/R2 verify 06:38" in MORNING
+    assert _modeled_finish(0) == 24 * 60 + 6 * 60 + 29
+
+
+def test_historical_ten_hour_github_delay_is_explicitly_not_guaranteed() -> None:
+    hard_deadline = 24 * 60 + 8 * 60
+    historical_extreme_finish = _modeled_finish(10 * 60)
+
+    # A GitHub-only schedule cannot guarantee the hard SLA under the historical
+    # ~10h trigger delay. The ops document must keep this residual risk visible;
+    # an independent external watchdog is a separate follow-up control plane.
+    assert historical_extreme_finish > hard_deadline

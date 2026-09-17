@@ -35,10 +35,10 @@ def test_r2_upload_remains_after_validation_and_p1a_gate() -> None:
 def test_scheduled_recovery_inspects_successful_soft_failures_without_owning_writer_lock() -> None:
     text = RECOVERY.read_text(encoding="utf-8")
 
-    assert (
-        "if: ${{ github.event.workflow_run.event == 'schedule'"
-        " && github.event.workflow_run.head_branch == 'main' }}"
-    ) in text
+    assert "github.event.workflow_run.event == 'schedule'" in text
+    assert "github.event.workflow_run.head_branch == 'main'" in text
+    assert "github.event.workflow_run.run_attempt == 1" in text
+    assert '"수집 — 아침 SLA 체인"' in text
     assert "PARENT_CONCLUSION: ${{ github.event.workflow_run.conclusion }}" in text
     assert "scripts/scheduled_soft_failure_recovery.py" in text
     assert "collection-run-$PARENT_RUN_ID" in text
@@ -62,10 +62,21 @@ def test_soft_failure_recovery_is_bounded_targeted_and_non_recursive() -> None:
     assert "workflow_dispatch:" not in trigger
 
 
-def test_terminal_failure_recovery_contract_is_preserved() -> None:
+def test_morning_terminal_failure_reruns_failed_jobs_once() -> None:
     text = RECOVERY.read_text(encoding="utf-8")
 
     assert "env.PARENT_CONCLUSION == 'failure'" in text
+    assert '"수집 — 아침 SLA 체인")' in text
+    assert 'gh run rerun "$PARENT_RUN_ID"' in text
+    assert "--failed" in text
+    assert "PARENT_RUN_ATTEMPT" in text
+    # attempt 2 completion must not dispatch another parent rerun.
+    assert "github.event.workflow_run.run_attempt == 1" in text
+
+
+def test_legacy_manual_recovery_paths_remain_available() -> None:
+    text = RECOVERY.read_text(encoding="utf-8")
+
     assert 'gh workflow run collect-nh.yml' in text
     assert 'gh workflow run collect-institution-funding.yml' in text
     assert 'manual_target="일반 전체"' in text

@@ -11,6 +11,7 @@ on:
       - ".github/workflows/sync-health-control-plane.yml"
   workflow_run:
     workflows:
+      - "수집 — 아침 SLA 체인"
       - "수집 — 일반·새마을금고"
       - "Collect bank rates fast"
     types: [completed]

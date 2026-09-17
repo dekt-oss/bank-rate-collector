@@ -1,6 +1,18 @@
 name: 수집 — Data.go 기관별 수신잔액
 
 on:
+  workflow_call:
+    inputs:
+      mode:
+        description: "수집 모드"
+        type: string
+        required: false
+        default: incremental
+      periods:
+        description: "custom 모드 업권별 최근 보고기간 수"
+        type: number
+        required: false
+        default: 12
   workflow_dispatch:
     inputs:
       password:
@@ -21,10 +33,6 @@ on:
         type: number
         required: false
         default: 12
-
-  schedule:
-    # 다음 영업일 07:30 SLA: 전날 장시간 NH/KFCC 뒤에 00:15 KST에 큐를 예약한다.
-    - cron: "15 15 * * 0-4"
 
   push:
     branches: [feat/market-funding-ops-finalize-20260828]
