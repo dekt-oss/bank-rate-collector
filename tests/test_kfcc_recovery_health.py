@@ -40,21 +40,15 @@ def test_kfcc_recovery_success_supersedes_first_failure() -> None:
         started_at: '2026-08-10T18:59:00Z', completed_at: completedAt,
       }});
       const coreSteps = [
-        step('Collect finlife savings bank', 'success'),
-        step('Collect finlife bank', 'success'),
-        step('Collect BOK base rate', 'success'),
-        step('Collect FSB', 'success'),
-        step('Collect CU', 'success'),
-        step('Collect NH local', 'success'),
-        step('Recover NH local', 'skipped'),
-        step('Collect KFCC', 'skipped'),
+        step('Collect finlife savings bank', 'success'), step('Collect finlife bank', 'success'),
+        step('Collect BOK base rate', 'success'), step('Collect FSB', 'success'),
+        step('Collect CU', 'success'), step('Collect NH local', 'success'),
+        step('Recover NH local', 'skipped'), step('Collect KFCC', 'skipped'),
         step('Recover KFCC', 'skipped'),
       ];
       const kfccSteps = [
-        step('Collect NH local', 'skipped'),
-        step('Recover NH local', 'skipped'),
-        step('Collect KFCC', 'failure'),
-        step('Decide KFCC recovery', 'success'),
+        step('Collect NH local', 'skipped'), step('Recover NH local', 'skipped'),
+        step('Collect KFCC', 'failure'), step('Decide KFCC recovery', 'success'),
         step('Recover KFCC', 'success'),
         step('Publish to rate-data branch', 'success', '2026-08-10T22:20:00Z'),
       ];
@@ -62,38 +56,25 @@ def test_kfcc_recovery_success_supersedes_first_failure() -> None:
       globalThis.fetch = async (url) => {{
         const value = String(url);
         if (value.includes('/runs?event=schedule&per_page=20')) {{
-          return {{
-            ok: true, status: 200,
-            json: async () => ({{ workflow_runs: [kfcc, core] }}),
-          }};
+          return {{ ok: true, status: 200, json: async () => ({{ workflow_runs: [kfcc, core] }}) }};
         }}
         if (value.includes('/runs?per_page=30')) {{
-          return {{
-            ok: true, status: 200,
-            json: async () => ({{ workflow_runs: [kfcc, core] }}),
-          }};
+          return {{ ok: true, status: 200, json: async () => ({{ workflow_runs: [kfcc, core] }}) }};
+        }}
+        if (value.endsWith('/actions/runs?per_page=50')) {{
+          return {{ ok: true, status: 200, json: async () => ({{ workflow_runs: [] }}) }};
         }}
         if (value.includes('/actions/runs/801/jobs?per_page=20')) {{
-          return {{
-            ok: true, status: 200,
-            json: async () => ({{ jobs: [{{ steps: coreSteps }}] }}),
-          }};
+          return {{ ok: true, status: 200, json: async () => ({{ jobs: [{{ steps: coreSteps }}] }}) }};
         }}
         if (value.includes('/actions/runs/802/jobs?per_page=20')) {{
-          return {{
-            ok: true, status: 200,
-            json: async () => ({{ jobs: [{{ steps: kfccSteps }}] }}),
-          }};
+          return {{ ok: true, status: 200, json: async () => ({{ jobs: [{{ steps: kfccSteps }}] }}) }};
         }}
         throw new Error(`unexpected URL: ${{value}}`);
       }};
 
       let payload = null;
-      const res = {{
-        setHeader() {{}},
-        status(code) {{ this.statusCode = code; return this; }},
-        send(body) {{ payload = JSON.parse(body); }},
-      }};
+      const res = {{ setHeader() {{}}, status(code) {{ this.statusCode = code; return this; }}, send(body) {{ payload = JSON.parse(body); }} }};
       await handler({{ method: 'GET' }}, res);
       console.log(JSON.stringify(payload.sla));
     """
@@ -101,4 +82,7 @@ def test_kfcc_recovery_success_supersedes_first_failure() -> None:
     assert result["source_status"] == "healthy"
     assert result["failed_sources"] == []
     assert result["missing_sources"] == []
-    assert result["status"] == "normal"
+    # These synthetic legacy split-schedule timestamps are late under the new parent
+    # reservation contract; recovery semantics are healthy while schedule health warns.
+    assert result["status"] == "warning"
+    assert result["schedule_status"] == "warning"
