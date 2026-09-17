@@ -1,7 +1,7 @@
 # Production collection schedule
 
 > 상태: **운영 기준표 (maintained operational reference)**  
-> 기준일: **2026-09-16**  
+> 기준일: **2026-09-17**  
 > 실행 계약의 Source of Truth는 `.github/workflows/*.yml`이다. cron·business-cycle·SLA 판정을 바꾸는 PR은 **이 문서, `web/api/health.js`, 관련 회귀테스트를 같은 PR에서 함께 수정**한다.
 
 ## 1. 최종 운영 스케줄
@@ -10,12 +10,12 @@
 
 | Action 예약 시각 | 실제 수집 시각 | 귀속 cycle | UTC cron | Workflow | 대상/역할 |
 |---|---|---|---|---|---|
-| **전날 14:50** | **20:30 KST 이후**. 예약 run이 늦게 생성되면 생성 즉시 | 일~목 예약 → 다음 영업일 월~금 morning cycle | `50 5 * * 0-4` | `.github/workflows/collect-morning-cycle.yml` | morning control plane: NH → 기관별 수신잔액 → 일반+KFCC |
+| **전날 14:50** | **20:45 KST 이후**. 예약 run이 늦게 생성되면 생성 즉시 | 일~목 예약 → 다음 영업일 월~금 morning cycle | `50 5 * * 0-4` | `.github/workflows/collect-morning-cycle.yml` | morning control plane: NH → 기관별 수신잔액 → 일반+KFCC |
 | **10:00** | 가변 | 월~금 당일 refresh | `0 1 * * 1-5` | `.github/workflows/collect-savings-fast.yml` | FINLIFE/저축은행중앙회 fast refresh |
 | **15:00** | 가변 | 월~금 당일 refresh | `0 6 * * 1-5` | `.github/workflows/collect-savings-fast.yml` | 오후 fast refresh |
 | **매월 2일 01:17** | 가변 | 월 1회 | `17 16 1 * *` | `.github/workflows/collect-size-peer-total-assets.yml` | Size Peer 총자산 evidence |
 
-Morning child workflow인 `.github/workflows/collect-nh.yml`, `.github/workflows/collect-institution-funding.yml`, `.github/workflows/collect.yml`은 더 이상 각각의 정기 cron을 갖지 않는다. 이들은 `workflow_call`/수동 실행용 canonical writer로 남고, morning parent가 순서를 고정한다.
+Morning child workflow인 `.github/workflows/collect-nh.yml`, `.github/workflows/collect-institution-funding.yml`, `.github/workflows/collect.yml`은 각각의 production 정기 cron을 갖지 않는다. 이들은 `workflow_call`/수동 실행용 canonical writer로 남고 morning parent가 순서를 고정한다.
 
 ### 시간 정의
 
@@ -26,18 +26,18 @@ Morning child workflow인 `.github/workflows/collect-nh.yml`, `.github/workflows
 - **실제 수집 종료 시각**: 해당 source 수집·파싱 완료 시각.
 - **canonical 반영 완료 시각**: validation/gate를 통과하고 R2/current snapshot/rate-data 반영을 끝낸 시각.
 
-**예약 시각 ≠ 실제 수집 시각**이다. 특히 `전날 14:50`은 데이터를 14:50에 읽는다는 뜻이 아니다. Morning parent는 정상적으로 일찍 생성되면 기다렸다가 **실제 수집 시작 하한 20:30 KST** 이후에만 NH 원천 요청을 시작한다.
+**예약 시각 ≠ 실제 수집 시각**이다. `전날 14:50`은 데이터를 14:50에 읽는다는 뜻이 아니다. Morning parent가 일찍 생성되면 gate에서 기다렸다가 **실제 수집 시작 하한 20:45 KST** 이후에만 NH 원천 요청을 시작한다.
 
 ## 2. Morning cycle 실행 순서
 
 ```text
 전날 14:50  GitHub Action 예약
       │
-      ├─ run이 20:30 전에 생성됨 → gate에서 20:30까지 대기
-      └─ run이 20:30 이후 생성됨 → 즉시 release
+      ├─ run이 20:45 전에 생성됨 → gate에서 20:45까지 대기
+      └─ run이 20:45 이후 생성됨 → 즉시 release
       │
       ▼
-20:30+  NH 전국
+20:45+  NH 전국
       │ success
       ▼
         Data.go 기관별 수신잔액 incremental
@@ -54,17 +54,20 @@ Morning child workflow인 `.github/workflows/collect-nh.yml`, `.github/workflows
 
 각 child는 기존 `rate-data-writer`, `queue: max`, `cancel-in-progress: false` 계약을 유지한다. Parent의 `morning-sla-cycle` concurrency는 같은 morning chain의 중복 실행만 막으며 canonical writer lock을 대체하지 않는다.
 
-## 3. 왜 14:50 예약 / 20:30 실제 수집인가
+## 3. 2026-09-17 Production 실측과 보정
 
-### 3.1 관측된 scheduler 지연
+기존 분리 스케줄의 2026-09-17 영업일 cycle은 다음과 같았다.
 
-최근 production cycle에서 GitHub scheduled workflow run 생성은 cron보다 대략 **4시간 46분~6시간 41분** 늦게 나타났다. 과거 audit에서는 **약 10시간** 지연 사례도 확인됐다. 따라서 GitHub cron 시각을 실제 collector 시작시각으로 사용하면 안 된다.
+| 단계 | 실제 실행 |
+|---|---|
+| NH 전국 | 22:41~02:30 수집, 02:37 publish 완료 |
+| KFCC 전국 | 02:38~05:17 수집, 05:24 publish 완료 |
+| Data.go funding | 05:25 1차 실패 → 자동복구 후 06:31~06:33 재수집, 06:38 R2 byte-for-byte 검증 완료 |
+| 일반/core | 05:27 시작, 06:30 rate-data publish 완료 |
 
-20:30은 검증된 “원천기관의 최종 확정 시각”이라는 의미가 아니다. NH/KFCC 원천에서 하루 최종 공시 완료시각을 계약으로 제공한다는 근거는 확인되지 않았다. **20:30은 영업시간 중간의 조기 스냅샷을 피하면서 다음 날 07:30 SLA를 충족하기 위해 선택한 운영상 실제 수집 시작 하한**이다.
+즉 실제 데이터는 07:30 목표 전에 정상화됐지만, 개별 GitHub cron은 예약보다 3~5시간 늦게 생성됐다. 이 실측은 **개별 cron을 더 정교하게 맞추는 방식이 아니라 하나의 early reservation + 실제 수집 not-before gate + 단일 chain으로 제어해야 한다**는 어제 개선안의 방향을 지지한다.
 
-### 3.2 역산 계산
-
-최근 production 실행을 보수적으로 올림한 capacity budget은 다음과 같다.
+실측이 기존 capacity budget보다 빨랐더라도 한 영업일 자료만으로 안전 예산 자체를 축소하지 않는다. 기존 보수 예산을 유지한다.
 
 | 단계 | 보수 예산 |
 |---|---:|
@@ -72,27 +75,38 @@ Morning child workflow인 `.github/workflows/collect-nh.yml`, `.github/workflows
 | 기관별 수신잔액 | 38분 |
 | 일반 + KFCC 통합 pass | 230분 |
 | **Morning chain 합계** | **534분 = 8시간 54분** |
+| fast writer contention reserve | **50분** |
 
-기존 구조는 NH/KFCC/funding/core가 각자 restore·build·gate·publish를 반복했다. 새 구조는 일반 source와 KFCC를 같은 마지막 writer pass로 묶어 중복 후처리를 제거하지만, 원천 collector의 안전 gate·checkpoint·volume gate·P1-A·R2 검증은 제거하지 않는다.
-
-또한 15:00 fast refresh도 `rate-data-writer`를 사용한다. 최근 production에서 scheduler 지연 때문에 20시대로 밀린 fast run이 약 45~47분 writer를 점유한 사례가 있어 **추가 50분 writer contention reserve**를 계산에 넣는다. Parent 예약을 정확히 15:00이 아니라 **14:50**으로 둔 이유도 같은 minute의 scheduler 경쟁을 피하고 10분 runway를 더 확보하기 위해서다.
-
-보수 역산:
+`20:45`는 위 보수 예산을 그대로 둔 상태에서 prompt-run의 여유를 가능한 한 소비해 맞춘 값이다.
 
 ```text
-전날 14:50 예약
-+ 최근 관측 최대 scheduler delay 6시간 41분
-= 21:31 run 생성 가정
-+ fast writer contention reserve 50분
-+ morning chain 8시간 54분
-= 다음 날 약 07:15 완료
+20:45 actual-start lower bound
++ 50분 writer contention reserve
++ 8시간 54분 morning chain
+= 다음 날 06:29 모델 완료
+→ 07:30 정상 목표까지 61분 margin
 ```
 
-따라서 최근 관측 범위에서는 **07:15 모델 완료 → 07:30 정상 목표까지 약 15분 margin**이 남는다. 예약 run이 제시간에 생성되어 20:30에 release되면 동일한 50분 contention reserve를 넣어도 약 06:14 모델 완료다.
+최근 관측 최대 scheduler delay **6시간 41분**이면 14:50 예약 run이 21:31에 생성되므로 gate는 이미 지난 상태다.
 
-다만 과거의 **약 10시간 GitHub scheduler 지연**을 적용하면 GitHub Actions cron만으로 08:00 hard deadline을 보장할 수 없다. 이 경우 필요한 통제는 같은 GitHub scheduler에 하나를 더 거는 것이 아니라 **독립 scheduler/watchdog가 GitHub run 부재를 확인하고 bounded fallback dispatch하는 구조**다. 이는 별도 high-risk 작업으로 분리한다.
+```text
+14:50 + 6시간 41분 = 21:31 actual start
++ 50분 writer reserve
++ 8시간 54분 chain
+= 다음 날 07:15 모델 완료
+```
 
-## 4. Checkpoint / retry 계약
+따라서 recent-max 지연에서도 07:30 목표를 만족한다. 과거 **약 10시간** scheduler 지연에서는 GitHub-only cron으로 08:00 hard deadline을 보장할 수 없다. 독립 scheduler/watchdog는 별도 high-risk control-plane 작업으로 유지한다.
+
+## 4. 왜 예약은 14:50이고 실제 수집은 20:45인가
+
+GitHub scheduler는 최근 production에서 약 **4시간 46분~6시간 41분** 지연됐고 과거 약 10시간 지연도 관측됐다. cron 자체를 원하는 실제 수집시각에 맞추면 지연량이 그대로 SLA 위험이 된다.
+
+14:50 예약은 15:00 fast refresh와 같은 minute의 scheduler 경쟁을 피하면서 가능한 runway를 확보하기 위한 control-plane 시각이다. 20:45는 검증된 원천기관 최종공시 시각이라는 뜻이 아니라, 영업시간 중간 조기 스냅샷을 피하면서 07:30 SLA에 60분 이상 prompt-run margin을 남기는 운영상 실제 수집 시작 하한이다.
+
+14:50→20:45 대기는 355분이다. GitHub-hosted job의 6시간 한도를 넘기지 않도록 parent gate timeout은 360분으로 고정한다. 20:45보다 더 늦추면 prompt-run 기준 60분 safety margin이 깨지므로 현재 evidence에서는 늦추지 않는다.
+
+## 5. Checkpoint / retry 계약
 
 2026-09-16 PR #333에서 확립한 `COMPLETE_REPLAY_UNPROVEN` 방어를 유지한다.
 
@@ -102,37 +116,31 @@ Morning child workflow인 `.github/workflows/collect-nh.yml`, `.github/workflows
 - KFCC 첫 attempt 실패 뒤 bounded checkpoint recovery: `auto`.
 - volume drop, 0건, source minimum, P1-A 등의 fail-closed 안전 gate는 자동 승인하지 않는다.
 
-즉 “다음 날 새 cycle”은 전날 complete checkpoint를 재생하지 않고, **같은 cycle 안의 실패 복구**는 이미 받은 장시간 진척을 버리지 않는다.
+Parent scheduled attempt 1이 terminal failure면 `.github/workflows/recover-failed-scheduled-collection.yml`이 `rerun-failed-jobs`를 한 번 수행한다. 성공한 선행 단계는 다시 실행하지 않고 실패 job과 dependent downstream만 재실행한다.
 
-## 5. 실패 복구와 health
-
-`.github/workflows/recover-failed-scheduled-collection.yml`은 `수집 — 아침 SLA 체인`의 scheduled attempt 1이 terminal failure일 때 `rerun-failed-jobs`를 한 번 사용한다. GitHub가 실패 job과 그 dependent downstream jobs를 재실행하므로 성공한 선행 단계는 불필요하게 다시 시작하지 않는다. Parent attempt 2는 위 checkpoint 계약에 따라 `auto`다.
-
-`continue-on-error` source의 soft failure는 동일 parent run의 immutable summary artifact를 `scripts/scheduled_soft_failure_recovery.py`가 읽어 최소 recovery target으로 변환한다.
+## 6. health 계약
 
 `web/api/health.js`는 다음 계약으로 판정한다.
 
 - scheduled evidence는 morning parent 하나를 기준으로 한다.
 - 전날 일~목 14:50 nominal reservation을 다음 날 월~금 morning cycle에 귀속한다.
-- GitHub가 자정을 넘겨 run을 생성해도 bounded attribution window 안이면 원래 nominal reservation의 다음 영업일 cycle로 본다.
-- 20:30 전 parent 미생성은 `pending`이다.
-- 20:30 이후 parent가 없거나 20:30 이후에 처음 생성됐으면 `warning`이다.
+- GitHub가 자정을 넘겨 run을 생성해도 bounded attribution window 안이면 원래 cycle로 본다.
+- **20:45 전 parent 미생성은 `pending`**이다.
+- **20:45 이후 parent가 없거나 20:45 이후에 처음 생성됐으면 `warning`**이다.
 - 08:00 hard deadline까지 parent evidence가 없으면 `breached`다.
 - 특정 KFCC run을 항상 finisher라고 가정하지 않고, cycle의 성공한 canonical publish 중 가장 늦은 완료를 사용한다.
 
 `.github/workflows/source-health-watch.yml`과 `.github/workflows/sync-health-control-plane.yml`도 morning parent 완료를 consumer trigger로 사용한다.
 
-## 6. 알려진 residual risk
+## 7. residual risk
 
-1. **GitHub scheduled run 자체가 생성되지 않는 경우**: `workflow_run` 이벤트도 없으므로 현재 one-shot recovery가 시작될 사건이 없다. 독립 scheduler/watchdog가 필요하다.
-2. **약 10시간급 scheduler 지연 재발**: 현재 07:30/08:00 SLA를 GitHub-only cron으로 보장할 수 없다.
-3. **추가 writer contention**: 50분 fast reserve 외에 월 1회 Size Peer writer나 운영자 수동 writer가 겹치면 margin이 줄 수 있다. `rate-data-writer`가 데이터 무결성은 보호하지만 SLA 시간까지 보장하지는 않는다.
-4. **원천 장애**: NH/KFCC/CU/Data.go 등의 transport·empty response·volume gate 실패는 스케줄 최적화로 제거되지 않는다. 기존 fail-closed/retry 계약을 유지한다.
-5. **Production runtime 검증**: PR CI 성공은 실제 다음 정기 cycle이 14:50 예약→20:30+ 수집→07:30 이전 publish되는 것을 증명하지 않는다. merge 후 최소 3개 영업일 cycle의 `created_at`, collector 시작/종료, publish 완료를 별도로 확인한다.
+1. **scheduled run 자체 미생성**: `workflow_run` 사건도 없으므로 현재 recovery가 시작되지 않는다. 독립 scheduler/watchdog가 필요하다.
+2. **약 10시간급 scheduler 지연**: GitHub-only schedule로 08:00 hard deadline을 보장할 수 없다.
+3. **추가 writer contention**: 월 1회 Size Peer writer나 운영자 수동 writer가 겹치면 margin이 줄 수 있다.
+4. **원천 장애**: NH/KFCC/CU/Data.go transport·empty response·volume gate 실패는 schedule 최적화로 제거되지 않는다.
+5. **Production runtime 검증**: PR CI 성공은 새 14:50 reservation→20:45+ chain의 실제 다음 cycle 성공을 증명하지 않는다. merge 후 최소 3개 영업일 cycle의 `created_at`, collector 시작/종료, publish 완료를 별도 확인한다.
 
-## 7. 스케줄 변경 관리 규칙
-
-앞으로 production schedule을 바꾸는 PR은 다음을 지킨다.
+## 8. 스케줄 변경 관리 규칙
 
 1. workflow cron, 이 문서, `web/api/health.js`, schedule 회귀테스트를 **같은 PR**에서 수정한다.
 2. UTC↔KST와 예약일→business-cycle 귀속을 테스트한다.
