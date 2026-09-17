@@ -100,6 +100,18 @@ def test_desktop_left_navigation_uses_real_feature_names() -> None:
     assert 'IntersectionObserver' in html
 
 
+def test_detail_sections_default_to_disclosure_and_nav_reveals_targets() -> None:
+    html = inject_strategy_workspace_presentation(_full_strategy_fixture())
+
+    assert 'id=\"workspace-detail-disclosure\"' in html
+    assert 'className=\"workspace-detail-disclosure\"' in html
+    assert 'wrapDetailDisclosure([detailLabel,primary,interpretation,pref,special,external' in html
+    assert 'target.closest(\"details.workspace-detail-disclosure\")' in html
+    assert 'disclosure.open=true' in html
+    assert 'window.addEventListener(\"hashchange\",activateHash)' in html
+    assert '<details id="workspace-detail-disclosure" open' not in html
+
+
 def test_market_direction_and_change_event_contracts_are_visually_separated() -> None:
     html = inject_strategy_workspace_presentation(_full_strategy_fixture())
 
@@ -118,6 +130,7 @@ def test_mobile_density_and_detail_compaction_are_explicit() -> None:
     assert '.primary.busan-focus' not in html
     assert 'external-context-rates,.external-context-flows{display:flex;overflow-x:auto' in html
     assert '.workspace-model-detail>summary' in html
+    assert '.workspace-detail-disclosure>summary span{display:none}' in html
 
 
 def test_workspace_preserves_busan_focus_by_only_compacting_non_focus_map() -> None:
