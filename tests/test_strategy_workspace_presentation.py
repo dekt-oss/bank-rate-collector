@@ -32,7 +32,9 @@ def _full_strategy_fixture() -> str:
 <section id="market-intelligence"><h2>시장 방향</h2></section>
 <section class="grid market-flow" id="market-flow">
   <section class="card chartcard"><h2>기간별 현재금리</h2></section>
-  <details class="card changes" open><summary>최근 시장 변화 <span class="chip">30D</span></summary></details>
+  <details class="card changes" open>
+    <summary>최근 시장 변화 <span class="chip">30D</span></summary>
+  </details>
 </section>
 <section class="grid interpretation">
   <article class="insightcard"><h2>상품구조</h2></article>
