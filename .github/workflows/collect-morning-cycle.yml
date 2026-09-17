@@ -4,7 +4,13 @@ name: 수집 — 아침 SLA 체인
 # 최근 production에서 GitHub schedule은 약 4h46~6h41 지연됐고 과거에는
 # 약 10h 지연도 관측됐다. 15:00 fast refresh와 동일 minute의 scheduler/writer
 # 경쟁을 피하려고 14:50 KST에 control-plane run을 예약하되, 실제 원천 요청은
-# 20:30 KST 전에는 시작하지 않는다. 지연 생성된 run이 20:30 이후라면 즉시 시작한다.
+# 20:45 KST 전에는 시작하지 않는다. 지연 생성된 run이 20:45 이후라면 즉시 시작한다.
+#
+# 2026-09-17 production 실측에서 기존 분리 스케줄은 NH 22:41~02:30,
+# KFCC 02:38~05:17, core publish 06:30, funding recovery/R2 verify 06:38이었다.
+# 기존 보수 capacity budget(8h54 + writer 50m)을 유지하면 20:45 release는
+# prompt-run 기준 07:30 target까지 61분 margin을 남긴다. 한 cycle 실측만으로
+# collector budget 자체를 줄이지 않는다.
 #
 # 이 parent는 schedule 전용이다. Reusable workflow는 caller의 github context를
 # 물려받으므로 workflow_dispatch parent를 섞으면 child의 direct-manual password
@@ -28,14 +34,14 @@ permissions:
 jobs:
   gate:
     runs-on: ubuntu-latest
-    # 14:50 -> 20:30 최대 340분 대기 + runner/setup 여유. GitHub-hosted job의
-    # 장시간 점유를 6시간 아래로 제한한다.
-    timeout-minutes: 358
+    # 14:50 -> 20:45 최대 355분 대기. GitHub-hosted job의 6시간 한도 안에서
+    # setup/teardown 여유를 포함해 360분 timeout을 사용한다.
+    timeout-minutes: 360
     outputs:
       gate_released_at_kst: ${{ steps.wait.outputs.released_at_kst }}
       waited_seconds: ${{ steps.wait.outputs.waited_seconds }}
     steps:
-      - name: Hold actual collection until 20:30 KST
+      - name: Hold actual collection until 20:45 KST
         id: wait
         run: |
           set -euo pipefail
@@ -49,18 +55,18 @@ jobs:
           now = datetime.now(kst)
           wait_seconds = 0
 
-          # A scheduled run created on its nominal day can only collect after 20:30.
-          # If GitHub creates the reservation after 20:30 (or delays it past midnight
+          # A scheduled run created on its nominal day can only collect after 20:45.
+          # If GitHub creates the reservation after 20:45 (or delays it past midnight
           # into the next morning), start immediately instead of sleeping into the
           # following business cycle.
           minute_of_day = now.hour * 60 + now.minute
-          if 14 * 60 + 50 <= minute_of_day < 20 * 60 + 30:
-              target = now.replace(hour=20, minute=30, second=0, microsecond=0)
+          if 14 * 60 + 50 <= minute_of_day < 20 * 60 + 45:
+              target = now.replace(hour=20, minute=45, second=0, microsecond=0)
               wait_seconds = max(0, int((target - now).total_seconds()))
 
-          # 14:50 -> 20:30 is 20,400 seconds. A larger wait means the cycle-date
+          # 14:50 -> 20:45 is 21,300 seconds. A larger wait means the cycle-date
           # inference is wrong; fail closed instead of collecting on the wrong day.
-          if wait_seconds > 20_400:
+          if wait_seconds > 21_300:
               raise SystemExit(f"not-before wait exceeds contract: {wait_seconds}s")
 
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
