@@ -95,6 +95,10 @@ _JS = r"""
       const note=document.createElement("small");note.className="workspace-event-contract";note.innerHTML="<b>변경 이벤트 진단</b> · 실제 금리가 바뀐 상품 이벤트만 집계합니다. 전체 비교상품의 인상·유지·인하 비중을 계산하는 대표 시장방향 지표와 분모가 다릅니다.";summary?.insertAdjacentElement("afterend",note);
     }
   }
+  function clarifyPlanningEventContract(planning){
+    const flow=$("plan-flow"),label=flow?.parentElement?.querySelector("span");
+    if(label)label.textContent="30일 변경 이벤트 방향";
+  }
   function wrapDetailDisclosure(nodes){
     if($("workspace-detail-disclosure"))return $("workspace-detail-disclosure");
     const ordered=[...new Set(nodes.filter(Boolean))].filter(node=>node.isConnected);if(!ordered.length)return null;
@@ -120,7 +124,7 @@ _JS = r"""
     if(document.documentElement.dataset.strategyWorkspace==="market-first-v2")return;
     const planning=$("planning-zone"),marketFlow=$("market-flow"),marketIntel=$("market-intelligence"),external=$("external-market-context"),pref=$("preference-intelligence"),interpretation=first(".grid.interpretation"),primary=first(".grid.primary"),kpis=first(".grid.kpis"),evidence=first(".evidence-strip");
     if(!planning||!marketFlow||!interpretation||!primary||!kpis)return;
-    installModelDisclosure(planning);installLegacyPreferenceDisclosure(interpretation);clarifyMarketEventContract(marketFlow);interpretation.classList.add("workspace-insights");primary.classList.add("workspace-detail");kpis.classList.add("workspace-market-first");
+    installModelDisclosure(planning);installLegacyPreferenceDisclosure(interpretation);clarifyMarketEventContract(marketFlow);clarifyPlanningEventContract(planning);interpretation.classList.add("workspace-insights");primary.classList.add("workspace-detail");kpis.classList.add("workspace-market-first");
     const special=$("special-offer-radar")||findByHeading(/특판/i),funding=$("market-funding-competition")||findByHeading(/자금환경|수신잔액|조달/i),peer=findByHeading(/Peer|동급|규모/i)||primary.querySelector("article:last-child"),region=primary.querySelector(".mapcard")||primary;
     const marketLabel=insertLabel(kpis,"workspace-label-market","01","시장현황","대표 시장방향과 당사 위치를 먼저 확인합니다.");let cursor=marketLabel||kpis.previousElementSibling;
     if(cursor){cursor=moveAfter(kpis,cursor);if(marketIntel)cursor=moveAfter(marketIntel,cursor);cursor=moveAfter(marketFlow,cursor)}
