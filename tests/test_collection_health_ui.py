@@ -32,7 +32,7 @@ def test_health_api_is_read_only_and_sanitized() -> None:
     assert "workflow_runs" in API and "/jobs?per_page=20" in API
     assert "source_steps" in API and "pipeline_steps" in API
     assert "logs_url" not in API
-    assert "authorization" in API  # server-side request only
+    assert "authorization" in API
     assert "token," not in API.split("return json(res, 200", 1)[-1]
 
 
@@ -42,7 +42,6 @@ def test_health_api_never_requires_or_returns_the_collect_password() -> None:
 
 
 def test_live_pipeline_includes_the_publish_gates() -> None:
-    """수집만 성공하고 gate가 실패한 작업을 전체 정상으로 보이면 안 된다."""
     assert '"Verify P1-A gate": "p1a_gate"' in API
     assert '"Size gate": "size_gate"' in API
     assert '"Volume gate": "volume_gate"' in API
@@ -55,7 +54,8 @@ def test_live_health_exposes_eight_am_cycle_sla() -> None:
     assert "sla_deadline_at: deadlineAt" in API
     assert "latest_publish_completed_at: publishCompletedAt || null" in API
     assert '?event=schedule&per_page=20' in API
-    assert "finisher?.pipelineSteps.publish" in API
+    assert 'const MORNING_WORKFLOW = "collect-morning-cycle.yml"' in API
+    assert "latestSuccessfulPublishCompletion" in API
     assert "08:00 SLA" in SITE
     assert 'body.sla ? "<br>" + slaLine(body.sla)' in SITE
 
