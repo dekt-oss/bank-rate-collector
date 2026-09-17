@@ -29,9 +29,7 @@ _CSS = r"""
 .workspace-detail-anchor{scroll-margin-top:88px}.workspace-detail-group{margin-top:0}
 .workspace-event-contract{display:block;margin:6px 15px 0;color:#667a70;font-size:9px;line-height:1.45}.workspace-event-contract b{color:#8ea69a}.market-flow .changes:not([open]){min-height:0}.market-flow .changes:not([open]) summary{padding:12px 14px}.market-flow .changes:not([open]) summary:after{content:"필요할 때 펼치기"}
 .strategy-workspace-nav{position:fixed;z-index:25;left:18px;top:50%;transform:translateY(-45%);width:176px;padding:10px;border:1px solid rgba(91,47,100,.13);border-radius:16px;background:rgba(255,255,255,.92);box-shadow:0 18px 48px rgba(52,31,58,.14);backdrop-filter:blur(18px)}.strategy-workspace-nav .workspace-nav-title{display:block;padding:5px 8px 7px;color:#5b2f64;font-size:10px;font-weight:840;letter-spacing:-.01em}.strategy-workspace-nav .workspace-nav-group{display:block;margin:7px 8px 3px;color:#9a8a9c;font-size:8.5px;font-weight:800;letter-spacing:.08em}.strategy-workspace-nav a{position:relative;display:block;margin:2px 0;padding:7px 8px 7px 19px;border-radius:9px;color:#706472;font-size:10px;font-weight:720;line-height:1.25;text-decoration:none;transition:background .16s ease,color .16s ease,transform .16s ease}.strategy-workspace-nav a:before{content:"";position:absolute;left:8px;top:50%;width:4px;height:4px;border-radius:50%;background:#cfc5d1;transform:translateY(-50%)}.strategy-workspace-nav a:hover,.strategy-workspace-nav a:focus-visible{color:#4c2854;background:#faf5fa;outline:none}.strategy-workspace-nav a[aria-current="location"]{color:#4f2858;background:#f6edf7;transform:translateX(2px)}.strategy-workspace-nav a[aria-current="location"]:before{width:6px;height:6px;background:#8a4f94;box-shadow:0 0 0 3px rgba(138,79,148,.10)}
-/* 전국 지도는 외부 SVG image이므로 내부 path CSS 대신 image 자체를 밝게 감쇠한다. */
 .workspace-detail.primary:not(.busan-focus) .korea-map-image{opacity:.18;filter:grayscale(1) contrast(.88);transition:opacity .18s ease}
-/* Brand v3 polish: 기존 dark-green control/card 잔여물을 브랜드 neutral/selected/structure 역할로 통일한다. */
 .segment button{border-color:rgba(91,47,100,.12)!important;background:#FBF9FB!important;color:#6E6270!important}.segment button.active{color:var(--accent-ink)!important;border-color:var(--accent-line)!important;background:var(--accent-soft)!important}.termcard{border-color:rgba(91,47,100,.10)!important;background:#FCFAFC!important}.termcard span{color:#786C7A!important}.termcard b{color:#49384D!important}.termcard.active{border-color:var(--accent-line)!important;background:#FFF3F8!important}.termcard.active b{color:var(--accent-ink)!important}.rank{background:var(--brand-plum)!important;color:#fff!important}.busan-rate-item{border-color:rgba(91,47,100,.10)!important;background:#FCFAFC!important}.busan-rate-item span{color:#49384D!important}.busan-rate-item small{color:#7A6D7C!important}.busan-rate-item b{color:var(--brand-violet)!important}.busan-rate-item.top{border-color:var(--accent-line)!important;background:#FFF3F8!important}.busan-rate-item.top b{color:var(--accent)!important}
 @media(min-width:1281px){body.strategy-workspace-has-nav .shell{width:min(1380px,calc(100% - 238px));margin-left:218px;margin-right:auto}}
 @media(max-width:1280px){.strategy-workspace-nav{display:none!important}}
@@ -73,96 +71,53 @@ _JS = r"""
     const prediction=$("prediction-panel"),predictionResults=prediction?.querySelector(".prediction-results");
     if(prediction&&predictionResults&&!prediction.querySelector(".workspace-model-detail")){
       const modelDetail=prediction.querySelector(".model-detail"),modelEvidence=prediction.querySelector(".model-evidence");
-      const details=document.createElement("details");
-      details.className="workspace-model-detail";
+      const details=document.createElement("details");details.className="workspace-model-detail";
       details.innerHTML='<summary>민감도 범위 · 예측모형 상세</summary><div class="workspace-model-detail-body"></div>';
-      const body=details.querySelector(".workspace-model-detail-body");
-      predictionResults.parentNode.insertBefore(details,predictionResults);body.appendChild(predictionResults);
+      const body=details.querySelector(".workspace-model-detail-body");predictionResults.parentNode.insertBefore(details,predictionResults);body.appendChild(predictionResults);
       if(modelDetail)body.appendChild(modelDetail);if(modelEvidence)body.appendChild(modelEvidence);
     }
     planning.classList.add("workspace-design");
   }
-
   function installLegacyPreferenceDisclosure(interpretation){
     const legacyPref=interpretation?.querySelector(".preference-card");
     if(legacyPref&&!interpretation.querySelector(".workspace-legacy-pref")){
-      const details=document.createElement("details");details.className="workspace-legacy-pref";
-      details.innerHTML="<summary>기존 우대조건 트렌드 요약</summary>";
+      const details=document.createElement("details");details.className="workspace-legacy-pref";details.innerHTML="<summary>기존 우대조건 트렌드 요약</summary>";
       legacyPref.parentNode.insertBefore(details,legacyPref);details.appendChild(legacyPref);
     }
   }
-
   function clarifyMarketEventContract(marketFlow){
-    const changes=marketFlow?.querySelector("details.changes");if(!changes)return;
-    changes.removeAttribute("open");
+    const changes=marketFlow?.querySelector("details.changes");if(!changes)return;changes.removeAttribute("open");
     const summary=changes.querySelector("summary");
     if(summary){const chip=summary.querySelector(".chip");summary.childNodes[0].textContent="최근 30일 금리 변경 이벤트 ";if(chip)summary.appendChild(chip)}
     if(!changes.querySelector(".workspace-event-contract")){
-      const note=document.createElement("small");note.className="workspace-event-contract";
-      note.innerHTML="<b>변경 이벤트 진단</b> · 실제 금리가 바뀐 상품 이벤트만 집계합니다. 전체 비교상품의 인상·유지·인하 비중을 계산하는 대표 시장방향 지표와 분모가 다릅니다.";
-      summary?.insertAdjacentElement("afterend",note);
+      const note=document.createElement("small");note.className="workspace-event-contract";note.innerHTML="<b>변경 이벤트 진단</b> · 실제 금리가 바뀐 상품 이벤트만 집계합니다. 전체 비교상품의 인상·유지·인하 비중을 계산하는 대표 시장방향 지표와 분모가 다릅니다.";summary?.insertAdjacentElement("afterend",note);
     }
   }
-
   function buildNavigation(targets){
     if($("strategy-workspace-nav"))return;
-    const groups=[
-      ["시장현황",[["시장 요약",targets.summary],["금리 움직임",targets.movement],["당사 시장 위치",targets.own]]],
-      ["금리설계",[["신상품 금리 시뮬레이션",targets.design]]],
-      ["상세 판단요소",[["경쟁사 · Peer 분석",targets.peer],["지역별 금리",targets.region],["우대조건 · 상품구조",targets.preference],["특판 · 시장기회",targets.special],["외부 자금환경",targets.external],["데이터 근거 · 품질",targets.evidence]]]
-    ];
+    const groups=[["시장현황",[["시장 요약",targets.summary],["금리 움직임",targets.movement],["당사 시장 위치",targets.own]]],["금리설계",[["신상품 금리 시뮬레이션",targets.design]]],["상세 판단요소",[["경쟁사 · Peer 분석",targets.peer],["지역별 금리",targets.region],["우대조건 · 상품구조",targets.preference],["특판 · 시장기회",targets.special],["외부 자금환경",targets.external],["데이터 근거 · 품질",targets.evidence]]]];
     const nav=document.createElement("nav");nav.id="strategy-workspace-nav";nav.className="strategy-workspace-nav";nav.setAttribute("aria-label","전략화면 바로가기");
     nav.innerHTML='<span class="workspace-nav-title">전략 메뉴</span>'+groups.map(([group,items])=>`<span class="workspace-nav-group">${group}</span>${items.filter(([,id])=>id&&$(id)).map(([label,id])=>`<a href="#${id}" data-workspace-target="${id}">${label}</a>`).join("")}`).join("");
     document.body.appendChild(nav);document.body.classList.add("strategy-workspace-has-nav");
     const links=[...nav.querySelectorAll("a[data-workspace-target]")];if(!links.length)return;
-    const setActive=id=>links.forEach(link=>{if(link.dataset.workspaceTarget===id)link.setAttribute("aria-current","location");else link.removeAttribute("aria-current")});
-    links.forEach(link=>link.addEventListener("click",()=>setActive(link.dataset.workspaceTarget)));
-    if("IntersectionObserver" in window){
-      const observer=new IntersectionObserver(entries=>{const visible=entries.filter(e=>e.isIntersecting).sort((a,b)=>Math.abs(a.boundingClientRect.top)-Math.abs(b.boundingClientRect.top))[0];if(visible)setActive(visible.target.id)},{rootMargin:"-18% 0px -68% 0px",threshold:[0,.1,.4]});
-      links.map(link=>$(link.dataset.workspaceTarget)).filter(Boolean).forEach(el=>observer.observe(el));
-    }
+    const setActive=id=>links.forEach(link=>{if(link.dataset.workspaceTarget===id)link.setAttribute("aria-current","location");else link.removeAttribute("aria-current")});links.forEach(link=>link.addEventListener("click",()=>setActive(link.dataset.workspaceTarget)));
+    if("IntersectionObserver" in window){const observer=new IntersectionObserver(entries=>{const visible=entries.filter(e=>e.isIntersecting).sort((a,b)=>Math.abs(a.boundingClientRect.top)-Math.abs(b.boundingClientRect.top))[0];if(visible)setActive(visible.target.id)},{rootMargin:"-18% 0px -68% 0px",threshold:[0,.1,.4]});links.map(link=>$(link.dataset.workspaceTarget)).filter(Boolean).forEach(el=>observer.observe(el))}
     const hash=location.hash.slice(1);setActive(links.some(link=>link.dataset.workspaceTarget===hash)?hash:links[0].dataset.workspaceTarget);
   }
-
   function install(){
     if(document.documentElement.dataset.strategyWorkspace==="market-first-v2")return;
     const planning=$("planning-zone"),marketFlow=$("market-flow"),marketIntel=$("market-intelligence"),external=$("external-market-context"),pref=$("preference-intelligence"),interpretation=first(".grid.interpretation"),primary=first(".grid.primary"),kpis=first(".grid.kpis"),evidence=first(".evidence-strip");
     if(!planning||!marketFlow||!interpretation||!primary||!kpis)return;
-    const page=planning.parentElement;
-
-    installModelDisclosure(planning);installLegacyPreferenceDisclosure(interpretation);clarifyMarketEventContract(marketFlow);
-    interpretation.classList.add("workspace-insights");primary.classList.add("workspace-detail");kpis.classList.add("workspace-market-first");
-
-    const special=$("special-offer-radar")||findByHeading(/특판/i);
-    const funding=$("market-funding-strategy")||findByHeading(/자금환경|수신잔액|조달/i);
-    const peer=findByHeading(/Peer|동급|규모/i)||primary.querySelector("article:last-child");
-    const region=primary.querySelector(".mapcard")||primary;
-
-    const marketLabel=insertLabel(kpis,"workspace-label-market","01","시장현황","대표 시장방향과 당사 위치를 먼저 확인합니다.");
-    let cursor=marketLabel||kpis.previousElementSibling;
+    installModelDisclosure(planning);installLegacyPreferenceDisclosure(interpretation);clarifyMarketEventContract(marketFlow);interpretation.classList.add("workspace-insights");primary.classList.add("workspace-detail");kpis.classList.add("workspace-market-first");
+    const special=$("special-offer-radar")||findByHeading(/특판/i),funding=$("market-funding-competition")||findByHeading(/자금환경|수신잔액|조달/i),peer=findByHeading(/Peer|동급|규모/i)||primary.querySelector("article:last-child"),region=primary.querySelector(".mapcard")||primary;
+    const marketLabel=insertLabel(kpis,"workspace-label-market","01","시장현황","대표 시장방향과 당사 위치를 먼저 확인합니다.");let cursor=marketLabel||kpis.previousElementSibling;
     if(cursor){cursor=moveAfter(kpis,cursor);if(marketIntel)cursor=moveAfter(marketIntel,cursor);cursor=moveAfter(marketFlow,cursor)}
-    const designLabel=insertLabel(planning,"workspace-label-design","02","금리설계","시장 확인 후 금리·우대·기간과 수신반응을 설계합니다.");
-    cursor=marketFlow;if(designLabel)cursor=moveAfter(designLabel,cursor);cursor=moveAfter(planning,cursor);
-    const detailLabel=insertLabel(primary,"workspace-label-detail","03","상세 판단요소","Peer·지역·우대·특판·자금환경·데이터 근거는 필요할 때 확인합니다.");
-    if(detailLabel)cursor=moveAfter(detailLabel,cursor);cursor=moveAfter(primary,cursor);cursor=moveAfter(interpretation,cursor);if(pref)cursor=moveAfter(pref,cursor);if(special)cursor=moveAfter(special,cursor);if(external)cursor=moveAfter(external,cursor);if(funding&&funding!==external&&funding!==special)cursor=moveAfter(funding,cursor);if(evidence)moveAfter(evidence,cursor);
-
-    const summaryId=assignAnchor(kpis,"workspace-market-summary");
-    const movementId=assignAnchor(marketIntel||marketFlow,"workspace-market-movement");
-    const ownCard=marketFlow.querySelector(".chartcard")||marketFlow;
-    const ownId=assignAnchor(ownCard,"workspace-own-position");
-    const designId=assignAnchor(planning,"workspace-rate-design");
-    const peerId=assignAnchor(peer,"workspace-peer-analysis");
-    const regionId=assignAnchor(region,"workspace-region-rates");
-    const preferenceId=assignAnchor(pref||interpretation,"workspace-preference-structure");
-    const specialId=assignAnchor(special,"workspace-special-opportunity");
-    const externalId=assignAnchor(external||funding,"workspace-external-funding");
-    const evidenceId=assignAnchor(evidence,"workspace-data-quality");
-
-    buildNavigation({summary:summaryId,movement:movementId,own:ownId,design:designId,peer:peerId,region:regionId,preference:preferenceId,special:specialId,external:externalId,evidence:evidenceId});
-    document.documentElement.dataset.strategyWorkspace="market-first-v2";
+    const designLabel=insertLabel(planning,"workspace-label-design","02","금리설계","시장 확인 후 금리·우대·기간과 수신반응을 설계합니다.");cursor=marketFlow;if(designLabel)cursor=moveAfter(designLabel,cursor);cursor=moveAfter(planning,cursor);
+    const detailLabel=insertLabel(primary,"workspace-label-detail","03","상세 판단요소","Peer·지역·우대·특판·자금환경·데이터 근거는 필요할 때 확인합니다.");if(detailLabel)cursor=moveAfter(detailLabel,cursor);cursor=moveAfter(primary,cursor);cursor=moveAfter(interpretation,cursor);if(pref)cursor=moveAfter(pref,cursor);if(special)cursor=moveAfter(special,cursor);if(external)cursor=moveAfter(external,cursor);if(funding&&funding!==external&&funding!==special)cursor=moveAfter(funding,cursor);if(evidence)moveAfter(evidence,cursor);
+    const summaryId=assignAnchor(kpis,"workspace-market-summary"),movementId=assignAnchor(marketIntel||marketFlow,"workspace-market-movement"),ownId=assignAnchor(marketFlow.querySelector(".chartcard")||marketFlow,"workspace-own-position"),designId=assignAnchor(planning,"workspace-rate-design"),peerId=assignAnchor(peer,"workspace-peer-analysis"),regionId=assignAnchor(region,"workspace-region-rates"),preferenceId=assignAnchor(pref||interpretation,"workspace-preference-structure"),specialId=assignAnchor(special,"workspace-special-opportunity"),externalId=assignAnchor(external||funding,"workspace-external-funding"),evidenceId=assignAnchor(evidence,"workspace-data-quality");
+    buildNavigation({summary:summaryId,movement:movementId,own:ownId,design:designId,peer:peerId,region:regionId,preference:preferenceId,special:specialId,external:externalId,evidence:evidenceId});document.documentElement.dataset.strategyWorkspace="market-first-v2";
   }
-  const scheduleInstall=()=>requestAnimationFrame(install);
-  if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",scheduleInstall,{once:true});else scheduleInstall();
+  const scheduleInstall=()=>requestAnimationFrame(install);if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",scheduleInstall,{once:true});else scheduleInstall();
 })();
 </script>
 """
@@ -179,12 +134,7 @@ def inject_strategy_workspace_presentation(html: str) -> str:
             raise DashboardBuildError("Strategy Workspace 주입 상태가 불완전하다")
         if "</head>" not in html or "</body>" not in html:
             raise DashboardBuildError("Strategy Workspace 주입 위치를 찾지 못했다")
-        required = (
-            'id="planning-zone"',
-            'id="market-flow"',
-            'class="grid interpretation"',
-            'class="grid primary"',
-        )
+        required = ('id="planning-zone"','id="market-flow"','class="grid interpretation"','class="grid primary"',)
         if any(marker not in html for marker in required):
             raise DashboardBuildError("Strategy Workspace 기존 레이아웃 계약을 찾지 못했다")
         rendered = html.replace("</head>", _CSS + "\n</head>", 1)
