@@ -18,12 +18,12 @@ def test_morning_sla_workflow_yaml_parses() -> None:
 
 def test_one_control_plane_schedule_owns_the_morning_cycle() -> None:
     # Reservation is deliberately earlier than collection. The gate prevents
-    # source access before 20:30 KST while absorbing the observed GitHub delay.
+    # source access before 20:45 KST while absorbing the observed GitHub delay.
     assert '- cron: "50 5 * * 0-4"' in MORNING  # 14:50 KST reservation
-    assert "20:30 KST" in MORNING
-    assert "14 * 60 + 50 <= minute_of_day < 20 * 60 + 30" in MORNING
-    assert "20_400" in MORNING  # maximum nominal 14:50 -> 20:30 hold
-    assert "timeout-minutes: 358" in MORNING
+    assert "20:45 KST" in MORNING
+    assert "14 * 60 + 50 <= minute_of_day < 20 * 60 + 45" in MORNING
+    assert "21_300" in MORNING  # maximum nominal 14:50 -> 20:45 hold
+    assert "timeout-minutes: 360" in MORNING
 
     # Child writers are no longer separately scheduled. One parent run determines
     # ordering, so downstream cron delays cannot add another 4-10 hours per stage.
@@ -82,12 +82,13 @@ def _modeled_finish(delay_minutes: int, writer_contention_minutes: int = 50) -> 
     """Return conservative finish minute on reservation-day 00:00 KST axis."""
 
     reservation = 14 * 60 + 50
-    not_before = 20 * 60 + 30
+    not_before = 20 * 60 + 45
 
-    # Conservative recent-production budgets:
+    # Keep the pre-existing conservative capacity budget even after the 2026-09-17
+    # production cycle ran faster in several stages. One successful day is evidence
+    # for calibration, not enough evidence to shrink the safety budget itself:
     # NH full writer pass 266m, funding 38m, combined general+KFCC 230m.
-    # A separate 50m reserve covers the observed delayed 15:00 fast writer
-    # (recent production runs occupied the writer for about 45-47 minutes).
+    # A separate 50m reserve covers delayed 15:00 fast-writer contention.
     chain_minutes = 266 + 38 + 230
     actual_start = max(not_before, reservation + delay_minutes)
     return actual_start + writer_contention_minutes + chain_minutes
@@ -100,13 +101,26 @@ def test_reverse_scheduled_cycle_meets_0730_for_recent_observed_delay() -> None:
     on_time_finish = _modeled_finish(0)
     recent_max_finish = _modeled_finish(6 * 60 + 41)
 
-    # Prompt reservation waits until 20:30. Even with the 50m writer reserve it
-    # keeps more than one hour before the 07:30 normal target.
-    assert normal_deadline - on_time_finish >= 60
-    # 14:50 + observed 6h41 = 21:31; +50m writer reserve +8h54 chain = 07:15.
+    # Prompt reservation waits until 20:45. With the deliberately unchanged
+    # conservative budgets it still leaves 61 minutes before the 07:30 target.
+    assert normal_deadline - on_time_finish == 61
+    # 14:50 + observed 6h41 = 21:31, so the gate no longer controls the start.
+    # +50m writer reserve +8h54 chain = 07:15, unchanged from the prior model.
     assert recent_max_finish == 24 * 60 + 7 * 60 + 15
     assert recent_max_finish <= normal_deadline
     assert recent_max_finish <= hard_deadline
+
+
+def test_20260917_runtime_evidence_does_not_shrink_safety_budget() -> None:
+    # Production evidence used to move the lower bound 15 minutes later:
+    # NH collector 22:41-02:30, KFCC 02:38-05:17, core publish 06:30,
+    # funding retry/authoritative R2 verification completed 06:38.
+    # The new parent removes downstream cron delays and one duplicated market
+    # publish pass, but we intentionally retain the older 534m chain budget.
+    assert "2026-09-17 production 실측" in MORNING
+    assert "NH 22:41~02:30" in MORNING
+    assert "funding recovery/R2 verify 06:38" in MORNING
+    assert _modeled_finish(0) == 24 * 60 + 6 * 60 + 29
 
 
 def test_historical_ten_hour_github_delay_is_explicitly_not_guaranteed() -> None:
