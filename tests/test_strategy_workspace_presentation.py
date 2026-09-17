@@ -103,7 +103,7 @@ def test_desktop_left_navigation_uses_real_feature_names() -> None:
 def test_detail_sections_default_to_disclosure_and_nav_reveals_targets() -> None:
     html = inject_strategy_workspace_presentation(_full_strategy_fixture())
 
-    assert 'id=\"workspace-detail-disclosure\"' in html
+    assert 'disclosure.id=\"workspace-detail-disclosure\"' in html
     assert 'className=\"workspace-detail-disclosure\"' in html
     assert 'wrapDetailDisclosure([detailLabel,primary,interpretation,pref,special,external' in html
     assert 'target.closest(\"details.workspace-detail-disclosure\")' in html
