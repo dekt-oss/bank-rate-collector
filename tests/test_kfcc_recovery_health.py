@@ -1,3 +1,4 @@
+# ruff: noqa: E501
 """관리자 health가 same-workflow KFCC recovery 결과를 최종 source 결과로 사용한다."""
 
 import json
