@@ -38,7 +38,7 @@
 - 외부 자금환경
 - 데이터 근거 · 품질
 
-기존 기능과 데이터를 삭제하지 않고 우선순위를 낮춰 하단 상세 근거로 배치한다.
+기존 기능과 데이터를 삭제하지 않고 우선순위를 낮춰 하단 상세 근거로 배치한다. 긴 화면을 줄이기 위해 이 영역은 **기본 접힘 disclosure**로 제공한다. 왼쪽 메뉴에서 상세 항목을 직접 선택하거나 상세 영역을 펼치면 기존 기능을 그대로 사용할 수 있다.
 
 ## Desktop navigation
 
@@ -46,11 +46,12 @@
 
 - 링크는 실제 DOM anchor/hash를 사용한다.
 - 클릭 시 해당 기능 위치로 이동한다.
+- 상세 판단요소 안의 항목을 클릭하면 disclosure를 먼저 펼친 뒤 대상 위치로 이동한다.
 - 현재 viewport의 기능을 `aria-current="location"`으로 표시한다.
-- 브라우저 hash/back-forward 의미를 보존한다.
+- 브라우저 hash/back-forward 의미를 보존하고 hash 진입 시 필요한 disclosure를 연다.
 - 본문을 가리지 않도록 데스크톱에서 본문 폭을 조정한다.
 
-1280px 이하에서는 floating navigation을 숨긴다. 모바일/태블릿에는 별도 세로메뉴를 만들지 않고 기존 세로 스크롤을 유지한다.
+1280px 이하에서는 floating navigation을 숨긴다. 모바일/태블릿에는 별도 세로메뉴를 만들지 않고 기존 세로 스크롤을 유지한다. 상세 판단요소의 접기/펼치기는 모바일에서도 유지한다.
 
 ## 경계
 
@@ -67,6 +68,7 @@
 - 시장현황 → 금리설계 → 상세 판단요소 순서 계약
 - 실제 메뉴명 및 anchor 계약
 - desktop 왼쪽 floating navigation / mobile hide 계약
+- 상세 판단요소 기본 접힘 및 nav/hash 진입 시 자동 펼침
 - 대표 시장방향과 변경 이벤트 설명 분리
 - 기존 Busan focus / model disclosure 보존
 - 전체 Strategy presentation composition 회귀 테스트
