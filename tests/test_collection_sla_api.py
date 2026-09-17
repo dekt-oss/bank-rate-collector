@@ -45,7 +45,7 @@ def _handler(*, nh_conclusion: str = "success", jobs_ok: bool = True) -> dict:
         id: 901, run_number: 901, name: '수집 — 아침 SLA 체인',
         path: '.github/workflows/collect-morning-cycle.yml', event: 'schedule',
         status: 'completed', conclusion: 'success',
-        created_at: '2026-08-09T11:30:00Z', run_started_at: '2026-08-09T11:30:05Z',
+        created_at: '2026-08-10T11:30:00Z', run_started_at: '2026-08-10T11:30:05Z',
         updated_at: '2026-08-10T22:20:00Z', html_url: 'https://example.test/morning',
       }};
       const step = (name, conclusion = 'success', completedAt = '2026-08-10T22:20:00Z') => ({{
@@ -137,7 +137,7 @@ def test_on_time_publish_with_failed_source_is_degraded_not_normal() -> None:
 
 def test_parent_health_combines_source_evidence_and_publish() -> None:
     result = _handler()["sla"]
-    assert result["cycle_date_kst"] == "2026-08-10"
+    assert result["cycle_date_kst"] == "2026-08-11"
     assert result["source_status"] == "healthy"
     assert result["status"] == "normal"
     assert result["failed_sources"] == []
