@@ -95,7 +95,7 @@ def test_desktop_left_navigation_uses_real_feature_names() -> None:
         assert label in html
     assert 'left:18px' in html
     assert '@media(max-width:1280px){.strategy-workspace-nav{display:none!important}}' in html
-    assert 'aria-label=\"전략화면 바로가기\"' in html
+    assert 'nav.setAttribute("aria-label","전략화면 바로가기")' in html
     assert 'aria-current","location"' in html
     assert 'IntersectionObserver' in html
 
