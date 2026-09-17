@@ -61,7 +61,7 @@ def test_schedule_document_distinguishes_reservation_from_collection_runtime() -
     assert "실제 수집 종료 시각" in DOC
     assert "canonical 반영 완료 시각" in DOC
     assert "실제 수집 시작 하한" in DOC
-    assert "20:30" in DOC
+    assert "20:45" in DOC
 
 
 def test_schedule_document_records_reverse_calculation_and_residual_risk() -> None:
@@ -73,6 +73,8 @@ def test_schedule_document_records_reverse_calculation_and_residual_risk() -> No
     assert "08:00" in DOC
     assert "10시간" in DOC
     assert "독립 scheduler" in DOC
+    assert "2026-09-17" in DOC
+    assert "06:38" in DOC
 
 
 def test_schedule_document_locks_maintenance_contract() -> None:
