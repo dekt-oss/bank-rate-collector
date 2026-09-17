@@ -65,20 +65,20 @@ def _sla(**overrides: object) -> dict:
 
 
 def test_missing_parent_before_actual_start_lower_bound_is_pending() -> None:
-    # Sunday 20:00 KST. Parent reservation was due at 14:50, but 20:30 is the
+    # Sunday 20:30 KST. Parent reservation was due at 14:50, but 20:45 is the
     # actual-source not-before boundary, so absence is not yet an operational miss.
-    result = _schedule([], "2026-08-09T11:00:00Z")
+    result = _schedule([], "2026-08-09T11:30:00Z")
     assert result["cycle_date_kst"] == "2026-08-10"
     assert result["expected_count"] == 1
     assert result["observed_count"] == 0
     assert result["missing_count"] == 1
     assert result["reservation_at"] == "2026-08-09T14:50:00+09:00"
-    assert result["actual_start_not_before_at"] == "2026-08-09T20:30:00+09:00"
+    assert result["actual_start_not_before_at"] == "2026-08-09T20:45:00+09:00"
     assert result["status"] == "pending"
 
 
 def test_missing_parent_after_actual_start_lower_bound_is_warning() -> None:
-    result = _schedule([], "2026-08-09T11:31:00Z")  # Sunday 20:31 KST
+    result = _schedule([], "2026-08-09T11:46:00Z")  # Sunday 20:46 KST
     assert result["cycle_date_kst"] == "2026-08-10"
     assert result["missing_count"] == 1
     assert result["status"] == "warning"
@@ -92,12 +92,12 @@ def test_missing_parent_after_eight_am_hard_deadline_is_breached() -> None:
 
 
 def test_parent_created_before_not_before_boundary_is_schedule_normal() -> None:
-    runs = [_run("2026-08-09T11:00:00Z")]  # Sunday 20:00 KST
-    result = _schedule(runs, "2026-08-09T11:05:00Z")
+    runs = [_run("2026-08-09T11:30:00Z")]  # Sunday 20:30 KST
+    result = _schedule(runs, "2026-08-09T11:35:00Z")
     assert result["cycle_date_kst"] == "2026-08-10"
     assert result["observed_count"] == 1
     assert result["missing_count"] == 0
-    assert result["max_trigger_delay_minutes"] == 310
+    assert result["max_trigger_delay_minutes"] == 340
     assert result["scheduler_budget_minutes"] == 401
     assert result["status"] == "normal"
 
@@ -120,8 +120,6 @@ def test_delayed_parent_crossing_midnight_stays_in_next_business_cycle() -> None
 
 
 def test_grossly_late_run_is_not_misattributed_across_reservation_boundaries() -> None:
-    # +18h10 exceeds the bounded attribution window. It must not be invented as
-    # proof for Monday's cycle; by 09:05 KST the cycle is already breached.
     runs = [_run("2026-08-10T00:00:00Z")]  # Monday 09:00 KST
     result = _schedule(runs, "2026-08-10T00:05:00Z")
     assert result["cycle_date_kst"] == "2026-08-10"
@@ -131,10 +129,10 @@ def test_grossly_late_run_is_not_misattributed_across_reservation_boundaries() -
 
 
 def test_weekend_keeps_friday_cycle_until_sunday_reservation() -> None:
-    friday_run = _run("2026-08-13T11:00:00Z")  # Thursday 20:00 KST -> Friday cycle
-    saturday = _schedule([friday_run], "2026-08-15T03:00:00Z")  # Saturday noon KST
-    sunday_before = _schedule([friday_run], "2026-08-16T05:40:00Z")  # Sun 14:40 KST
-    sunday_after = _schedule([friday_run], "2026-08-16T05:55:00Z")  # Sun 14:55 KST
+    friday_run = _run("2026-08-13T11:30:00Z")  # Thursday 20:30 KST -> Friday cycle
+    saturday = _schedule([friday_run], "2026-08-15T03:00:00Z")
+    sunday_before = _schedule([friday_run], "2026-08-16T05:40:00Z")
+    sunday_after = _schedule([friday_run], "2026-08-16T05:55:00Z")
 
     assert saturday["cycle_date_kst"] == "2026-08-14"
     assert saturday["status"] == "normal"
@@ -177,10 +175,7 @@ def test_missed_schedule_without_current_collection_is_red() -> None:
 
 
 def test_missed_schedule_with_current_collection_is_yellow() -> None:
-    result = _signal(
-        _sla(schedule_status="warning"),
-        {"status": "in_progress"},
-    )
+    result = _signal(_sla(schedule_status="warning"), {"status": "in_progress"})
     assert result == {
         "status": "warning",
         "reason": "recovery_running",
@@ -189,24 +184,14 @@ def test_missed_schedule_with_current_collection_is_yellow() -> None:
 
 
 def test_failed_source_without_recovery_is_red() -> None:
-    result = _signal(
-        _sla(
-            status="degraded",
-            source_status="failed",
-            schedule_status="normal",
-        )
-    )
+    result = _signal(_sla(status="degraded", source_status="failed", schedule_status="normal"))
     assert result["status"] == "breached"
     assert result["reason"] == "recovery_required_not_running"
 
 
 def test_failed_source_with_recovery_running_is_yellow() -> None:
     result = _signal(
-        _sla(
-            status="degraded",
-            source_status="failed",
-            schedule_status="normal",
-        ),
+        _sla(status="degraded", source_status="failed", schedule_status="normal"),
         {"status": "queued"},
     )
     assert result["status"] == "warning"
