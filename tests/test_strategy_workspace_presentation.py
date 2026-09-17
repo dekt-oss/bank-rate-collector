@@ -118,6 +118,8 @@ def test_market_direction_and_change_event_contracts_are_visually_separated() ->
     assert "최근 30일 금리 변경 이벤트" in html
     assert "실제 금리가 바뀐 상품 이벤트만 집계합니다" in html
     assert "전체 비교상품의 인상·유지·인하 비중" in html
+    assert "30일 변경 이벤트 방향" in html
+    assert 'clarifyPlanningEventContract(planning)' in html
     assert 'changes.removeAttribute("open")' in html
 
 
