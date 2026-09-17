@@ -11,7 +11,7 @@ const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
 const RESERVATION_HOUR = 14;
 const RESERVATION_MINUTE = 50;
 const ACTUAL_START_HOUR = 20;
-const ACTUAL_START_MINUTE = 30;
+const ACTUAL_START_MINUTE = 45;
 const SCHEDULER_BUDGET_MINUTES = 6 * 60 + 41;
 // 과거 약 10시간 지연까지 같은 nominal reservation에 귀속하되 다음 날
 // reservation과 겹칠 정도로 늦은 run은 잘못된 cycle로 추정하지 않는다.
@@ -135,7 +135,7 @@ export const scheduleTriggerHealth = (scheduledRuns, now = new Date()) => {
 
   let status;
   if (!run) {
-    // 14:50 예약은 scheduler runway다. 실제 원천수집 시작 하한인 20:30 전에는
+    // 14:50 예약은 scheduler runway다. 실제 원천수집 시작 하한인 20:45 전에는
     // run 객체가 아직 없어도 운영상 미수집으로 경고하지 않는다.
     if (nowMs < actualStartMs) status = "pending";
     else if (nowMs < deadlineMs) status = "warning";
@@ -223,10 +223,6 @@ export const cycleSla = (
   };
 };
 
-// 상단 신호등은 "오늘 SLA 기록"이 아니라 "지금 조치가 필요한가"를 보여준다.
-// 정기시각을 놓쳤거나 실패/미완료인데 아무 수집도 안 돌면 빨강,
-// 같은 상태에서 현재 수집/복구가 진행 중이면 노랑이다. 정상 완료 후에는
-// 늦게 끝났더라도 현재 신호는 초록으로 회복하고 SLA 지연 이력은 sla에 남긴다.
 export const operationalSignal = (sla, activeCollection = null) => {
   const active = Boolean(activeCollection && ACTIVE.has(activeCollection.status));
   if (!sla || sla.status === "unknown" || sla.source_status === "unknown") {
@@ -274,7 +270,6 @@ const SOURCE_STEPS = {
   "Collect KFCC": "kfcc",
   "Recover KFCC": "kfcc",
   "Collect NH local": "nh_local",
-  // Historical runs before the independent fresh-runner workflow used this step.
   "Recover NH local": "nh_local",
 };
 
@@ -334,8 +329,6 @@ const loadRunSteps = async (token, slug, run) => {
       if (SOURCE_STEPS[step.name]) {
         const sourceId = SOURCE_STEPS[step.name];
         const view = stepView(step);
-        // Reusable NH attempts are ordered. A later real attempt supersedes an
-        // earlier skipped collector step, just as the old recovery step did.
         if (view.conclusion !== "skipped" || !sourceSteps[sourceId]) {
           sourceSteps[sourceId] = view;
         }
@@ -361,7 +354,6 @@ const cycleSourceState = (cycleDetails, publishCompletedAt) => {
   for (const detail of cycleDetails) {
     for (const [sourceId, step] of Object.entries(detail.sourceSteps || {})) {
       if (step.conclusion === "skipped") continue;
-      // cycleDetails는 최신 run부터 온다. 같은 source가 재실행됐으면 최신 결과를 쓴다.
       if (!sourceSteps[sourceId]) sourceSteps[sourceId] = step;
     }
   }
@@ -418,9 +410,6 @@ const loadWorkflowRuns = async (token, slug, workflow, scheduledOnly = false) =>
   return { ok: true, status: response.status, workflow, runs: body.workflow_runs || [] };
 };
 
-// Canonical acquisition은 morning parent와 세 child workflow에서 보인다. 다만 운영 중
-// one-shot 검증처럼 별도 caller가 production nh-attempt.yml을 재사용할 수도 있다.
-// 그런 실행도 실제 canonical 수집 경로를 점유하므로 "현재 수집 없음"으로 숨기지 않는다.
 const isIndirectNhAcquisitionRun = (run) => {
   const path = String(run?.path || "");
   if ([MORNING_WORKFLOW, CORE_WORKFLOW, NH_WORKFLOW, FUNDING_WORKFLOW]
@@ -438,7 +427,6 @@ const loadRecentRepositoryRuns = async (token, slug) => {
     const body = await response.json();
     return { ok: true, status: response.status, runs: body.workflow_runs || [] };
   } catch {
-    // 이 조회는 보조 신호다. 실패해도 canonical workflow 상태는 그대로 제공한다.
     return { ok: false, status: 0, runs: [] };
   }
 };
@@ -525,8 +513,6 @@ export default async function handler(req, res) {
     detailRun && run.id === detailRun.id ? detail : loadRunSteps(token, slug, run)
   )));
 
-  // Parent run의 reusable children 안에서 마지막 canonical publish가 완료된 시각을 쓴다.
-  // 특정 source(KFCC)를 "항상 finisher"로 가정하지 않는다.
   const publishCompletedAt = latestSuccessfulPublishCompletion(cycleDetails);
   const sourceState = cycleSourceState(cycleDetails, publishCompletedAt);
   const cycleAnchor = cycleDate
