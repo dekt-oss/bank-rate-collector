@@ -435,7 +435,7 @@ jobs:
             ${{ inputs.accept_volume_drop && '--accept' || '' }}
 
       - name: Upload state to R2
-        if: steps.storage.outputs.backend != 'github_legacy'
+        if: steps.storage.outputs.backend != 'github_legacy' && env.PUBLISH_ONLY != 'true'
         continue-on-error: ${{ steps.storage.outputs.backend == 'r2_migration' }}
         env:
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
