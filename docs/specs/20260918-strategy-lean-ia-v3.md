@@ -161,10 +161,12 @@ Strategy 화면의 다음 단계는 기능 추가가 아니라 **지표 감량�
 
 아래 항목만 유지한다.
 
-- 지역별 금리
 - 우대조건 · 상품구조
 - 특판 · 시장기회
 - 데이터 근거 · 품질
+
+지역/지도 상세는 기존 production 역할분리 계약대로 Search 화면에서 확인한다.
+Strategy에는 Search handoff만 유지하고 지역지도 메뉴는 다시 만들지 않는다.
 
 기존 `상세 판단요소`라는 추상적인 대분류/카드는 제거한다.
 필요한 경우 각 실제 기능명으로만 navigation에 노출한다.
@@ -191,7 +193,6 @@ Desktop 전용 원칙은 유지한다.
 
 ### 경쟁분석
 - 경쟁사 · 기관 포지션
-- 지역별 금리
 
 ### 상품/보조
 - 우대조건 · 상품구조
@@ -355,7 +356,7 @@ PR merge만으로 완료로 보지 않는다.
 - `inject_strategy_market_direction` / `inject_strategy_decision_scope_compact`는 최종 compositor에서 더 이상 주입하지 않는다.
 - `.ux-decision-readiness`와 `.decision-integrated-insight`는 final reconciler에서 숨긴다.
 - TOP5와 `institution-funding-position`은 late injection 완료 후 `#workspace-competitor-position` wrapper로 합친다.
-- `#map-card`는 hidden primary 밖으로 꺼내 지역별 금리 기능을 유지한다.
+- `#map-card`는 기존 Strategy/Search 역할분리 계약대로 Strategy에서 hidden 상태를 유지하고 왼쪽 메뉴에서도 제외한다.
 - `market-funding-competition`은 시장 전체 수신흐름 strip만 기본 노출하고 기관 4분면/성장랭킹은 숨긴다.
 - TOP5 visible summary는 순위/업권/금융사·상품/최고금리로 축소한다.
 - 시뮬레이터의 event-direction tile은 숨긴다.
