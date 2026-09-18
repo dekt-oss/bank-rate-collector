@@ -360,5 +360,6 @@ PR merge만으로 완료로 보지 않는다.
 - `market-funding-competition`은 시장 전체 수신흐름 strip만 기본 노출하고 기관 4분면/성장랭킹은 숨긴다.
 - TOP5 visible summary는 순위/업권/금융사·상품/최고금리로 축소한다.
 - 시뮬레이터의 event-direction tile은 숨긴다.
+- `#relative-pricing-r1`과 `#rate-funding-matrix`는 계산/payload를 유지하되 기본 화면에서는 숨긴다.
 - 왼쪽 메뉴는 final DOM 기준으로 다시 만들며 `데이터 근거 · 품질`은 메뉴에서 제외한다.
 - 신규 finalizer가 production-data browser E2E를 자동으로 타도록 관련 workflow path filter를 보강한다.
