@@ -343,3 +343,21 @@ PR merge만으로 완료로 보지 않는다.
 
 향후 별도 작업에서 실제 사용자 판단에 도움이 되는 핵심지표만 다시 선정해
 상단 executive dashboard를 재설계한다.
+
+
+---
+
+## 11. 리뷰 반영 보정
+
+2026-09-18 적대적 구현 리뷰 결과(`docs/reviews/20260918-strategy-lean-ia-v3-review.md`)를 반영한다.
+
+- `market_changes` 관련 DOM은 기존 JS runtime 계약 때문에 삭제하지 않고 visible UI만 숨긴다.
+- `inject_strategy_market_direction` / `inject_strategy_decision_scope_compact`는 최종 compositor에서 더 이상 주입하지 않는다.
+- `.ux-decision-readiness`와 `.decision-integrated-insight`는 final reconciler에서 숨긴다.
+- TOP5와 `institution-funding-position`은 late injection 완료 후 `#workspace-competitor-position` wrapper로 합친다.
+- `#map-card`는 hidden primary 밖으로 꺼내 지역별 금리 기능을 유지한다.
+- `market-funding-competition`은 시장 전체 수신흐름 strip만 기본 노출하고 기관 4분면/성장랭킹은 숨긴다.
+- TOP5 visible summary는 순위/업권/금융사·상품/최고금리로 축소한다.
+- 시뮬레이터의 event-direction tile은 숨긴다.
+- 왼쪽 메뉴는 final DOM 기준으로 다시 만들며 `데이터 근거 · 품질`은 메뉴에서 제외한다.
+- 신규 finalizer가 production-data browser E2E를 자동으로 타도록 관련 workflow path filter를 보강한다.
