@@ -152,6 +152,19 @@ DOM은 유지하되 parent tile을 hidden 처리한다.
 - `strategy-main-runtime-e2e.yml`
 - `strategy-ux-production-copy-e2e.yml`
 
+
+### R11. 중복 경쟁분석 surface도 기본 화면에서 감량
+
+Production HTML에는 추가로 다음 전면 분석이 존재한다.
+
+- `#relative-pricing-r1` — 상대금리 · 주요 경쟁기관
+- `#rate-funding-matrix` — Rate × Funding Matrix
+
+둘 다 TOP5 + 기관 수신 포지션 통합 섹션과 경쟁/수신 질문이 겹친다.
+이번 버전에서는 계산/payload를 유지하되 기본 화면에서는 숨긴다.
+
+`금리결정 Cockpit`처럼 이미 시뮬레이터의 접힌 상세영역 안에 있는 분석은 유지한다.
+
 ## 3. 비범위 재확인
 
 이번 PR은 다음을 변경하지 않는다.
