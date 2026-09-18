@@ -1,0 +1,35 @@
+name: Publish UI — main presentation changes
+
+# Strategy/site presentation changes must reach the public rate-data branch without
+# waiting for the next scheduled collection. Reuse the existing publish-only path:
+# restore authoritative state, rebuild/validate the site, and publish static output.
+# No source collection and no authoritative R2 state rewrite occur in this path.
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/publish-ui.yml"
+      - ".github/workflows/collect.yml"
+      - "web/templates/**"
+      - "web/public-structural-v2/**"
+      - "web/api/**"
+      - "web/runtime/**"
+      - "vercel.json"
+      - "src/rate_monitor/services/*presentation.py"
+      - "src/rate_monitor/services/strategy*.py"
+      - "src/rate_monitor/services/size_peer_strategy_payload.py"
+      - "src/rate_monitor/services/site_service.py"
+      - "src/rate_monitor/services/dashboard_service.py"
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  publish-ui:
+    uses: ./.github/workflows/collect.yml
+    with:
+      manual_target: "화면만 재발행"
+      accept_volume_drop: false
+    secrets: inherit
