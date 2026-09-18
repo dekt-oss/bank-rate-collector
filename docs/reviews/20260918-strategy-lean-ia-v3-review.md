@@ -76,13 +76,18 @@ wrapper 안에:
 MutationObserver 또는 bounded retry로 둘 다 준비된 뒤 합성한다.
 왼쪽 메뉴는 wrapper id를 직접 사용한다.
 
-### R5. 지역지도는 hidden primary 밖으로 꺼낸다
+### R5. 지역지도는 기존 Search 역할분리를 유지한다
 
-기존 decision refinement가 `.workspace-detail.primary`를 hidden 처리한다.
-TOP5는 이미 밖으로 이동하지만 지도는 parent와 함께 숨는다.
+현재 production browser 계약은 Strategy 지역지도를 숨기고 Search 화면으로 handoff한다.
+이번 사용자 요구는 감량이며 지역지도를 Strategy로 복귀시키라는 요구가 아니다.
 
-최종 reconciler에서 `#map-card`를 보조분석 영역으로 이동시켜
-`지역별 금리` 기능은 유지한다.
+따라서:
+
+- `#map-card`는 Strategy에서 계속 hidden
+- 기존 `.ux-region-handoff` 유지
+- 왼쪽 Strategy navigation에서 `지역별 금리` 메뉴 제거
+
+이전 workspace IA의 지역 메뉴를 복원하지 않는다.
 
 ### R6. 자금환경의 범위 축소
 
@@ -133,7 +138,6 @@ DOM은 유지하되 parent tile을 hidden 처리한다.
 - 12개월 시장 추이
 - 신상품 금리 시뮬레이션
 - 경쟁사 · 기관 포지션
-- 지역별 금리
 - 우대조건 · 상품구조
 - 특판 · 시장기회
 
