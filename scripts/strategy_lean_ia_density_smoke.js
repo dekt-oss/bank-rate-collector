@@ -60,6 +60,7 @@ async function measure(browser, label, viewport) {
       ".ux-decision-readiness",
       ".decision-integrated-insight",
     ];
+    const visibleNodes = (selector) => [...document.querySelectorAll(selector)].filter(visible);
     return {
       scrollHeight: Math.max(document.documentElement.scrollHeight, document.body.scrollHeight),
       clientHeight: document.documentElement.clientHeight,
@@ -67,7 +68,11 @@ async function measure(browser, label, viewport) {
       clientWidth: document.documentElement.clientWidth,
       visibleBySelector: Object.fromEntries(selectors.map((selector) => [
         selector,
-        [...document.querySelectorAll(selector)].filter(visible).length,
+        visibleNodes(selector).length,
+      ])),
+      heightBySelector: Object.fromEntries(selectors.map((selector) => [
+        selector,
+        Number(visibleNodes(selector).reduce((sum, node) => sum + node.getBoundingClientRect().height, 0).toFixed(1)),
       ])),
       leanIa: document.documentElement.dataset.strategyLeanIa || "",
     };
@@ -81,11 +86,6 @@ async function measure(browser, label, viewport) {
     candidateMetrics.scrollWidth <= candidateMetrics.clientWidth + 1,
     label + ": candidate horizontal overflow",
   );
-  invariant(
-    reductionPct >= minReductionPct,
-    label + ": document height reduction " + reductionPct.toFixed(2) + "% < " + minReductionPct + "%",
-  );
-
   await baseline.page.screenshot({
     path: path.join(workDir, "strategy-density-baseline-" + label + ".png"),
     fullPage: true,
@@ -122,6 +122,12 @@ async function measure(browser, label, viewport) {
       "utf8",
     );
     console.log(JSON.stringify(metrics, null, 2));
+    for (const label of ["desktop", "mobile"]) {
+      invariant(
+        metrics[label].reductionPct >= minReductionPct,
+        label + ": document height reduction " + metrics[label].reductionPct.toFixed(2) + "% < " + minReductionPct + "%",
+      );
+    }
     console.log("Strategy Lean IA density comparison: PASS");
   } finally {
     await browser.close();
