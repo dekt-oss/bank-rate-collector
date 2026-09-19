@@ -23,6 +23,7 @@ _STYLE = r"""
 .workspace-decision .planning-strip{grid-template-columns:repeat(4,minmax(0,1fr))!important}
 .workspace-lean-label{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;margin:24px 2px 10px;padding:0 2px;scroll-margin-top:88px}.workspace-lean-label div{display:flex;align-items:baseline;gap:10px}.workspace-lean-label em{font:800 10px var(--mono);font-style:normal;letter-spacing:.10em;color:var(--accent)}.workspace-lean-label strong{color:var(--ink);font-size:14px;font-weight:780;letter-spacing:-.025em}.workspace-lean-label span{color:var(--soft);font-size:10.5px;line-height:1.45;text-align:right}
 #external-market-context,#market-funding-competition,#market-intelligence,#workspace-market-trend,#planning-zone,#workspace-competitor-position,#preference-intelligence,#special-offer-radar{scroll-margin-top:88px}
+.workspace-market-trend-anchor{display:block;height:1px;pointer-events:none}
 #market-funding-competition{margin-bottom:12px}#market-funding-competition .market-funding-head{margin-bottom:10px}#market-funding-competition .funding-market-strip{margin-bottom:0}
 .workspace-competitor-position{display:grid;gap:12px;margin:0 0 12px;scroll-margin-top:88px}.workspace-competitor-position-head{display:flex;align-items:flex-end;justify-content:space-between;gap:14px;margin:0 2px 1px}.workspace-competitor-position-head div{display:flex;align-items:baseline;gap:10px}.workspace-competitor-position-head em{font:800 10px var(--mono);font-style:normal;letter-spacing:.10em;color:var(--accent)}.workspace-competitor-position-head strong{color:var(--ink);font-size:14px;font-weight:780;letter-spacing:-.025em}.workspace-competitor-position-head span{color:var(--soft);font-size:10.5px;text-align:right}
 #workspace-competitor-position>.top5-card,#workspace-competitor-position>#institution-funding-position{margin:0!important}
@@ -122,7 +123,7 @@ _SCRIPT = r'''
     setLabel(marketLabel,"02","시장현황","Market Intelligence와 12개월 시장 추이·당사 위치를 확인합니다.");
     cursor=moveAfter(marketLabel,cursor);cursor=moveAfter(kpis,cursor);
     if(marketIntel)cursor=moveAfter(marketIntel,cursor);
-    const trend=marketFlow.querySelector(".chartcard");if(trend&&!trend.id)trend.id="workspace-market-trend";
+    const trend=marketFlow.querySelector(".chartcard");let trendAnchor=$("workspace-market-trend");if(trend&&!trendAnchor){trendAnchor=document.createElement("span");trendAnchor.id="workspace-market-trend";trendAnchor.className="workspace-market-trend-anchor";trend.prepend(trendAnchor)}else if(trend&&trendAnchor?.parentElement!==trend)trend.prepend(trendAnchor);
     cursor=moveAfter(marketFlow,cursor);
     const designLabel=ensureLabel("workspace-label-design","03","금리설계","시장 확인 후 제안금리와 수신반응 시나리오를 설계합니다.",planningShell);
     cursor=moveAfter(designLabel,cursor);cursor=moveAfter(planningShell,cursor);
