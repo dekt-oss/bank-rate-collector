@@ -60,6 +60,9 @@ def test_prediction_readability_formula_and_three_sensitivity_contracts_are_expl
     assert 'className="decision-model-evidence"' in html
     assert 'data-sensitivity="${esc(s.key)}"' in html
     assert "decision-range-legacy" in html
+    assert "let installAttempts=0;" in html
+    assert 'if(!document.querySelector(".decision-formula")&&installAttempts<8)' in html
+    assert "requestAnimationFrame(install)" in html
 
     assert "function runScenario(" not in html
     assert "function predictAll(" not in html
