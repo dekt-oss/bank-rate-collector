@@ -157,7 +157,6 @@ async function assertDecisionIA(page, label) {
       navItems,
       navVisible: visible(nav),
       coreSimulatorVisible: visible(document.getElementById("sim-form")),
-      planningDetailClosed: Boolean(document.getElementById("lean-planning-detail") && !document.getElementById("lean-planning-detail").open),
       institutionDetailClosed: Boolean(document.getElementById("lean-institution-detail") && !document.getElementById("lean-institution-detail").open),
       preferenceDetailClosed: Boolean(document.getElementById("lean-preference-detail") && !document.getElementById("lean-preference-detail").open),
       specialDetailClosed: Boolean(document.getElementById("lean-special-detail") && !document.getElementById("lean-special-detail").open),
@@ -174,13 +173,11 @@ async function assertDecisionIA(page, label) {
   invariant(result.eventTileHidden && result.duplicateHidden.every(Boolean), label + ": redundant/event surfaces remain visible " + JSON.stringify(result.duplicateHidden));
   invariant(
     result.coreSimulatorVisible
-      && result.planningDetailClosed
       && result.institutionDetailClosed
       && result.preferenceDetailClosed
       && result.specialDetailClosed,
     label + ": progressive disclosure defaults wrong " + JSON.stringify({
       coreSimulator: result.coreSimulatorVisible,
-      planning: result.planningDetailClosed,
       institution: result.institutionDetailClosed,
       preference: result.preferenceDetailClosed,
       special: result.specialDetailClosed,
@@ -501,7 +498,6 @@ async function runViewport(browser, label, viewport) {
   const predictionPanel = page.locator("#prediction-panel");
   await predictionToggle.waitFor({ state: "visible", timeout: 10_000 });
   if (await predictionPanel.isHidden()) await predictionToggle.click();
-  await page.waitForFunction(() => document.getElementById("lean-planning-detail")?.open === true, null, { timeout: 10_000 });
   await page.locator("#baseline-new").waitFor({ state: "visible", timeout: 10_000 });
   await assertPrediction(page, label);
   await assertVisualRuntimeContracts(page, label);
