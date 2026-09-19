@@ -45,17 +45,14 @@ from rate_monitor.services.rate_funding_matrix_presentation import (
 from rate_monitor.services.relative_pricing_presentation import (
     inject_relative_pricing_presentation,
 )
-from rate_monitor.services.strategy_decision_scope_compact_presentation import (
-    inject_strategy_decision_scope_compact,
-)
 from rate_monitor.services.strategy_first_screen_ux_presentation import (
     inject_strategy_first_screen_ux,
 )
-from rate_monitor.services.strategy_market_direction_presentation import (
-    inject_strategy_market_direction,
-)
 from rate_monitor.services.strategy_mobile_responsive_presentation import (
     inject_strategy_mobile_responsive,
+)
+from rate_monitor.services.strategy_lean_ia_presentation import (
+    inject_strategy_lean_ia,
 )
 from rate_monitor.services.strategy_top5_compact_presentation import (
     inject_strategy_top5_compact,
@@ -105,6 +102,5 @@ def inject_dashboard_ui_refinement(html: str) -> str:
     # 의사결정 메뉴 → sector-aware TOP5 순으로 합성해 최종 정보 위계를 고정한다.
     rendered = inject_strategy_mobile_responsive(rendered)
     rendered = inject_strategy_first_screen_ux(rendered)
-    rendered = inject_strategy_market_direction(rendered)
-    rendered = inject_strategy_decision_scope_compact(rendered)
-    return inject_strategy_top5_compact(rendered)
+    rendered = inject_strategy_top5_compact(rendered)
+    return inject_strategy_lean_ia(rendered)
