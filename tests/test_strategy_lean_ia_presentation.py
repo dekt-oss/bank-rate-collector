@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import inspect
+from pathlib import Path
 
 import pytest
 
@@ -209,3 +210,10 @@ def test_compositor_skips_old_duplicate_injectors_and_runs_lean_ia_last() -> Non
     top5 = source.index("inject_strategy_top5_compact(rendered)")
     lean = source.index("inject_strategy_lean_ia(rendered)")
     assert top5 < lean
+
+
+def test_visible_top5_contract_uses_business_label_and_preserves_machine_marker() -> None:
+    template = Path("web/templates/strategy.html").read_text(encoding="utf-8")
+
+    assert 'data-contract-label="CANONICAL">공식 비교기준</span>' in template
+    assert '<span class="chip">CANONICAL</span>' not in template
