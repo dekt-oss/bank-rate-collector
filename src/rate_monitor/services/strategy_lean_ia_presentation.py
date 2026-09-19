@@ -101,27 +101,12 @@ _SCRIPT = r'''
     nodes.filter(node=>node&&node!==detail&&node.parentElement===host).forEach(node=>body.appendChild(node));
     return detail;
   }
-  function syncPlanningHeadline(){
-    const headline=$("lean-planning-headline");if(!headline)return;
-    [["sim-max","lean-plan-proposed"],["sim-rank","lean-plan-rank"],["own-max","lean-plan-own"],["sim-top10","lean-plan-top10"]].forEach(([sourceId,targetId])=>{const source=$(sourceId),target=$(targetId);if(source&&target&&target.textContent!==source.textContent)target.textContent=source.textContent});
-  }
   function compactPlanning(planning){
     if(!planning)return null;
-    const sim=planning.querySelector(":scope>.sim")||planning.querySelector(".sim");if(!sim)return null;
-    let headline=$("lean-planning-headline");
-    if(!headline){
-      headline=document.createElement("div");headline.id="lean-planning-headline";headline.className="lean-planning-headline";
-      headline.innerHTML='<div><span>제안 최고금리</span><b id="lean-plan-proposed">—</b><small>기본 + 우대</small></div><div><span>예상 시장 순위</span><b id="lean-plan-rank">—</b><small>선택기간 비교군</small></div><div><span>고려저축은행 현재</span><b id="lean-plan-own">—</b><small>현재 비교상품</small></div><div><span>상위 10% 진입선</span><b id="lean-plan-top10">—</b><small>시장 기준</small></div>';
-      const strip=sim.querySelector(".planning-strip"),form=sim.querySelector(".simform");(form||strip)?.insertAdjacentElement("beforebegin",headline);
-      ["sim-max","sim-rank","own-max","sim-top10"].map($).filter(Boolean).forEach(node=>new MutationObserver(syncPlanningHeadline).observe(node,{childList:true,subtree:true,characterData:true}));
-    }
-    const form=sim.querySelector(":scope>.simform")||sim.querySelector(".simform");
-    const engineSummary=sim.querySelector(":scope>.engine-summary");
-    const scopeWarning=sim.querySelector(":scope>.scope-warning");
-    const detail=ensureDisclosure(sim,"lean-planning-detail","금리·기간 입력 및 수신 시뮬레이션 상세",[engineSummary,scopeWarning,form]);
+    const form=planning.querySelector(".simform"),panel=$("prediction-panel");if(!form||!panel)return null;
+    const detail=ensureDisclosure(form,"lean-planning-detail","수신예측·모형 상세",[panel]);
     const toggle=$("prediction-toggle");
     if(toggle&&toggle.dataset.leanDisclosureBound!=="1"){toggle.addEventListener("click",()=>{if(detail)detail.open=true});toggle.dataset.leanDisclosureBound="1"}
-    syncPlanningHeadline();
     return detail;
   }
   function compactInstitution(institution){
