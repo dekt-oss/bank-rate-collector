@@ -44,12 +44,13 @@ _SCRIPT = r'''
   const isConnected=node=>Boolean(node&&node.isConnected);
   let navObserver=null;
 
-  function hide(node){if(node)node.hidden=true;return node}
-  function moveAfter(node,anchor){if(isConnected(node)&&isConnected(anchor)&&node!==anchor){anchor.insertAdjacentElement("afterend",node);return node}return anchor}
+  function hide(node){if(node&&!node.hidden)node.hidden=true;return node}
+  function moveAfter(node,anchor){if(isConnected(node)&&isConnected(anchor)&&node!==anchor){if(anchor.nextElementSibling!==node)anchor.insertAdjacentElement("afterend",node);return node}return anchor}
   function setLabel(node,no,title,copy){
     if(!node)return null;
     node.classList.add("workspace-section-label","workspace-lean-label");
-    node.innerHTML="<div><em>"+no+"</em><strong>"+title+"</strong></div><span>"+copy+"</span>";
+    const markup="<div><em>"+no+"</em><strong>"+title+"</strong></div><span>"+copy+"</span>";
+    if(node.innerHTML!==markup)node.innerHTML=markup;
     return node;
   }
   function ensureLabel(id,no,title,copy,before){
@@ -75,8 +76,9 @@ _SCRIPT = r'''
   function simplifyFundingMarket(){
     const funding=$("market-funding-competition");if(!funding)return null;
     funding.querySelectorAll(".funding-sector-tabs,.funding-analysis-grid,.funding-caveat").forEach(hide);
-    const title=funding.querySelector(".market-funding-head h2");if(title)title.textContent="업권 수신 흐름";
-    const copy=funding.querySelector(".market-funding-head p");if(copy)copy.textContent="업권 전체 수신잔액의 최신값과 전년 동월 흐름을 확인합니다.";
+    const title=funding.querySelector(".market-funding-head h2");if(title&&title.textContent!=="업권 수신 흐름")title.textContent="업권 수신 흐름";
+    const fundingCopy="업권 전체 수신잔액의 최신값과 전년 동월 흐름을 확인합니다.";
+    const copy=funding.querySelector(".market-funding-head p");if(copy&&copy.textContent!==fundingCopy)copy.textContent=fundingCopy;
     return funding;
   }
   function ensureRegionHandoff(){
@@ -125,7 +127,7 @@ _SCRIPT = r'''
     const designLabel=ensureLabel("workspace-label-design","03","금리설계","시장 확인 후 제안금리와 수신반응 시나리오를 설계합니다.",planningShell);
     cursor=moveAfter(designLabel,cursor);cursor=moveAfter(planningShell,cursor);
     const competitor=ensureCompetitorWrapper(top5,institution);if(competitor)cursor=moveAfter(competitor,cursor);
-    if(handoff){handoff.hidden=false;cursor=moveAfter(handoff,cursor)}
+    if(handoff){if(handoff.hidden)handoff.hidden=false;cursor=moveAfter(handoff,cursor)}
     const productBefore=pref||special||evidence;
     const productLabel=ensureLabel("workspace-label-product","05","상품 · 시장기회","우대조건 구조와 특판 기회를 실제 기능 단위로 확인합니다.",productBefore);
     if(productLabel)cursor=moveAfter(productLabel,cursor);
