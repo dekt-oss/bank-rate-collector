@@ -256,6 +256,8 @@ async function runDesktop(browser) {
   await assertStrategyRoleSplit(page, "desktop combined");
 
   await assertNoHorizontalOverflow(page, "desktop");
+  const desktopHeight = await page.evaluate(() => document.documentElement.scrollHeight);
+  console.log(JSON.stringify({ strategyVisibleDensity: "candidate", viewport: "1280x900", documentHeight: desktopHeight }));
   await page.screenshot({ path: path.join(workDir, "strategy-smoke-desktop.png"), fullPage: true });
   invariant(runtimeErrors.length === 0, `desktop browser runtime errors:\n${runtimeErrors.join("\n")}`);
   await context.close();
@@ -290,6 +292,8 @@ async function runMobile(browser) {
   invariant(await page.locator("#market-intelligence").isVisible(), "모바일 상호금융 모드에서 C2 패널이 숨겨짐");
   await assertStrategyRoleSplit(page, "mobile mutual-finance");
   await assertNoHorizontalOverflow(page, "mobile mutual-finance");
+  const mobileHeight = await page.evaluate(() => document.documentElement.scrollHeight);
+  console.log(JSON.stringify({ strategyVisibleDensity: "candidate", viewport: "390x844", documentHeight: mobileHeight }));
   await page.screenshot({ path: path.join(workDir, "strategy-smoke-mobile.png"), fullPage: true });
   invariant(runtimeErrors.length === 0, `mobile browser runtime errors:\n${runtimeErrors.join("\n")}`);
   await context.close();
