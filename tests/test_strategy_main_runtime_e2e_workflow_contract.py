@@ -105,7 +105,9 @@ def test_strategy_preview_smoke_uses_search_handoff_instead_of_hidden_map() -> N
     assert "assertStrategyRoleSplit" in text
     assert "Strategy 지역 지도는 검색 조회로 이관되어 숨겨져야 함" in text
     assert "지역·지도 상세는 검색 조회로 통합했습니다." in text
-    assert "금리결정 준비도 카드가 보이지 않음" in text
+    assert "구 금리결정 준비도 카드는 DOM을 보존하되 숨겨져야 함" in text
+    assert "최근 30일 변경 이벤트 패널이 노출됨" in text
+    assert "경쟁사 · 기관 포지션 wrapper가 보이지 않음" in text
     assert "Strategy 보고서 출력 버튼이 보이지 않음" in text
     assert 'data-market-mode="combined"' in text
     assert "기본 비교모드가 저축은행 + 상호금융이 아님" in text
@@ -113,16 +115,20 @@ def test_strategy_preview_smoke_uses_search_handoff_instead_of_hidden_map() -> N
     assert '[data-map-sector="' not in text
 
 
-def test_strategy_workspace_smoke_locks_decision_first_order_and_role_split() -> None:
+def test_strategy_workspace_smoke_locks_lean_ia_order_and_role_split() -> None:
     text = WORKSPACE_SMOKE.read_text(encoding="utf-8")
 
-    assert "market -> readiness -> TOP5 -> secondary insight -> planning order=" in text
-    assert "product section label/order wrong" in text
-    assert "duplicated legacy/detail shell not hidden" in text
-    assert "Search 지역 상세 handoff가 유지되지 않음" in text
-    assert "model evidence should start collapsed" in text
+    assert "Lean IA order=" in text
+    assert "market funding environment visibility wrong" in text
+    assert "competitor wrapper composition wrong" in text
+    assert "TOP5 visible headers=" in text
+    assert "redundant/event surfaces remain visible" in text
+    assert "Search region handoff contract broken" in text
+    assert "direct hash did not activate competitor target" in text
+    assert "back/forward active target=" in text
     assert "horizontal overflow" in text
-    assert 'data-strategy-workspace="decision-first-v1"' in text
+    assert 'data-strategy-workspace="market-first-v2"' in text
+    assert 'data-strategy-lean-ia="v3"' in text
     assert 'data-strategy-palette="main-brand-v2"' in text
     assert "assertVisualRuntimeContracts" in text
     assert "computed brand accent=" in text
