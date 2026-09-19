@@ -198,7 +198,7 @@ async function assertDecisionIA(page, label) {
 
 async function assertPrediction(page, label) {
   const initial = await page.evaluate(() => {
-    const planning = document.querySelector(".workspace-decision");
+    const planning = document.getElementById("planning-zone");
     const strip = [...(planning?.querySelectorAll(".planning-strip>div") || [])]
       .find((node) => !node.hidden && getComputedStyle(node).display !== "none");
     const stripValue = strip?.querySelector("b");
