@@ -156,14 +156,16 @@ def test_final_navigation_is_explicit_and_mobile_hidden() -> None:
     assert "IntersectionObserver" in rendered
 
 
-def test_bounded_retry_handles_late_dom_without_unbounded_observer() -> None:
+def test_bounded_observer_handles_late_dom_and_reports_missing_contract() -> None:
     rendered = inject_strategy_lean_ia(_strategy_html())
 
-    assert "[0,40,160,500,1200].forEach" in rendered
-    assert "new MutationObserver" not in rendered
-    assert "const required=[kpis,marketIntel,marketFlow,planning,external,funding,pref,special,evidence,top5,institution,handoff]" in rendered
-    assert "if(required.some(node=>!node||!node.isConnected))return false" in rendered
-    assert 'if(ready){buildNavigation();document.documentElement.dataset.strategyLeanIa="v3"}' in rendered
+    assert "[0,40,160,500,1200,3000,6000].forEach" in rendered
+    assert "new MutationObserver" in rendered
+    assert 'lateDomObserver.observe(document.body,{childList:true,subtree:true})' in rendered
+    assert "setTimeout(()=>{lateDomObserver?.disconnect();lateDomObserver=null;lateDomTimer=null;reconcile()},10000)" in rendered
+    assert 'document.documentElement.dataset.strategyLeanIaMissing=missing.join(",")' in rendered
+    assert 'document.documentElement.dataset.strategyLeanIa="v3"' in rendered
+    assert 'document.documentElement.dataset.strategyLeanIaMissing=""' in rendered
     assert "handoff.hidden=false" in rendered
 
 
