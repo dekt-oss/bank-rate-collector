@@ -178,6 +178,10 @@ def test_final_navigation_is_explicit_and_mobile_hidden() -> None:
     assert '"lean-preference-detail"' in rendered
     assert '"lean-special-detail"' in rendered
     assert "compactSecondarySurfaces();" in rendered
+    assert 'id="lean-planning-headline"' in rendered
+    assert '"lean-planning-detail"' in rendered
+    assert 'compactPlanning(planning)' in rendered
+    assert 'toggle.addEventListener("click",()=>{if(detail)detail.open=true})' in rendered
 
 
 def test_bounded_observer_handles_late_dom_and_reports_missing_contract() -> None:
