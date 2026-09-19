@@ -78,9 +78,7 @@ def test_non_strategy_html_is_unchanged() -> None:
     assert inject_strategy_market_direction(html) == html
 
 
-def test_market_direction_composes_after_first_screen_ux() -> None:
+def test_market_direction_module_is_preserved_but_not_composed_into_final_surface() -> None:
     source = inspect.getsource(inject_dashboard_ui_refinement)
-    first_screen = source.index("inject_strategy_first_screen_ux(rendered)")
-    market_direction = source.index("inject_strategy_market_direction(rendered)")
 
-    assert first_screen < market_direction
+    assert "inject_strategy_market_direction(rendered)" not in source
