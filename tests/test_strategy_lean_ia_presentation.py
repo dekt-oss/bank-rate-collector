@@ -161,6 +161,10 @@ def test_bounded_retry_handles_late_dom_without_unbounded_observer() -> None:
 
     assert "[0,40,160,500,1200].forEach" in rendered
     assert "new MutationObserver" not in rendered
+    assert "const required=[kpis,marketIntel,marketFlow,planning,external,funding,pref,special,evidence,top5,institution,handoff]" in rendered
+    assert "if(required.some(node=>!node||!node.isConnected))return false" in rendered
+    assert 'if(ready){buildNavigation();document.documentElement.dataset.strategyLeanIa="v3"}' in rendered
+    assert "handoff.hidden=false" in rendered
 
 
 def test_compositor_skips_old_duplicate_injectors_and_runs_lean_ia_last() -> None:
