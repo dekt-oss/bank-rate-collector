@@ -103,6 +103,7 @@ _SCRIPT = r'''
   }
   function reorder(){
     const kpis=first(".grid.kpis"),marketIntel=$("market-intelligence"),marketFlow=$("market-flow"),planning=$("planning-zone");
+    // Keep the established decision wrapper so its readability/mobile CSS remains in scope.
     const planningShell=planning?.closest(".workspace-decision")||planning;
     const external=$("external-market-context"),funding=simplifyFundingMarket(),pref=$("preference-intelligence"),special=$("special-offer-radar"),evidence=$("scope-evidence");
     const top5=first(".top5-card"),institution=$("institution-funding-position"),handoff=ensureRegionHandoff();
