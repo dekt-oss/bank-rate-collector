@@ -59,7 +59,8 @@ on:
 # This E2E keeps release validation isolated from the canonical production writer:
 # it exercises the exact code against real data without publishing from this job.
 concurrency:
-  group: strategy-main-runtime-e2e
+  # Keep one latest run per ref, but never let a feature branch cancel main verification.
+  group: strategy-main-runtime-e2e-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -181,14 +182,17 @@ jobs:
           grep -q 'id="strategy-brand-theme-script"' work/site-public/strategy.html
           grep -q 'id="strategy-ux-refinement-script"' work/site-public/strategy.html
 
-      - name: Build main baseline Strategy from the same production snapshot
+      - name: Build canonical Lean IA density baseline from the same production snapshot
         env:
           RATE_MONITOR_STRATEGY_DASHBOARD: "1"
+          STRATEGY_DENSITY_BASELINE_SHA: "656a12dca41f74b8d00572b0ff8a34e17506950c"
         run: |
           set -euo pipefail
-          git fetch --force origin +main:refs/remotes/origin/main --depth=1
+          # PR #338 merge is the fixed pre-density-cleanup reference for Issue #303.
+          # A moving main baseline becomes self-comparison after merge and invalidates the gate.
+          git fetch --force origin "$STRATEGY_DENSITY_BASELINE_SHA" --depth=1
           rm -rf work/main-baseline work/site-public-main-baseline
-          git worktree add --detach work/main-baseline refs/remotes/origin/main
+          git worktree add --detach work/main-baseline "$STRATEGY_DENSITY_BASELINE_SHA"
           (
             cd work/main-baseline
             uv sync --locked

@@ -39,6 +39,9 @@ def test_cockpit_centres_rate_to_inflow_and_keeps_rank_secondary() -> None:
 
     assert "금리 결정 · 수신반응 시나리오" in html
     assert "금리별 수신반응 비교" in html
+    assert "금리별 수신반응 상세" in html
+    assert 'disclosure.className="rate-response-disclosure"' in html
+    assert 'document.createElement("details")' in html
     assert "현재 대비 +0.05%p" in html
     assert "현재 대비 +0.10%p" in html
     assert "현재 대비 +0.15%p" in html
@@ -52,7 +55,10 @@ def test_uncalibrated_and_cost_boundaries_are_explicit() -> None:
     html = inject_strategy_decision_cockpit(_minimal_strategy_html())
 
     assert "내부 실적 미보정 스트레스 시나리오" in html
-    assert "실제 forecast가 아닙니다" in html
+    assert "실제 예측치가 아닙니다" in html
+    assert "별도 보정 단계를 거칩니다" in html
+    assert "실제 forecast가 아닙니다" not in html
+    assert "Stage E에서 보정합니다" not in html
     assert "총수신 = 신규자금 + 재예치이며 순수신이 아닙니다" in html
     assert "FTP 미반영" in html
     assert "window.predictInflow" in html

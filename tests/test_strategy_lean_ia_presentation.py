@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import inspect
+from pathlib import Path
 
 import pytest
 
@@ -177,6 +178,10 @@ def test_final_navigation_is_explicit_and_mobile_hidden() -> None:
     assert '"lean-preference-detail"' in rendered
     assert '"lean-special-detail"' in rendered
     assert "compactSecondarySurfaces();" in rendered
+    assert 'id="lean-planning-headline"' in rendered
+    assert '"lean-planning-detail"' in rendered
+    assert 'compactPlanning(planning)' in rendered
+    assert 'toggle.addEventListener("click",()=>{if(detail)detail.open=true})' in rendered
 
 
 def test_bounded_observer_handles_late_dom_and_reports_missing_contract() -> None:
@@ -209,3 +214,10 @@ def test_compositor_skips_old_duplicate_injectors_and_runs_lean_ia_last() -> Non
     top5 = source.index("inject_strategy_top5_compact(rendered)")
     lean = source.index("inject_strategy_lean_ia(rendered)")
     assert top5 < lean
+
+
+def test_visible_top5_contract_uses_business_label_and_preserves_machine_marker() -> None:
+    template = Path("web/templates/strategy.html").read_text(encoding="utf-8")
+
+    assert 'data-contract-label="CANONICAL">공식 비교기준</span>' in template
+    assert '<span class="chip">CANONICAL</span>' not in template
