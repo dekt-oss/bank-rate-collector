@@ -143,7 +143,8 @@ _SCRIPT = r'''
   ];
   function navLinks(){return [...document.querySelectorAll('#strategy-workspace-nav[data-lean-ia-nav="1"] a[data-workspace-target]')]}
   function setActive(id){navLinks().forEach(link=>{if(link.dataset.workspaceTarget===id)link.setAttribute("aria-current","location");else link.removeAttribute("aria-current")})}
-  function activateHash(){const id=location.hash.slice(1),target=$(id);if(!target)return;const link=navLinks().find(item=>item.dataset.workspaceTarget===id);if(link)setActive(id);requestAnimationFrame(()=>target.scrollIntoView({block:"start"}))}
+  let hashActivationTarget="";
+  function activateHash(){const id=location.hash.slice(1),target=$(id);if(!target)return;const link=navLinks().find(item=>item.dataset.workspaceTarget===id);if(!link)return;hashActivationTarget=id;setActive(id);requestAnimationFrame(()=>{target.scrollIntoView({block:"start"});requestAnimationFrame(()=>{setActive(id);hashActivationTarget=""})})}
   function buildNavigation(){
     let nav=$("strategy-workspace-nav");
     if(nav?.dataset.leanIaNav==="1")return nav;
@@ -154,7 +155,7 @@ _SCRIPT = r'''
     nav.addEventListener("click",event=>{const link=event.target.closest("a[data-workspace-target]");if(!link)return;setActive(link.dataset.workspaceTarget);const target=$(link.dataset.workspaceTarget);if(target)requestAnimationFrame(()=>target.scrollIntoView({block:"start"}))});
     const links=navLinks();if(!links.length)return nav;
     if(navObserver)navObserver.disconnect();
-    if("IntersectionObserver" in window){navObserver=new IntersectionObserver(entries=>{const visible=entries.filter(e=>e.isIntersecting).sort((a,b)=>Math.abs(a.boundingClientRect.top)-Math.abs(b.boundingClientRect.top))[0];if(visible)setActive(visible.target.id)},{rootMargin:"-18% 0px -68% 0px",threshold:[0,.1,.4]});links.map(link=>$(link.dataset.workspaceTarget)).filter(Boolean).forEach(node=>navObserver.observe(node))}
+    if("IntersectionObserver" in window){navObserver=new IntersectionObserver(entries=>{if(hashActivationTarget){setActive(hashActivationTarget);return}const visible=entries.filter(e=>e.isIntersecting).sort((a,b)=>Math.abs(a.boundingClientRect.top)-Math.abs(b.boundingClientRect.top))[0];if(visible)setActive(visible.target.id)},{rootMargin:"-18% 0px -68% 0px",threshold:[0,.1,.4]});links.map(link=>$(link.dataset.workspaceTarget)).filter(Boolean).forEach(node=>navObserver.observe(node))}
     const hash=location.hash.slice(1);if(hash&&links.some(link=>link.dataset.workspaceTarget===hash))activateHash();else setActive(links[0].dataset.workspaceTarget);
     return nav;
   }
