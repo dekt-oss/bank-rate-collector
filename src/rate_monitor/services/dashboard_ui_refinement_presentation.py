@@ -48,11 +48,11 @@ from rate_monitor.services.relative_pricing_presentation import (
 from rate_monitor.services.strategy_first_screen_ux_presentation import (
     inject_strategy_first_screen_ux,
 )
-from rate_monitor.services.strategy_mobile_responsive_presentation import (
-    inject_strategy_mobile_responsive,
-)
 from rate_monitor.services.strategy_lean_ia_presentation import (
     inject_strategy_lean_ia,
+)
+from rate_monitor.services.strategy_mobile_responsive_presentation import (
+    inject_strategy_mobile_responsive,
 )
 from rate_monitor.services.strategy_top5_compact_presentation import (
     inject_strategy_top5_compact,
