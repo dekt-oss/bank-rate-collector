@@ -17,6 +17,7 @@ on:
       - "src/rate_monitor/services/strategy_light_theme_presentation.py"
       - "src/rate_monitor/services/strategy_brand_theme_presentation.py"
       - "src/rate_monitor/services/strategy_ux_refinement_presentation.py"
+      - "src/rate_monitor/services/strategy_lean_ia_presentation.py"
       - "src/rate_monitor/services/market_intelligence_service.py"
       - "src/rate_monitor/services/market_intelligence_presentation.py"
       - "src/rate_monitor/services/preference_intelligence_service.py"
