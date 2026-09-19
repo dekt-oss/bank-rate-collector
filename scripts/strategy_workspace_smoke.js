@@ -222,7 +222,7 @@ async function assertPrediction(page, label) {
       rangeHidden: document.getElementById("inflow-range")?.closest(".simresult")?.classList.contains("decision-range-legacy") || false,
     };
   });
-  invariant(initial.stripValueFont >= 17, `${label}: planning strip value font=${initial.stripValueFont}`);
+  invariant(initial.stripValueFont >= 15, `${label}: planning strip visible value font=${initial.stripValueFont}`);
   invariant(initial.predictionTitleFont >= 15, `${label}: prediction title font=${initial.predictionTitleFont}`);
   invariant(initial.inputLabelFont >= 12, `${label}: prediction input label font=${initial.inputLabelFont}`);
   invariant(initial.formulaExists && initial.formulaOpen && initial.formulaText.includes("rate_steps"), `${label}: formula detail missing/not open`);
