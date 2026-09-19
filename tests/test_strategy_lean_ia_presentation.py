@@ -178,6 +178,8 @@ def test_bounded_observer_handles_late_dom_and_reports_missing_contract() -> Non
     assert 'lateDomObserver.observe(document.body,{childList:true,subtree:true})' in rendered
     assert "setTimeout(()=>{lateDomObserver?.disconnect();lateDomObserver=null;lateDomTimer=null;reconcile()},10000)" in rendered
     assert 'document.documentElement.dataset.strategyLeanIaMissing=missing.join(",")' in rendered
+    assert 'dataset.strategyWorkspace!=="market-first-v2"' in rendered
+    assert 'missing.unshift("workspace")' in rendered
     assert 'document.documentElement.dataset.strategyLeanIa="v3"' in rendered
     assert 'document.documentElement.dataset.strategyLeanIaMissing=""' in rendered
     assert "handoff.hidden=false" in rendered
