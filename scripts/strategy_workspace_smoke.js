@@ -162,6 +162,8 @@ async function assertDecisionIA(page, label) {
       regionMapHidden: !regionMap || !visible(regionMap),
       navItems,
       navVisible: visible(nav),
+      planningHeadlineVisible: visible(document.getElementById("lean-planning-headline")),
+      planningDetailClosed: Boolean(document.getElementById("lean-planning-detail") && !document.getElementById("lean-planning-detail").open),
       coreSimulatorVisible: visible(document.getElementById("sim-form")),
       institutionDetailClosed: Boolean(document.getElementById("lean-institution-detail") && !document.getElementById("lean-institution-detail").open),
       preferenceDetailClosed: Boolean(document.getElementById("lean-preference-detail") && !document.getElementById("lean-preference-detail").open),
@@ -180,11 +182,15 @@ async function assertDecisionIA(page, label) {
   invariant(result.preferenceBadgeText === "조건 구조 근거" && result.preferenceBadgeMarker === "D1 Structure Evidence", label + ": preference contract label=" + JSON.stringify([result.preferenceBadgeText, result.preferenceBadgeMarker]));
   invariant(result.eventTileHidden && result.duplicateHidden.every(Boolean), label + ": redundant/event surfaces remain visible " + JSON.stringify(result.duplicateHidden));
   invariant(
-    result.coreSimulatorVisible
+    result.planningHeadlineVisible
+      && result.planningDetailClosed
+      && !result.coreSimulatorVisible
       && result.institutionDetailClosed
       && result.preferenceDetailClosed
       && result.specialDetailClosed,
     label + ": progressive disclosure defaults wrong " + JSON.stringify({
+      planningHeadline: result.planningHeadlineVisible,
+      planningDetail: result.planningDetailClosed,
       coreSimulator: result.coreSimulatorVisible,
       institution: result.institutionDetailClosed,
       preference: result.preferenceDetailClosed,
@@ -517,6 +523,7 @@ async function runViewport(browser, label, viewport) {
   const predictionPanel = page.locator("#prediction-panel");
   await predictionToggle.waitFor({ state: "visible", timeout: 10_000 });
   if (await predictionPanel.isHidden()) await predictionToggle.click();
+  await page.waitForFunction(() => document.getElementById("lean-planning-detail")?.open === true, null, { timeout: 10_000 });
   await page.locator("#baseline-new").waitFor({ state: "visible", timeout: 10_000 });
   await assertPrediction(page, label);
   await assertVisualRuntimeContracts(page, label);
