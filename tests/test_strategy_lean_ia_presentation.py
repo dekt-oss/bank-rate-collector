@@ -167,6 +167,7 @@ def test_final_navigation_is_explicit_and_mobile_hidden() -> None:
     assert '@media(max-width:1280px){.strategy-workspace-nav{display:none!important}}' in rendered
     assert 'window.addEventListener("hashchange",activateHash)' in rendered
     assert "IntersectionObserver" in rendered
+    assert "Math.abs(hashNode.getBoundingClientRect().top)<=180" in rendered
 
 
 def test_bounded_observer_handles_late_dom_and_reports_missing_contract() -> None:
