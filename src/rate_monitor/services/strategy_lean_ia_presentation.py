@@ -95,7 +95,8 @@ _SCRIPT = r'''
     const kpis=first(".grid.kpis"),marketIntel=$("market-intelligence"),marketFlow=$("market-flow"),planning=$("planning-zone");
     const external=$("external-market-context"),funding=simplifyFundingMarket(),pref=$("preference-intelligence"),special=$("special-offer-radar"),evidence=$("scope-evidence");
     const top5=first(".top5-card"),institution=$("institution-funding-position"),handoff=first(".ux-region-handoff");
-    if(!kpis||!marketFlow||!planning)return false;
+    const required=[kpis,marketIntel,marketFlow,planning,external,funding,pref,special,evidence,top5,institution,handoff];
+    if(required.some(node=>!node||!node.isConnected))return false;
     const marketLabel=$("workspace-label-market")||ensureLabel("workspace-label-market","02","시장현황","대표 시장방향과 12개월 금리 위치를 확인합니다.",kpis);
     const envBefore=marketLabel||kpis;
     const envLabel=ensureLabel("workspace-label-environment","01","시장 자금환경","기준금리·은행 신규취급금리·업권 수신잔액을 먼저 확인합니다.",envBefore);
@@ -110,7 +111,7 @@ _SCRIPT = r'''
     const designLabel=ensureLabel("workspace-label-design","03","금리설계","시장 확인 후 제안금리와 수신반응 시나리오를 설계합니다.",planning);
     cursor=moveAfter(designLabel,cursor);cursor=moveAfter(planning,cursor);
     const competitor=ensureCompetitorWrapper(top5,institution);if(competitor)cursor=moveAfter(competitor,cursor);
-    if(handoff)cursor=moveAfter(handoff,cursor);
+    if(handoff){handoff.hidden=false;cursor=moveAfter(handoff,cursor)}
     const productBefore=pref||special||evidence;
     const productLabel=ensureLabel("workspace-label-product","05","상품 · 시장기회","우대조건 구조와 특판 기회를 실제 기능 단위로 확인합니다.",productBefore);
     if(productLabel)cursor=moveAfter(productLabel,cursor);
@@ -143,7 +144,7 @@ _SCRIPT = r'''
     const hash=location.hash.slice(1);if(hash&&links.some(link=>link.dataset.workspaceTarget===hash))activateHash();else setActive(links[0].dataset.workspaceTarget);
     return nav;
   }
-  function reconcile(){suppressRedundantSurfaces();const ready=reorder();if(ready)buildNavigation();document.documentElement.dataset.strategyLeanIa="v3";return ready}
+  function reconcile(){suppressRedundantSurfaces();const ready=reorder();if(ready){buildNavigation();document.documentElement.dataset.strategyLeanIa="v3"}return ready}
   function install(){
     if(document.documentElement.dataset.strategyLeanIaBound!=="1"){window.addEventListener("hashchange",activateHash);document.documentElement.dataset.strategyLeanIaBound="1"}
     [0,40,160,500,1200].forEach(delay=>setTimeout(reconcile,delay));
