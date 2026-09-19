@@ -101,9 +101,7 @@ def test_non_strategy_html_is_unchanged() -> None:
     assert inject_strategy_decision_scope_compact(html) == html
 
 
-def test_compact_decision_scope_composes_after_market_direction() -> None:
+def test_compact_decision_scope_module_is_preserved_but_not_composed_into_final_surface() -> None:
     source = inspect.getsource(inject_dashboard_ui_refinement)
-    direction = source.index("inject_strategy_market_direction(rendered)")
-    compact = source.index("inject_strategy_decision_scope_compact(rendered)")
 
-    assert direction < compact
+    assert "inject_strategy_decision_scope_compact(rendered)" not in source
