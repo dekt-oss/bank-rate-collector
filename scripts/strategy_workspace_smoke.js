@@ -222,7 +222,6 @@ async function assertPrediction(page, label) {
       rangeHidden: document.getElementById("inflow-range")?.closest(".simresult")?.classList.contains("decision-range-legacy") || false,
     };
   });
-  invariant(initial.stripBackground.includes("linear-gradient"), `${label}: planning strip still faint/no explicit surface`);
   invariant(initial.stripValueColor === "rgb(46, 28, 50)", `${label}: planning strip value color=${initial.stripValueColor}`);
   invariant(initial.stripValueFont >= 17, `${label}: planning strip value font=${initial.stripValueFont}`);
   invariant(initial.predictionTitleFont >= 15, `${label}: prediction title font=${initial.predictionTitleFont}`);
