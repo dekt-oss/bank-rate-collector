@@ -168,6 +168,9 @@ def test_final_navigation_is_explicit_and_mobile_hidden() -> None:
     assert 'window.addEventListener("hashchange",activateHash)' in rendered
     assert "IntersectionObserver" in rendered
     assert "Math.abs(hashNode.getBoundingClientRect().top)<=180" in rendered
+    assert "hashActivationTimer=setTimeout" in rendered
+    assert "},1200)" in rendered
+    assert "navLinks().some(link=>link.dataset.workspaceTarget===hashId)" in rendered
 
 
 def test_bounded_observer_handles_late_dom_and_reports_missing_contract() -> None:
