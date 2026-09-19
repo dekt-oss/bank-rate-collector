@@ -147,7 +147,8 @@ _SCRIPT = r'''
   function navLinks(){return [...document.querySelectorAll('#strategy-workspace-nav[data-lean-ia-nav="1"] a[data-workspace-target]')]}
   function setActive(id){navLinks().forEach(link=>{if(link.dataset.workspaceTarget===id)link.setAttribute("aria-current","location");else link.removeAttribute("aria-current")})}
   let hashActivationTarget="";
-  function activateHash(){const id=location.hash.slice(1),target=$(id);if(!target)return;const link=navLinks().find(item=>item.dataset.workspaceTarget===id);if(!link)return;hashActivationTarget=id;setActive(id);requestAnimationFrame(()=>{target.scrollIntoView({block:"start"});requestAnimationFrame(()=>{setActive(id);hashActivationTarget=""})})}
+  let hashActivationTimer=null;
+  function activateHash(){const id=location.hash.slice(1),target=$(id);if(!target)return;const link=navLinks().find(item=>item.dataset.workspaceTarget===id);if(!link)return;if(hashActivationTimer)clearTimeout(hashActivationTimer);hashActivationTarget=id;setActive(id);requestAnimationFrame(()=>{target.scrollIntoView({block:"start"});setActive(id)});hashActivationTimer=setTimeout(()=>{if(hashActivationTarget===id)hashActivationTarget="";hashActivationTimer=null},1200)}
   function buildNavigation(){
     let nav=$("strategy-workspace-nav");
     if(nav?.dataset.leanIaNav==="1")return nav;
@@ -183,6 +184,7 @@ _SCRIPT = r'''
     const ready=reorder();
     if(ready){
       buildNavigation();
+      const hashId=location.hash.slice(1);if(hashId&&navLinks().some(link=>link.dataset.workspaceTarget===hashId))activateHash();
       document.documentElement.dataset.strategyLeanIa="v3";
       document.documentElement.dataset.strategyLeanIaMissing="";
     }
