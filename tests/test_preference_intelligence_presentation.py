@@ -39,6 +39,8 @@ def test_preference_intelligence_panel_is_injected_once() -> None:
     assert rendered.count(STYLE_MARKER) == 1
     assert rendered.count(SCRIPT_MARKER) == 1
     assert "상품 · 우대조건 전략" in rendered
+    assert "조건 구조 근거" in rendered
+    assert 'data-contract-label="D1 Structure Evidence"' in rendered
     assert "침투율 분모는 우대조건 보유 상품입니다" in rendered
     assert 'savings_bank:"저축은행"' in rendered
     assert 'nh_local:"농·축협"' in rendered
