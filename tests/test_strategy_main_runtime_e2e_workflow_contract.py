@@ -5,6 +5,7 @@ WORKFLOW = ROOT / ".github" / "workflows" / "strategy-main-runtime-e2e.yml"
 SMOKE = ROOT / "scripts" / "strategy_main_runtime_external_context_smoke.js"
 PREVIEW_SMOKE = ROOT / "scripts" / "strategy_preview_smoke.js"
 WORKSPACE_SMOKE = ROOT / "scripts" / "strategy_workspace_smoke.js"
+DENSITY_SMOKE = ROOT / "scripts" / "strategy_lean_ia_density_smoke.js"
 MAIN_MAP_SMOKE = ROOT / "scripts" / "main_map_runtime_smoke.js"
 BRAND_SPEC = ROOT / "docs" / "specs" / "20260819-strategy-brand-visual-system-v3.md"
 
@@ -30,6 +31,11 @@ def test_strategy_main_runtime_e2e_is_isolated_and_observable() -> None:
     assert "strategy_main_runtime_external_context_smoke.js" in text
     assert "strategy_preview_smoke.js" in text
     assert "strategy_workspace_smoke.js" in text
+    assert "strategy_lean_ia_density_smoke.js" in text
+    assert "work/site-public-main-baseline" in text
+    assert "git worktree add --detach work/main-baseline" in text
+    assert "STRATEGY_DENSITY_MIN_REDUCTION_PCT=20" in text
+    assert "work/strategy-lean-ia-density-metrics.json" in text
     assert "strategy_workspace_presentation.py" in text
     assert "strategy_brand_theme_presentation.py" in text
     assert "test_strategy_brand_theme_presentation.py" in text
@@ -157,3 +163,16 @@ def test_strategy_brand_visual_spec_locks_palette_typography_and_scope() -> None
     assert "Pretendard Variable" in text
     assert "analytical microcopy: 10.5px 미만 금지" in text
     assert "Production Strategy Release Gate ON" in text
+
+
+def test_strategy_lean_ia_density_smoke_compares_same_snapshot_main_and_candidate() -> None:
+    text = DENSITY_SMOKE.read_text(encoding="utf-8")
+
+    assert "strategy-lean-ia-density-metrics.json" in text
+    assert "strategy-density-baseline-" in text
+    assert "strategy-density-candidate-" in text
+    assert "scrollHeight" in text
+    assert "reductionPct" in text
+    assert 'STRATEGY_DENSITY_MIN_REDUCTION_PCT || "20"' in text
+    assert 'html[data-strategy-lean-ia="v3"]' in text
+    assert "candidate horizontal overflow" in text
