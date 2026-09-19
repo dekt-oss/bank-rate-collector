@@ -156,6 +156,10 @@ async function assertDecisionIA(page, label) {
       regionMapHidden: !regionMap || !visible(regionMap),
       navItems,
       navVisible: visible(nav),
+      coreSimulatorVisible: visible(document.getElementById("sim-form")),
+      institutionDetailClosed: Boolean(document.getElementById("lean-institution-detail") && !document.getElementById("lean-institution-detail").open),
+      preferenceDetailClosed: Boolean(document.getElementById("lean-preference-detail") && !document.getElementById("lean-preference-detail").open),
+      specialDetailClosed: Boolean(document.getElementById("lean-special-detail") && !document.getElementById("lean-special-detail").open),
       scrollWidth: document.documentElement.scrollWidth,
       clientWidth: document.documentElement.clientWidth,
     };
@@ -167,6 +171,18 @@ async function assertDecisionIA(page, label) {
   invariant(JSON.stringify(result.top5Headers) === JSON.stringify(["순위", "업권", "금융사 / 상품", "최고금리"]), label + ": TOP5 visible headers=" + JSON.stringify(result.top5Headers));
   invariant(result.bankFont >= 13 && result.strongRateFont >= 15, label + ": TOP5 readability bank=" + result.bankFont + " rate=" + result.strongRateFont);
   invariant(result.eventTileHidden && result.duplicateHidden.every(Boolean), label + ": redundant/event surfaces remain visible " + JSON.stringify(result.duplicateHidden));
+  invariant(
+    result.coreSimulatorVisible
+      && result.institutionDetailClosed
+      && result.preferenceDetailClosed
+      && result.specialDetailClosed,
+    label + ": progressive disclosure defaults wrong " + JSON.stringify({
+      coreSimulator: result.coreSimulatorVisible,
+      institution: result.institutionDetailClosed,
+      preference: result.preferenceDetailClosed,
+      special: result.specialDetailClosed,
+    }),
+  );
   invariant(result.handoffVisible && result.handoffHref === "./" && result.regionMapHidden, label + ": Search region handoff contract broken");
   const expectedNav = [
     ["시장 자금환경", "external-market-context"],

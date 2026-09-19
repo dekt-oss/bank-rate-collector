@@ -144,7 +144,8 @@ def test_planning_event_tile_is_hidden_but_owner_dom_is_preserved() -> None:
     assert 'planning?.classList.add("workspace-decision")' in rendered
     assert 'const planningShell=planning?.closest(".workspace-decision")||planning' in rendered
     assert 'cursor=moveAfter(designLabel,cursor);cursor=moveAfter(planningShell,cursor)' in rendered
-    assert '@media(max-width:480px){.workspace-decision .planning-strip{grid-template-columns:1fr!important}}' in rendered
+    assert "@media(max-width:480px){" in rendered
+    assert ".workspace-decision .planning-strip{grid-template-columns:1fr!important}" in rendered
     assert "remove()" not in rendered.split(SCRIPT_MARKER, 1)[1].split("function buildNavigation", 1)[0]
 
 
@@ -171,6 +172,11 @@ def test_final_navigation_is_explicit_and_mobile_hidden() -> None:
     assert "hashActivationTimer=setTimeout" in rendered
     assert "},1200)" in rendered
     assert "navLinks().some(link=>link.dataset.workspaceTarget===hashId)" in rendered
+    assert '"lean-institution-detail"' in rendered
+    assert 'compactPlanning' not in rendered
+    assert '"lean-preference-detail"' in rendered
+    assert '"lean-special-detail"' in rendered
+    assert "compactSecondarySurfaces();" in rendered
 
 
 def test_bounded_observer_handles_late_dom_and_reports_missing_contract() -> None:
