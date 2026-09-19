@@ -53,8 +53,6 @@ async function measure(browser, label, viewport) {
       "#preference-intelligence",
       "#special-offer-radar",
       "#scope-evidence",
-      "#lean-planning-headline",
-      "#lean-planning-detail",
       "#lean-institution-detail",
       "#lean-preference-detail",
       "#lean-special-detail",
