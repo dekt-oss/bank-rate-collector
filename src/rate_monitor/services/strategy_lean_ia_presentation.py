@@ -144,10 +144,44 @@ _SCRIPT = r'''
     const hash=location.hash.slice(1);if(hash&&links.some(link=>link.dataset.workspaceTarget===hash))activateHash();else setActive(links[0].dataset.workspaceTarget);
     return nav;
   }
-  function reconcile(){suppressRedundantSurfaces();const ready=reorder();if(ready){buildNavigation();document.documentElement.dataset.strategyLeanIa="v3"}return ready}
+  let lateDomObserver=null;
+  let lateDomTimer=null;
+  function requiredDomState(){
+    const nodes={
+      kpis:first(".grid.kpis"),marketIntel:$("market-intelligence"),marketFlow:$("market-flow"),
+      planning:$("planning-zone"),external:$("external-market-context"),funding:$("market-funding-competition"),
+      pref:$("preference-intelligence"),special:$("special-offer-radar"),evidence:$("scope-evidence"),
+      top5:first(".top5-card"),institution:$("institution-funding-position"),handoff:first(".ux-region-handoff"),
+    };
+    const missing=Object.entries(nodes).filter(([,node])=>!node||!node.isConnected).map(([key])=>key);
+    document.documentElement.dataset.strategyLeanIaMissing=missing.join(",");
+    return missing;
+  }
+  function reconcile(){
+    suppressRedundantSurfaces();
+    const missing=requiredDomState();
+    if(missing.length)return false;
+    const ready=reorder();
+    if(ready){
+      buildNavigation();
+      document.documentElement.dataset.strategyLeanIa="v3";
+      document.documentElement.dataset.strategyLeanIaMissing="";
+      lateDomObserver?.disconnect();
+      lateDomObserver=null;
+      if(lateDomTimer){clearTimeout(lateDomTimer);lateDomTimer=null}
+    }
+    return ready;
+  }
+  function observeLateDom(){
+    if(lateDomObserver||!("MutationObserver" in window)||!document.body)return;
+    lateDomObserver=new MutationObserver(()=>{if(reconcile())lateDomObserver?.disconnect()});
+    lateDomObserver.observe(document.body,{childList:true,subtree:true});
+    lateDomTimer=setTimeout(()=>{lateDomObserver?.disconnect();lateDomObserver=null;lateDomTimer=null;reconcile()},10000);
+  }
   function install(){
     if(document.documentElement.dataset.strategyLeanIaBound!=="1"){window.addEventListener("hashchange",activateHash);document.documentElement.dataset.strategyLeanIaBound="1"}
-    [0,40,160,500,1200].forEach(delay=>setTimeout(reconcile,delay));
+    [0,40,160,500,1200,3000,6000].forEach(delay=>setTimeout(reconcile,delay));
+    observeLateDom();
     reconcile();
   }
   if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",install,{once:true});else install();
