@@ -47,7 +47,7 @@ async function loadPage(browser, viewport) {
   const response = await page.goto(`${baseUrl}/strategy.html`, { waitUntil: "networkidle" });
   invariant(response && response.ok(), `strategy.html HTTP ${response ? response.status() : "no response"}`);
   await page.waitForSelector(
-    'html[data-strategy-workspace="decision-first-v1"][data-strategy-theme="light-v1"][data-strategy-palette="main-brand-v2"][data-strategy-decision-evidence-refinement="v1"]',
+    'html[data-strategy-workspace="market-first-v2"][data-strategy-lean-ia="v3"][data-strategy-theme="light-v1"][data-strategy-palette="main-brand-v2"][data-strategy-decision-evidence-refinement="v1"]',
     { timeout: 30_000 },
   );
   return { context, page, runtimeErrors };
@@ -57,76 +57,150 @@ async function assertNavigation(browser, strategyPage, viewport, label) {
   const context = await browser.newContext({ viewport });
   const page = await context.newPage();
   await page.route("**/favicon.ico", (route) => route.fulfill({ status: 204, body: "" }));
-  const response = await page.goto(`${baseUrl}/`, { waitUntil: "domcontentloaded" });
-  invariant(response && response.ok(), `${label}: index HTTP failure`);
+  const response = await page.goto(baseUrl + "/", { waitUntil: "domcontentloaded" });
+  invariant(response && response.ok(), label + ": index HTTP failure");
   await page.waitForSelector("header.top > .page-nav", { timeout: 30_000 });
   const main = await page.locator("header.top > .page-nav a").allTextContents();
   const strategy = await strategyPage.locator("header.topbar > .nav a").allTextContents();
-  invariant(JSON.stringify(main.map((x) => x.trim())) === JSON.stringify(["검색 조회", "전략 대시보드"]), `${label}: main nav=${main}`);
-  invariant(JSON.stringify(strategy.map((x) => x.trim())) === JSON.stringify(["검색 조회", "전략 대시보드"]), `${label}: strategy nav=${strategy}`);
+  invariant(JSON.stringify(main.map((x) => x.trim())) === JSON.stringify(["검색 조회", "전략 대시보드"]), label + ": main nav=" + main);
+  invariant(JSON.stringify(strategy.map((x) => x.trim())) === JSON.stringify(["검색 조회", "전략 대시보드"]), label + ": strategy nav=" + strategy);
+
+  if (label === "desktop") {
+    const direct = await context.newPage();
+    await direct.route("**/favicon.ico", (route) => route.fulfill({ status: 204, body: "" }));
+    const directResponse = await direct.goto(baseUrl + "/strategy.html#workspace-competitor-position", { waitUntil: "networkidle" });
+    invariant(directResponse && directResponse.ok(), label + ": direct-hash HTTP failure");
+    await direct.waitForSelector('html[data-strategy-lean-ia="v3"]', { timeout: 30_000 });
+    await direct.waitForFunction(() => location.hash === "#workspace-competitor-position");
+    const directState = await direct.evaluate(() => ({
+      target: Boolean(document.getElementById("workspace-competitor-position")),
+      current: document.querySelector('#strategy-workspace-nav a[aria-current="location"]')?.dataset.workspaceTarget || "",
+    }));
+    invariant(directState.target && directState.current === "workspace-competitor-position", label + ": direct hash did not activate competitor target " + JSON.stringify(directState));
+    await direct.close();
+  }
   await context.close();
 }
 
 async function assertDecisionIA(page, label) {
   const result = await page.evaluate(() => {
     const precedes = (a, b) => Boolean(a && b && (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING));
-    const marketDirection = document.querySelector(".strategy-market-direction");
-    const readiness = document.querySelector(".ux-decision-readiness");
-    const top5 = document.querySelector(".decision-integrated-top5");
-    const secondary = document.querySelector("details.strategy-secondary-insights");
-    const insight = secondary?.querySelector(".decision-integrated-insight") || document.querySelector(".decision-integrated-insight");
+    const visible = (node) => Boolean(node && !node.hidden && getComputedStyle(node).display !== "none" && getComputedStyle(node).visibility !== "hidden");
+    const external = document.getElementById("external-market-context");
+    const funding = document.getElementById("market-funding-competition");
+    const marketLabel = document.getElementById("workspace-label-market");
+    const kpis = document.querySelector(".grid.kpis");
+    const marketIntel = document.getElementById("market-intelligence");
+    const marketFlow = document.getElementById("market-flow");
+    const designLabel = document.getElementById("workspace-label-design");
     const planning = document.getElementById("planning-zone");
+    const competitor = document.getElementById("workspace-competitor-position");
+    const top5 = competitor?.querySelector(".top5-card");
+    const institution = competitor?.querySelector("#institution-funding-position");
+    const handoff = document.querySelector(".ux-region-handoff");
     const productLabel = document.getElementById("workspace-label-product");
     const preference = document.getElementById("preference-intelligence");
-    const hiddenLegacy = document.querySelector(".workspace-insights");
-    const hiddenDetail = document.querySelector(".workspace-detail.primary");
-    const handoff = document.querySelector(".ux-region-handoff");
-    const menuLabels = [...document.querySelectorAll(".ux-decision-menu .ux-decision-step-copy b")].map((x) => x.textContent.trim());
+    const special = document.getElementById("special-offer-radar");
+    const evidence = document.getElementById("scope-evidence");
+    const nav = document.querySelector('#strategy-workspace-nav[data-lean-ia-nav="1"]');
+    const navItems = [...(nav?.querySelectorAll("a[data-workspace-target]") || [])].map((link) => [link.textContent.trim(), link.dataset.workspaceTarget]);
+    const top5Headers = [...(top5?.querySelectorAll("thead th") || [])].filter(visible).map((node) => node.textContent.trim());
+    const bank = top5?.querySelector(".bank");
+    const strongRate = top5?.querySelector(".strongrate");
+    const eventTile = document.getElementById("plan-flow")?.parentElement;
+    const regionMap = document.querySelector(".workspace-detail.primary .mapcard");
+    const fundingStrip = funding?.querySelector(".funding-market-strip");
+    const fundingDetail = funding?.querySelector(".funding-analysis-grid");
+    const hidden = (selector) => {
+      const node = document.querySelector(selector);
+      return !node || !visible(node);
+    };
     return {
       order: [
-        precedes(marketDirection, readiness),
-        precedes(readiness, top5),
-        precedes(top5, secondary),
-        precedes(secondary, planning),
+        precedes(external, funding),
+        precedes(funding, marketLabel),
+        precedes(marketLabel, kpis),
+        precedes(kpis, marketIntel),
+        precedes(marketIntel, marketFlow),
+        precedes(marketFlow, designLabel),
+        precedes(designLabel, planning),
+        precedes(planning, competitor),
+        precedes(competitor, productLabel),
+        precedes(productLabel, preference),
+        !special || precedes(preference, special),
+        !evidence || !special || precedes(special, evidence),
       ],
-      insightInSecondary: Boolean(secondary && insight && insight.closest("details.strategy-secondary-insights") === secondary),
-      secondaryOpen: Boolean(secondary?.open),
-      secondarySummary: secondary?.querySelector("summary")?.textContent.trim() || "",
-      menuLabels,
-      insightTitle: insight?.querySelector(".head h2")?.textContent.trim() || "",
-      insightTags: [...(insight?.querySelectorAll(".insight em") || [])].map((x) => x.textContent.trim()),
-      productTitle: productLabel?.querySelector("strong")?.textContent.trim() || "",
-      productBeforePreference: precedes(productLabel, preference),
-      legacyHidden: Boolean(hiddenLegacy?.hidden),
-      detailHidden: Boolean(hiddenDetail?.hidden),
-      handoffVisible: Boolean(handoff && !handoff.hidden),
+      externalVisible: visible(external),
+      fundingVisible: visible(funding),
+      fundingStripVisible: visible(fundingStrip),
+      fundingDetailHidden: !fundingDetail || !visible(fundingDetail),
+      competitorVisible: visible(competitor),
+      top5InWrapper: Boolean(top5 && top5.closest("#workspace-competitor-position") === competitor),
+      institutionInWrapper: Boolean(institution && institution.closest("#workspace-competitor-position") === competitor),
+      top5Headers,
+      bankFont: bank ? parseFloat(getComputedStyle(bank).fontSize) : 0,
+      strongRateFont: strongRate ? parseFloat(getComputedStyle(strongRate).fontSize) : 0,
+      eventTileHidden: Boolean(eventTile && !visible(eventTile)),
+      duplicateHidden: [
+        hidden("#market-flow details.changes"),
+        hidden(".strategy-market-direction"),
+        hidden(".ux-decision-readiness"),
+        hidden(".ux-decision-menu"),
+        hidden(".decision-integrated-insight"),
+        hidden("#workspace-detail-disclosure"),
+        hidden("#relative-pricing-r1"),
+        hidden("#rate-funding-matrix"),
+      ],
+      handoffVisible: visible(handoff),
       handoffHref: handoff?.querySelector("a")?.getAttribute("href") || "",
+      regionMapHidden: !regionMap || !visible(regionMap),
+      navItems,
+      navVisible: visible(nav),
       scrollWidth: document.documentElement.scrollWidth,
       clientWidth: document.documentElement.clientWidth,
     };
   });
-  invariant(
-    result.order.every(Boolean),
-    `${label}: market -> readiness -> TOP5 -> secondary insight -> planning order=${result.order}`,
-  );
-  invariant(
-    JSON.stringify(result.menuLabels) === JSON.stringify(["시장 방향", "경쟁사 TOP5", "세부 비교", "자동추천 범위"]),
-    `${label}: decision menu labels/order=${result.menuLabels}`,
-  );
-  invariant(result.insightInSecondary && !result.secondaryOpen, `${label}: detailed insight must start collapsed after TOP5`);
-  invariant(result.secondarySummary === "세부 인사이트", `${label}: secondary insight summary=${result.secondarySummary}`);
-  invariant(result.insightTitle === "세부 시장 인사이트", `${label}: insight title=${result.insightTitle}`);
-  invariant(!result.insightTags.includes("저축은행 시장 방향") && !result.insightTags.includes("당사 위치"), `${label}: duplicated decision insight remains=${result.insightTags}`);
-  invariant(result.productTitle === "상품·우대조건 설계" && result.productBeforePreference, `${label}: product section label/order wrong`);
-  invariant(result.legacyHidden && result.detailHidden, `${label}: duplicated legacy/detail shell not hidden`);
-  invariant(result.handoffVisible && result.handoffHref === "./", `${label}: Search 지역 상세 handoff가 유지되지 않음`);
-  invariant(result.scrollWidth <= result.clientWidth + 1, `${label}: horizontal overflow ${result.scrollWidth} > ${result.clientWidth}`);
+
+  invariant(result.order.every(Boolean), label + ": Lean IA order=" + JSON.stringify(result.order));
+  invariant(result.externalVisible && result.fundingVisible && result.fundingStripVisible && result.fundingDetailHidden, label + ": market funding environment visibility wrong " + JSON.stringify(result));
+  invariant(result.competitorVisible && result.top5InWrapper && result.institutionInWrapper, label + ": competitor wrapper composition wrong " + JSON.stringify(result));
+  invariant(JSON.stringify(result.top5Headers) === JSON.stringify(["순위", "업권", "금융사 / 상품", "최고금리"]), label + ": TOP5 visible headers=" + JSON.stringify(result.top5Headers));
+  invariant(result.bankFont >= 13 && result.strongRateFont >= 15, label + ": TOP5 readability bank=" + result.bankFont + " rate=" + result.strongRateFont);
+  invariant(result.eventTileHidden && result.duplicateHidden.every(Boolean), label + ": redundant/event surfaces remain visible " + JSON.stringify(result.duplicateHidden));
+  invariant(result.handoffVisible && result.handoffHref === "./" && result.regionMapHidden, label + ": Search region handoff contract broken");
+  const expectedNav = [
+    ["시장 자금환경", "external-market-context"],
+    ["업권 수신 흐름", "market-funding-competition"],
+    ["시장 금리 방향", "market-intelligence"],
+    ["12개월 시장 추이", "workspace-market-trend"],
+    ["신상품 금리 시뮬레이션", "planning-zone"],
+    ["경쟁사 · 기관 포지션", "workspace-competitor-position"],
+    ["우대조건 · 상품구조", "preference-intelligence"],
+    ["특판 · 시장기회", "special-offer-radar"],
+  ];
+  invariant(JSON.stringify(result.navItems) === JSON.stringify(expectedNav), label + ": Lean nav items=" + JSON.stringify(result.navItems));
+  invariant(label === "desktop" ? result.navVisible : !result.navVisible, label + ": floating nav responsive visibility=" + result.navVisible);
+  invariant(result.scrollWidth <= result.clientWidth + 1, label + ": horizontal overflow " + result.scrollWidth + " > " + result.clientWidth);
+
+  if (label === "desktop") {
+    await page.locator('#strategy-workspace-nav a[data-workspace-target="workspace-competitor-position"]').click();
+    await page.waitForFunction(() => location.hash === "#workspace-competitor-position");
+    await page.locator('#strategy-workspace-nav a[data-workspace-target="external-market-context"]').click();
+    await page.waitForFunction(() => location.hash === "#external-market-context");
+    await page.evaluate(() => history.back());
+    await page.waitForFunction(() => location.hash === "#workspace-competitor-position");
+    await page.evaluate(() => history.forward());
+    await page.waitForFunction(() => location.hash === "#external-market-context");
+    const active = await page.locator('#strategy-workspace-nav a[aria-current="location"]').getAttribute("data-workspace-target");
+    invariant(active === "external-market-context", label + ": back/forward active target=" + active);
+  }
 }
 
 async function assertPrediction(page, label) {
   const initial = await page.evaluate(() => {
-    const planning = document.querySelector(".workspace-decision");
-    const strip = planning?.querySelector(".planning-strip>div");
+    const planning = document.getElementById("planning-zone");
+    const strip = [...(planning?.querySelectorAll(".planning-strip>div") || [])]
+      .find((node) => !node.hidden && getComputedStyle(node).display !== "none");
     const stripValue = strip?.querySelector("b");
     const predictionTitle = planning?.querySelector(".prediction-head b");
     const inputLabel = planning?.querySelector(".predict-inputs label");
@@ -148,9 +222,7 @@ async function assertPrediction(page, label) {
       rangeHidden: document.getElementById("inflow-range")?.closest(".simresult")?.classList.contains("decision-range-legacy") || false,
     };
   });
-  invariant(initial.stripBackground.includes("linear-gradient"), `${label}: planning strip still faint/no explicit surface`);
-  invariant(initial.stripValueColor === "rgb(46, 28, 50)", `${label}: planning strip value color=${initial.stripValueColor}`);
-  invariant(initial.stripValueFont >= 17, `${label}: planning strip value font=${initial.stripValueFont}`);
+  invariant(initial.stripValueFont >= 15, `${label}: planning strip visible value font=${initial.stripValueFont}`);
   invariant(initial.predictionTitleFont >= 15, `${label}: prediction title font=${initial.predictionTitleFont}`);
   invariant(initial.inputLabelFont >= 12, `${label}: prediction input label font=${initial.inputLabelFont}`);
   invariant(initial.formulaExists && initial.formulaOpen && initial.formulaText.includes("rate_steps"), `${label}: formula detail missing/not open`);
@@ -194,6 +266,7 @@ async function assertMarketEvidence(page, label) {
   const result = await page.evaluate(() => {
     const external = document.getElementById("external-market-context");
     const precedes = (a, b) => Boolean(a && b && (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING));
+    const visible = (node) => Boolean(node && !node.hidden && getComputedStyle(node).display !== "none");
     const flowHead = external?.querySelector(".decision-external-heading:not(.secondary)");
     const flows = external?.querySelector(".external-context-flows");
     const rateHead = external?.querySelector(".decision-external-heading.secondary");
@@ -204,6 +277,7 @@ async function assertMarketEvidence(page, label) {
     const breadth = marketIntel?.querySelector(".market-intel-breadth span:last-child")?.textContent || "";
     const marketBasis = marketIntel?.querySelector(".decision-evidence-basis")?.textContent || "";
     const changes = document.querySelector("#market-flow details.changes");
+    const payload = JSON.parse(document.getElementById("rate-monitor-data")?.textContent || "{}");
     return {
       flowBeforeRate: precedes(flowHead, flows) && precedes(flows, rateHead) && precedes(rateHead, rates),
       externalText: external?.textContent || "",
@@ -211,29 +285,23 @@ async function assertMarketEvidence(page, label) {
       marketCopy,
       breadth,
       marketBasis,
-      changesOpen: Boolean(changes?.open),
-      changesText: changes?.textContent || "",
+      changesPresent: Boolean(changes),
+      changesHidden: Boolean(changes && !visible(changes)),
+      marketChangesPresent: Boolean(payload.strategy?.market_changes),
     };
   });
-  invariant(result.flowBeforeRate, `${label}: external flow/rate evidence order wrong`);
-  invariant(result.externalText.includes("공식 월간통계 최신 공표월"), `${label}: source publication month copy missing`);
-  invariant(result.externalText.includes("추정·보간하지 않습니다"), `${label}: no-interpolation boundary missing`);
-  invariant(result.rateLabels.some((x) => x.includes("순수저축성예금 신규취급액 가중평균")), `${label}: weighted new-business rate label missing`);
-  invariant(result.rateLabels.some((x) => x.includes("1년 정기예금 신규취급액 가중평균")), `${label}: 1y weighted new-business rate label missing`);
-  invariant(result.marketCopy.includes("동일 stable product") && result.marketCopy.includes("별도 Evidence"), `${label}: snapshot/event distinction missing`);
-  invariant(result.marketBasis.includes("snapshot"), `${label}: market intelligence basis missing`);
-  invariant(!result.breadth.includes("churn"), `${label}: internal churn jargon leaked=${result.breadth}`);
+  invariant(result.flowBeforeRate, label + ": external flow/rate evidence order wrong");
+  invariant(result.externalText.includes("공식 월간통계 최신 공표월"), label + ": source publication month copy missing");
+  invariant(result.externalText.includes("추정·보간하지 않습니다"), label + ": no-interpolation boundary missing");
+  invariant(result.rateLabels.some((x) => x.includes("순수저축성예금 신규취급액 가중평균")), label + ": weighted new-business rate label missing");
+  invariant(result.rateLabels.some((x) => x.includes("1년 정기예금 신규취급액 가중평균")), label + ": 1y weighted new-business rate label missing");
+  invariant(result.marketCopy.includes("동일 stable product") && result.marketCopy.includes("별도 Evidence"), label + ": snapshot/event distinction missing");
+  invariant(result.marketBasis.includes("snapshot"), label + ": market intelligence basis missing");
+  invariant(!result.breadth.includes("churn"), label + ": internal churn jargon leaked=" + result.breadth);
   if (result.breadth) {
-    invariant(result.breadth.includes("인상") && result.breadth.includes("인하") && result.breadth.includes("이동없음") && result.breadth.includes("상위 10% 구성 교체율"), `${label}: participation counts/turnover missing=${result.breadth}`);
+    invariant(result.breadth.includes("인상") && result.breadth.includes("인하") && result.breadth.includes("이동없음") && result.breadth.includes("상위 10% 구성 교체율"), label + ": participation counts/turnover missing=" + result.breadth);
   }
-  invariant(result.changesOpen && result.changesText.includes("상품변경 이벤트") && result.changesText.includes("별도 지표"), `${label}: recent event panel default-open/basis missing`);
-
-  const details = page.locator("#market-flow details.changes");
-  await details.locator("summary").click();
-  await page.waitForTimeout(100);
-  invariant(!(await details.evaluate((node) => node.open)), `${label}: 사용자가 최근 시장 이벤트를 접을 수 없음`);
-  await page.waitForTimeout(100);
-  invariant(!(await details.evaluate((node) => node.open)), `${label}: 접은 최근 시장 이벤트가 자동으로 다시 열림`);
+  invariant(result.changesPresent && result.changesHidden && result.marketChangesPresent, label + ": market_changes owner contract must remain while event panel stays hidden " + JSON.stringify(result));
 }
 
 async function assertTrend(page, label) {

@@ -90,9 +90,9 @@ def test_top5_compact_is_noop_outside_strategy() -> None:
     assert inject_strategy_top5_compact(html) == html
 
 
-def test_top5_compact_composes_after_decision_navigation() -> None:
+def test_top5_compact_composes_before_final_lean_ia() -> None:
     source = inspect.getsource(inject_dashboard_ui_refinement)
-    nav = source.index("inject_strategy_decision_scope_compact(rendered)")
     top5 = source.index("inject_strategy_top5_compact(rendered)")
+    lean = source.index("inject_strategy_lean_ia(rendered)")
 
-    assert nav < top5
+    assert top5 < lean

@@ -5,6 +5,7 @@ WORKFLOW = ROOT / ".github" / "workflows" / "strategy-main-runtime-e2e.yml"
 SMOKE = ROOT / "scripts" / "strategy_main_runtime_external_context_smoke.js"
 PREVIEW_SMOKE = ROOT / "scripts" / "strategy_preview_smoke.js"
 WORKSPACE_SMOKE = ROOT / "scripts" / "strategy_workspace_smoke.js"
+DENSITY_SMOKE = ROOT / "scripts" / "strategy_lean_ia_density_smoke.js"
 MAIN_MAP_SMOKE = ROOT / "scripts" / "main_map_runtime_smoke.js"
 BRAND_SPEC = ROOT / "docs" / "specs" / "20260819-strategy-brand-visual-system-v3.md"
 
@@ -30,6 +31,11 @@ def test_strategy_main_runtime_e2e_is_isolated_and_observable() -> None:
     assert "strategy_main_runtime_external_context_smoke.js" in text
     assert "strategy_preview_smoke.js" in text
     assert "strategy_workspace_smoke.js" in text
+    assert "strategy_lean_ia_density_smoke.js" in text
+    assert "work/site-public-main-baseline" in text
+    assert "git worktree add --detach work/main-baseline" in text
+    assert "STRATEGY_DENSITY_MIN_REDUCTION_PCT=20" in text
+    assert "work/strategy-lean-ia-density-metrics.json" in text
     assert "strategy_workspace_presentation.py" in text
     assert "strategy_brand_theme_presentation.py" in text
     assert "test_strategy_brand_theme_presentation.py" in text
@@ -105,7 +111,9 @@ def test_strategy_preview_smoke_uses_search_handoff_instead_of_hidden_map() -> N
     assert "assertStrategyRoleSplit" in text
     assert "Strategy 지역 지도는 검색 조회로 이관되어 숨겨져야 함" in text
     assert "지역·지도 상세는 검색 조회로 통합했습니다." in text
-    assert "금리결정 준비도 카드가 보이지 않음" in text
+    assert "구 금리결정 준비도 카드는 DOM을 보존하되 숨겨져야 함" in text
+    assert "최근 30일 변경 이벤트 패널이 노출됨" in text
+    assert "경쟁사 · 기관 포지션 wrapper가 보이지 않음" in text
     assert "Strategy 보고서 출력 버튼이 보이지 않음" in text
     assert 'data-market-mode="combined"' in text
     assert "기본 비교모드가 저축은행 + 상호금융이 아님" in text
@@ -113,16 +121,20 @@ def test_strategy_preview_smoke_uses_search_handoff_instead_of_hidden_map() -> N
     assert '[data-map-sector="' not in text
 
 
-def test_strategy_workspace_smoke_locks_decision_first_order_and_role_split() -> None:
+def test_strategy_workspace_smoke_locks_lean_ia_order_and_role_split() -> None:
     text = WORKSPACE_SMOKE.read_text(encoding="utf-8")
 
-    assert "market -> readiness -> TOP5 -> secondary insight -> planning order=" in text
-    assert "product section label/order wrong" in text
-    assert "duplicated legacy/detail shell not hidden" in text
-    assert "Search 지역 상세 handoff가 유지되지 않음" in text
-    assert "model evidence should start collapsed" in text
+    assert "Lean IA order=" in text
+    assert "market funding environment visibility wrong" in text
+    assert "competitor wrapper composition wrong" in text
+    assert "TOP5 visible headers=" in text
+    assert "redundant/event surfaces remain visible" in text
+    assert "Search region handoff contract broken" in text
+    assert "direct hash did not activate competitor target" in text
+    assert "back/forward active target=" in text
     assert "horizontal overflow" in text
-    assert 'data-strategy-workspace="decision-first-v1"' in text
+    assert 'data-strategy-workspace="market-first-v2"' in text
+    assert 'data-strategy-lean-ia="v3"' in text
     assert 'data-strategy-palette="main-brand-v2"' in text
     assert "assertVisualRuntimeContracts" in text
     assert "computed brand accent=" in text
@@ -151,3 +163,16 @@ def test_strategy_brand_visual_spec_locks_palette_typography_and_scope() -> None
     assert "Pretendard Variable" in text
     assert "analytical microcopy: 10.5px 미만 금지" in text
     assert "Production Strategy Release Gate ON" in text
+
+
+def test_strategy_lean_ia_density_smoke_compares_same_snapshot_main_and_candidate() -> None:
+    text = DENSITY_SMOKE.read_text(encoding="utf-8")
+
+    assert "strategy-lean-ia-density-metrics.json" in text
+    assert "strategy-density-baseline-" in text
+    assert "strategy-density-candidate-" in text
+    assert "scrollHeight" in text
+    assert "reductionPct" in text
+    assert 'STRATEGY_DENSITY_MIN_REDUCTION_PCT || "20"' in text
+    assert 'html[data-strategy-lean-ia="v3"]' in text
+    assert "candidate horizontal overflow" in text

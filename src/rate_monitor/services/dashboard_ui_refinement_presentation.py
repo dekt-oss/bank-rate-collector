@@ -45,14 +45,11 @@ from rate_monitor.services.rate_funding_matrix_presentation import (
 from rate_monitor.services.relative_pricing_presentation import (
     inject_relative_pricing_presentation,
 )
-from rate_monitor.services.strategy_decision_scope_compact_presentation import (
-    inject_strategy_decision_scope_compact,
-)
 from rate_monitor.services.strategy_first_screen_ux_presentation import (
     inject_strategy_first_screen_ux,
 )
-from rate_monitor.services.strategy_market_direction_presentation import (
-    inject_strategy_market_direction,
+from rate_monitor.services.strategy_lean_ia_presentation import (
+    inject_strategy_lean_ia,
 )
 from rate_monitor.services.strategy_mobile_responsive_presentation import (
     inject_strategy_mobile_responsive,
@@ -101,10 +98,9 @@ def inject_dashboard_ui_refinement(html: str) -> str:
     # 화면이나 bare template에는 주입하지 않아 기존 화면 계약을 건드리지 않는다.
     if 'id="rate-response-cockpit-script"' in rendered:
         rendered = inject_relative_pricing_presentation(rendered)
-    # fixed-width 회귀를 정리한 뒤 첫 화면 UX → factual 시장방향 → 4단계
-    # 의사결정 메뉴 → sector-aware TOP5 순으로 합성해 최종 정보 위계를 고정한다.
+    # Late Strategy presentation을 모두 합성한 뒤 TOP5를 보강하고,
+    # Lean IA reconciler가 최종 DOM 순서·중복 억제·navigation을 확정한다.
     rendered = inject_strategy_mobile_responsive(rendered)
     rendered = inject_strategy_first_screen_ux(rendered)
-    rendered = inject_strategy_market_direction(rendered)
-    rendered = inject_strategy_decision_scope_compact(rendered)
-    return inject_strategy_top5_compact(rendered)
+    rendered = inject_strategy_top5_compact(rendered)
+    return inject_strategy_lean_ia(rendered)

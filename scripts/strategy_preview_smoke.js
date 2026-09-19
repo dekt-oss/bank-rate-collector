@@ -32,6 +32,26 @@ async function waitForDashboard(page) {
     { timeout: 30_000 },
   );
   invariant(await page.locator("#error").isHidden(), "strategy runtime error banner is visible");
+  try {
+    await page.waitForSelector('html[data-strategy-lean-ia="v3"]', { timeout: 30_000 });
+  } catch (error) {
+    const leanDiagnostic = await page.evaluate(() => {
+      const ids = [
+        "market-intelligence", "market-flow", "planning-zone", "external-market-context",
+        "market-funding-competition", "preference-intelligence", "special-offer-radar",
+        "scope-evidence", "institution-funding-position",
+      ];
+      return {
+        missing: document.documentElement.dataset.strategyLeanIaMissing || "",
+        lean: document.documentElement.dataset.strategyLeanIa || "",
+        top5: Boolean(document.querySelector(".top5-card")),
+        kpis: Boolean(document.querySelector(".grid.kpis")),
+        handoff: Boolean(document.querySelector(".ux-region-handoff")),
+        ids: Object.fromEntries(ids.map((id) => [id, Boolean(document.getElementById(id))])),
+      };
+    });
+    throw new Error("Lean IA ready timeout: " + JSON.stringify(leanDiagnostic) + "\n" + (error.stack || error));
+  }
 }
 
 async function selectMode(page, mode, expectedLabel) {
@@ -167,8 +187,16 @@ async function assertStrategyRoleSplit(page, label) {
   invariant(await handoff.locator("a").getAttribute("href") === "./", `${label}: 지역 상세 handoff 링크가 검색 조회를 가리키지 않음`);
 
   const readiness = page.locator(".ux-decision-readiness");
-  invariant(await readiness.count() === 1 && await readiness.isVisible(), `${label}: 금리결정 준비도 카드가 보이지 않음`);
-  invariant((await readiness.textContent()).includes("최종 최적금리 자동추천"), `${label}: calibration 전 의사결정 경계가 표시되지 않음`);
+  invariant(await readiness.count() === 1 && await readiness.isHidden(), `${label}: 구 금리결정 준비도 카드는 DOM을 보존하되 숨겨져야 함`);
+  invariant(await page.locator("#market-flow details.changes").isHidden(), `${label}: 최근 30일 변경 이벤트 패널이 노출됨`);
+  invariant(await page.locator("#workspace-detail-disclosure").isHidden(), `${label}: 상세 판단요소 shell이 노출됨`);
+  invariant(await page.locator("#relative-pricing-r1").isHidden(), `${label}: 상대금리 중복 surface가 노출됨`);
+  invariant(await page.locator("#rate-funding-matrix").isHidden(), `${label}: Rate × Funding Matrix 중복 surface가 노출됨`);
+  const competitor = page.locator("#workspace-competitor-position");
+  invariant(await competitor.count() === 1 && await competitor.isVisible(), `${label}: 경쟁사 · 기관 포지션 wrapper가 보이지 않음`);
+  invariant(await competitor.locator(".top5-card").count() === 1, `${label}: TOP5가 경쟁분석 wrapper 안에 없음`);
+  invariant(await competitor.locator("#institution-funding-position").count() === 1, `${label}: 기관 수신 포지션이 경쟁분석 wrapper 안에 없음`);
+  invariant(await page.locator("#strategy-workspace-nav").isHidden(), `${label}: 1280px 이하에서는 floating nav가 숨겨져야 함`);
   invariant(await page.locator(".ux-report-button").isVisible(), `${label}: Strategy 보고서 출력 버튼이 보이지 않음`);
 }
 

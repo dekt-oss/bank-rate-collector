@@ -17,6 +17,8 @@ on:
       - "src/rate_monitor/services/strategy_light_theme_presentation.py"
       - "src/rate_monitor/services/strategy_brand_theme_presentation.py"
       - "src/rate_monitor/services/strategy_ux_refinement_presentation.py"
+      - "src/rate_monitor/services/strategy_decision_evidence_refinement_presentation.py"
+      - "src/rate_monitor/services/strategy_lean_ia_presentation.py"
       - "src/rate_monitor/services/market_intelligence_service.py"
       - "src/rate_monitor/services/market_intelligence_presentation.py"
       - "src/rate_monitor/services/preference_intelligence_service.py"
@@ -33,6 +35,7 @@ on:
       - "scripts/strategy_preview_smoke.js"
       - "scripts/strategy_main_runtime_external_context_smoke.js"
       - "scripts/strategy_workspace_smoke.js"
+      - "scripts/strategy_lean_ia_density_smoke.js"
       - "scripts/main_map_runtime_smoke.js"
       - "scripts/production_smoke.py"
       - "scripts/rate_history_audit.py"
@@ -178,6 +181,24 @@ jobs:
           grep -q 'id="strategy-brand-theme-script"' work/site-public/strategy.html
           grep -q 'id="strategy-ux-refinement-script"' work/site-public/strategy.html
 
+      - name: Build main baseline Strategy from the same production snapshot
+        env:
+          RATE_MONITOR_STRATEGY_DASHBOARD: "1"
+        run: |
+          set -euo pipefail
+          git fetch --force origin +main:refs/remotes/origin/main --depth=1
+          rm -rf work/main-baseline work/site-public-main-baseline
+          git worktree add --detach work/main-baseline refs/remotes/origin/main
+          (
+            cd work/main-baseline
+            uv sync --locked
+            uv run rate-monitor build-site \
+              --db "$GITHUB_WORKSPACE/work/rate_monitor.sqlite3" \
+              --template web/templates/site.html \
+              --out "$GITHUB_WORKSPACE/work/site-public-main-baseline"
+          )
+          test -s work/site-public-main-baseline/strategy.html
+
       - name: Assert external feature contract and record availability
         run: |
           python - <<'PY'
@@ -264,6 +285,7 @@ jobs:
           node --check scripts/strategy_preview_smoke.js
           node --check scripts/strategy_main_runtime_external_context_smoke.js
           node --check scripts/strategy_workspace_smoke.js
+          node --check scripts/strategy_lean_ia_density_smoke.js
           node --check scripts/main_map_runtime_smoke.js
 
       - name: Run desktop and mobile Chrome smoke against local build and production
@@ -278,7 +300,10 @@ jobs:
           python -m http.server 4173 --directory work/site-public \
             > work/strategy-main-runtime-http.log 2>&1 &
           SERVER_PID=$!
-          trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT
+          python -m http.server 4174 --directory work/site-public-main-baseline \
+            > work/strategy-main-runtime-baseline-http.log 2>&1 &
+          BASELINE_SERVER_PID=$!
+          trap 'kill "$SERVER_PID" "$BASELINE_SERVER_PID" 2>/dev/null || true' EXIT
 
           for attempt in $(seq 1 30); do
             if curl -fsS http://127.0.0.1:4173/strategy.html >/dev/null; then
@@ -288,6 +313,7 @@ jobs:
           done
           curl -fsS http://127.0.0.1:4173/strategy.html >/dev/null
           curl -fsS http://127.0.0.1:4173/ >/dev/null
+          curl -fsS http://127.0.0.1:4174/strategy.html >/dev/null
           MAIN_MAP_SMOKE_PREFIX=main-map-local node scripts/main_map_runtime_smoke.js
           STRATEGY_PREVIEW_BASE_URL=https://bank-rate-collector.vercel.app \
             MAIN_MAP_SMOKE_PREFIX=main-map-production \
@@ -295,6 +321,10 @@ jobs:
           node scripts/strategy_preview_smoke.js
           node scripts/strategy_main_runtime_external_context_smoke.js
           node scripts/strategy_workspace_smoke.js
+          STRATEGY_DENSITY_BASELINE_URL=http://127.0.0.1:4174 \
+            STRATEGY_DENSITY_CANDIDATE_URL=http://127.0.0.1:4173 \
+            STRATEGY_DENSITY_MIN_REDUCTION_PCT=20 \
+            node scripts/strategy_lean_ia_density_smoke.js
 
       - name: Upload runtime E2E evidence
         if: always()
@@ -308,8 +338,11 @@ jobs:
             work/main-map-*-layout-metrics.json
             work/main-map-*.png
             work/strategy-main-runtime-*.png
+            work/strategy-density-*.png
+            work/strategy-lean-ia-density-metrics.json
             work/strategy-smoke-*.png
             work/strategy-main-runtime-http.log
+            work/strategy-main-runtime-baseline-http.log
           retention-days: 30
           if-no-files-found: warn
 
