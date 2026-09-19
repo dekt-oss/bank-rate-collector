@@ -175,6 +175,8 @@ def test_bounded_observer_handles_late_dom_and_reports_missing_contract() -> Non
 
     assert "[0,40,160,500,1200,3000,6000].forEach" in rendered
     assert "new MutationObserver" in rendered
+    assert 'new MutationObserver(()=>{reconcile()})' in rendered
+    assert 'dataset.strategyLeanIa==="v3")return true' not in rendered
     assert 'lateDomObserver.observe(document.body,{childList:true,subtree:true})' in rendered
     assert "setTimeout(()=>{lateDomObserver?.disconnect();lateDomObserver=null;lateDomTimer=null;reconcile()},10000)" in rendered
     assert 'document.documentElement.dataset.strategyLeanIaMissing=missing.join(",")' in rendered
