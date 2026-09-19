@@ -179,6 +179,8 @@ def test_bounded_observer_handles_late_dom_and_reports_missing_contract() -> Non
     assert 'anchor.nextElementSibling!==node' in rendered
     assert 'if(node.innerHTML!==markup)node.innerHTML=markup' in rendered
     assert 'title&&title.textContent!=="업권 수신 흐름"' in rendered
+    assert 'trendAnchor.id="workspace-market-trend"' in rendered
+    assert 'trend.prepend(trendAnchor)' in rendered
     assert 'dataset.strategyLeanIa==="v3")return true' not in rendered
     assert 'lateDomObserver.observe(document.body,{childList:true,subtree:true})' in rendered
     assert "setTimeout(()=>{lateDomObserver?.disconnect();lateDomObserver=null;lateDomTimer=null;reconcile()},10000)" in rendered
