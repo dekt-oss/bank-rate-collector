@@ -173,6 +173,7 @@ _SCRIPT = r'''
     return missing;
   }
   function reconcile(){
+    if(document.documentElement.dataset.strategyLeanIa==="v3")return true;
     suppressRedundantSurfaces();
     const missing=requiredDomState();
     if(missing.length)return false;
