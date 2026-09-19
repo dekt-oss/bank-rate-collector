@@ -27,6 +27,7 @@ def test_strategy_main_runtime_e2e_is_isolated_and_observable() -> None:
     assert "storage restore --dest work/rate_monitor.sqlite3" in text
     assert "build-site" in text
     assert "strategy-main-runtime-e2e" in text
+    assert 'group: strategy-main-runtime-e2e-${{ github.ref }}' in text
     assert "statuses: write" in text
     assert "strategy_main_runtime_external_context_smoke.js" in text
     assert "strategy_preview_smoke.js" in text
@@ -34,6 +35,9 @@ def test_strategy_main_runtime_e2e_is_isolated_and_observable() -> None:
     assert "strategy_lean_ia_density_smoke.js" in text
     assert "work/site-public-main-baseline" in text
     assert "git worktree add --detach work/main-baseline" in text
+    assert 'STRATEGY_DENSITY_BASELINE_SHA: "656a12dca41f74b8d00572b0ff8a34e17506950c"' in text
+    assert 'git fetch --force origin "$STRATEGY_DENSITY_BASELINE_SHA" --depth=1' in text
+    assert 'git worktree add --detach work/main-baseline "$STRATEGY_DENSITY_BASELINE_SHA"' in text
     assert "STRATEGY_DENSITY_MIN_REDUCTION_PCT=20" in text
     assert "work/strategy-lean-ia-density-metrics.json" in text
     assert "strategy_workspace_presentation.py" in text
