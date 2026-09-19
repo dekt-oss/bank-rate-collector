@@ -112,6 +112,16 @@ def test_competitor_wrapper_owns_top5_and_institution_position() -> None:
     assert '["경쟁사 · 기관 포지션","workspace-competitor-position"]' in rendered
 
 
+def test_finalizer_guarantees_search_region_handoff_when_earlier_injector_misses_it() -> None:
+    rendered = inject_strategy_lean_ia(_strategy_html())
+
+    assert "function ensureRegionHandoff()" in rendered
+    assert 'handoff.className="ux-region-handoff"' in rendered
+    assert "지역·지도 상세는 검색 조회로 통합했습니다." in rendered
+    assert '<a href="./">지역 상세 보기</a>' in rendered
+    assert 'handoff:ensureRegionHandoff()' in rendered
+
+
 def test_top5_visible_summary_is_reduced_and_readability_increased() -> None:
     rendered = inject_strategy_lean_ia(_strategy_html())
 
