@@ -32,7 +32,26 @@ async function waitForDashboard(page) {
     { timeout: 30_000 },
   );
   invariant(await page.locator("#error").isHidden(), "strategy runtime error banner is visible");
-  await page.waitForSelector('html[data-strategy-lean-ia="v3"]', { timeout: 30_000 });
+  try {
+    await page.waitForSelector('html[data-strategy-lean-ia="v3"]', { timeout: 30_000 });
+  } catch (error) {
+    const leanDiagnostic = await page.evaluate(() => {
+      const ids = [
+        "market-intelligence", "market-flow", "planning-zone", "external-market-context",
+        "market-funding-competition", "preference-intelligence", "special-offer-radar",
+        "scope-evidence", "institution-funding-position",
+      ];
+      return {
+        missing: document.documentElement.dataset.strategyLeanIaMissing || "",
+        lean: document.documentElement.dataset.strategyLeanIa || "",
+        top5: Boolean(document.querySelector(".top5-card")),
+        kpis: Boolean(document.querySelector(".grid.kpis")),
+        handoff: Boolean(document.querySelector(".ux-region-handoff")),
+        ids: Object.fromEntries(ids.map((id) => [id, Boolean(document.getElementById(id))])),
+      };
+    });
+    throw new Error("Lean IA ready timeout: " + JSON.stringify(leanDiagnostic) + "\n" + (error.stack || error));
+  }
 }
 
 async function selectMode(page, mode, expectedLabel) {
