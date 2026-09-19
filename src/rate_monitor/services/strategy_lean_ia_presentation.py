@@ -174,7 +174,6 @@ _SCRIPT = r'''
     return missing;
   }
   function reconcile(){
-    if(document.documentElement.dataset.strategyLeanIa==="v3")return true;
     suppressRedundantSurfaces();
     const missing=requiredDomState();
     if(missing.length)return false;
@@ -183,15 +182,12 @@ _SCRIPT = r'''
       buildNavigation();
       document.documentElement.dataset.strategyLeanIa="v3";
       document.documentElement.dataset.strategyLeanIaMissing="";
-      lateDomObserver?.disconnect();
-      lateDomObserver=null;
-      if(lateDomTimer){clearTimeout(lateDomTimer);lateDomTimer=null}
     }
     return ready;
   }
   function observeLateDom(){
     if(lateDomObserver||!("MutationObserver" in window)||!document.body)return;
-    lateDomObserver=new MutationObserver(()=>{if(reconcile())lateDomObserver?.disconnect()});
+    lateDomObserver=new MutationObserver(()=>{reconcile()});
     lateDomObserver.observe(document.body,{childList:true,subtree:true});
     lateDomTimer=setTimeout(()=>{lateDomObserver?.disconnect();lateDomObserver=null;lateDomTimer=null;reconcile()},10000);
   }
