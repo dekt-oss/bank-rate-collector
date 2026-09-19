@@ -156,6 +156,11 @@ async function assertDecisionIA(page, label) {
       regionMapHidden: !regionMap || !visible(regionMap),
       navItems,
       navVisible: visible(nav),
+      leanPlanningHeadlineVisible: visible(document.getElementById("lean-planning-headline")),
+      planningDetailClosed: Boolean(document.getElementById("lean-planning-detail") && !document.getElementById("lean-planning-detail").open),
+      institutionDetailClosed: Boolean(document.getElementById("lean-institution-detail") && !document.getElementById("lean-institution-detail").open),
+      preferenceDetailClosed: Boolean(document.getElementById("lean-preference-detail") && !document.getElementById("lean-preference-detail").open),
+      specialDetailClosed: Boolean(document.getElementById("lean-special-detail") && !document.getElementById("lean-special-detail").open),
       scrollWidth: document.documentElement.scrollWidth,
       clientWidth: document.documentElement.clientWidth,
     };
@@ -167,6 +172,20 @@ async function assertDecisionIA(page, label) {
   invariant(JSON.stringify(result.top5Headers) === JSON.stringify(["순위", "업권", "금융사 / 상품", "최고금리"]), label + ": TOP5 visible headers=" + JSON.stringify(result.top5Headers));
   invariant(result.bankFont >= 13 && result.strongRateFont >= 15, label + ": TOP5 readability bank=" + result.bankFont + " rate=" + result.strongRateFont);
   invariant(result.eventTileHidden && result.duplicateHidden.every(Boolean), label + ": redundant/event surfaces remain visible " + JSON.stringify(result.duplicateHidden));
+  invariant(
+    result.leanPlanningHeadlineVisible
+      && result.planningDetailClosed
+      && result.institutionDetailClosed
+      && result.preferenceDetailClosed
+      && result.specialDetailClosed,
+    label + ": progressive disclosure defaults wrong " + JSON.stringify({
+      headline: result.leanPlanningHeadlineVisible,
+      planning: result.planningDetailClosed,
+      institution: result.institutionDetailClosed,
+      preference: result.preferenceDetailClosed,
+      special: result.specialDetailClosed,
+    }),
+  );
   invariant(result.handoffVisible && result.handoffHref === "./" && result.regionMapHidden, label + ": Search region handoff contract broken");
   const expectedNav = [
     ["시장 자금환경", "external-market-context"],
@@ -482,6 +501,7 @@ async function runViewport(browser, label, viewport) {
   const predictionPanel = page.locator("#prediction-panel");
   await predictionToggle.waitFor({ state: "visible", timeout: 10_000 });
   if (await predictionPanel.isHidden()) await predictionToggle.click();
+  await page.waitForFunction(() => document.getElementById("lean-planning-detail")?.open === true, null, { timeout: 10_000 });
   await page.locator("#baseline-new").waitFor({ state: "visible", timeout: 10_000 });
   await assertPrediction(page, label);
   await assertVisualRuntimeContracts(page, label);
