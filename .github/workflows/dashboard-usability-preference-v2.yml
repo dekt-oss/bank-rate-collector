@@ -242,8 +242,34 @@ jobs:
               "display_order": payload["display_order"],
           }
           assert "savings_bank" in payload["sectors"]
-          assert "cu" not in payload["sectors"], (
-              "CU appeared even though the current production canonical DB has no CU funding"
+          # Production sector availability is data-driven.  The service supports
+          # savings_bank / nh_local / cu and only emits a sector when verified
+          # same-month canonical observations exist; do not freeze a historical
+          # "CU absent" assumption into runtime validation.
+          verified_sectors = {
+              str(row[0])
+              for row in conn.execute(
+                  """
+                  SELECT sector
+                  FROM institution_funding_observations
+                  WHERE valid_to IS NULL
+                    AND metric_code = 'deposit_liabilities_total'
+                    AND institution_id IS NOT NULL
+                    AND identity_status IN ('matched', 'verified')
+                  GROUP BY sector
+                  HAVING COUNT(*) > 0
+                  """
+              ).fetchall()
+          }
+          supported_order = ("savings_bank", "nh_local", "cu")
+          expected_display_order = [
+              sector for sector in supported_order if sector in verified_sectors
+          ]
+          assert payload["display_order"] == expected_display_order, (
+              payload["display_order"], expected_display_order, verified_sectors
+          )
+          assert set(payload["sectors"]) == set(expected_display_order), (
+              payload["sectors"].keys(), expected_display_order
           )
           Path("work/institution-funding-production.json").write_text(
               json.dumps(evidence, ensure_ascii=False, indent=2) + "\n",
