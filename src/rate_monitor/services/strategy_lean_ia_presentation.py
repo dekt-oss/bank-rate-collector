@@ -169,6 +169,7 @@ _SCRIPT = r'''
       top5:first(".top5-card"),institution:$("institution-funding-position"),handoff:ensureRegionHandoff(),
     };
     const missing=Object.entries(nodes).filter(([,node])=>!node||!node.isConnected).map(([key])=>key);
+    if(document.documentElement.dataset.strategyWorkspace!=="market-first-v2")missing.unshift("workspace");
     document.documentElement.dataset.strategyLeanIaMissing=missing.join(",");
     return missing;
   }
