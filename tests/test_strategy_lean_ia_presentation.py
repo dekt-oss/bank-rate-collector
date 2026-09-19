@@ -141,6 +141,7 @@ def test_planning_event_tile_is_hidden_but_owner_dom_is_preserved() -> None:
     assert 'id="plan-flow"' in rendered
     assert "#market-flow{grid-template-columns:minmax(0,1fr)!important}" in rendered
     assert ".workspace-decision .planning-strip{grid-template-columns:repeat(4,minmax(0,1fr))!important}" in rendered
+    assert 'planning?.classList.add("workspace-decision")' in rendered
     assert 'const planningShell=planning?.closest(".workspace-decision")||planning' in rendered
     assert 'cursor=moveAfter(designLabel,cursor);cursor=moveAfter(planningShell,cursor)' in rendered
     assert '@media(max-width:480px){.workspace-decision .planning-strip{grid-template-columns:1fr!important}}' in rendered
