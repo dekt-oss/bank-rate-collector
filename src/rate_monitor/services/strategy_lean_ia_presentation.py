@@ -79,6 +79,16 @@ _SCRIPT = r'''
     const copy=funding.querySelector(".market-funding-head p");if(copy)copy.textContent="업권 전체 수신잔액의 최신값과 전년 동월 흐름을 확인합니다.";
     return funding;
   }
+  function ensureRegionHandoff(){
+    let handoff=first(".ux-region-handoff");if(handoff)return handoff;
+    const detail=first(".workspace-detail.primary");
+    const anchor=detail||first(".top5-card")||$("institution-funding-position");
+    if(!anchor?.parentNode)return null;
+    handoff=document.createElement("div");handoff.className="ux-region-handoff";
+    handoff.innerHTML='<span><b>지역·지도 상세는 검색 조회로 통합했습니다.</b> Strategy에서는 중복 지도를 제거하고 경쟁상단·금리결정 근거만 남깁니다.</span><a href="./">지역 상세 보기</a>';
+    anchor.parentNode.insertBefore(handoff,anchor);
+    return handoff;
+  }
   function ensureCompetitorWrapper(top5,institution){
     let wrapper=$("workspace-competitor-position");
     if(!wrapper){
@@ -94,7 +104,7 @@ _SCRIPT = r'''
   function reorder(){
     const kpis=first(".grid.kpis"),marketIntel=$("market-intelligence"),marketFlow=$("market-flow"),planning=$("planning-zone");
     const external=$("external-market-context"),funding=simplifyFundingMarket(),pref=$("preference-intelligence"),special=$("special-offer-radar"),evidence=$("scope-evidence");
-    const top5=first(".top5-card"),institution=$("institution-funding-position"),handoff=first(".ux-region-handoff");
+    const top5=first(".top5-card"),institution=$("institution-funding-position"),handoff=ensureRegionHandoff();
     const required=[kpis,marketIntel,marketFlow,planning,external,funding,pref,special,evidence,top5,institution,handoff];
     if(required.some(node=>!node||!node.isConnected))return false;
     const marketLabel=$("workspace-label-market")||ensureLabel("workspace-label-market","02","시장현황","대표 시장방향과 12개월 금리 위치를 확인합니다.",kpis);
@@ -151,7 +161,7 @@ _SCRIPT = r'''
       kpis:first(".grid.kpis"),marketIntel:$("market-intelligence"),marketFlow:$("market-flow"),
       planning:$("planning-zone"),external:$("external-market-context"),funding:$("market-funding-competition"),
       pref:$("preference-intelligence"),special:$("special-offer-radar"),evidence:$("scope-evidence"),
-      top5:first(".top5-card"),institution:$("institution-funding-position"),handoff:first(".ux-region-handoff"),
+      top5:first(".top5-card"),institution:$("institution-funding-position"),handoff:ensureRegionHandoff(),
     };
     const missing=Object.entries(nodes).filter(([,node])=>!node||!node.isConnected).map(([key])=>key);
     document.documentElement.dataset.strategyLeanIaMissing=missing.join(",");
