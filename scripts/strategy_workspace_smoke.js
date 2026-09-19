@@ -107,6 +107,8 @@ async function assertDecisionIA(page, label) {
     const top5Headers = [...(top5?.querySelectorAll("thead th") || [])].filter(visible).map((node) => node.textContent.trim());
     const bank = top5?.querySelector(".bank");
     const strongRate = top5?.querySelector(".strongrate");
+    const top5Contract = top5?.querySelector(".chip");
+    const preferenceBadge = preference?.querySelector(".pref-intel-badge");
     const eventTile = document.getElementById("plan-flow")?.parentElement;
     const regionMap = document.querySelector(".workspace-detail.primary .mapcard");
     const fundingStrip = funding?.querySelector(".funding-market-strip");
@@ -140,6 +142,10 @@ async function assertDecisionIA(page, label) {
       top5Headers,
       bankFont: bank ? parseFloat(getComputedStyle(bank).fontSize) : 0,
       strongRateFont: strongRate ? parseFloat(getComputedStyle(strongRate).fontSize) : 0,
+      top5ContractText: top5Contract?.textContent.trim() || "",
+      top5ContractMarker: top5Contract?.dataset.contractLabel || "",
+      preferenceBadgeText: preferenceBadge?.textContent.trim() || "",
+      preferenceBadgeMarker: preferenceBadge?.dataset.contractLabel || "",
       eventTileHidden: Boolean(eventTile && !visible(eventTile)),
       duplicateHidden: [
         hidden("#market-flow details.changes"),
@@ -166,6 +172,8 @@ async function assertDecisionIA(page, label) {
   invariant(result.competitorVisible && result.top5InWrapper && result.institutionInWrapper, label + ": competitor wrapper composition wrong " + JSON.stringify(result));
   invariant(JSON.stringify(result.top5Headers) === JSON.stringify(["순위", "업권", "금융사 / 상품", "최고금리"]), label + ": TOP5 visible headers=" + JSON.stringify(result.top5Headers));
   invariant(result.bankFont >= 13 && result.strongRateFont >= 15, label + ": TOP5 readability bank=" + result.bankFont + " rate=" + result.strongRateFont);
+  invariant(result.top5ContractText === "공식 비교기준" && result.top5ContractMarker === "CANONICAL", label + ": TOP5 contract label=" + JSON.stringify([result.top5ContractText, result.top5ContractMarker]));
+  invariant(result.preferenceBadgeText === "조건 구조 근거" && result.preferenceBadgeMarker === "D1 Structure Evidence", label + ": preference contract label=" + JSON.stringify([result.preferenceBadgeText, result.preferenceBadgeMarker]));
   invariant(result.eventTileHidden && result.duplicateHidden.every(Boolean), label + ": redundant/event surfaces remain visible " + JSON.stringify(result.duplicateHidden));
   invariant(result.handoffVisible && result.handoffHref === "./" && result.regionMapHidden, label + ": Search region handoff contract broken");
   const expectedNav = [
@@ -206,6 +214,8 @@ async function assertPrediction(page, label) {
     const inputLabel = planning?.querySelector(".predict-inputs label");
     const formula = planning?.querySelector(".decision-formula");
     const evidence = planning?.querySelector(".decision-model-evidence");
+    const responseDisclosure = planning?.querySelector(".rate-response-disclosure");
+    const caveat = planning?.querySelector(".rate-response-caveat");
     const style = (node) => node ? getComputedStyle(node) : null;
     return {
       stripBackground: style(strip)?.backgroundImage || "",
@@ -218,6 +228,9 @@ async function assertPrediction(page, label) {
       formulaText: formula?.textContent || "",
       evidenceExists: Boolean(evidence),
       evidenceOpen: Boolean(evidence?.open),
+      responseDisclosureExists: Boolean(responseDisclosure),
+      responseDisclosureOpen: Boolean(responseDisclosure?.open),
+      caveatText: caveat?.textContent || "",
       predictBridge: typeof window.predictInflow,
       rangeHidden: document.getElementById("inflow-range")?.closest(".simresult")?.classList.contains("decision-range-legacy") || false,
     };
@@ -227,6 +240,11 @@ async function assertPrediction(page, label) {
   invariant(initial.inputLabelFont >= 12, `${label}: prediction input label font=${initial.inputLabelFont}`);
   invariant(initial.formulaExists && initial.formulaOpen && initial.formulaText.includes("rate_steps"), `${label}: formula detail missing/not open`);
   invariant(initial.evidenceExists && !initial.evidenceOpen, `${label}: model evidence should start collapsed`);
+  invariant(initial.responseDisclosureExists && !initial.responseDisclosureOpen, `${label}: rate-response detail should start collapsed`);
+  invariant(initial.caveatText.includes("실제 예측치가 아닙니다") && initial.caveatText.includes("별도 보정 단계") && !initial.caveatText.includes("forecast") && !initial.caveatText.includes("Stage E"), `${label}: technical caveat copy remains visible=${initial.caveatText}`);
+
+  await page.locator(".rate-response-disclosure > summary").click();
+  await page.waitForFunction(() => document.querySelector(".rate-response-disclosure")?.open === true);
   invariant(initial.predictBridge === "function", `${label}: public prediction bridge missing`);
   invariant(initial.rangeHidden, `${label}: ambiguous min~max total range card still visible`);
 
@@ -252,6 +270,7 @@ async function assertPrediction(page, label) {
       baseCost: baseMetrics.at(-1)?.querySelector("strong")?.textContent.trim() || "",
       cockpitTotal: plus10?.children[4]?.textContent.trim() || "",
       cockpitCost: plus10?.children[6]?.textContent.trim() || "",
+      responseDisclosureOpen: document.querySelector(".rate-response-disclosure")?.open || false,
     };
   });
   invariant(JSON.stringify(result.labels) === JSON.stringify(["저민감", "기준", "고민감"]), `${label}: sensitivity labels=${result.labels}`);
@@ -260,6 +279,7 @@ async function assertPrediction(page, label) {
   invariant(result.rateResponseRows >= 4 && !result.rateResponseText.includes("예측엔진 확인"), `${label}: rate response bridge did not feed existing comparison table`);
   invariant(result.baseTotal && result.baseTotal === result.cockpitTotal, `${label}: 기준 민감도 총수신 불일치 card=${result.baseTotal} cockpit=${result.cockpitTotal}`);
   invariant(result.baseCost && result.baseCost === result.cockpitCost, `${label}: 기준 민감도 비용 불일치 card=${result.baseCost} cockpit=${result.cockpitCost}`);
+  invariant(result.responseDisclosureOpen, `${label}: user-opened rate-response detail was re-collapsed during session`);
 }
 
 async function assertMarketEvidence(page, label) {
