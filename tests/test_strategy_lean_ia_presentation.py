@@ -172,14 +172,11 @@ def test_final_navigation_is_explicit_and_mobile_hidden() -> None:
     assert "hashActivationTimer=setTimeout" in rendered
     assert "},1200)" in rendered
     assert "navLinks().some(link=>link.dataset.workspaceTarget===hashId)" in rendered
-    assert '"lean-planning-detail"' in rendered
     assert '"lean-institution-detail"' in rendered
+    assert 'compactPlanning' not in rendered
     assert '"lean-preference-detail"' in rendered
     assert '"lean-special-detail"' in rendered
     assert "compactSecondarySurfaces();" in rendered
-    assert 'const form=planning.querySelector(".simform"),panel=$("prediction-panel")' in rendered
-    assert 'ensureDisclosure(form,"lean-planning-detail","수신예측·모형 상세",[panel])' in rendered
-    assert 'toggle.addEventListener("click",()=>{if(detail)detail.open=true})' in rendered
 
 
 def test_bounded_observer_handles_late_dom_and_reports_missing_contract() -> None:
