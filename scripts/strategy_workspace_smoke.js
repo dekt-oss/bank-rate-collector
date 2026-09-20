@@ -524,6 +524,12 @@ async function runViewport(browser, label, viewport) {
   await predictionToggle.waitFor({ state: "visible", timeout: 10_000 });
   if (await predictionPanel.isHidden()) await predictionToggle.click();
   await page.waitForFunction(() => document.getElementById("lean-planning-detail")?.open === true, null, { timeout: 10_000 });
+  await page.waitForFunction(
+    () => document.getElementById("prediction-panel")?.hidden === false
+      && document.getElementById("prediction-toggle")?.getAttribute("aria-expanded") === "true",
+    null,
+    { timeout: 10_000 },
+  );
   await page.locator("#baseline-new").waitFor({ state: "visible", timeout: 10_000 });
   await assertPrediction(page, label);
   await assertVisualRuntimeContracts(page, label);
