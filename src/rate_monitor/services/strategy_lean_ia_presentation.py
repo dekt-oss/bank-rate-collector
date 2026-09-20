@@ -130,7 +130,15 @@ _SCRIPT = r'''
       }
     }
     if(toggle&&toggle.dataset.leanDisclosureBound!=="1"){
-      toggle.addEventListener("click",()=>{if(detail)detail.open=true});
+      toggle.addEventListener("click",()=>{
+        if(detail&&!detail.open){
+          const currentPanel=$("prediction-panel");
+          if(currentPanel&&!currentPanel.hidden)currentPanel.hidden=true;
+          if(toggle.getAttribute("aria-expanded")!=="false")toggle.setAttribute("aria-expanded","false");
+          if(toggle.textContent!=="예측엔진 보기")toggle.textContent="예측엔진 보기";
+          detail.open=true;
+        }
+      },{capture:true});
       toggle.dataset.leanDisclosureBound="1";
     }
     syncPlanningHeadline();
