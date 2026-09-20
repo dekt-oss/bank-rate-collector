@@ -42,8 +42,7 @@ async function ensurePredictionPanelVisible(page, label) {
     ));
     if (ownsCockpit) {
       await legacyDetails.evaluate((details) => { details.open = true; });
-      await cockpit.waitFor({ state: "visible", timeout: 10_000 });
-      return cockpit;
+      if (await cockpit.isVisible()) return cockpit;
     }
   }
 
