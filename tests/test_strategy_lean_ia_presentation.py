@@ -181,7 +181,10 @@ def test_final_navigation_is_explicit_and_mobile_hidden() -> None:
     assert '"lean-planning-detail"' in rendered
     assert '.lean-secondary-disclosure:not([open])>.lean-secondary-disclosure-body{display:none!important}' in rendered
     assert 'compactPlanning(planning)' in rendered
-    assert 'toggle.addEventListener("click",()=>{if(detail)detail.open=true})' in rendered
+    assert 'if(detail&&!detail.open)' in rendered
+    assert 'currentPanel&&!currentPanel.hidden' in rendered
+    assert 'detail.open=true' in rendered
+    assert '{capture:true}' in rendered
     assert 'if(panel&&!panel.hidden)panel.hidden=true' in rendered
     assert 'toggle.setAttribute("aria-expanded","false")' in rendered
     assert 'toggle.textContent="예측엔진 보기"' in rendered
