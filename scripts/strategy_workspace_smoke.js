@@ -176,7 +176,10 @@ async function assertDecisionIA(page, label) {
   invariant(result.order.every(Boolean), label + ": Lean IA order=" + JSON.stringify(result.order));
   invariant(result.externalVisible && result.fundingVisible && result.fundingStripVisible && result.fundingDetailHidden, label + ": market funding environment visibility wrong " + JSON.stringify(result));
   invariant(result.competitorVisible && result.top5InWrapper && result.institutionInWrapper, label + ": competitor wrapper composition wrong " + JSON.stringify(result));
-  invariant(JSON.stringify(result.top5Headers) === JSON.stringify(["순위", "업권", "금융사 / 상품", "최고금리"]), label + ": TOP5 visible headers=" + JSON.stringify(result.top5Headers));
+  const expectedTop5Headers = label === "desktop"
+    ? ["순위", "업권", "금융사 / 상품", "최고금리"]
+    : [];
+  invariant(JSON.stringify(result.top5Headers) === JSON.stringify(expectedTop5Headers), label + ": TOP5 visible headers=" + JSON.stringify(result.top5Headers));
   invariant(result.bankFont >= 13 && result.strongRateFont >= 15, label + ": TOP5 readability bank=" + result.bankFont + " rate=" + result.strongRateFont);
   invariant(result.top5ContractText === "공식 비교기준" && result.top5ContractMarker === "CANONICAL", label + ": TOP5 contract label=" + JSON.stringify([result.top5ContractText, result.top5ContractMarker]));
   invariant(result.preferenceBadgeText === "조건 구조 근거" && result.preferenceBadgeMarker === "D1 Structure Evidence", label + ": preference contract label=" + JSON.stringify([result.preferenceBadgeText, result.preferenceBadgeMarker]));
