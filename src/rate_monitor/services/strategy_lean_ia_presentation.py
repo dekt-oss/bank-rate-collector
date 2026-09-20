@@ -121,7 +121,14 @@ _SCRIPT = r'''
     const scopeWarning=sim.querySelector(":scope>.scope-warning");
     const form=sim.querySelector(":scope>.simform")||sim.querySelector(".simform");
     const detail=ensureDisclosure(sim,"lean-planning-detail","금리·기간 입력 및 수신 시뮬레이션 상세",[engineSummary,scopeWarning,form]);
-    const toggle=$("prediction-toggle");
+    const toggle=$("prediction-toggle"),panel=$("prediction-panel");
+    if(detail&&detail.dataset.userToggled!=="1"&&!detail.open){
+      if(panel&&!panel.hidden)panel.hidden=true;
+      if(toggle){
+        if(toggle.getAttribute("aria-expanded")!=="false")toggle.setAttribute("aria-expanded","false");
+        if(toggle.textContent!=="예측엔진 보기")toggle.textContent="예측엔진 보기";
+      }
+    }
     if(toggle&&toggle.dataset.leanDisclosureBound!=="1"){
       toggle.addEventListener("click",()=>{if(detail)detail.open=true});
       toggle.dataset.leanDisclosureBound="1";
