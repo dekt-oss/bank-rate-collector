@@ -85,7 +85,7 @@ async function assertNavigation(browser, strategyPage, viewport, label) {
 async function assertDecisionIA(page, label) {
   const result = await page.evaluate(() => {
     const precedes = (a, b) => Boolean(a && b && (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING));
-    const visible = (node) => Boolean(node && !node.hidden && getComputedStyle(node).display !== "none" && getComputedStyle(node).visibility !== "hidden");
+    const visible = (node) => Boolean(node && !node.hidden && getComputedStyle(node).display !== "none" && getComputedStyle(node).visibility !== "hidden" && node.getClientRects().length > 0);
     const external = document.getElementById("external-market-context");
     const funding = document.getElementById("market-funding-competition");
     const marketLabel = document.getElementById("workspace-label-market");
