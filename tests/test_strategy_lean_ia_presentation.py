@@ -179,6 +179,7 @@ def test_final_navigation_is_explicit_and_mobile_hidden() -> None:
     assert "compactSecondarySurfaces();" in rendered
     assert 'id="lean-planning-headline"' in rendered
     assert '"lean-planning-detail"' in rendered
+    assert '.lean-secondary-disclosure:not([open])>.lean-secondary-disclosure-body{display:none!important}' in rendered
     assert 'compactPlanning(planning)' in rendered
     assert 'toggle.addEventListener("click",()=>{if(detail)detail.open=true})' in rendered
     assert 'if(panel&&!panel.hidden)panel.hidden=true' in rendered
