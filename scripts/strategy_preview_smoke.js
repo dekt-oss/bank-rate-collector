@@ -224,7 +224,12 @@ async function runDesktop(browser) {
   invariant(kfccMeta?.strategy_rate_capability === true && kfccMeta?.selectable === true, "새마을금고 수집기준 최고금리 capability가 열리지 않음");
   invariant(nhMeta?.strategy_rate_capability === true && nhMeta?.selectable === true, "농·축협 수집기준 최고금리 capability가 열리지 않음");
   invariant(await page.locator("#market-flow").isVisible(), "저축은행 포함 모드에서 이력 block이 숨겨짐");
-  invariant(await page.locator("#sim-form").isVisible(), "저축은행 포함 모드에서 시뮬레이터가 숨겨짐");
+  invariant(await page.locator("#lean-planning-headline").isVisible(), "저축은행 포함 모드에서 금리설계 headline이 숨겨짐");
+  invariant(!(await page.locator("#lean-planning-detail").evaluate((node) => node.open)), "금리설계 상세가 기본 펼침 상태임");
+  invariant(await page.locator("#sim-form").isHidden(), "금리설계 상세가 접힌 상태에서 시뮬레이터가 노출됨");
+  await page.locator("#lean-planning-detail > summary").click();
+  await page.waitForFunction(() => document.getElementById("lean-planning-detail")?.open === true);
+  invariant(await page.locator("#sim-form").isVisible(), "금리설계 상세를 펼친 뒤 시뮬레이터가 보이지 않음");
   await assertMarketIntelligence(page);
   await assertExternalMarketContext(page);
   await assertStrategyRoleSplit(page, "desktop");
