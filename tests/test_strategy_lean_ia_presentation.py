@@ -174,7 +174,6 @@ def test_final_navigation_is_explicit_and_mobile_hidden() -> None:
     assert "},1200)" in rendered
     assert "navLinks().some(link=>link.dataset.workspaceTarget===hashId)" in rendered
     assert '"lean-institution-detail"' in rendered
-    assert 'compactPlanning' not in rendered
     assert '"lean-preference-detail"' in rendered
     assert '"lean-special-detail"' in rendered
     assert "compactSecondarySurfaces();" in rendered
@@ -182,6 +181,9 @@ def test_final_navigation_is_explicit_and_mobile_hidden() -> None:
     assert '"lean-planning-detail"' in rendered
     assert 'compactPlanning(planning)' in rendered
     assert 'toggle.addEventListener("click",()=>{if(detail)detail.open=true})' in rendered
+    assert 'if(panel&&!panel.hidden)panel.hidden=true' in rendered
+    assert 'toggle.setAttribute("aria-expanded","false")' in rendered
+    assert 'toggle.textContent="예측엔진 보기"' in rendered
 
 
 def test_bounded_observer_handles_late_dom_and_reports_missing_contract() -> None:
