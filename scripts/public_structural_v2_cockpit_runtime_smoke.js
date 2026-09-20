@@ -28,6 +28,13 @@ async function ensurePredictionPanelVisible(page, label) {
   const cockpit = page.locator("#public-structural-v2-cockpit");
   if (await cockpit.isVisible()) return cockpit;
 
+  const leanPlanning = page.locator("#lean-planning-detail");
+  if (await leanPlanning.count()) {
+    const open = await leanPlanning.evaluate((details) => details.open);
+    if (!open) await leanPlanning.locator(":scope > summary").click();
+    await page.waitForFunction(() => document.getElementById("lean-planning-detail")?.open === true);
+  }
+
   const legacyDetails = page.locator("details.rds-details");
   if (await legacyDetails.count()) {
     const ownsCockpit = await legacyDetails.evaluate((details) => Boolean(
