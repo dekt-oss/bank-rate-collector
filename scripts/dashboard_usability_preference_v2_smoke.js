@@ -114,10 +114,10 @@ function assertDisplayedArithmetic(cells, label) {
 
 async function assertSingleMutualFallback(page, name) {
   for (const sector of ["kfcc", "nh_local"]) {
-    const input = page.locator(`[data-sector="${sector}"]`);
+    const input = page.locator(`input[data-sector="${sector}"]`);
     if (await input.isChecked()) await input.uncheck();
   }
-  const cu = page.locator('[data-sector="cu"]');
+  const cu = page.locator('input[data-sector="cu"]');
   if (!(await cu.isChecked())) await cu.check();
   await page.waitForFunction(() => {
     const panel = document.getElementById("preference-intelligence");
