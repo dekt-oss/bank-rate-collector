@@ -29,7 +29,7 @@ freshness는 observational-only였다.
 
 - `captured_age_days < 30`: current-support eligible
 - `captured_age_days >= 30`: stale / historical-only
-- `captured_at` 파싱 불가 또는 없음: unknown / current-support ineligible
+- `captured_at` 파싱 불가·없음·audit 기준일보다 미래: unknown / current-support ineligible
 
 30일은 새 금리/authority 규칙이 아니다.
 기존 discrepancy triage가 source freshness에서 이미 사용하는 첫 age 경계
@@ -105,7 +105,7 @@ source-source mismatch 자체의 delta/effective-date/source-age evidence는 기
    - stale signal이 official triage score/contradiction queue를 만들지 않음
 4. adversarial review
    - boundary off-by-one
-   - invalid captured_at
+   - invalid/future captured_at
    - mixed current/stale evidence
    - historical evidence provenance 보존
 
