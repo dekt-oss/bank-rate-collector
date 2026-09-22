@@ -94,12 +94,22 @@ def _age_days(as_of: object, value: object) -> int | None:
 
 
 def _evidence_freshness(as_of: object, official: dict[str, Any]) -> dict[str, Any]:
-    captured_age_days = _age_days(as_of, official.get("captured_at"))
+    as_of_date = _date(as_of)
+    captured_date = _date(official.get("captured_at"))
+    captured_age_days = (
+        None
+        if as_of_date is None or captured_date is None or captured_date > as_of_date
+        else (as_of_date - captured_date).days
+    )
     effective_age_days = _age_days(as_of, official.get("effective_at"))
     if captured_age_days is None:
         status = "unknown"
         eligible = False
-        reason = "captured_at_unknown"
+        reason = (
+            "captured_at_in_future"
+            if as_of_date is not None and captured_date is not None and captured_date > as_of_date
+            else "captured_at_unknown"
+        )
     elif captured_age_days >= OFFICIAL_EVIDENCE_CURRENT_MAX_CAPTURE_AGE_DAYS:
         status = "stale"
         eligible = False
