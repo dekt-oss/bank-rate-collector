@@ -24,6 +24,7 @@ on:
       - "docs/specs/20260820-source-official-contradiction-triage-v1.md"
       - "docs/specs/20260823-source-discrepancy-variant-freshness-v3.md"
       - "docs/specs/20260823-source-discrepancy-payment-ambiguity-v4.md"
+      - "docs/specs/20260922-source-discrepancy-official-freshness-v5.md"
       - ".github/workflows/source-discrepancy-audit.yml"
       - "config/storage.yaml"
       - "migrations/**"
@@ -166,7 +167,10 @@ jobs:
           assert scope["freshness_metadata_policy"].startswith("observational_only")
           assert scope["official_evidence_authority"] == "read_only_support_only"
           assert scope["official_conflict_blocks_authority"] is True
-          assert scope["official_freshness_metadata_policy"] == "observational_only"
+          assert scope["official_freshness_metadata_policy"].startswith(
+              "captured_age_days_lt_30_required_for_current_support"
+          )
+          assert scope["official_current_support_max_capture_age_days"] == 30
           assert scope["triage_mutates_canonical"] is False
           assert scope["triage_selects_authority"] is False
           assert scope["official_contradiction_mutates_canonical"] is False
@@ -177,6 +181,38 @@ jobs:
           assert summary["ambiguous_payment_method"] >= 2
           assert summary["official_evidence_records"] >= 8
           assert summary["official_evidence_groups"] >= 7
+          assert sum(
+              summary[key]
+              for key in (
+                  "official_evidence_current_groups",
+                  "official_evidence_mixed_freshness_groups",
+                  "official_evidence_stale_groups",
+                  "official_evidence_unknown_freshness_groups",
+              )
+          ) == summary["official_evidence_groups"]
+
+          for group in report["official_evidence_groups"]:
+              assert group["freshness_status"] in {"current", "mixed", "stale", "unknown"}
+              assert group["current_status"] in {
+                  "consistent", "conflict", "incomplete", "no_current_evidence"
+              }
+              for record in group["records"]:
+                  freshness = record["freshness"]
+                  age = freshness["captured_age_days"]
+                  if age is None:
+                      assert freshness["status"] == "unknown"
+                      assert freshness["current_support_eligible"] is False
+                  elif age >= 30:
+                      assert freshness["status"] == "stale"
+                      assert freshness["current_support_eligible"] is False
+                  else:
+                      assert freshness["status"] == "current"
+                      assert freshness["current_support_eligible"] is True
+              if group["freshness_status"] == "stale":
+                  assert group["current_status"] == "no_current_evidence"
+                  assert group["current_support_records"] == 0
+                  assert group["reconciliation_signal"] == "stale_official_evidence"
+                  assert set(group["source_support"].values()) == {"stale_evidence"}
 
           for match in report["matches"]:
               identity = match["match"]
@@ -225,6 +261,15 @@ jobs:
           assert sum(triage["summary"][key] for key in ("P0", "P1", "P2", "P3")) == triage[
               "summary"
           ]["queue_size"]
+          for item in triage["queue"]:
+              evidence = item.get("official_evidence")
+              if not evidence or evidence.get("reconciliation_signal") != "stale_official_evidence":
+                  continue
+              assert item["classification"] != "official_evidence_discrepancy"
+              assert not any(
+                  str(component.get("code") or "").startswith("official_")
+                  for component in item["score_components"]
+              )
 
           contradictions = report["official_contradictions"]
           assert contradiction_payload["official_contradictions"] == contradictions
