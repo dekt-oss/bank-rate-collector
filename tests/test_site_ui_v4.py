@@ -850,7 +850,10 @@ def test_a_preset_only_ticks_the_boxes_that_are_already_there() -> None:
 
 def test_future_disclosure_date_cannot_shift_the_default_window() -> None:
     """미래 source_effective_at 한 건이 화면 전체를 0건으로 만들면 안 된다."""
-    assert 'const publicationAsOf = /^\\\\d{4}-\\\\d{2}-\\\\d{2}/.test(data.generated_at || "")' in SOURCE
+    assert (
+        \'const publicationAsOf = /^\\\\\\\\d{4}-\\\\\\\\d{2}-\\\\\\\\d{2}/.test(data.generated_at || "")\'
+        in SOURCE
+    )
     assert "dates.filter((d) => d <= publicationAsOf)" in SOURCE
     assert (
         "latestAsOf = currentDates.at(-1) || publicationAsOf || dates.at(-1) || null;"
