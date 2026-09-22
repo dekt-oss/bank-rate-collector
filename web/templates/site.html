@@ -2903,7 +2903,8 @@
       : (sla.status === "warning" ? "마감 임박"
         : (sla.status === "breached" ? "08:00 초과"
           : (sla.status === "degraded" ? "일부 원천 실패"
-            : (sla.status === "unknown" ? "판정 불가" : "진행 중"))));
+            : (sla.status === "unknown" ? "판정 불가"
+              : (sla.status === "pending" ? "대기" : "진행 중")))));
     const done = sla.latest_publish_completed_at
       ? ` · 최종 발행 ${healthDate(sla.latest_publish_completed_at)}` : "";
     const failed = (sla.failed_sources || []).length
@@ -3512,7 +3513,18 @@
       state.prefTags = new Set([...state.prefTags]
         .filter((code) => PREF_TAG_CODES.includes(code)));
       const dates = ALL.map((r) => r.asOf).filter(Boolean).sort();
-      latestAsOf = dates.at(-1) || null;
+      // source_effective_at은 원천 공시의 시행일이라 미래 날짜가 들어올 수 있다.
+      // 실제 2026-09-22 발행에서 finlife_bank 한 원천의 2029-06-21 값이
+      // raw max를 끌어올려 기본 최근 30일 범위를 2029년으로 보내 전체 결과를
+      // 0건처럼 만들었다. raw 날짜는 보존하되 "현재 화면 기준일"에는 발행일보다
+      // 미래인 공시일을 사용하지 않는다.
+      const publicationAsOf = /^\\d{4}-\\d{2}-\\d{2}/.test(data.generated_at || "")
+        ? data.generated_at.slice(0, 10)
+        : null;
+      const currentDates = publicationAsOf
+        ? dates.filter((d) => d <= publicationAsOf)
+        : dates;
+      latestAsOf = currentDates.at(-1) || publicationAsOf || dates.at(-1) || null;
       PRESETS = latestAsOf
         ? [7, 30, 90, 365].map((d) => ({ days: d, from: shiftDays(latestAsOf, d) }))
         : [];
