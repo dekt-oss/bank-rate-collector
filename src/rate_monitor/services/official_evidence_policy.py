@@ -2,8 +2,9 @@
 
 FSB/FINLIFE canonical 값은 절대 수정하지 않는다. 공식 홈페이지 evidence 자체가
 충돌할 수 있으므로, evidence group 내부 일관성을 먼저 확인한 뒤 어느 source를
-지지하는지 참고 신호만 계산한다. surface/variant/freshness metadata는 관찰용이며
-source authority를 자동 선택하지 않는다.
+지지하는지 참고 신호만 계산한다. surface/variant/freshness metadata는 보존하되,
+30일 이상 지난 캡처는 현재 source 지지 신호에서 제외한다. 이 freshness gate 역시
+source authority를 자동 선택하거나 canonical 값을 수정하지 않는다.
 """
 
 from __future__ import annotations
@@ -13,6 +14,8 @@ from collections import Counter, defaultdict
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any
+
+OFFICIAL_EVIDENCE_CURRENT_MAX_CAPTURE_AGE_DAYS = 30
 
 
 def _records(payload: object) -> tuple[list[dict[str, Any]], bool]:
@@ -88,6 +91,75 @@ def _age_days(as_of: object, value: object) -> int | None:
     if left is None or right is None:
         return None
     return max((left - right).days, 0)
+
+
+def _evidence_freshness(as_of: object, official: dict[str, Any]) -> dict[str, Any]:
+    as_of_date = _date(as_of)
+    captured_date = _date(official.get("captured_at"))
+    captured_age_days = (
+        None
+        if as_of_date is None or captured_date is None or captured_date > as_of_date
+        else (as_of_date - captured_date).days
+    )
+    effective_age_days = _age_days(as_of, official.get("effective_at"))
+    if captured_age_days is None:
+        status = "unknown"
+        eligible = False
+        reason = (
+            "captured_at_in_future"
+            if as_of_date is not None and captured_date is not None and captured_date > as_of_date
+            else "captured_at_unknown"
+        )
+    elif captured_age_days >= OFFICIAL_EVIDENCE_CURRENT_MAX_CAPTURE_AGE_DAYS:
+        status = "stale"
+        eligible = False
+        reason = "captured_age_ge_30d"
+    else:
+        status = "current"
+        eligible = True
+        reason = "captured_age_lt_30d"
+    return {
+        "as_of": as_of,
+        "effective_age_days": effective_age_days,
+        "captured_age_days": captured_age_days,
+        "effective_at_known": _date(official.get("effective_at")) is not None,
+        "captured_at_known": _date(official.get("captured_at")) is not None,
+        "status": status,
+        "current_support_eligible": eligible,
+        "current_support_reason": reason,
+    }
+
+
+def _group_freshness_status(freshness: list[dict[str, Any]]) -> str:
+    statuses = {str(item.get("status") or "unknown") for item in freshness}
+    if statuses == {"current"}:
+        return "current"
+    if "current" in statuses:
+        return "mixed"
+    if statuses == {"stale"}:
+        return "stale"
+    return "unknown"
+
+
+def _official_status(
+    items: list[dict[str, Any]],
+) -> tuple[str, list[str], list[str], list[str]]:
+    if not items:
+        return "no_current_evidence", [], [], []
+    base_rates = _official_rates(items, "base_rate")
+    max_rates = _official_rates(items, "max_rate")
+    conflict_fields = []
+    if len(base_rates) > 1:
+        conflict_fields.append("base_rate")
+    if len(max_rates) > 1:
+        conflict_fields.append("max_rate")
+    if conflict_fields:
+        status = "conflict"
+    elif base_rates or max_rates:
+        status = "consistent"
+    else:
+        status = "incomplete"
+    return status, conflict_fields, base_rates, max_rates
 
 
 def _facet(value: object) -> str:
@@ -195,31 +267,51 @@ def annotate_official_evidence_policy(report: dict[str, Any]) -> dict[str, Any]:
 
     groups: list[dict[str, Any]] = []
     status_counter: Counter[str] = Counter()
+    current_status_counter: Counter[str] = Counter()
+    freshness_counter: Counter[str] = Counter()
     signal_counter: Counter[str] = Counter()
     generated_at = report.get("generated_at")
 
     for group_id, items in sorted(grouped.items()):
-        base_rates = _official_rates(items, "base_rate")
-        max_rates = _official_rates(items, "max_rate")
-        conflict_fields = []
-        if len(base_rates) > 1:
-            conflict_fields.append("base_rate")
-        if len(max_rates) > 1:
-            conflict_fields.append("max_rate")
+        official_status, conflict_fields, base_rates, max_rates = _official_status(items)
+        freshness = [_evidence_freshness(generated_at, item["official"]) for item in items]
+        freshness_status = _group_freshness_status(freshness)
+        current_items = [
+            item
+            for item, item_freshness in zip(items, freshness, strict=True)
+            if item_freshness["current_support_eligible"]
+        ]
+        (
+            current_official_status,
+            current_conflict_fields,
+            current_base_rates,
+            current_max_rates,
+        ) = _official_status(current_items)
 
-        if conflict_fields:
-            official_status = "conflict"
-        elif base_rates or max_rates:
-            official_status = "consistent"
+        if not current_items:
+            freshness_support = (
+                "stale_evidence" if freshness_status == "stale" else "freshness_unknown"
+            )
+            source_support = {"primary": freshness_support, "secondary": freshness_support}
+            signal = (
+                "stale_official_evidence"
+                if freshness_status == "stale"
+                else "insufficient_official_evidence"
+            )
         else:
-            official_status = "incomplete"
+            source_support = {
+                label: _source_support(
+                    current_items,
+                    label,
+                    official_status=current_official_status,
+                )
+                for label in ("primary", "secondary")
+            }
+            signal = _reconciliation_signal(source_support, current_official_status)
 
-        source_support = {
-            label: _source_support(items, label, official_status=official_status)
-            for label in ("primary", "secondary")
-        }
-        signal = _reconciliation_signal(source_support, official_status)
         status_counter[official_status] += 1
+        current_status_counter[current_official_status] += 1
+        freshness_counter[freshness_status] += 1
         signal_counter[signal] += 1
 
         first = items[0]["official"]
@@ -237,6 +329,12 @@ def annotate_official_evidence_policy(report: dict[str, Any]) -> dict[str, Any]:
                 "conflict_fields": conflict_fields,
                 "official_base_rates": base_rates,
                 "official_max_rates": max_rates,
+                "freshness_status": freshness_status,
+                "current_status": current_official_status,
+                "current_conflict_fields": current_conflict_fields,
+                "current_official_base_rates": current_base_rates,
+                "current_official_max_rates": current_max_rates,
+                "current_support_records": len(current_items),
                 "source_support": source_support,
                 "reconciliation_signal": signal,
                 "records": [
@@ -255,23 +353,7 @@ def annotate_official_evidence_policy(report: dict[str, Any]) -> dict[str, Any]:
                             "capture_artifact_sha256"
                         ),
                         "note": item["official"].get("note"),
-                        "freshness": {
-                            "as_of": generated_at,
-                            "effective_age_days": _age_days(
-                                generated_at, item["official"].get("effective_at")
-                            ),
-                            "captured_age_days": _age_days(
-                                generated_at, item["official"].get("captured_at")
-                            ),
-                            "effective_at_known": _date(
-                                item["official"].get("effective_at")
-                            )
-                            is not None,
-                            "captured_at_known": _date(
-                                item["official"].get("captured_at")
-                            )
-                            is not None,
-                        },
+                        "freshness": _evidence_freshness(generated_at, item["official"]),
                         "url": item["official"].get("url"),
                         "base_rate": item["official"].get("base_rate"),
                         "max_rate": item["official"].get("max_rate"),
@@ -287,13 +369,25 @@ def annotate_official_evidence_policy(report: dict[str, Any]) -> dict[str, Any]:
     scope["official_evidence_authority"] = "read_only_support_only"
     scope["official_conflict_blocks_authority"] = True
     scope["official_surface_metadata_policy"] = "preserve_source_surface_and_variant"
-    scope["official_freshness_metadata_policy"] = "observational_only"
+    scope["official_freshness_metadata_policy"] = (
+        "captured_age_days_lt_30_required_for_current_support; "
+        "stale_evidence_preserved_read_only; never_selects_source_authority"
+    )
+    scope["official_current_support_max_capture_age_days"] = (
+        OFFICIAL_EVIDENCE_CURRENT_MAX_CAPTURE_AGE_DAYS
+    )
 
     summary = report.setdefault("summary", {})
     summary["official_evidence_groups"] = len(groups)
     summary["official_evidence_consistent_groups"] = status_counter["consistent"]
     summary["official_evidence_conflicts"] = status_counter["conflict"]
     summary["official_evidence_incomplete_groups"] = status_counter["incomplete"]
+    summary["official_evidence_current_groups"] = freshness_counter["current"]
+    summary["official_evidence_mixed_freshness_groups"] = freshness_counter["mixed"]
+    summary["official_evidence_stale_groups"] = freshness_counter["stale"]
+    summary["official_evidence_unknown_freshness_groups"] = freshness_counter["unknown"]
+    summary["official_current_conflict_groups"] = current_status_counter["conflict"]
+    summary["official_stale_signal_groups"] = signal_counter["stale_official_evidence"]
     summary["official_primary_supported_groups"] = signal_counter["primary_supported"]
     summary["official_secondary_supported_groups"] = signal_counter["secondary_supported"]
     summary["official_both_supported_groups"] = signal_counter["both_supported"]

@@ -304,15 +304,20 @@ def test_official_policy_preserves_surface_variant_and_freshness(tmp_path: Path)
         encoding="utf-8",
     )
 
-    report = annotate_official_evidence_policy(
-        build_source_discrepancy_report(db, official_evidence_path=evidence)
-    )
+    base_report = build_source_discrepancy_report(db, official_evidence_path=evidence)
+    base_report["generated_at"] = "2026-08-24T00:00:00+09:00"
+    report = annotate_official_evidence_policy(base_report)
     group = report["official_evidence_groups"][0]
     record = group["records"][0]
 
     assert group["join_channel"] == "any"
     assert group["interest_method"] == "simple"
+    assert group["freshness_status"] == "current"
     assert record["evidence_surface"] == "bank_direct_rate_change_notice"
-    assert record["freshness"]["captured_age_days"] is not None
-    assert record["freshness"]["effective_age_days"] is not None
-    assert report["scope"]["official_freshness_metadata_policy"] == "observational_only"
+    assert record["freshness"]["captured_age_days"] == 1
+    assert record["freshness"]["effective_age_days"] == 2
+    assert record["freshness"]["current_support_eligible"] is True
+    assert report["scope"]["official_freshness_metadata_policy"].startswith(
+        "captured_age_days_lt_30_required_for_current_support"
+    )
+    assert report["scope"]["official_current_support_max_capture_age_days"] == 30
