@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import inspect
+from pathlib import Path
 
 import pytest
 
@@ -173,10 +174,20 @@ def test_final_navigation_is_explicit_and_mobile_hidden() -> None:
     assert "},1200)" in rendered
     assert "navLinks().some(link=>link.dataset.workspaceTarget===hashId)" in rendered
     assert '"lean-institution-detail"' in rendered
-    assert 'compactPlanning' not in rendered
     assert '"lean-preference-detail"' in rendered
     assert '"lean-special-detail"' in rendered
     assert "compactSecondarySurfaces();" in rendered
+    assert 'id="lean-planning-headline"' in rendered
+    assert '"lean-planning-detail"' in rendered
+    assert '.lean-secondary-disclosure:not([open])>.lean-secondary-disclosure-body{display:none!important}' in rendered
+    assert 'compactPlanning(planning)' in rendered
+    assert 'if(detail&&!detail.open)' in rendered
+    assert 'currentPanel&&!currentPanel.hidden' in rendered
+    assert 'detail.open=true' in rendered
+    assert '{capture:true}' in rendered
+    assert 'if(panel&&!panel.hidden)panel.hidden=true' in rendered
+    assert 'toggle.setAttribute("aria-expanded","false")' in rendered
+    assert 'toggle.textContent="예측엔진 보기"' in rendered
 
 
 def test_bounded_observer_handles_late_dom_and_reports_missing_contract() -> None:
@@ -209,3 +220,10 @@ def test_compositor_skips_old_duplicate_injectors_and_runs_lean_ia_last() -> Non
     top5 = source.index("inject_strategy_top5_compact(rendered)")
     lean = source.index("inject_strategy_lean_ia(rendered)")
     assert top5 < lean
+
+
+def test_visible_top5_contract_uses_business_label_and_preserves_machine_marker() -> None:
+    template = Path("web/templates/strategy.html").read_text(encoding="utf-8")
+
+    assert 'data-contract-label="CANONICAL">공식 비교기준</span>' in template
+    assert '<span class="chip">CANONICAL</span>' not in template

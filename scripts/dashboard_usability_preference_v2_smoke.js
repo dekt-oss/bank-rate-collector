@@ -18,8 +18,11 @@ async function snapshot(page) {
     const bodyStyle = getComputedStyle(document.body);
     const head = document.querySelector("#planning-zone .head h2");
     const headStyle = head ? getComputedStyle(head) : null;
-    const tableCell = document.querySelector(".tablewrap td");
+    const tableCells = [...document.querySelectorAll(".tablewrap td")];
+    const compactTop5Cell = tableCells.find((node) => node.closest('.top5-card[data-top5-compact="1"]')) || null;
+    const tableCell = tableCells.find((node) => !node.closest('.top5-card[data-top5-compact="1"]')) || null;
     const tableCellStyle = tableCell ? getComputedStyle(tableCell) : null;
+    const compactTop5CellStyle = compactTop5Cell ? getComputedStyle(compactTop5Cell) : null;
     const cards = [...(panel?.querySelectorAll(".ux-pref-sector") || [])];
     const text = panel?.textContent || "";
     const mutual = cards.find((node) => node.textContent.includes("상호금융 통합"));
@@ -47,6 +50,7 @@ async function snapshot(page) {
       bodyFontSize: parseFloat(bodyStyle.fontSize),
       headingFontSize: headStyle ? parseFloat(headStyle.fontSize) : null,
       tableFontSize: tableCellStyle ? parseFloat(tableCellStyle.fontSize) : null,
+      compactTop5FontSize: compactTop5CellStyle ? parseFloat(compactTop5CellStyle.fontSize) : null,
       panelExists: Boolean(panel),
       preferenceV2: panel?.dataset.preferenceV2 || "",
       panelText: text,
@@ -110,10 +114,10 @@ function assertDisplayedArithmetic(cells, label) {
 
 async function assertSingleMutualFallback(page, name) {
   for (const sector of ["kfcc", "nh_local"]) {
-    const input = page.locator(`[data-sector="${sector}"]`);
+    const input = page.locator(`input[data-sector="${sector}"]`);
     if (await input.isChecked()) await input.uncheck();
   }
-  const cu = page.locator('[data-sector="cu"]');
+  const cu = page.locator('input[data-sector="cu"]');
   if (!(await cu.isChecked())) await cu.check();
   await page.waitForFunction(() => {
     const panel = document.getElementById("preference-intelligence");
@@ -258,7 +262,8 @@ async function runViewport(browser, name, viewport) {
   if (name === "desktop") {
     invariant(result.bodyFontSize >= 17, `desktop: body font ${result.bodyFontSize}`);
     invariant(result.headingFontSize >= 19, `desktop: section heading font ${result.headingFontSize}`);
-    invariant(result.tableFontSize == null || result.tableFontSize >= 12.5, `desktop: table font ${result.tableFontSize}`);
+    invariant(result.tableFontSize == null || result.tableFontSize >= 12.5, `desktop: non-compact table font ${result.tableFontSize}`);
+    invariant(result.compactTop5FontSize == null || result.compactTop5FontSize >= 12, `desktop: compact TOP5 table font ${result.compactTop5FontSize}`);
   } else {
     invariant(result.bodyFontSize >= 16, `mobile: body font ${result.bodyFontSize}`);
   }
@@ -289,6 +294,7 @@ async function runViewport(browser, name, viewport) {
       bodyFontDesktop: result.desktop.bodyFontSize,
       headingFontDesktop: result.desktop.headingFontSize,
       tableFontDesktop: result.desktop.tableFontSize,
+      compactTop5FontDesktop: result.desktop.compactTop5FontSize,
       preferenceCardsDesktop: result.desktop.cardCount,
       mutualSourceChips: result.desktop.sourceChips,
       bodyFontMobile: result.mobile.bodyFontSize,

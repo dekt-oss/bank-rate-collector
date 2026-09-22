@@ -25,6 +25,16 @@ async function payload(page) {
 }
 
 async function assertFundingPanel(page, label) {
+  const leanDetail = page.locator("#lean-institution-detail");
+  if (await leanDetail.count()) {
+    const isOpen = await leanDetail.evaluate((details) => details.open);
+    if (!isOpen) await leanDetail.locator(":scope > summary").click();
+    await page.waitForFunction(
+      () => document.getElementById("lean-institution-detail")?.open === true,
+      null,
+      { timeout: 10_000 },
+    );
+  }
   const data = await payload(page);
   invariant(data?.available === true, `${label}: institution funding payload unavailable`);
   invariant(data?.sectors?.savings_bank, `${label}: production savings-bank funding sector missing`);
