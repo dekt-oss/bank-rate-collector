@@ -3518,7 +3518,7 @@
       // raw max를 끌어올려 기본 최근 30일 범위를 2029년으로 보내 전체 결과를
       // 0건처럼 만들었다. raw 날짜는 보존하되 "현재 화면 기준일"에는 발행일보다
       // 미래인 공시일을 사용하지 않는다.
-      const publicationAsOf = /^\\d{4}-\\d{2}-\\d{2}/.test(data.generated_at || "")
+      const publicationAsOf = /^\d{4}-\d{2}-\d{2}/.test(data.generated_at || "")
         ? data.generated_at.slice(0, 10)
         : null;
       const currentDates = publicationAsOf
