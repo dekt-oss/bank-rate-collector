@@ -9,12 +9,11 @@ source authority를 자동 선택하거나 canonical 값을 수정하지 않는�
 
 from __future__ import annotations
 
+import json
 from collections import Counter, defaultdict
 from datetime import date, datetime
-import json
 from pathlib import Path
 from typing import Any
-
 
 OFFICIAL_EVIDENCE_CURRENT_MAX_CAPTURE_AGE_DAYS = 30
 
