@@ -185,7 +185,6 @@ def test_consistent_official_group_can_support_one_source_without_overwrite() ->
     assert annotated["scope"]["official_evidence_authority"] == "read_only_support_only"
 
 
-
 def test_stale_official_evidence_is_preserved_but_not_current_support() -> None:
     report = {
         "generated_at": "2026-09-22T00:00:00+09:00",
