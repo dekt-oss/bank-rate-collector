@@ -254,10 +254,19 @@ export const operationalSignal = (sla, activeCollection = null) => {
     };
   }
 
+  if (active) {
+    return {
+      status: "pending",
+      reason: "on_time_collection_running",
+      active_collection: true,
+    };
+  }
+  // 다음 정기 실행 시각을 정상적으로 기다리는 상태는 "수집 진행 중"이 아니다.
+  // SLA diagnostic은 pending으로 남기되, 현재 operational signal은 정상으로 둔다.
   return {
-    status: "pending",
-    reason: active ? "on_time_collection_running" : "awaiting_scheduled_cycle",
-    active_collection: active,
+    status: "normal",
+    reason: "awaiting_scheduled_cycle",
+    active_collection: false,
   };
 };
 
