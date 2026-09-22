@@ -212,6 +212,22 @@ def test_late_but_completed_healthy_cycle_recovers_to_green() -> None:
     assert result["reason"] == "cycle_complete"
 
 
+def test_waiting_for_scheduled_cycle_is_green_not_running() -> None:
+    result = _signal(
+        _sla(
+            status="pending",
+            source_status="pending",
+            schedule_status="pending",
+            timing_status="pending",
+        )
+    )
+    assert result == {
+        "status": "normal",
+        "reason": "awaiting_scheduled_cycle",
+        "active_collection": False,
+    }
+
+
 def test_on_time_unfinished_collection_is_blue_not_yellow() -> None:
     result = _signal(
         _sla(
