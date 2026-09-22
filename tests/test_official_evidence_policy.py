@@ -233,6 +233,48 @@ def test_stale_official_evidence_is_preserved_but_not_current_support() -> None:
     assert annotated["summary"]["official_stale_signal_groups"] == 1
 
 
+def test_future_captured_at_fails_closed_as_unknown() -> None:
+    report = {
+        "generated_at": "2026-09-22T00:00:00+09:00",
+        "scope": {"canonical_mutated": False},
+        "summary": {"official_evidence_records": 1},
+        "official_evidence": [
+            {
+                "official": {
+                    "evidence_id": "future-page",
+                    "evidence_group": "test:future:12m",
+                    "institution": "테스트저축은행",
+                    "official_product": "정기예금",
+                    "product": "정기예금",
+                    "product_type": "term_deposit",
+                    "term_months": 12,
+                    "base_rate": "4.00",
+                    "max_rate": "4.00",
+                    "captured_at": "2026-09-23T12:00:00+09:00",
+                    "url": "https://example.invalid/future",
+                },
+                "sources": {
+                    "primary": _source("agree"),
+                    "secondary": _source("mismatch"),
+                },
+            }
+        ],
+    }
+
+    annotated = annotate_official_evidence_policy(report)
+    group = annotated["official_evidence_groups"][0]
+    freshness = group["records"][0]["freshness"]
+
+    assert group["freshness_status"] == "unknown"
+    assert group["current_status"] == "no_current_evidence"
+    assert group["reconciliation_signal"] == "insufficient_official_evidence"
+    assert freshness["captured_at_known"] is True
+    assert freshness["captured_age_days"] is None
+    assert freshness["status"] == "unknown"
+    assert freshness["current_support_eligible"] is False
+    assert freshness["current_support_reason"] == "captured_at_in_future"
+
+
 def test_official_evidence_younger_than_30_days_remains_current_support() -> None:
     report = {
         "generated_at": "2026-09-21T00:00:00+09:00",
