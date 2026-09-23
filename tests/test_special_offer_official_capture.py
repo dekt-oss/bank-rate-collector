@@ -154,6 +154,7 @@ def test_fsb_binding_audit_is_read_only_and_exact_alias_scoped(tmp_path: Path) -
             {
                 **_target("welcome_product_special", "웰뱅 라이킷(LIKIT) 적금"),
                 "institution": "웰컴저축은행",
+                "fsb_institution_names": ["웰컴저축은행"],
             }
         ],
     }
