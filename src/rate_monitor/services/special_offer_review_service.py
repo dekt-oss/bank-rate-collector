@@ -26,6 +26,13 @@ from rate_monitor.services.special_offer_evidence_service import (
 )
 
 CONFIRMED_CLASSIFICATIONS = frozenset({CONFIRMED_SPECIAL, CONFIRMED_NORMAL})
+AVAILABILITY_STATUSES = frozenset({"confirmed_active", "confirmed_ended"})
+OFFER_TERM_KEYS = (
+    "special_rate",
+    "sale_limit",
+    "eligibility",
+    "early_termination_condition",
+)
 _SHA256_RE = re.compile(r"^[0-9a-fA-F]{64}$")
 
 
@@ -152,6 +159,21 @@ def _content_hash(content_sha256: str) -> str:
     return f"sha256:{value.lower()}"
 
 
+def _offer_terms(values: dict[str, str | None] | None) -> dict[str, str]:
+    if not values:
+        return {}
+    unknown = set(values) - set(OFFER_TERM_KEYS)
+    if unknown:
+        raise SpecialOfferEvidenceError(
+            f"unsupported offer term fields: {sorted(unknown)}"
+        )
+    return {
+        key: str(values[key]).strip()
+        for key in OFFER_TERM_KEYS
+        if values.get(key) is not None and str(values[key]).strip()
+    }
+
+
 def append_operator_confirmation(
     session: Session,
     *,
@@ -166,6 +188,8 @@ def append_operator_confirmation(
     content_sha256: str,
     source_effective_from: date | None = None,
     source_effective_to: date | None = None,
+    availability_status: str | None = None,
+    offer_terms: dict[str, str | None] | None = None,
     note: str | None = None,
 ) -> ProductSpecialOfferEvidence:
     """명시적 공식 근거를 검수자가 확인한 뒤 확정 evidence를 append한다.
@@ -180,6 +204,11 @@ def append_operator_confirmation(
         )
     if evidence_kind not in CONFIRMING_KINDS:
         raise SpecialOfferEvidenceError("evidence_kind is not approved for confirmation")
+    if availability_status is not None and availability_status not in AVAILABILITY_STATUSES:
+        raise SpecialOfferEvidenceError(
+            "availability_status must be confirmed_active or confirmed_ended"
+        )
+    structured_terms = _offer_terms(offer_terms)
     source_product_key = _source_product_key(
         session, source_id=source_id, product_id=product_id
     )
@@ -188,6 +217,13 @@ def append_operator_confirmation(
         "explicit_assertion": classification,
         "review_method": "manual_cli",
     }
+    if availability_status is not None:
+        evidence["availability"] = {
+            "status": availability_status,
+            "basis": "explicit_official_evidence",
+        }
+    if structured_terms:
+        evidence["offer_terms"] = structured_terms
     if note and note.strip():
         evidence["operator_note"] = note.strip()
 
