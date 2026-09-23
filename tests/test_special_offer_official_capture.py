@@ -127,7 +127,10 @@ def test_sale_stop_surface_can_confirm_ended_for_exact_product() -> None:
             "required_phrase": "판매중지",
         },
     }
-    primary = "웰뱅 라이킷(LIKIT) 적금 웰컴 한정 특판 가입대상 만 19세 이상 실명의 개인 가입기간 12개월 1만좌 한도"
+    primary = (
+        "웰뱅 라이킷(LIKIT) 적금 웰컴 한정 특판 "
+        "가입대상 만 19세 이상 실명의 개인 가입기간 12개월 1만좌 한도"
+    )
     stopped = "판매중지상품 웰뱅 라이킷(LIKIT) 적금 롯데카드 X 웰컴 한정 특판 판매중지"
     result = MODULE.evaluate_target(
         target,
