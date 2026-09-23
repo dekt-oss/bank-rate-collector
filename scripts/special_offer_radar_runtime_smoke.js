@@ -14,6 +14,12 @@ function invariant(condition, message) {
 
 async function inspectRadar(page, label) {
   await page.goto(`${baseUrl}/strategy.html`, { waitUntil: "networkidle" });
+  await page.waitForFunction(
+    () => document.readyState !== "loading"
+      && Boolean(document.getElementById("special-offer-radar-script")),
+    null,
+    { timeout: 30_000 },
+  );
   const diagnostics = await page.evaluate(() => {
     const dataNode = document.getElementById("rate-monitor-data");
     let parsed = null;
@@ -65,6 +71,7 @@ async function inspectRadar(page, label) {
   invariant(text.includes("과거 특판 이력"), `${label}: historical metric missing`);
   invariant(text.includes("판매상태 확인중"), `${label}: availability-unknown metric missing`);
   invariant(text.includes("특판 미판정"), `${label}: FSB unknown coverage label missing`);
+  invariant(text.includes("미판정") || text.includes("추정하지 않고"), `${label}: fail-closed copy missing`);
   invariant((await panel.locator(".special-radar-metric").count()) === 4, `${label}: metric count != 4`);
   invariant((await panel.locator("form").count()) === 0, `${label}: mutation form exposed`);
   invariant((await panel.locator('[type="submit"]').count()) === 0, `${label}: submit action exposed`);
