@@ -138,6 +138,13 @@ def test_operator_confirmation_derives_exact_source_key_and_is_append_only(facto
             source_locator="https://bank.example/products/1",
             evidence_ref="상품 상세의 특판 구분 필드",
             content_sha256="A" * 64,
+            availability_status="confirmed_active",
+            offer_terms={
+                "special_rate": "연 4.50%",
+                "sale_limit": "1만좌",
+                "eligibility": "개인",
+                "early_termination_condition": "한도 소진 시 조기 종료",
+            },
             note="공식 상품 상세에서 직접 확인",
         )
         second = append_operator_confirmation(
@@ -151,12 +158,26 @@ def test_operator_confirmation_derives_exact_source_key_and_is_append_only(facto
             source_locator="https://bank.example/products/1",
             evidence_ref="상품 상세의 특판 구분 필드",
             content_sha256="A" * 64,
+            availability_status="confirmed_active",
+            offer_terms={
+                "special_rate": "연 4.50%",
+                "sale_limit": "1만좌",
+                "eligibility": "개인",
+                "early_termination_condition": "한도 소진 시 조기 종료",
+            },
             note="공식 상품 상세에서 직접 확인",
         )
         assert first.id == second.id
         assert first.source_product_key == "source-product-1"
         assert first.content_hash == "sha256:" + ("a" * 64)
         assert first.evidence_json["review_method"] == "manual_cli"
+        assert first.evidence_json["availability"]["status"] == "confirmed_active"
+        assert first.evidence_json["offer_terms"] == {
+            "special_rate": "연 4.50%",
+            "sale_limit": "1만좌",
+            "eligibility": "개인",
+            "early_termination_condition": "한도 소진 시 조기 종료",
+        }
 
         state = resolve_special_offer_state(
             session,
@@ -207,6 +228,44 @@ def test_operator_confirmation_rejects_fake_hash_and_non_exact_identity(factory)
                 source_locator="https://bank.example/products/1",
                 evidence_ref="field",
                 content_sha256="b" * 64,
+            )
+
+
+def test_operator_rejects_special_terms_on_confirmed_normal(factory) -> None:
+    with session_scope(factory) as session:
+        product_id = _seed(session)
+        with pytest.raises(SpecialOfferEvidenceError, match="only valid for confirmed_special"):
+            append_operator_confirmation(
+                session,
+                source_id="fsb",
+                product_id=product_id,
+                classification="confirmed_normal",
+                evidence_kind=EXPLICIT_SOURCE_FIELD,
+                snapshot_as_of=DAY,
+                observed_at=T0,
+                source_locator="https://bank.example/products/1",
+                evidence_ref="field",
+                content_sha256="d" * 64,
+                offer_terms={"special_rate": "연 4.50%"},
+            )
+
+
+def test_operator_rejects_unsupported_offer_term_key(factory) -> None:
+    with session_scope(factory) as session:
+        product_id = _seed(session)
+        with pytest.raises(SpecialOfferEvidenceError, match="unsupported offer term"):
+            append_operator_confirmation(
+                session,
+                source_id="fsb",
+                product_id=product_id,
+                classification=CONFIRMED_SPECIAL,
+                evidence_kind=EXPLICIT_SOURCE_FIELD,
+                snapshot_as_of=DAY,
+                observed_at=T0,
+                source_locator="https://bank.example/products/1",
+                evidence_ref="field",
+                content_sha256="e" * 64,
+                offer_terms={"made_up": "x"},
             )
 
 
