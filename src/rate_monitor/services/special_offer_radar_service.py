@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from rate_monitor.db.session import create_readonly_db_engine, make_session_factory
+from rate_monitor.db.special_offer_models import ProductSpecialOfferEvidence
 from rate_monitor.services.special_offer_evidence_service import (
     CONFIRMED_NORMAL,
     CONFIRMED_SPECIAL,
@@ -65,6 +66,7 @@ def _unavailable(reason: str) -> dict[str, Any]:
             "unknown_is_special": False,
             "heuristic_confirmation": False,
             "ranking_population_changed": False,
+            "current_tab_requires_confirmed_active": True,
         },
     }
 
@@ -206,6 +208,65 @@ def _current_fsb_rates(
     return rates
 
 
+def _offer_evidence_details(
+    session,
+    *,
+    evidence_ids: tuple[str, ...],
+    as_of: date,
+) -> dict[str, Any]:
+    rows = [
+        row
+        for evidence_id in evidence_ids
+        if (row := session.get(ProductSpecialOfferEvidence, evidence_id)) is not None
+    ]
+    rows.sort(key=lambda row: (row.observed_at, row.id), reverse=True)
+    if not rows:
+        return {
+            "availability_status": "unknown",
+            "offer_terms": {},
+            "source_effective_from": None,
+            "source_effective_to": None,
+        }
+
+    chosen = rows[0]
+    evidence = dict(chosen.evidence_json or {})
+    availability = evidence.get("availability")
+    status = (
+        str(availability.get("status") or "").strip()
+        if isinstance(availability, dict)
+        else ""
+    )
+    if status not in {"confirmed_active", "confirmed_ended"}:
+        status = "unknown"
+    if status == "unknown" and chosen.source_effective_to is not None:
+        if chosen.source_effective_to < as_of:
+            status = "confirmed_ended"
+
+    raw_terms = evidence.get("offer_terms")
+    offer_terms = dict(raw_terms) if isinstance(raw_terms, dict) else {}
+    return {
+        "availability_status": status,
+        "offer_terms": {
+            "special_rate": offer_terms.get("special_rate"),
+            "sale_limit": offer_terms.get("sale_limit"),
+            "eligibility": offer_terms.get("eligibility"),
+            "early_termination_condition": offer_terms.get(
+                "early_termination_condition"
+            ),
+        },
+        "source_effective_from": (
+            chosen.source_effective_from.isoformat()
+            if chosen.source_effective_from is not None
+            else None
+        ),
+        "source_effective_to": (
+            chosen.source_effective_to.isoformat()
+            if chosen.source_effective_to is not None
+            else None
+        ),
+    }
+
+
 def build_special_offer_radar(
     db_path: Path,
     *,
@@ -251,6 +312,9 @@ def build_special_offer_radar(
             "conflict": 0,
         }
         offers: list[dict[str, Any]] = []
+        current_offers: list[dict[str, Any]] = []
+        historical_offers: list[dict[str, Any]] = []
+        availability_unknown_count = 0
         for product_id in product_ids:
             state = resolve_special_offer_state(
                 session,
@@ -269,26 +333,45 @@ def build_special_offer_radar(
             context_row = product_context.get(product_id)
             if context_row is None:
                 continue
-            offers.append(
-                {
-                    **context_row,
-                    **rates[product_id],
-                    "classification": state.classification,
-                    "evidence_kind": state.evidence_kind,
-                    "evidence_ref": state.evidence_ref,
-                    "evidence_ids": list(state.evidence_ids),
-                }
+            details = _offer_evidence_details(
+                session,
+                evidence_ids=state.evidence_ids,
+                as_of=resolved_as_of,
             )
+            offer = {
+                **context_row,
+                **rates[product_id],
+                **details,
+                "classification": state.classification,
+                "evidence_kind": state.evidence_kind,
+                "evidence_ref": state.evidence_ref,
+                "evidence_ids": list(state.evidence_ids),
+            }
+            offers.append(offer)
+            if details["availability_status"] == "confirmed_active":
+                current_offers.append(offer)
+            elif details["availability_status"] == "confirmed_ended":
+                historical_offers.append(offer)
+            else:
+                availability_unknown_count += 1
     finally:
         session.close()
         engine.dispose()
 
-    offers.sort(
+    sort_key = lambda item: (
+        -(item["representative_rate"] if item["representative_rate"] is not None else -1.0),
+        item["institution_name"],
+        item["product_name"],
+    )
+    offers.sort(key=sort_key)
+    current_offers.sort(key=sort_key)
+    historical_offers.sort(
         key=lambda item: (
-            -(item["representative_rate"] if item["representative_rate"] is not None else -1.0),
+            item.get("source_effective_to") or "",
             item["institution_name"],
             item["product_name"],
-        )
+        ),
+        reverse=True,
     )
     status = "confirmed_evidence_available" if offers else "collecting_confirmed_evidence"
     return {
@@ -300,6 +383,13 @@ def build_special_offer_radar(
         "activation": RADAR_ACTIVATION,
         "counts": counts,
         "offers": offers,
+        "current_offers": current_offers,
+        "historical_offers": historical_offers,
+        "availability_counts": {
+            "confirmed_active": len(current_offers),
+            "confirmed_ended": len(historical_offers),
+            "unknown": availability_unknown_count,
+        },
         "policy": {
             "unknown_is_special": False,
             "heuristic_confirmation": False,
