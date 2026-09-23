@@ -866,15 +866,14 @@
     </div>
     <div class="advanced-filters" id="advanced-filters" hidden>
       <div class="groups" id="groups-advanced"></div>
-    <!-- 공시일은 다른 항목과 성격이 다르다. 값이 수백 가지라 체크박스로는
-         못 쓰고, "최근 것만"이 실제로 필요한 조건이다. -->
+    <!-- 공시일은 다른 항목과 성격이 다르다. 값이 수백 가지라 개별 날짜
+         체크박스 대신 최근 기간 프리셋 + 전체 기간 + 직접 범위를 제공한다. -->
     <div class="group">
-      <div class="lbl">공시일
-        <button type="button" data-clear="asOf">기간 전체</button>
-      </div>
+      <div class="lbl">공시일</div>
       <div class="checks" id="asof-presets"></div>
       <!-- 시작·종료를 따로 준다. "최근 것만"으로는 "작년 6월에 무엇이
-           있었나"를 물을 수 없다. 프리셋은 시작만 정하고 종료는 비운다. -->
+           있었나"를 물을 수 없다. 프리셋의 "전체 기간"은 1년 이전 공시도
+           현재 유효할 수 있다는 업무 전제에서 날짜 필터 자체를 해제한다. -->
       <div class="fields" style="margin-top:8px">
         <div class="field">
           <label for="dfrom">이 날짜부터</label>
@@ -885,7 +884,6 @@
           <input type="date" id="dto">
         </div>
       </div>
-      <p class="stale-note" id="stale-note"></p>
     </div>
 
     <div class="group" style="border-right:0">
@@ -1277,26 +1275,14 @@
       } },
     { key: "source", label: "수집원", cls: "dim", cell: (r) => esc(r.source) },
     { key: "asOf", label: "공시일", cls: "dim num",
-      cell: (r) => (r.asOf ? esc(r.asOf) : "—")
-        + (isStale(r) ? '<span class="tag warn">오래됨</span>' : "") },
+      cell: (r) => (r.asOf ? esc(r.asOf) : "—") },
   ];
 
   // ── 공시일 ───────────────────────────────────────────────────────
   //
-  // 원천마다 성격이 다르다. 새마을금고·신협은 조회 시점에 화면을 통째로
-  // 다시 그려서 전부 오늘 날짜이고, 저축은행중앙회는 저축은행이 금리를
-  // 마지막으로 제출한 날이 그대로 남아 2015년 것도 섞여 있다.
-  //
-  // 그 행이 "없어진 상품"인지 "금리가 오래 안 바뀐 상품"인지는 이 데이터로
-  // 구분할 수 없다. 다만 조회한 날 화면에 나왔으므로 공시 자체는 살아 있다.
-  // 그래서 **기본값은 전체**로 두고, 오래된 것이 몇 건인지 눈에 보이게 한다.
-  const STALE_DAYS = 365;
-  const daysBetween = (a, b) =>
-    Math.round((Date.parse(b) - Date.parse(a)) / 86400000);
-  // 오늘이 아니라 **데이터의 최신 공시일**을 기준으로 센다. 보는 시점이
-  // 언제든 같은 결과가 나와야 한다.
-  const isStale = (r) =>
-    r.asOf && latestAsOf && daysBetween(r.asOf, latestAsOf) > STALE_DAYS;
+  // 원천에 따라 공시일이 오래 유지될 수 있으므로 경과기간만으로 상품의
+  // 판매종료·비정상을 추정하지 않는다. 기본은 최근 30일이지만 세부검색의
+  // "전체 기간"에서는 보유한 모든 공시일을 동일하게 조회한다.
   const shiftDays = (iso, days) => {
     const d = new Date(iso + "T00:00:00Z");
     d.setUTCDate(d.getUTCDate() - days);
@@ -1408,25 +1394,23 @@
   };
 
   const renderAsOf = () => {
-    $("asof-presets").innerHTML = PRESETS.map((p) => {
+    const recentPresets = PRESETS.map((p) => {
       const n = ALL.filter((r) => r.asOf && r.asOf >= p.from).length;
       return `<label>
         <input type="radio" name="asof" data-from="${p.from}"
-               ${state.dfrom === p.from ? "checked" : ""}>
+               ${state.dfrom === p.from && !state.dto ? "checked" : ""}>
         최근 ${p.days === 365 ? "1년" : p.days + "일"}
         <span class="n">${num(n)}</span>
       </label>`;
     }).join("");
+    const allPreset = `<label>
+      <input type="radio" name="asof" data-all-period="1"
+             ${!state.dfrom && !state.dto ? "checked" : ""}>
+      전체 기간 <span class="n">${num(ALL.length)}</span>
+    </label>`;
+    $("asof-presets").innerHTML = recentPresets + allPreset;
     $("dfrom").value = state.dfrom || "";
     $("dto").value = state.dto || "";
-
-    const stale = ALL.filter(isStale).length;
-    $("stale-note").innerHTML = stale
-      ? `공시일이 1년 넘게 갱신되지 않은 행이 <b>${num(stale)}건</b> 있습니다. `
-        + `전부 저축은행 공시이고, 상품이 없어진 것인지 금리가 오래 바뀌지 `
-        + `않은 것인지는 이 자료로 구분할 수 없습니다. 표에 <span class="tag warn">`
-        + `오래됨</span> 표식을 붙였습니다.`
-      : "모든 행이 최근 1년 안에 갱신되었습니다.";
   };
 
   // ── 부산 구·군 — 지역 조건 안에 인라인으로 편다 ──────────────────
@@ -3404,7 +3388,8 @@
   $("asof-presets").addEventListener("change", (e) => {
     const radio = e.target.closest("input[name=asof]");
     if (!radio) return;
-    state.dfrom = radio.dataset.from;
+    state.dfrom = radio.dataset.from || null;
+    state.dto = radio.dataset.to || null;
     renderAsOf();
     redraw();
   });
@@ -3534,7 +3519,7 @@
       // 뒤에서 시작하는 범위는 어떤 현재 행도 매치할 수 없고 새로고침으로도
       // 사라지지 않는다. 그런 불가능한 날짜 범위만 최근 30일 기본값으로
       // 복구하고, 다음 syncUrl에서 주소도 정상 범위로 교정한다.
-      const isoDate = (value) => !value || /^\\d{4}-\\d{2}-\\d{2}$/.test(value);
+      const isoDate = (value) => !value || /^\d{4}-\d{2}-\d{2}$/.test(value);
       const invalidUrlDateWindow = hasUrlFilters && urlDateSpecified && (
         !isoDate(state.dfrom)
         || !isoDate(state.dto)

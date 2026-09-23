@@ -864,7 +864,32 @@ def test_future_disclosure_date_cannot_shift_the_default_window() -> None:
     assert "(latestAsOf && state.dfrom && state.dfrom > latestAsOf)" in SOURCE
     assert "(state.dfrom && state.dto && state.dfrom > state.dto)" in SOURCE
     assert "urlDateSpecified = false;" in SOURCE
+    # JS regex에는 실제 \d escape가 한 번만 있어야 한다. \\d가 되면
+    # 정상 ISO 날짜까지 invalid로 판단해 공유 URL을 강제로 초기화한다.
+    assert (
+        'const isoDate = (value) => !value || /^\\d{4}-\\d{2}-\\d{2}$/.test(value);'
+        in SOURCE
+    )
+    assert '/^\\\\d{4}-\\\\d{2}-\\\\d{2}$/' not in SOURCE
 
+
+def test_as_of_presets_expose_full_history_including_old_disclosures() -> None:
+    """1년 이전 공시도 격리하지 않고 세부검색의 전체 기간으로 함께 조회한다."""
+    assert 'data-all-period="1"' in SOURCE
+    assert '전체 기간 <span class="n">${num(ALL.length)}</span>' in SOURCE
+    assert '"공시일 전체"' in SOURCE
+    assert "const staleThrough = () =>" not in SOURCE
+    assert 'data-old="1"' not in SOURCE
+    assert '<span class="tag warn">1년+</span>' not in SOURCE
+    assert '<span class="tag warn">오래됨</span>' not in SOURCE
+    assert 'id="stale-note"' not in SOURCE
+    assert "판매종료·비정상을 추정하지 않는다" in SOURCE
+
+
+def test_as_of_preset_switch_replaces_both_date_bounds() -> None:
+    """전체 기간이나 최근 프리셋으로 전환할 때 이전 수동 날짜 범위가 남으면 안 된다."""
+    assert "state.dfrom = radio.dataset.from || null;" in SOURCE
+    assert "state.dto = radio.dataset.to || null;" in SOURCE
 
 def test_default_filters_match_the_basic_mode_contract() -> None:
     assert "const DEFAULT_TERMS" not in SOURCE
