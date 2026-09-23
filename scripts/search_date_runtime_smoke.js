@@ -64,7 +64,7 @@ async function waitForRenderedRows(page) {
     const oldRadio = page.locator('#asof-presets input[data-old="1"]');
     invariant(await oldRadio.count() === 1, "1년 이전 preset missing");
     const oldLabel = oldRadio.locator("xpath=..");
-    const oldCount = numeric(await oldLabel.innerText());
+    const oldCount = numeric(await oldLabel.locator(".n").innerText());
     const staleCount = numeric(await page.locator("#stale-note b").innerText());
     invariant(oldCount > 0, "1년 이전 preset count is zero");
     invariant(oldCount === staleCount,
