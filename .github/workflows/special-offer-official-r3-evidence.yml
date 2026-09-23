@@ -1,0 +1,124 @@
+name: Special-offer official R3 candidate evidence
+
+on:
+  push:
+    branches:
+      - "feat/special-offer-official-evidence-r3-*"
+    paths:
+      - ".github/workflows/special-offer-official-r3-evidence.yml"
+      - "config/special_offer_official_targets.json"
+      - "scripts/special_offer_official_capture.py"
+      - "tests/test_special_offer_official_capture.py"
+      - "docs/evidence/20260923-special-offer-r3-source-discovery.md"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: special-offer-official-r3-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  live-capture-and-binding-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Sync dependencies
+        run: uv sync --locked
+
+      - name: Targeted lint and tests
+        run: |
+          set -euo pipefail
+          uv run ruff check scripts/special_offer_official_capture.py tests/test_special_offer_official_capture.py
+          uv run pytest -q tests/test_special_offer_official_capture.py
+
+      - name: Restore production database into runner-local candidate
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+          R2_REGION: ${{ vars.R2_REGION }}
+        run: |
+          set -euo pipefail
+          mkdir -p work/raw evidence
+          uv run rate-monitor storage restore --dest work/rate_monitor.sqlite3
+          test -s work/rate_monitor.sqlite3
+
+      - name: Apply migrations only to runner-local copy
+        env:
+          RATE_MONITOR_DB_URL: sqlite+pysqlite:///${{ github.workspace }}/work/rate_monitor.sqlite3
+        run: uv run alembic upgrade head
+
+      - name: Seal candidate DB before read-only evidence work
+        run: sha256sum work/rate_monitor.sqlite3 | tee work/db-before.sha256
+
+      - name: Capture configured official bank-direct surfaces
+        run: |
+          set -euo pipefail
+          uv run python scripts/special_offer_official_capture.py capture             --config config/special_offer_official_targets.json             --raw-dir work/raw             --out evidence/special-offer-official-candidates.json
+
+      - name: Audit FSB exact-code binding candidates read-only
+        run: |
+          set -euo pipefail
+          uv run python scripts/special_offer_official_capture.py audit-bindings             --config config/special_offer_official_targets.json             --db work/rate_monitor.sqlite3             --out evidence/special-offer-fsb-binding-audit.json
+
+      - name: Assert evidence semantics
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+
+          capture = json.loads(Path("evidence/special-offer-official-candidates.json").read_text())
+          audit = json.loads(Path("evidence/special-offer-fsb-binding-audit.json").read_text())
+
+          assert capture["coverage"]["configured_targets"] >= 3
+          assert capture["coverage"]["successful_captures"] == capture["coverage"]["configured_targets"]
+          assert capture["coverage"]["failures"] == 0
+          assert capture["scope"]["db_write"] is False
+          assert capture["scope"]["availability_inferred"] is False
+          assert all(item["classification"] == "confirmed_special" for item in capture["candidates"])
+          assert all(item["availability"] == "not_inferred" for item in capture["candidates"])
+          assert audit["scope"]["db_mode"] == "read_only"
+          assert audit["scope"]["confirmation_written"] is False
+          assert audit["scope"]["alias_match_is_confirmation"] is False
+          print(json.dumps({
+              "capture_coverage": capture["coverage"],
+              "unique_fsb_binding_candidates": audit["unique_candidate_count"],
+              "confirmed_written": False,
+          }, ensure_ascii=False))
+          PY
+
+      - name: Prove production candidate DB was not mutated
+        run: |
+          set -euo pipefail
+          sha256sum work/rate_monitor.sqlite3 | tee work/db-after.sha256
+          diff -u work/db-before.sha256 work/db-after.sha256
+          echo "No confirmation append, no storage upload, no rate-data publication."
+
+      - name: Upload R3 evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: special-offer-official-r3-${{ github.run_id }}
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            evidence/special-offer-official-candidates.json
+            evidence/special-offer-fsb-binding-audit.json
+            work/raw/*.html
+            work/db-before.sha256
+            work/db-after.sha256
