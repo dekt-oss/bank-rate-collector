@@ -884,7 +884,6 @@
           <input type="date" id="dto">
         </div>
       </div>
-      <p class="stale-note" id="stale-note"></p>
     </div>
 
     <div class="group" style="border-right:0">
@@ -1276,28 +1275,14 @@
       } },
     { key: "source", label: "수집원", cls: "dim", cell: (r) => esc(r.source) },
     { key: "asOf", label: "공시일", cls: "dim num",
-      cell: (r) => (r.asOf ? esc(r.asOf) : "—")
-        + (isStale(r) ? '<span class="tag warn">1년+</span>' : "") },
+      cell: (r) => (r.asOf ? esc(r.asOf) : "—") },
   ];
 
   // ── 공시일 ───────────────────────────────────────────────────────
   //
-  // 원천마다 성격이 다르다. 새마을금고·신협은 조회 시점에 화면을 통째로
-  // 다시 그려서 전부 오늘 날짜이고, 저축은행중앙회는 저축은행이 금리를
-  // 마지막으로 제출한 날이 그대로 남아 2015년 것도 섞여 있다.
-  //
-  // 그 행이 "없어진 상품"인지 "금리가 오래 안 바뀐 상품"인지는 이 데이터로
-  // 구분할 수 없다. 다만 조회한 날 화면에 나왔으므로 공시 자체는 살아 있다.
-  // 기본 조회는 최근 30일을 유지하되, 세부검색의 "전체 기간"
-  // 으로 1년 이전 공시까지 함께 조회한다. 공시일의 경과기간은 판매 종료
-  // 의미가 아니므로 자동 제외하지 않고 "1년+" 정보 표식만 남긴다.
-  const STALE_DAYS = 365;
-  const daysBetween = (a, b) =>
-    Math.round((Date.parse(b) - Date.parse(a)) / 86400000);
-  // 오늘이 아니라 **데이터의 최신 공시일**을 기준으로 센다. 보는 시점이
-  // 언제든 같은 결과가 나와야 한다.
-  const isStale = (r) =>
-    r.asOf && latestAsOf && daysBetween(r.asOf, latestAsOf) > STALE_DAYS;
+  // 원천에 따라 공시일이 오래 유지될 수 있으므로 경과기간만으로 상품의
+  // 판매종료·비정상을 추정하지 않는다. 기본은 최근 30일이지만 세부검색의
+  // "전체 기간"에서는 보유한 모든 공시일을 동일하게 조회한다.
   const shiftDays = (iso, days) => {
     const d = new Date(iso + "T00:00:00Z");
     d.setUTCDate(d.getUTCDate() - days);
@@ -1409,7 +1394,6 @@
   };
 
   const renderAsOf = () => {
-    const stale = ALL.filter(isStale).length;
     const recentPresets = PRESETS.map((p) => {
       const n = ALL.filter((r) => r.asOf && r.asOf >= p.from).length;
       return `<label>
@@ -1427,12 +1411,6 @@
     $("asof-presets").innerHTML = recentPresets + allPreset;
     $("dfrom").value = state.dfrom || "";
     $("dto").value = state.dto || "";
-
-    $("stale-note").innerHTML = stale
-      ? `공시일이 1년을 초과한 행이 <b>${num(stale)}건</b> 있습니다. `
-        + `금리를 장기간 유지한 현재 상품일 수도 있어 자동 제외하지 않습니다. `
-        + `<b>전체 기간</b>에서 함께 조회하며 표에는 <span class="tag warn">1년+</span>만 표시합니다.`
-      : "모든 행의 공시일이 최근 1년 안입니다.";
   };
 
   // ── 부산 구·군 — 지역 조건 안에 인라인으로 편다 ──────────────────
