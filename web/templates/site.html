@@ -1277,7 +1277,7 @@
     { key: "source", label: "수집원", cls: "dim", cell: (r) => esc(r.source) },
     { key: "asOf", label: "공시일", cls: "dim num",
       cell: (r) => (r.asOf ? esc(r.asOf) : "—")
-        + (isStale(r) ? '<span class="tag warn">오래됨</span>' : "") },
+        + (isStale(r) ? '<span class="tag warn">1년+</span>' : "") },
   ];
 
   // ── 공시일 ───────────────────────────────────────────────────────
@@ -1288,9 +1288,9 @@
   //
   // 그 행이 "없어진 상품"인지 "금리가 오래 안 바뀐 상품"인지는 이 데이터로
   // 구분할 수 없다. 다만 조회한 날 화면에 나왔으므로 공시 자체는 살아 있다.
-  // 기본 조회는 최근 30일을 유지하되, 세부검색의 "전체 기간(1년 이전 포함)"
-  // 으로 오래된 공시까지 함께 조회할 수 있게 한다. 오래됨은 제외 조건이
-  // 아니라 정보성 표식이다.
+  // 기본 조회는 최근 30일을 유지하되, 세부검색의 "전체 기간"
+  // 으로 1년 이전 공시까지 함께 조회한다. 공시일의 경과기간은 판매 종료
+  // 의미가 아니므로 자동 제외하지 않고 "1년+" 정보 표식만 남긴다.
   const STALE_DAYS = 365;
   const daysBetween = (a, b) =>
     Math.round((Date.parse(b) - Date.parse(a)) / 86400000);
@@ -1422,18 +1422,17 @@
     const allPreset = `<label>
       <input type="radio" name="asof" data-all-period="1"
              ${!state.dfrom && !state.dto ? "checked" : ""}>
-      전체 기간(1년 이전 포함) <span class="n">${num(ALL.length)}</span>
+      전체 기간 <span class="n">${num(ALL.length)}</span>
     </label>`;
     $("asof-presets").innerHTML = recentPresets + allPreset;
     $("dfrom").value = state.dfrom || "";
     $("dto").value = state.dto || "";
 
     $("stale-note").innerHTML = stale
-      ? `공시일이 1년 넘게 갱신되지 않은 행이 <b>${num(stale)}건</b> 있습니다. `
+      ? `공시일이 1년을 초과한 행이 <b>${num(stale)}건</b> 있습니다. `
         + `금리를 장기간 유지한 현재 상품일 수도 있어 자동 제외하지 않습니다. `
-        + `<b>전체 기간(1년 이전 포함)</b>을 선택하면 함께 조회되며, 표에는 `
-        + `<span class="tag warn">오래됨</span> 표식을 붙였습니다.`
-      : "모든 행이 최근 1년 안에 갱신되었습니다.";
+        + `<b>전체 기간</b>에서 함께 조회하며 표에는 <span class="tag warn">1년+</span>만 표시합니다.`
+      : "모든 행의 공시일이 최근 1년 안입니다.";
   };
 
   // ── 부산 구·군 — 지역 조건 안에 인라인으로 편다 ──────────────────
