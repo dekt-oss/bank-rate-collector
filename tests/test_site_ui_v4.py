@@ -859,6 +859,11 @@ def test_future_disclosure_date_cannot_shift_the_default_window() -> None:
         "latestAsOf = currentDates.at(-1) || publicationAsOf || dates.at(-1) || null;"
         in SOURCE
     )
+    # 이미 주소에 남은 미래 dfrom도 reload 때 0건 상태를 고착시키면 안 된다.
+    assert "const invalidUrlDateWindow = hasUrlFilters && urlDateSpecified" in SOURCE
+    assert "(latestAsOf && state.dfrom && state.dfrom > latestAsOf)" in SOURCE
+    assert "(state.dfrom && state.dto && state.dfrom > state.dto)" in SOURCE
+    assert "urlDateSpecified = false;" in SOURCE
 
 
 def test_default_filters_match_the_basic_mode_contract() -> None:
