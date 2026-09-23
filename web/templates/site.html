@@ -874,7 +874,8 @@
       </div>
       <div class="checks" id="asof-presets"></div>
       <!-- 시작·종료를 따로 준다. "최근 것만"으로는 "작년 6월에 무엇이
-           있었나"를 물을 수 없다. 프리셋은 시작만 정하고 종료는 비운다. -->
+           있었나"를 물을 수 없다. 최근 프리셋은 시작일만, "1년 이전"은
+           종료일만 정해 오래된 공시만 바로 볼 수 있게 한다. -->
       <div class="fields" style="margin-top:8px">
         <div class="field">
           <label for="dfrom">이 날짜부터</label>
@@ -1289,7 +1290,8 @@
   //
   // 그 행이 "없어진 상품"인지 "금리가 오래 안 바뀐 상품"인지는 이 데이터로
   // 구분할 수 없다. 다만 조회한 날 화면에 나왔으므로 공시 자체는 살아 있다.
-  // 그래서 **기본값은 전체**로 두고, 오래된 것이 몇 건인지 눈에 보이게 한다.
+  // 기본 조회는 최근 30일을 유지하되, 오래된 행은 "1년 이전" 프리셋과
+  // 표의 오래됨 표식으로 바로 분리 조회할 수 있게 한다.
   const STALE_DAYS = 365;
   const daysBetween = (a, b) =>
     Math.round((Date.parse(b) - Date.parse(a)) / 86400000);
@@ -1302,6 +1304,11 @@
     d.setUTCDate(d.getUTCDate() - days);
     return d.toISOString().slice(0, 10);
   };
+  // isStale은 "365일 초과"이므로 오래된 전용 조회의 종료일은 366일 전이다.
+  // 이렇게 두면 최근 1년(>= 365일 전)과 1년 이전(<= 366일 전)이
+  // 겹치지도 않고 하루도 빠뜨리지 않는다.
+  const staleThrough = () =>
+    latestAsOf ? shiftDays(latestAsOf, STALE_DAYS + 1) : null;
 
   // ── 표 그리기 ────────────────────────────────────────────────────
   const renderHead = () => {
@@ -1400,27 +1407,37 @@
   };
   const renderFilterSummary = () => {
     const thirtyDays = latestAsOf && state.dfrom === shiftDays(latestAsOf, 30) && !state.dto;
+    const olderThanYear = staleThrough()
+      && !state.dfrom && state.dto === staleThrough();
     const date = thirtyDays ? "공시일 최근 30일"
-      : (!state.dfrom && !state.dto ? "공시일 전체" : "공시일 직접 지정");
+      : (olderThanYear ? "공시일 1년 이전"
+        : (!state.dfrom && !state.dto ? "공시일 전체" : "공시일 직접 지정"));
     $("filter-mode-summary").innerHTML = ["sector", "type", "term", "region"]
       .map((k) => `<span>${esc(shortGroupSummary(k))}</span>`).join("")
       + `<span>${esc(date)}</span>`;
   };
 
   const renderAsOf = () => {
-    $("asof-presets").innerHTML = PRESETS.map((p) => {
+    const stale = ALL.filter(isStale).length;
+    const oldThrough = staleThrough();
+    const recentPresets = PRESETS.map((p) => {
       const n = ALL.filter((r) => r.asOf && r.asOf >= p.from).length;
       return `<label>
         <input type="radio" name="asof" data-from="${p.from}"
-               ${state.dfrom === p.from ? "checked" : ""}>
+               ${state.dfrom === p.from && !state.dto ? "checked" : ""}>
         최근 ${p.days === 365 ? "1년" : p.days + "일"}
         <span class="n">${num(n)}</span>
       </label>`;
     }).join("");
+    const stalePreset = oldThrough ? `<label>
+      <input type="radio" name="asof" data-to="${oldThrough}" data-old="1"
+             ${!state.dfrom && state.dto === oldThrough ? "checked" : ""}>
+      1년 이전 <span class="n">${num(stale)}</span>
+    </label>` : "";
+    $("asof-presets").innerHTML = recentPresets + stalePreset;
     $("dfrom").value = state.dfrom || "";
     $("dto").value = state.dto || "";
 
-    const stale = ALL.filter(isStale).length;
     $("stale-note").innerHTML = stale
       ? `공시일이 1년 넘게 갱신되지 않은 행이 <b>${num(stale)}건</b> 있습니다. `
         + `전부 저축은행 공시이고, 상품이 없어진 것인지 금리가 오래 바뀌지 `
@@ -3404,7 +3421,8 @@
   $("asof-presets").addEventListener("change", (e) => {
     const radio = e.target.closest("input[name=asof]");
     if (!radio) return;
-    state.dfrom = radio.dataset.from;
+    state.dfrom = radio.dataset.from || null;
+    state.dto = radio.dataset.to || null;
     renderAsOf();
     redraw();
   });
