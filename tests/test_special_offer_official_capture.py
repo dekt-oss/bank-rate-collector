@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 import sqlite3
+from pathlib import Path
 
 import pytest
-
 from scripts.special_offer_official_capture import (
     EvidenceCaptureError,
     audit_fsb_bindings,
