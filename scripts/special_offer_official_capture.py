@@ -115,22 +115,22 @@ def parse_surface(target: dict[str, Any], content: bytes, charset: str | None) -
         )
         assertion_marker = next((marker for marker in markers if marker in text), "")
         if not assertion_marker:
-            raise EvidenceCaptureError("Welcome product page has no explicit special-sale assertion")
+            raise EvidenceCaptureError(\n                "Welcome product page has no explicit special-sale assertion"\n            )
         effective_from, effective_to = _period(text)
     elif parser_name == "ibk_product_special":
         if "특판내용" not in text:
-            raise EvidenceCaptureError("IBK product detail has no structured 특판내용 section")
+            raise EvidenceCaptureError(\n                "IBK product detail has no structured 특판내용 section"\n            )
         if f"특판 {product_name.removeprefix('특판 ')}" not in text and not product_name.startswith("특판 "):
-            raise EvidenceCaptureError("IBK product title is not explicitly marked as special sale")
+            raise EvidenceCaptureError(\n                "IBK product title is not explicitly marked as special sale"\n            )
         assertion_marker = "특판내용"
         effective_from, effective_to = _period(text)
     elif parser_name == "daishin_special_notice":
         if "특판 안내" not in text or product_name not in text:
-            raise EvidenceCaptureError("Daishin notice lacks explicit product-level special-sale notice")
+            raise EvidenceCaptureError(\n                "Daishin notice lacks explicit product-level special-sale notice"\n            )
         assertion_marker = "특판 안내"
         effective_from, effective_to = _period(text)
         if not effective_from or not effective_to:
-            raise EvidenceCaptureError("Daishin versioned special notice lacks explicit effective period")
+            raise EvidenceCaptureError(\n                "Daishin versioned special notice lacks explicit effective period"\n            )
     else:
         raise EvidenceCaptureError(f"unsupported parser: {parser_name}")
 
