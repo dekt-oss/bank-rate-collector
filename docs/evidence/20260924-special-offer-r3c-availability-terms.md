@@ -60,7 +60,7 @@ availability는 3상태다.
 
 공식 공지 `no=588`을 2026-09-24 다시 확인한 결과 현재 페이지는 다음을 명시한다.
 
-- 특판금리 연 3.25%
+- 특판금리 연 3.30%
 - 기간 2024-09-26 ~ 2026-12-28
 - 2,000억원 한도
 - 한도 소진 시 조기마감
@@ -92,3 +92,21 @@ alias match 자체는 confirmation이 아니다.
 - 페이지 접근 가능만으로 active 판정
 - name-only confirmation
 - 일반 경쟁순위/Relative Pricing 모집단 변경
+
+## 7. 첫 production-copy evidence 결과
+
+Run `35879974171`의 첫 live capture에서 다음을 확인했다.
+
+- 웰컴 LIKIT: 공식 판매중지 surface로 `confirmed_ended` 후보
+- 웰컴 디지로카: 명시 판매기간 종료로 `confirmed_ended` 후보
+- 대신 기업자유예금: 특판금리 3.30%, 2026-12-28까지이나 조기마감 조건이 있어
+  availability는 `unknown`
+- IBK: 상품 근거가 아니라 GitHub runner의 TLS certificate-chain 검증에서 실패
+- production FSB exact-code alias binding: 4개 target 모두 0건
+
+마지막 항목은 confirmed evidence를 만들지 말아야 한다는 뜻이다. 공식 은행 페이지
+근거와 production FSB identity가 검증 가능한 동일 상품으로 연결되기 전까지
+registry 자동 append를 하지 않는다.
+
+IBK TLS 문제는 `verify=False`로 우회하지 않는다. project dependency인
+`httpx`/certifi trust store를 사용해 TLS verification을 유지한 상태로 재검증한다.
