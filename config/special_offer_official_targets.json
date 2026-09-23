@@ -1,0 +1,46 @@
+{
+  "version": 1,
+  "policy": "official_product_level_special_offer_capture",
+  "targets": [
+    {
+      "target_id": "welcome-likit-1130313563",
+      "institution": "웰컴저축은행",
+      "product_name": "웰뱅 라이킷(LIKIT) 적금",
+      "official_product_key": "1130313563",
+      "url": "https://www.welcomebank.co.kr/ib20/mnu/IBNFPMDSP002?ib20_wc=IBNFPMDSP001_00%3AIBNFPMCMN001_00&prdCd=1130313563&sysDsCd=01",
+      "required_phrases": ["웰뱅 라이킷", "한정 특판"],
+      "effective_from": null,
+      "effective_to": null
+    },
+    {
+      "target_id": "welcome-digiloca-1130313564",
+      "institution": "웰컴저축은행",
+      "product_name": "웰컴 디지로카 100일적금",
+      "official_product_key": "1130313564",
+      "url": "https://www.welcomebank.co.kr/ib20/mnu/IBNFPMDSP002?ib20_wc=IBNFPMDSP001_00%3AIBNFPMCMN001_00&prdCd=1130313564&sysDsCd=01",
+      "required_phrases": ["웰컴 디지로카 100일적금", "특판 상품"],
+      "effective_from": "2024-07-22",
+      "effective_to": "2024-12-31"
+    },
+    {
+      "target_id": "ibksb-blue-dragon-502132836",
+      "institution": "IBK저축은행",
+      "product_name": "특판 청룡비상(靑龍飛上)정기적금",
+      "official_product_key": "502132836",
+      "url": "https://www.ibksb.co.kr/m/deposit/502132836",
+      "required_phrases": ["특판 청룡비상", "특판내용"],
+      "effective_from": null,
+      "effective_to": null
+    },
+    {
+      "target_id": "daishin-corporate-free-588",
+      "institution": "대신저축은행",
+      "product_name": "기업자유예금",
+      "official_product_key": "notice:588",
+      "url": "https://bank.daishin.com/sub.do?category=&code=03_news02&keyword=&mode=view&no=588&page=4&search=",
+      "required_phrases": ["기업자유예금", "특판"],
+      "effective_from": "2024-09-26",
+      "effective_to": "2026-06-25"
+    }
+  ]
+}
