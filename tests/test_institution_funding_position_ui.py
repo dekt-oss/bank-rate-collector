@@ -227,15 +227,21 @@ def test_position_presentation_is_strategy_only_and_idempotent() -> None:
 
     assert STYLE_MARKER in rendered
     assert SCRIPT_MARKER in rendered
-    assert "기관 수신 포지션" in rendered
+    assert "기관 수신규모 · 성장 위치" in rendered
+    assert "수신잔액</b> = 기관의 현재 체급" in rendered
+    assert "6·12개월 증감</b> = 최근 성장속도" in rendered
     assert "부분 관측" in rendered
     assert "부분 모집단" not in rendered
-    assert "수신규모순" in rendered
-    assert "6M 성장순" in rendered
-    assert "업권 중앙값 대비순" in rendered
-    assert "Direct Peer 16 대비순" in rendered
+    assert "수신규모 큰 순" in rendered
+    assert "6개월 성장 큰 순" in rendered
+    assert "업권 평균보다 빠른 순" in rendered
+    assert "비슷한 기관 대비 빠른 순" in rendered
     assert "기관명 미확인" in rendered
-    assert "백분위 · 상위" in rendered
+    assert "상위 " in rendered
+    assert "백분위 · 상위" not in rendered
+    assert "수신규모 순위" in rendered
+    assert "6개월 증감" in rendered
+    assert "비슷한 기관 16곳 대비" in rendered
     assert "시군구→시도→전국" in rendered
     assert "연관성 지표" in rendered
     assert "ECOS 업권 수신잔액과 합계 일치를 전제하지 않고" in rendered
