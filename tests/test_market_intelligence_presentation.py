@@ -43,6 +43,12 @@ def test_market_intelligence_briefing_is_injected_once() -> None:
     assert "upper_decile_change_bp" in rendered
     assert "top_decile_churn_rate" in rendered
     assert "spread_change_bp" in rendered
+    assert "▲ 인상" in rendered
+    assert "▼ 인하" in rendered
+    assert "─ 유지" in rendered
+    assert "인상-인하 균형" in rendered
+    assert "금리변경 breadth" not in rendered
+    assert "변경상품 구성" in rendered
     assert "근거가 확보되기 전에는 0 또는 추정값으로 대체하지 않습니다" in rendered
 
     assert inject_market_intelligence_presentation(rendered) == rendered
