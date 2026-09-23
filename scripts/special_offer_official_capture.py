@@ -217,7 +217,9 @@ def fetch_https(url: str, *, timeout: float = 30.0) -> dict[str, Any]:
         response = client.get(url)
         response.raise_for_status()
         body = response.content
-        content_type = response.headers.get("content-type", "").split(";", 1)[0].strip() or None
+        content_type = (
+            response.headers.get("content-type", "").split(";", 1)[0].strip() or None
+        )
         return {
             "body": body,
             "status": response.status_code,
