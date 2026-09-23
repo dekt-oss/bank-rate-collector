@@ -96,7 +96,11 @@ def _require_product(text: str, product_name: str) -> None:
         raise EvidenceCaptureError(f"exact configured product title missing: {product_name}")
 
 
-def parse_surface(target: dict[str, Any], content: bytes, charset: str | None) -> dict[str, Any]:
+def parse_surface(
+    target: dict[str, Any],
+    content: bytes,
+    charset: str | None,
+) -> dict[str, Any]:
     surface = target["surface"]
     parser_name = str(surface["parser"])
     product_name = str(target["product_name"])
@@ -113,24 +117,38 @@ def parse_surface(target: dict[str, Any], content: bytes, charset: str | None) -
             "한정 특판",
             "특판 상품",
         )
-        assertion_marker = next((marker for marker in markers if marker in text), "")
+        assertion_marker = next(
+            (marker for marker in markers if marker in text),
+            "",
+        )
         if not assertion_marker:
-            raise EvidenceCaptureError(\n                "Welcome product page has no explicit special-sale assertion"\n            )
+            raise EvidenceCaptureError(
+                "Welcome product page has no explicit special-sale assertion"
+            )
         effective_from, effective_to = _period(text)
     elif parser_name == "ibk_product_special":
         if "특판내용" not in text:
-            raise EvidenceCaptureError(\n                "IBK product detail has no structured 특판내용 section"\n            )
-        if f"특판 {product_name.removeprefix('특판 ')}" not in text and not product_name.startswith("특판 "):
-            raise EvidenceCaptureError(\n                "IBK product title is not explicitly marked as special sale"\n            )
+            raise EvidenceCaptureError(
+                "IBK product detail has no structured 특판내용 section"
+            )
+        explicit_title = f"특판 {product_name.removeprefix('특판 ')}"
+        if explicit_title not in text:
+            raise EvidenceCaptureError(
+                "IBK product title is not explicitly marked as special sale"
+            )
         assertion_marker = "특판내용"
         effective_from, effective_to = _period(text)
     elif parser_name == "daishin_special_notice":
         if "특판 안내" not in text or product_name not in text:
-            raise EvidenceCaptureError(\n                "Daishin notice lacks explicit product-level special-sale notice"\n            )
+            raise EvidenceCaptureError(
+                "Daishin notice lacks explicit product-level special-sale notice"
+            )
         assertion_marker = "특판 안내"
         effective_from, effective_to = _period(text)
         if not effective_from or not effective_to:
-            raise EvidenceCaptureError(\n                "Daishin versioned special notice lacks explicit effective period"\n            )
+            raise EvidenceCaptureError(
+                "Daishin versioned special notice lacks explicit effective period"
+            )
     else:
         raise EvidenceCaptureError(f"unsupported parser: {parser_name}")
 
