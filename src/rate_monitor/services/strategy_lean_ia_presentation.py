@@ -185,7 +185,7 @@ _SCRIPT = r'''
     let wrapper=$("workspace-competitor-position");
     if(!wrapper){
       wrapper=document.createElement("section");wrapper.id="workspace-competitor-position";wrapper.className="workspace-competitor-position";
-      wrapper.innerHTML='<div class="workspace-competitor-position-head"><div><em>04</em><strong>경쟁사 · 기관 포지션</strong></div><span>금리 경쟁상단과 기관 수신규모·성장을 같은 흐름에서 비교합니다.</span></div>';
+      wrapper.innerHTML='<div class="workspace-competitor-position-head"><div><em>04</em><strong>경쟁 금리 · 수신규모 비교</strong></div><span><b>위:</b> 동일조건 최고금리 TOP5와 당사 위치 · <b>아래:</b> 업권별 기관 수신잔액과 6·12개월 성장 위치</span></div>';
       const planning=$("planning-zone"),anchor=planning||$("market-flow")||$("market-intelligence");
       anchor?.insertAdjacentElement("afterend",wrapper);
     }
@@ -230,7 +230,7 @@ _SCRIPT = r'''
     ["기본환경",[["시장 자금환경","external-market-context"],["업권 수신 흐름","market-funding-competition"]]],
     ["시장현황",[["시장 금리 방향","market-intelligence"],["12개월 시장 추이","workspace-market-trend"]]],
     ["금리설계",[["신상품 금리 시뮬레이션","planning-zone"]]],
-    ["경쟁분석",[["경쟁사 · 기관 포지션","workspace-competitor-position"]]],
+    ["경쟁분석",[["경쟁 금리 · 수신규모","workspace-competitor-position"]]],
     ["상품분석",[["우대조건 · 상품구조","preference-intelligence"],["특판 · 시장기회","special-offer-radar"]]],
   ];
   function navLinks(){return [...document.querySelectorAll('#strategy-workspace-nav[data-lean-ia-nav="1"] a[data-workspace-target]')]}
