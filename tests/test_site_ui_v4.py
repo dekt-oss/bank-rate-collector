@@ -874,13 +874,15 @@ def test_future_disclosure_date_cannot_shift_the_default_window() -> None:
 
 
 def test_as_of_presets_expose_full_history_including_old_disclosures() -> None:
-    """오래된 공시는 격리하지 않고 세부검색의 전체 기간으로 함께 조회한다."""
+    """1년 이전 공시도 격리하지 않고 세부검색의 전체 기간으로 함께 조회한다."""
     assert 'data-all-period="1"' in SOURCE
-    assert '전체 기간(1년 이전 포함) <span class="n">${num(ALL.length)}</span>' in SOURCE
+    assert '전체 기간 <span class="n">${num(ALL.length)}</span>' in SOURCE
     assert '"공시일 전체"' in SOURCE
     assert "const staleThrough = () =>" not in SOURCE
     assert 'data-old="1"' not in SOURCE
     assert "금리를 장기간 유지한 현재 상품일 수도 있어 자동 제외하지 않습니다." in SOURCE
+    assert '<span class="tag warn">1년+</span>' in SOURCE
+    assert '<span class="tag warn">오래됨</span>' not in SOURCE
 
 
 def test_as_of_preset_switch_replaces_both_date_bounds() -> None:
