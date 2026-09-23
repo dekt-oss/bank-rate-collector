@@ -1,0 +1,45 @@
+{
+  "version": 1,
+  "policy": "special_offer_official_candidate_read_only_v1",
+  "targets": [
+    {
+      "target_id": "welcome-likit",
+      "institution": "웰컴저축은행",
+      "fsb_institution_names": ["웰컴저축은행", "웰컴"],
+      "product_name": "웰뱅 라이킷(LIKIT) 적금",
+      "fsb_product_names": ["웰뱅 라이킷(LIKIT) 적금"],
+      "surface": {
+        "url": "https://www.welcomebank.co.kr/ib20/mnu/IBNFPMDSP002?ib20_wc=IBNFPMDSP001_00%3AIBNFPMCMN001_00&prdCd=1130313563&sysDsCd=01",
+        "parser": "welcome_product_special",
+        "product_locator": "prdCd=1130313563",
+        "evidence_kind": "explicit_source_field"
+      }
+    },
+    {
+      "target_id": "ibk-blue-dragon",
+      "institution": "IBK저축은행",
+      "fsb_institution_names": ["IBK저축은행", "IBK"],
+      "product_name": "특판 청룡비상(靑龍飛上)정기적금",
+      "fsb_product_names": ["특판 청룡비상(靑龍飛上)정기적금"],
+      "surface": {
+        "url": "https://www.ibksb.co.kr/m/deposit/502132836",
+        "parser": "ibk_product_special",
+        "product_locator": "/m/deposit/502132836",
+        "evidence_kind": "explicit_source_field"
+      }
+    },
+    {
+      "target_id": "daishin-corporate-demand-2024",
+      "institution": "대신저축은행",
+      "fsb_institution_names": ["대신저축은행", "대신"],
+      "product_name": "기업자유예금",
+      "fsb_product_names": ["기업자유예금"],
+      "surface": {
+        "url": "https://bank.daishin.com/sub.do?category=&code=03_news02&keyword=&mode=view&no=588&page=4&search=",
+        "parser": "daishin_special_notice",
+        "product_locator": "notice:no=588",
+        "evidence_kind": "versioned_product_scope_observation"
+      }
+    }
+  ]
+}
