@@ -4,9 +4,12 @@ on:
   push:
     branches:
       - "feat/special-offer-radar-*"
+      - "feat/special-offer-r3c-*"
     paths:
       - ".github/workflows/special-offer-radar-runtime-evidence.yml"
       - "scripts/special_offer_radar_runtime_smoke.js"
+      - "scripts/special_offer_official_capture.py"
+      - "config/special_offer_official_targets.json"
       - "src/rate_monitor/services/special_offer_evidence_service.py"
       - "src/rate_monitor/services/special_offer_radar_service.py"
       - "src/rate_monitor/services/special_offer_radar_presentation.py"
