@@ -880,9 +880,10 @@ def test_as_of_presets_expose_full_history_including_old_disclosures() -> None:
     assert '"공시일 전체"' in SOURCE
     assert "const staleThrough = () =>" not in SOURCE
     assert 'data-old="1"' not in SOURCE
-    assert "금리를 장기간 유지한 현재 상품일 수도 있어 자동 제외하지 않습니다." in SOURCE
-    assert '<span class="tag warn">1년+</span>' in SOURCE
+    assert '<span class="tag warn">1년+</span>' not in SOURCE
     assert '<span class="tag warn">오래됨</span>' not in SOURCE
+    assert 'id="stale-note"' not in SOURCE
+    assert "판매종료·비정상을 추정하지 않는다" in SOURCE
 
 
 def test_as_of_preset_switch_replaces_both_date_bounds() -> None:
