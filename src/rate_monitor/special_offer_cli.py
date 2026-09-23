@@ -88,6 +88,13 @@ def _confirm(args: argparse.Namespace) -> int:
             source_effective_to=(
                 date.fromisoformat(args.effective_to) if args.effective_to else None
             ),
+            availability_status=args.availability_status,
+            offer_terms={
+                "special_rate": args.special_rate,
+                "sale_limit": args.sale_limit,
+                "eligibility": args.eligibility,
+                "early_termination_condition": args.early_termination_condition,
+            },
             note=args.note,
         )
         payload = {
@@ -163,6 +170,20 @@ def build_parser() -> argparse.ArgumentParser:
         "--effective-to",
         default=None,
         help="공식 근거가 명시한 적용 종료일 YYYY-MM-DD",
+    )
+    confirm.add_argument(
+        "--availability-status",
+        choices=["confirmed_active", "confirmed_ended"],
+        default=None,
+        help="공식 근거가 현재 판매중/종료를 명시한 경우만 기록",
+    )
+    confirm.add_argument("--special-rate", default=None, help="공식 근거가 명시한 특판금리")
+    confirm.add_argument("--sale-limit", default=None, help="판매한도/좌수/총액")
+    confirm.add_argument("--eligibility", default=None, help="가입대상")
+    confirm.add_argument(
+        "--early-termination-condition",
+        default=None,
+        help="한도 소진 등 조기종료 조건",
     )
     confirm.add_argument("--note", default=None)
     confirm.set_defaults(func=_confirm)
