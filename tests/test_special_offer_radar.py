@@ -335,7 +335,11 @@ def test_radar_presentation_is_read_only_and_idempotent() -> None:
     rendered = inject_special_offer_radar_presentation(html)
     assert STYLE_MARKER in rendered
     assert SCRIPT_MARKER in rendered
-    assert "시장 특판 Radar" in rendered
+    assert "특판 Radar · 근거 수집 중" in rendered
+    assert "공식근거 0건 · 수집 중" in rendered
+    assert "현재 확정된 특판은 0건입니다." in rendered
+    assert "기능 자체는 유지하며" in rendered
+    assert "미판정" in rendered
     assert "unknown" in rendered
     assert "<form" not in rendered.lower()
     assert 'type="submit"' not in rendered.lower()
