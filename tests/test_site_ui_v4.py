@@ -873,21 +873,20 @@ def test_future_disclosure_date_cannot_shift_the_default_window() -> None:
     assert '/^\\\\d{4}-\\\\d{2}-\\\\d{2}$/' not in SOURCE
 
 
-def test_as_of_presets_expose_older_than_one_year_without_boundary_overlap() -> None:
-    """최근 1년과 1년 이전은 같은 stale 기준을 쓰고 경계가 겹치면 안 된다."""
-    assert "const staleThrough = () =>" in SOURCE
-    assert "shiftDays(latestAsOf, STALE_DAYS + 1)" in SOURCE
-    assert 'data-to="${oldThrough}" data-old="1"' in SOURCE
-    assert '1년 이전 <span class="n">${num(stale)}</span>' in SOURCE
-    assert 'olderThanYear ? "공시일 1년 이전"' in SOURCE
-    assert 'state.dfrom === p.from && !state.dto ? "checked" : ""' in SOURCE
+def test_as_of_presets_expose_full_history_including_old_disclosures() -> None:
+    """오래된 공시는 격리하지 않고 세부검색의 전체 기간으로 함께 조회한다."""
+    assert 'data-all-period="1"' in SOURCE
+    assert '전체 기간(1년 이전 포함) <span class="n">${num(ALL.length)}</span>' in SOURCE
+    assert '"공시일 전체"' in SOURCE
+    assert "const staleThrough = () =>" not in SOURCE
+    assert 'data-old="1"' not in SOURCE
+    assert "금리를 장기간 유지한 현재 상품일 수도 있어 자동 제외하지 않습니다." in SOURCE
 
 
 def test_as_of_preset_switch_replaces_both_date_bounds() -> None:
-    """오래된 dto가 최근 프리셋에 남아 다시 0건을 만드는 회귀를 막는다."""
+    """전체 기간이나 최근 프리셋으로 전환할 때 이전 수동 날짜 범위가 남으면 안 된다."""
     assert "state.dfrom = radio.dataset.from || null;" in SOURCE
     assert "state.dto = radio.dataset.to || null;" in SOURCE
-
 
 def test_default_filters_match_the_basic_mode_contract() -> None:
     assert "const DEFAULT_TERMS" not in SOURCE
