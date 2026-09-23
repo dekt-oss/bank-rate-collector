@@ -20,6 +20,12 @@ from pathlib import Path
 from typing import Any
 
 USER_AGENT = "Mozilla/5.0 (compatible; bank-rate-collector-special-offer-audit/1.0)"
+OFFER_TERM_KEYS = {
+    "special_rate",
+    "sale_limit",
+    "eligibility",
+    "early_termination_condition",
+}
 
 
 class _TextExtractor(HTMLParser):
@@ -76,6 +82,14 @@ def _validate_config(config: dict[str, Any]) -> None:
         phrases = target.get("required_phrases")
         if not isinstance(phrases, list) or not phrases:
             raise ValueError(f"{target_id}: required_phrases must be non-empty")
+        terms = target.get("offer_terms", {})
+        if not isinstance(terms, dict):
+            raise ValueError(f"{target_id}: offer_terms must be an object")
+        unknown_terms = set(terms) - OFFER_TERM_KEYS
+        if unknown_terms:
+            raise ValueError(
+                f"{target_id}: unsupported offer_terms {sorted(unknown_terms)}"
+            )
 
 
 def fetch_https(url: str, *, timeout: float = 30.0) -> dict[str, Any]:
@@ -126,6 +140,12 @@ def evaluate_target(target: dict[str, Any], response: dict[str, Any]) -> dict[st
         ),
         "effective_from": target.get("effective_from"),
         "effective_to": target.get("effective_to"),
+        "offer_terms": {
+            key: str(value).strip()
+            for key, value in dict(target.get("offer_terms") or {}).items()
+            if value is not None and str(value).strip()
+        },
+        "availability_status": "not_checked",
         "fsb_binding_status": "not_checked",
         "canonical_mutated": False,
     }
