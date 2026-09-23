@@ -107,7 +107,7 @@ def test_daishin_versioned_notice_requires_explicit_period() -> None:
                 "기업자유예금",
                 "versioned_product_scope_observation",
             ),
-            b"<html><body>기업자유예금 특판 안내 상품명 : 기업자유예금</body></html>",
+            "<html><body>기업자유예금 특판 안내 상품명 : 기업자유예금</body></html>".encode(),
             "utf-8",
         )
 
