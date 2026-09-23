@@ -76,6 +76,9 @@ def _unavailable(reason: str) -> dict[str, Any]:
             "conflict": 0,
         },
         "offers": [],
+        "current_offers": [],
+        "past_offers": [],
+        "availability_counts": {"confirmed_active": 0, "confirmed_ended": 0, "unknown": 0},
         "policy": {
             "unknown_is_special": False,
             "heuristic_confirmation": False,
@@ -124,6 +127,24 @@ def _candidate_product_ids(
             as_of.isoformat(),
             as_of.isoformat(),
             as_of.isoformat(),
+        ),
+    ).fetchall()
+    return [str(row[0]) for row in rows]
+
+
+def _historical_special_product_ids(
+    conn: sqlite3.Connection,
+    *,
+    known_at: datetime,
+) -> list[str]:
+    rows = conn.execute(
+        "SELECT DISTINCT product_id FROM product_special_offer_evidence "
+        "WHERE source_id=? AND classification=? AND observed_at<=? "
+        "ORDER BY product_id",
+        (
+            SOURCE_ID,
+            CONFIRMED_SPECIAL,
+            known_at.isoformat(sep=" ", timespec="microseconds"),
         ),
     ).fetchall()
     return [str(row[0]) for row in rows]
@@ -366,8 +387,13 @@ def build_special_offer_radar(
             as_of=resolved_as_of,
             known_at=resolved_known_at,
         )
-        product_context = _product_contexts(conn, product_ids)
-        rates = _current_fsb_rates(conn, product_ids)
+        historical_product_ids = _historical_special_product_ids(
+            conn,
+            known_at=resolved_known_at,
+        )
+        context_ids = sorted(set(product_ids) | set(historical_product_ids))
+        product_context = _product_contexts(conn, context_ids)
+        rates = _current_fsb_rates(conn, context_ids)
     finally:
         conn.close()
 
@@ -416,6 +442,38 @@ def build_special_offer_radar(
                     "evidence_ids": list(state.evidence_ids),
                 }
             )
+        historical_offers: list[dict[str, Any]] = []
+        if historical_product_ids:
+            historical_rows = session.scalars(
+                select(ProductSpecialOfferEvidence).where(
+                    ProductSpecialOfferEvidence.source_id == SOURCE_ID,
+                    ProductSpecialOfferEvidence.product_id.in_(historical_product_ids),
+                    ProductSpecialOfferEvidence.classification == CONFIRMED_SPECIAL,
+                    ProductSpecialOfferEvidence.observed_at <= resolved_known_at,
+                )
+            ).all()
+            for evidence in historical_rows:
+                evidence_meta = _resolved_evidence_metadata(
+                    session,
+                    (evidence.id,),
+                    as_of=resolved_as_of,
+                )
+                if evidence_meta["availability_status"] != "confirmed_ended":
+                    continue
+                context_row = product_context.get(evidence.product_id)
+                if context_row is None:
+                    continue
+                historical_offers.append(
+                    {
+                        **context_row,
+                        **rates[evidence.product_id],
+                        **evidence_meta,
+                        "classification": CONFIRMED_SPECIAL,
+                        "evidence_kind": evidence.evidence_kind,
+                        "evidence_ref": evidence.evidence_ref,
+                        "evidence_ids": [evidence.id],
+                    }
+                )
     finally:
         session.close()
         engine.dispose()
@@ -430,12 +488,10 @@ def build_special_offer_radar(
     current_offers = [
         item for item in offers if item.get("availability_status") == "confirmed_active"
     ]
-    past_offers = [
-        item for item in offers if item.get("availability_status") == "confirmed_ended"
-    ]
     pending_offers = [
         item for item in offers if item.get("availability_status") == "unknown"
     ]
+    past_offers = historical_offers
     current_offers.sort(
         key=lambda item: (
             str(item.get("evidence_observed_at") or ""),
@@ -463,10 +519,14 @@ def build_special_offer_radar(
         "confirmed_ended": len(past_offers),
         "unknown": len(pending_offers),
     }
-    status = "confirmed_evidence_available" if offers else "collecting_confirmed_evidence"
+    status = (
+        "confirmed_evidence_available"
+        if offers or past_offers
+        else "collecting_confirmed_evidence"
+    )
     return {
         "status": status,
-        "reason": None if offers else "no_confirmed_special_at_snapshot",
+        "reason": None if offers or past_offers else "no_confirmed_special_evidence",
         "source_id": SOURCE_ID,
         "as_of": resolved_as_of.isoformat(),
         "known_at": resolved_known_at.isoformat(),
@@ -480,5 +540,7 @@ def build_special_offer_radar(
             "unknown_is_special": False,
             "heuristic_confirmation": False,
             "ranking_population_changed": False,
+            "unknown_availability_in_current_tab": False,
+            "special_classification_implies_availability": False,
         },
     }
