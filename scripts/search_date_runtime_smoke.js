@@ -40,8 +40,25 @@ async function waitForRenderedRows(page) {
     const recoveredUrl = new URL(page.url());
     invariant(recoveredUrl.searchParams.get("dfrom") !== "2099-01-01",
       "future dfrom remained pinned after recovery");
-    invariant(numeric(await page.locator("#count").innerText()) > 0,
-      "recovered default search still has zero rows");
+    const recoveredCount = numeric(await page.locator("#count").innerText());
+    invariant(recoveredCount > 0, "recovered default search still has zero rows");
+
+    // 반대 방향도 잠근다. 정상적인 과거 공유 URL은 복구 대상이 아니다.
+    const historicalFrom = "2020-01-01";
+    const historicalResponse = await page.goto(
+      `${baseUrl}/?dfrom=${historicalFrom}`,
+      { waitUntil: "networkidle" },
+    );
+    invariant(historicalResponse && historicalResponse.ok(),
+      `historical URL HTTP ${historicalResponse ? historicalResponse.status() : "no response"}`);
+    await waitForRenderedRows(page);
+    const historicalUrl = new URL(page.url());
+    invariant(historicalUrl.searchParams.get("dfrom") === historicalFrom,
+      `valid historical dfrom was rewritten: ${historicalUrl}`);
+    invariant(
+      (await page.locator("#filter-mode-summary").innerText()).includes("공시일 직접 지정"),
+      "valid historical URL did not remain an explicit date filter",
+    );
 
     await page.locator("#filter-toggle").click();
     const oldRadio = page.locator('#asof-presets input[data-old="1"]');
@@ -75,7 +92,8 @@ async function waitForRenderedRows(page) {
 
     const metrics = {
       recoveredUrl: recoveredUrl.toString(),
-      recoveredCount: numeric(await page.locator("#count").innerText()),
+      recoveredCount,
+      historicalUrl: historicalUrl.toString(),
       oldPresetCount: oldCount,
       staleCount,
       finalUrl: page.url(),
