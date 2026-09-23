@@ -37,6 +37,7 @@ on:
       - "scripts/strategy_workspace_smoke.js"
       - "scripts/strategy_lean_ia_density_smoke.js"
       - "scripts/main_map_runtime_smoke.js"
+      - "scripts/search_date_runtime_smoke.js"
       - "scripts/production_smoke.py"
       - "scripts/rate_history_audit.py"
       - "tests/test_strategy_workspace_presentation.py"
@@ -291,6 +292,7 @@ jobs:
           node --check scripts/strategy_workspace_smoke.js
           node --check scripts/strategy_lean_ia_density_smoke.js
           node --check scripts/main_map_runtime_smoke.js
+          node --check scripts/search_date_runtime_smoke.js
 
       - name: Run desktop and mobile Chrome smoke against local build and production
         env:
@@ -318,6 +320,8 @@ jobs:
           curl -fsS http://127.0.0.1:4173/strategy.html >/dev/null
           curl -fsS http://127.0.0.1:4173/ >/dev/null
           curl -fsS http://127.0.0.1:4174/strategy.html >/dev/null
+          SEARCH_DATE_SMOKE_BASE_URL=http://127.0.0.1:4173 \
+            node scripts/search_date_runtime_smoke.js
           MAIN_MAP_SMOKE_PREFIX=main-map-local node scripts/main_map_runtime_smoke.js
           STRATEGY_PREVIEW_BASE_URL=https://bank-rate-collector.vercel.app \
             MAIN_MAP_SMOKE_PREFIX=main-map-production \
@@ -341,6 +345,8 @@ jobs:
             work/strategy-runtime-external-features.json
             work/main-map-*-layout-metrics.json
             work/main-map-*.png
+            work/search-date-runtime.png
+            work/search-date-runtime-metrics.json
             work/strategy-main-runtime-*.png
             work/strategy-density-*.png
             work/strategy-lean-ia-density-metrics.json
