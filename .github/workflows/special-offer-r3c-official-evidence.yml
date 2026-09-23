@@ -98,6 +98,23 @@ jobs:
           assert capture["scope"]["special_offer_registry_mutated"] is False
           assert capture["scope"]["availability_inferred_from_future_end_date"] is False
 
+          print(json.dumps({
+              "capture_coverage": capture["coverage"],
+              "captures": [
+                  {
+                      "target_id": item["target_id"],
+                      "classification": item["classification_candidate"],
+                      "availability": item["availability"]["status"],
+                      "special_rate": item["special_offer_terms"]["special_rate"],
+                      "sale_end": item["special_offer_terms"]["sale_end"],
+                  }
+                  for item in capture["captures"]
+              ],
+              "capture_failures": capture["failures"],
+              "availability_failures": capture["availability_failures"],
+              "binding_targets": bindings["targets"],
+          }, ensure_ascii=False, indent=2))
+
           candidates = [
               item for item in capture["captures"]
               if item["classification_candidate"] == "confirmed_special_candidate"
@@ -126,8 +143,11 @@ jobs:
           PY
 
       - name: Prove runner-local production copy was not mutated
+        if: always()
         run: |
           set -euo pipefail
+          test -s work/rate_monitor.sqlite3
+          test -s work/db-before.sha256
           sha256sum work/rate_monitor.sqlite3 | tee work/db-after.sha256
           diff -u work/db-before.sha256 work/db-after.sha256
 
