@@ -15,11 +15,12 @@ import json
 import re
 import sqlite3
 import urllib.parse
-import urllib.request
 from datetime import UTC, date, datetime
 from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any
+
+import httpx
 
 USER_AGENT = "Mozilla/5.0 (compatible; bank-rate-collector-special-offer-audit/2.0)"
 AVAILABILITY = frozenset({"confirmed_active", "confirmed_ended", "unknown"})
@@ -206,15 +207,23 @@ def _validate_config(config: dict[str, Any]) -> None:
 
 
 def fetch_https(url: str, *, timeout: float = 30.0) -> dict[str, Any]:
-    request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-    with urllib.request.urlopen(request, timeout=timeout) as response:
-        body = response.read()
+    # httpx uses the project's certifi trust store while keeping TLS verification ON.
+    # Do not fall back to verify=False for source-specific certificate-chain problems.
+    with httpx.Client(
+        headers={"User-Agent": USER_AGENT},
+        follow_redirects=True,
+        timeout=timeout,
+    ) as client:
+        response = client.get(url)
+        response.raise_for_status()
+        body = response.content
+        content_type = response.headers.get("content-type", "").split(";", 1)[0].strip() or None
         return {
             "body": body,
-            "status": int(getattr(response, "status", 200)),
-            "final_url": response.geturl(),
-            "charset": response.headers.get_content_charset(),
-            "content_type": response.headers.get_content_type(),
+            "status": response.status_code,
+            "final_url": str(response.url),
+            "charset": response.encoding,
+            "content_type": content_type,
         }
 
 
