@@ -866,6 +866,22 @@ def test_future_disclosure_date_cannot_shift_the_default_window() -> None:
     assert "urlDateSpecified = false;" in SOURCE
 
 
+def test_as_of_presets_expose_older_than_one_year_without_boundary_overlap() -> None:
+    """최근 1년과 1년 이전은 같은 stale 기준을 쓰고 경계가 겹치면 안 된다."""
+    assert "const staleThrough = () =>" in SOURCE
+    assert "shiftDays(latestAsOf, STALE_DAYS + 1)" in SOURCE
+    assert 'data-to="${oldThrough}" data-old="1"' in SOURCE
+    assert '1년 이전 <span class="n">${num(stale)}</span>' in SOURCE
+    assert 'olderThanYear ? "공시일 1년 이전"' in SOURCE
+    assert 'state.dfrom === p.from && !state.dto ? "checked" : ""' in SOURCE
+
+
+def test_as_of_preset_switch_replaces_both_date_bounds() -> None:
+    """오래된 dto가 최근 프리셋에 남아 다시 0건을 만드는 회귀를 막는다."""
+    assert "state.dfrom = radio.dataset.from || null;" in SOURCE
+    assert "state.dto = radio.dataset.to || null;" in SOURCE
+
+
 def test_default_filters_match_the_basic_mode_contract() -> None:
     assert "const DEFAULT_TERMS" not in SOURCE
     assert 'else selectAllGroup(g.key);' in SOURCE, "가입기간도 전체 선택을 사용한다"
