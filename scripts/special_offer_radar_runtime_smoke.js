@@ -57,10 +57,14 @@ async function inspectRadar(page, label) {
   invariant(await panel.isVisible(), `${label}: special-offer Radar panel hidden`);
 
   const text = await panel.textContent();
-  invariant(text.includes("시장 특판 Radar"), `${label}: Radar title missing`);
-  invariant(text.includes("공개 OFF"), `${label}: release gate label missing`);
-  invariant(text.includes("판정 미제공"), `${label}: unknown coverage label missing`);
-  invariant(text.includes("특판으로 간주하지 않음"), `${label}: fail-closed copy missing`);
+  invariant(
+    text.includes("시장 특판 Radar") || text.includes("특판 Radar · 근거 수집 중"),
+    `${label}: Radar title missing`,
+  );
+  invariant(text.includes("현재 판매 중"), `${label}: current-offer metric missing`);
+  invariant(text.includes("과거 특판 이력"), `${label}: historical metric missing`);
+  invariant(text.includes("판매상태 확인중"), `${label}: availability-unknown metric missing`);
+  invariant(text.includes("특판 미판정"), `${label}: FSB unknown coverage label missing`);
   invariant((await panel.locator(".special-radar-metric").count()) === 4, `${label}: metric count != 4`);
   invariant((await panel.locator("form").count()) === 0, `${label}: mutation form exposed`);
   invariant((await panel.locator('[type="submit"]').count()) === 0, `${label}: submit action exposed`);
@@ -74,7 +78,12 @@ async function inspectRadar(page, label) {
   invariant(payload.activation === "off_until_confirmed_evidence_is_reviewed_and_separately_approved", `${label}: Radar activation unexpectedly changed`);
   invariant(payload.policy?.unknown_is_special === false, `${label}: unknown promotion policy changed`);
   invariant(payload.policy?.ranking_population_changed === false, `${label}: ranking population changed`);
+  invariant(payload.policy?.unknown_availability_in_current_tab === false, `${label}: unknown availability leaked into current tab policy`);
+  invariant(payload.policy?.special_classification_implies_availability === false, `${label}: classification was allowed to imply availability`);
   invariant(Array.isArray(payload.offers), `${label}: Radar offers is not an array`);
+  invariant(Array.isArray(payload.current_offers), `${label}: current_offers is not an array`);
+  invariant(Array.isArray(payload.past_offers), `${label}: past_offers is not an array`);
+  invariant(payload.availability_counts && typeof payload.availability_counts === "object", `${label}: availability_counts missing`);
   if (requireLiveUnknown) {
     invariant(Number(payload.counts?.unknown || 0) > 0, `${label}: live candidate produced no unknown evidence`);
   }
@@ -82,6 +91,8 @@ async function inspectRadar(page, label) {
     invariant(Number(payload.counts?.confirmed_special || 0) === 0, `${label}: synthetic confirmed special appeared`);
     invariant(Number(payload.counts?.confirmed_normal || 0) === 0, `${label}: synthetic confirmed normal appeared`);
     invariant(payload.offers.length === 0, `${label}: unknown evidence leaked into Radar offers`);
+    invariant(payload.current_offers.length === 0, `${label}: unknown evidence leaked into current tab`);
+    invariant(payload.past_offers.length === 0, `${label}: unknown evidence leaked into history tab`);
   }
 
   const pageMetrics = await page.evaluate(() => ({
