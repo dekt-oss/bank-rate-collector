@@ -209,6 +209,10 @@ def append_operator_confirmation(
             "availability_status must be confirmed_active or confirmed_ended"
         )
     structured_terms = _offer_terms(offer_terms)
+    if classification != CONFIRMED_SPECIAL and (availability_status or structured_terms):
+        raise SpecialOfferEvidenceError(
+            "availability and offer terms are only valid for confirmed_special"
+        )
     source_product_key = _source_product_key(
         session, source_id=source_id, product_id=product_id
     )
