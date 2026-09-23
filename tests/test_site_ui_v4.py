@@ -864,6 +864,13 @@ def test_future_disclosure_date_cannot_shift_the_default_window() -> None:
     assert "(latestAsOf && state.dfrom && state.dfrom > latestAsOf)" in SOURCE
     assert "(state.dfrom && state.dto && state.dfrom > state.dto)" in SOURCE
     assert "urlDateSpecified = false;" in SOURCE
+    # JS regex에는 실제 \d escape가 한 번만 있어야 한다. \\d가 되면
+    # 정상 ISO 날짜까지 invalid로 판단해 공유 URL을 강제로 초기화한다.
+    assert (
+        'const isoDate = (value) => !value || /^\\d{4}-\\d{2}-\\d{2}$/.test(value);'
+        in SOURCE
+    )
+    assert '/^\\\\d{4}-\\\\d{2}-\\\\d{2}$/' not in SOURCE
 
 
 def test_as_of_presets_expose_older_than_one_year_without_boundary_overlap() -> None:
