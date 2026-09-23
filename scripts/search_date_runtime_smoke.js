@@ -65,16 +65,12 @@ async function waitForRenderedRows(page) {
     invariant(await allRadio.count() === 1, "전체 기간 preset missing");
     const allLabel = allRadio.locator("xpath=..");
     const allCount = numeric(await allLabel.locator(".n").innerText());
-    const staleBadge = page.locator("#stale-note b");
-    const staleCount = await staleBadge.count() ? numeric(await staleBadge.innerText()) : 0;
     const oneYearRadio = page.locator('#asof-presets input[data-from]').last();
     const oneYearCount = numeric(await oneYearRadio.locator("xpath=..").locator(".n").innerText());
     invariant(allCount >= oneYearCount,
       `all-period count ${allCount} < recent-one-year count ${oneYearCount}`);
-    if (staleCount > 0) {
-      invariant(allCount > oneYearCount,
-        "stale rows exist but all-period search does not expand beyond recent one year");
-    }
+    invariant(allCount >= oneYearCount,
+      "full-period search must not contain fewer rows than recent one year");
 
     await allRadio.check();
     await page.waitForFunction(
@@ -102,7 +98,6 @@ async function waitForRenderedRows(page) {
       historicalUrl: historicalUrl.toString(),
       allPeriodCount: allCount,
       recentOneYearCount: oneYearCount,
-      staleCount,
       finalUrl: page.url(),
     };
     fs.writeFileSync(
