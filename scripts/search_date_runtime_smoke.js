@@ -65,7 +65,8 @@ async function waitForRenderedRows(page) {
     invariant(await allRadio.count() === 1, "전체 기간(1년 이전 포함) preset missing");
     const allLabel = allRadio.locator("xpath=..");
     const allCount = numeric(await allLabel.locator(".n").innerText());
-    const staleCount = numeric(await page.locator("#stale-note b").innerText());
+    const staleBadge = page.locator("#stale-note b");
+    const staleCount = await staleBadge.count() ? numeric(await staleBadge.innerText()) : 0;
     const oneYearRadio = page.locator('#asof-presets input[data-from]').last();
     const oneYearCount = numeric(await oneYearRadio.locator("xpath=..").locator(".n").innerText());
     invariant(allCount >= oneYearCount,
