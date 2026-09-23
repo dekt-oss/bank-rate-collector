@@ -62,6 +62,13 @@ def _unavailable(reason: str) -> dict[str, Any]:
             "conflict": 0,
         },
         "offers": [],
+        "current_offers": [],
+        "historical_offers": [],
+        "availability_counts": {
+            "confirmed_active": 0,
+            "confirmed_ended": 0,
+            "unknown": 0,
+        },
         "policy": {
             "unknown_is_special": False,
             "heuristic_confirmation": False,
