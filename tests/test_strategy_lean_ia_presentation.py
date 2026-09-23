@@ -107,10 +107,11 @@ def test_competitor_wrapper_owns_top5_and_institution_position() -> None:
     rendered = inject_strategy_lean_ia(_strategy_html())
 
     assert 'wrapper.id="workspace-competitor-position"' in rendered
-    assert "경쟁사 · 기관 포지션" in rendered
+    assert "경쟁 금리 · 수신규모 비교" in rendered
+    assert "<b>위:</b> 동일조건 최고금리 TOP5와 당사 위치" in rendered
     assert 'wrapper.appendChild(top5)' in rendered
     assert 'wrapper.appendChild(institution)' in rendered
-    assert '["경쟁사 · 기관 포지션","workspace-competitor-position"]' in rendered
+    assert '["경쟁 금리 · 수신규모","workspace-competitor-position"]' in rendered
 
 
 def test_finalizer_guarantees_search_region_handoff_when_earlier_injector_misses_it() -> None:
@@ -159,7 +160,7 @@ def test_final_navigation_is_explicit_and_mobile_hidden() -> None:
         ("시장 금리 방향", "market-intelligence"),
         ("12개월 시장 추이", "workspace-market-trend"),
         ("신상품 금리 시뮬레이션", "planning-zone"),
-        ("경쟁사 · 기관 포지션", "workspace-competitor-position"),
+        ("경쟁 금리 · 수신규모", "workspace-competitor-position"),
         ("우대조건 · 상품구조", "preference-intelligence"),
         ("특판 · 시장기회", "special-offer-radar"),
     ):

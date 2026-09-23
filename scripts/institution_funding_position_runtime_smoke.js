@@ -79,9 +79,9 @@ async function assertFundingPanel(page, label) {
 
   const nhStatus = (await page.locator("#funding-position-status").textContent()).trim();
   invariant(nhStatus.includes("반기 공시"), `${label}: NH cadence label missing`);
-  invariant(nhStatus.includes("Direct Peer 16"), `${label}: NH Direct Peer status badge missing`);
+  invariant(nhStatus.includes("유사규모 16개"), `${label}: NH similar-size peer status badge missing`);
   invariant(await page.locator("#funding-position-table-body tbody tr").count() > 0, `${label}: NH funding table empty after tab switch`);
-  invariant(await page.locator('th:has-text("Direct Peer 16 대비")').count() === 1, `${label}: NH Direct Peer column missing`);
+  invariant(await page.locator('th:has-text("유사규모 대비")').count() === 1, `${label}: NH similar-size peer column missing`);
 
   const directSort = page.locator('#funding-position-sort button[data-sort="directPeer"]');
   invariant(await directSort.count() === 1, `${label}: NH Direct Peer sort missing`);
@@ -89,8 +89,8 @@ async function assertFundingPanel(page, label) {
   invariant(await directSort.evaluate((node) => node.classList.contains("active")), `${label}: NH Direct Peer sort did not activate`);
 
   const nhNote = (await page.locator("#funding-position-note").textContent()).trim();
-  invariant(nhNote.includes("시군구→시도→전국"), `${label}: Direct Peer fallback contract missing`);
-  invariant(nhNote.includes("수신규모가 가까운 16개"), `${label}: Direct Peer size-neighbor contract missing`);
+  invariant(nhNote.includes("지역을 우선 맞추고"), `${label}: similar-size peer regional-priority contract missing`);
+  invariant(nhNote.includes("유사규모 16개 비교") && nhNote.includes("수신규모가 가까운 기관"), `${label}: similar-size peer neighbor contract missing`);
 }
 
 async function runViewport(browser, viewport, name) {

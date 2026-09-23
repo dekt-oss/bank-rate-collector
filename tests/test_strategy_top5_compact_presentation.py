@@ -72,6 +72,10 @@ def test_top5_compact_observes_rendered_dom_without_iife_global_dependencies() -
     assert "OUR_INSTITUTION" not in rendered
     assert "sectorLabel(" not in rendered
     assert "decorate();" in rendered
+    assert "경쟁사 최고금리 TOP 5" in rendered
+    assert "비교조건" in rendered
+    assert "동일 조건 내 대표 최고금리 순" in rendered
+    assert "strategy-top5-scope" in rendered
 
 
 def test_top5_compact_partial_injection_fails_closed() -> None:
