@@ -61,24 +61,29 @@ async function waitForRenderedRows(page) {
     );
 
     await page.locator("#filter-toggle").click();
-    const oldRadio = page.locator('#asof-presets input[data-old="1"]');
-    invariant(await oldRadio.count() === 1, "1년 이전 preset missing");
-    const oldLabel = oldRadio.locator("xpath=..");
-    const oldCount = numeric(await oldLabel.locator(".n").innerText());
+    const allRadio = page.locator('#asof-presets input[data-all-period="1"]');
+    invariant(await allRadio.count() === 1, "전체 기간(1년 이전 포함) preset missing");
+    const allLabel = allRadio.locator("xpath=..");
+    const allCount = numeric(await allLabel.locator(".n").innerText());
     const staleCount = numeric(await page.locator("#stale-note b").innerText());
-    invariant(oldCount > 0, "1년 이전 preset count is zero");
-    invariant(oldCount === staleCount,
-      `1년 이전 preset count ${oldCount} != stale count ${staleCount}`);
+    const oneYearRadio = page.locator('#asof-presets input[data-from]').last();
+    const oneYearCount = numeric(await oneYearRadio.locator("xpath=..").locator(".n").innerText());
+    invariant(allCount >= oneYearCount,
+      `all-period count ${allCount} < recent-one-year count ${oneYearCount}`);
+    if (staleCount > 0) {
+      invariant(allCount > oneYearCount,
+        "stale rows exist but all-period search does not expand beyond recent one year");
+    }
 
-    await oldRadio.check();
+    await allRadio.check();
     await page.waitForFunction(
-      () => document.querySelector("#filter-mode-summary")?.textContent.includes("공시일 1년 이전"),
+      () => document.querySelector("#filter-mode-summary")?.textContent.includes("공시일 전체"),
       null,
       { timeout: 10_000 },
     );
     let params = new URL(page.url()).searchParams;
-    invariant(!params.get("dfrom"), "1년 이전 preset must clear dfrom");
-    invariant(Boolean(params.get("dto")), "1년 이전 preset must set dto");
+    invariant(!params.get("dfrom"), "all-period preset must clear dfrom");
+    invariant(!params.get("dto"), "all-period preset must clear dto");
 
     const recent30 = page.locator('#asof-presets input[data-from]').nth(1);
     await recent30.check();
@@ -88,13 +93,14 @@ async function waitForRenderedRows(page) {
       { timeout: 10_000 },
     );
     params = new URL(page.url()).searchParams;
-    invariant(!params.get("dto"), "recent preset must clear stale dto");
+    invariant(!params.get("dto"), "recent preset must keep dto cleared");
 
     const metrics = {
       recoveredUrl: recoveredUrl.toString(),
       recoveredCount,
       historicalUrl: historicalUrl.toString(),
-      oldPresetCount: oldCount,
+      allPeriodCount: allCount,
+      recentOneYearCount: oneYearCount,
       staleCount,
       finalUrl: page.url(),
     };
