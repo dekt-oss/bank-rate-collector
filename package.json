@@ -1,0 +1,8 @@
+{
+  "name": "bank-rate-collector-vercel-runtime",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@vercel/functions": "3.9.5"
+  }
+}
