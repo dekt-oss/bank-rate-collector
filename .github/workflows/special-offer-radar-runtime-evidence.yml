@@ -147,6 +147,110 @@ jobs:
           grep -q 'id="special-offer-radar-script"' work/site-public/strategy.html
           grep -q '시장 특판 Radar' work/site-public/strategy.html
 
+      - name: Build synthetic non-empty Radar fixture
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+
+          from rate_monitor.services.special_offer_radar_presentation import (
+              inject_special_offer_radar_presentation,
+          )
+
+          current = {
+              "institution_name": "현재저축은행",
+              "product_name": "현재 특판 정기예금",
+              "special_offer_terms": {
+                  "special_rate": "4.90",
+                  "special_rate_basis": "explicit_special_section_rate",
+                  "sale_start": "2026-09-20",
+                  "sale_end": "2026-10-31",
+                  "quota_text": "100억원 한도",
+                  "quota_amount_krw": 10_000_000_000,
+                  "quota_accounts": None,
+                  "eligibility_text": "개인 고객",
+                  "early_termination_text": "한도 소진 시 조기종료",
+              },
+              "availability_status": "confirmed_active",
+              "availability_assertion": "현재 판매 중",
+              "availability_observed_at": "2026-09-27T00:00:00",
+              "availability_source_locator": "https://bank.example/current",
+              "evidence_ref": "https://bank.example/current",
+          }
+          past = {
+              "institution_name": "과거저축은행",
+              "product_name": "종료 특판 정기적금",
+              "special_offer_terms": {
+                  "special_rate": "5.10",
+                  "special_rate_basis": "explicit_notice_special_rate",
+                  "sale_start": "2025-01-01",
+                  "sale_end": "2025-03-31",
+                  "quota_text": "1만좌 한도",
+                  "quota_amount_krw": None,
+                  "quota_accounts": 10_000,
+                  "eligibility_text": "실명의 개인",
+                  "early_termination_text": "한도 소진 시 조기마감",
+              },
+              "availability_status": "confirmed_ended",
+              "availability_assertion": "판매 종료 확인",
+              "availability_observed_at": "2025-04-01T09:00:00",
+              "availability_source_locator": "https://bank.example/past",
+              "evidence_ref": "https://bank.example/past",
+          }
+          payload = {
+              "status": "confirmed_evidence_available",
+              "reason": None,
+              "source_id": "fsb",
+              "as_of": "2026-09-27",
+              "known_at": "2026-09-27T00:00:00",
+              "activation": "off_until_confirmed_evidence_is_reviewed_and_separately_approved",
+              "counts": {
+                  "unknown": 396,
+                  "confirmed_special": 3,
+                  "confirmed_normal": 0,
+                  "conflict": 0,
+              },
+              "offers": [current],
+              "current_offers": [current],
+              "past_offers": [past],
+              "availability_counts": {
+                  "confirmed_active": 1,
+                  "confirmed_ended": 1,
+                  "unknown": 1,
+              },
+              "policy": {
+                  "unknown_is_special": False,
+                  "heuristic_confirmation": False,
+                  "ranking_population_changed": False,
+                  "unknown_availability_in_current_tab": False,
+                  "special_classification_implies_availability": False,
+              },
+          }
+          data = json.dumps(
+              {"strategy": {"special_offer_radar": payload}},
+              ensure_ascii=False,
+              separators=(",", ":"),
+          )
+          html = f"""<!doctype html>
+          <html><head><meta charset="utf-8"><style>
+          :root{{--ink:#281f2b;--muted:#6e6370;--soft:#8b7f8d;--line:#ddd3df;
+          --panel:#fff;--panel2:#fcfafc;--sans:Arial,sans-serif;--mono:monospace}}
+          body{{margin:24px;font-family:var(--sans);background:#f7f4f7}}
+          .card{{max-width:1180px;margin:auto;background:#fff;border-radius:16px}}
+          </style></head><body>
+          <script id="rate-monitor-data" type="application/json">{data}</script>
+          <section id="market-flow"></section>
+          </body></html>"""
+          Path("work/site-public/radar-fixture.html").write_text(
+              inject_special_offer_radar_presentation(html),
+              encoding="utf-8",
+          )
+          PY
+          test -s work/site-public/radar-fixture.html
+          grep -q '현재 판매 중' work/site-public/radar-fixture.html
+          grep -q '과거 특판 이력' work/site-public/radar-fixture.html
+
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
@@ -200,4 +304,5 @@ jobs:
             work/special-offer-radar-runtime-metrics.json
             work/special-offer-radar-desktop.png
             work/special-offer-radar-mobile.png
+            work/special-offer-radar-synthetic.png
             work/special-offer-radar-http.log
