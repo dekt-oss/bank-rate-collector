@@ -76,6 +76,25 @@ async function inspectRadar(page, label) {
   invariant((await panel.locator("form").count()) === 0, `${label}: mutation form exposed`);
   invariant((await panel.locator('[type="submit"]').count()) === 0, `${label}: submit action exposed`);
 
+  const disclosure = page.locator("#lean-special-detail");
+  if ((await disclosure.count()) === 1) {
+    invariant(
+      !(await disclosure.evaluate((node) => node.open)),
+      `${label}: Lean IA special-offer detail should be collapsed by default`,
+    );
+    await disclosure.evaluate((node) => {
+      node.open = true;
+    });
+    await page.waitForFunction(
+      () => {
+        const metrics = document.querySelector("#special-offer-radar .special-radar-metrics");
+        return Boolean(metrics && metrics.getBoundingClientRect().width > 0);
+      },
+      null,
+      { timeout: 10_000 },
+    );
+  }
+
   const payload = await page.evaluate(() => {
     const raw = document.getElementById("rate-monitor-data")?.textContent || "{}";
     return JSON.parse(raw)?.strategy?.special_offer_radar || null;
