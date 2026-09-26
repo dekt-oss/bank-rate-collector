@@ -149,6 +149,7 @@ def _evidence(
     *,
     observed_at: datetime = T0,
     content_hash: str,
+    evidence_extra: dict | None = None,
 ) -> SpecialOfferEvidenceInput:
     confirming = classification != UNKNOWN
     return SpecialOfferEvidenceInput(
@@ -165,6 +166,7 @@ def _evidence(
         evidence={
             "identity_scope": "exact_product",
             **({"explicit_assertion": classification} if confirming else {}),
+            **(evidence_extra or {}),
         },
     )
 
@@ -229,6 +231,8 @@ def test_missing_registry_is_safe_unavailable(tmp_path: Path) -> None:
     assert payload["status"] == "unavailable"
     assert payload["reason"] == "evidence_registry_missing"
     assert payload["offers"] == []
+    assert payload["current_offers"] == []
+    assert payload["past_offers"] == []
     assert payload["policy"]["unknown_is_special"] is False
 
 
@@ -297,7 +301,98 @@ def test_only_explicit_confirmed_special_enters_radar_with_current_fsb_rate(
     assert payload["offers"][0]["representative_rate"] == 4.25
     assert payload["offers"][0]["term_months"] == 12
     assert payload["offers"][0]["join_channel"] == "online"
+    assert payload["offers"][0]["availability_status"] == "unknown"
+    assert payload["current_offers"] == []
+    assert payload["past_offers"] == []
+    assert payload["availability_counts"] == {
+        "confirmed_active": 0,
+        "confirmed_ended": 0,
+        "unknown": 1,
+    }
     assert payload["policy"]["ranking_population_changed"] is False
+    assert payload["policy"]["special_classification_implies_availability"] is False
+
+
+def test_confirmed_active_offer_enters_current_tab_with_structured_terms(
+    tmp_path: Path,
+) -> None:
+    db_path, factory = _db(tmp_path)
+    with session_scope(factory) as session:
+        _seed(session)
+        append_special_offer_evidence(
+            session,
+            _evidence(
+                CONFIRMED_SPECIAL,
+                content_hash="sha256:active-special",
+                evidence_extra={
+                    "special_offer_terms": {
+                        "special_rate": "4.90",
+                        "special_rate_basis": "explicit_special_section_rate",
+                        "sale_start": "2026-09-01",
+                        "sale_end": "2026-10-31",
+                        "quota_text": "100억원 한도",
+                        "quota_amount_krw": 10_000_000_000,
+                        "quota_accounts": None,
+                        "eligibility_text": "제한없음(1인 1계좌)",
+                        "early_termination_text": None,
+                    },
+                    "availability": {
+                        "status": "confirmed_active",
+                        "assertion_text": "현재 판매 중",
+                        "observed_at": T0.isoformat(),
+                        "source_locator": "https://bank.example/products/1",
+                    },
+                },
+            ),
+        )
+
+    payload = build_special_offer_radar(db_path)
+    assert len(payload["current_offers"]) == 1
+    assert payload["past_offers"] == []
+    offer = payload["current_offers"][0]
+    assert offer["special_offer_terms"]["special_rate"] == "4.90"
+    assert offer["special_offer_terms"]["quota_amount_krw"] == 10_000_000_000
+    assert offer["availability_status"] == "confirmed_active"
+    assert payload["availability_counts"]["confirmed_active"] == 1
+
+
+def test_confirmed_ended_offer_enters_history_not_current_tab(tmp_path: Path) -> None:
+    db_path, factory = _db(tmp_path)
+    with session_scope(factory) as session:
+        _seed(session)
+        append_special_offer_evidence(
+            session,
+            _evidence(
+                CONFIRMED_SPECIAL,
+                content_hash="sha256:ended-special",
+                evidence_extra={
+                    "special_offer_terms": {
+                        "special_rate": "3.25",
+                        "special_rate_basis": "explicit_notice_special_rate",
+                        "sale_start": "2024-09-26",
+                        "sale_end": "2026-06-25",
+                        "quota_text": "2,000억 한도",
+                        "quota_amount_krw": 200_000_000_000,
+                        "quota_accounts": None,
+                        "eligibility_text": "법인, 개인사업자",
+                        "early_termination_text": "한도 소진시 조기마감",
+                    },
+                    "availability": {
+                        "status": "confirmed_ended",
+                        "assertion_text": "판매 종료",
+                        "observed_at": T0.isoformat(),
+                        "source_locator": "https://bank.example/notices/1",
+                    },
+                },
+            ),
+        )
+
+    payload = build_special_offer_radar(db_path)
+    assert payload["current_offers"] == []
+    assert len(payload["past_offers"]) == 1
+    assert payload["past_offers"][0]["availability_status"] == "confirmed_ended"
+    assert payload["past_offers"][0]["special_offer_terms"]["special_rate"] == "3.25"
+    assert payload["availability_counts"]["confirmed_ended"] == 1
 
 
 def test_confirmed_normal_and_conflict_are_excluded(tmp_path: Path) -> None:
@@ -340,6 +435,13 @@ def test_radar_presentation_is_read_only_and_idempotent() -> None:
     assert "현재 확정된 특판은 0건입니다." in rendered
     assert "기능 자체는 유지하며" in rendered
     assert "미판정" in rendered
+    assert "현재 판매 중" in rendered
+    assert "과거 특판 이력" in rendered
+    assert "판매상태 확인중" in rendered
+    assert "특판금리" in rendered
+    assert "조기종료 조건" in rendered
+    assert "판매상태·공식근거" in rendered
+    assert "availability_assertion" in rendered
     assert "unknown" in rendered
     assert "<form" not in rendered.lower()
     assert 'type="submit"' not in rendered.lower()

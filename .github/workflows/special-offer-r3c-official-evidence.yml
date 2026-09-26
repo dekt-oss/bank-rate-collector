@@ -1,0 +1,186 @@
+name: Special-offer R3-C official evidence
+
+on:
+  push:
+    branches:
+      - "feat/special-offer-r3c-*"
+    paths:
+      - ".github/workflows/special-offer-r3c-official-evidence.yml"
+      - "config/special_offer_official_targets.json"
+      - "scripts/special_offer_official_capture.py"
+      - "tests/test_special_offer_official_capture.py"
+      - "docs/evidence/20260924-special-offer-r3c-availability-terms.md"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: special-offer-r3c-official-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  live-capture-and-binding-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Sync dependencies
+        run: uv sync --locked
+
+      - name: Targeted lint and tests
+        run: |
+          set -euo pipefail
+          uv run ruff check scripts/special_offer_official_capture.py tests/test_special_offer_official_capture.py
+          uv run pytest -q tests/test_special_offer_official_capture.py
+
+      - name: Restore production database into runner-local copy
+        id: restore_db
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+          R2_REGION: ${{ vars.R2_REGION }}
+        run: |
+          set -euo pipefail
+          mkdir -p work/raw evidence
+          uv run rate-monitor storage restore --dest work/rate_monitor.sqlite3
+          test -s work/rate_monitor.sqlite3
+
+      - name: Apply migrations only to runner-local copy
+        env:
+          RATE_MONITOR_DB_URL: sqlite+pysqlite:///${{ github.workspace }}/work/rate_monitor.sqlite3
+        run: uv run alembic upgrade head
+
+      - name: Seal runner-local DB before evidence work
+        run: sha256sum work/rate_monitor.sqlite3 | tee work/db-before.sha256
+
+      - name: Capture configured official sources
+        run: |
+          set -euo pipefail
+          uv run python scripts/special_offer_official_capture.py capture \
+            --config config/special_offer_official_targets.json \
+            --raw-dir work/raw \
+            --out evidence/special-offer-r3c-capture.json
+
+      - name: Audit FSB exact-code binding candidates
+        run: |
+          set -euo pipefail
+          uv run python scripts/special_offer_official_capture.py audit-bindings \
+            --config config/special_offer_official_targets.json \
+            --db work/rate_monitor.sqlite3 \
+            --out evidence/special-offer-r3c-bindings.json
+
+      - name: Assert fail-closed R3-C semantics
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+
+          capture = json.loads(Path("evidence/special-offer-r3c-capture.json").read_text())
+          bindings = json.loads(Path("evidence/special-offer-r3c-bindings.json").read_text())
+
+          assert capture["coverage"]["configured_targets"] >= 4
+          assert (
+              capture["coverage"]["successful_captures"] + capture["coverage"]["failures"]
+              == capture["coverage"]["configured_targets"]
+          )
+          assert capture["coverage"]["successful_captures"] >= 3
+          assert capture["coverage"]["failures"] <= 1
+          assert capture["coverage"]["availability_failures"] == 0
+          successful_ids = {item["target_id"] for item in capture["captures"]}
+          assert {
+              "welcome-likit-1130313563",
+              "welcome-digiloca-1130313564",
+              "daishin-corporate-free-588",
+          } <= successful_ids
+          if capture["failures"]:
+              assert capture["failures"] == [
+                  {
+                      "target_id": "ibksb-blue-dragon-502132836",
+                      "reason": capture["failures"][0]["reason"],
+                  }
+              ]
+              assert "CERTIFICATE_VERIFY_FAILED" in capture["failures"][0]["reason"]
+          assert capture["scope"]["production_state_mutated"] is False
+          assert capture["scope"]["special_offer_registry_mutated"] is False
+          assert capture["scope"]["availability_inferred_from_future_end_date"] is False
+
+          print(json.dumps({
+              "capture_coverage": capture["coverage"],
+              "captures": [
+                  {
+                      "target_id": item["target_id"],
+                      "classification": item["classification_candidate"],
+                      "availability": item["availability"]["status"],
+                      "special_rate": item["special_offer_terms"]["special_rate"],
+                      "sale_end": item["special_offer_terms"]["sale_end"],
+                  }
+                  for item in capture["captures"]
+              ],
+              "capture_failures": capture["failures"],
+              "availability_failures": capture["availability_failures"],
+              "binding_targets": bindings["targets"],
+          }, ensure_ascii=False, indent=2))
+
+          candidates = [
+              item for item in capture["captures"]
+              if item["classification_candidate"] == "confirmed_special_candidate"
+          ]
+          assert candidates
+          assert any(item["availability"]["status"] == "confirmed_ended" for item in candidates)
+
+          for item in candidates:
+              assert item["availability"]["status"] in {"confirmed_active", "confirmed_ended", "unknown"}
+              if item["availability"]["status"] == "confirmed_active":
+                  raise AssertionError("R3-C capture must not infer active sale without explicit source")
+
+          daishin = next(item for item in candidates if item['target_id'] == 'daishin-corporate-free-588')
+          assert daishin["special_offer_terms"]["special_rate"] is not None
+          assert daishin["special_offer_terms"]["early_termination_text"]
+          assert daishin["availability"]["status"] == "unknown"
+
+          assert bindings["scope"]["db_mode"] == "read_only"
+          assert bindings["scope"]["confirmation_written"] is False
+          assert bindings["scope"]["alias_match_is_confirmation"] is False
+          print(json.dumps({
+              "capture_coverage": capture["coverage"],
+              "availability": {item["target_id"]: item["availability"]["status"] for item in candidates},
+              "binding_candidates": bindings["unique_candidate_count"],
+          }, ensure_ascii=False))
+          PY
+
+      - name: Prove runner-local production copy was not mutated
+        if: always() && steps.restore_db.outcome == 'success'
+        run: |
+          set -euo pipefail
+          test -s work/rate_monitor.sqlite3
+          test -s work/db-before.sha256
+          sha256sum work/rate_monitor.sqlite3 | tee work/db-after.sha256
+          diff -u work/db-before.sha256 work/db-after.sha256
+
+      - name: Upload R3-C evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: special-offer-r3c-${{ github.run_id }}
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            evidence/special-offer-r3c-capture.json
+            evidence/special-offer-r3c-bindings.json
+            work/raw/*.html
+            work/db-before.sha256
+            work/db-after.sha256
