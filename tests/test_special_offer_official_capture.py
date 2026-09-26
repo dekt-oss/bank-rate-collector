@@ -105,10 +105,13 @@ def test_daishin_current_notice_terms_do_not_imply_active_when_early_close_exist
         observed_at=NOW,
     )
     terms = result["special_offer_terms"]
-    assert terms["special_rate"] == "3.25"
+    assert terms["special_rate"] == "3.30"
     assert terms["sale_end"] == "2026-12-28"
     assert terms["quota_amount_krw"] == 200_000_000_000
-    assert "법인, 개인사업자" in terms["eligibility_text"]
+    assert terms["eligibility_text"] == (
+        "해당기간 신규계좌로 50억원이상 예치 / 법인, 개인사업자"
+    )
+    assert "5." not in terms["eligibility_text"]
     assert "조기마감" in terms["early_termination_text"]
     assert result["availability"]["status"] == "unknown"
 
@@ -129,7 +132,8 @@ def test_sale_stop_surface_can_confirm_ended_for_exact_product() -> None:
     }
     primary = (
         "웰뱅 라이킷(LIKIT) 적금 웰컴 한정 특판 "
-        "가입대상 만 19세 이상 실명의 개인 가입기간 12개월 1만좌 한도"
+        "가입대상 만 19세 이상 실명의 개인 가입기간 12개월 1만좌 한도 "
+        "이벤트 기간 : 2023.12.04. ~ 1만좌 한도 소진시까지"
     )
     stopped = "판매중지상품 웰뱅 라이킷(LIKIT) 적금 롯데카드 X 웰컴 한정 특판 판매중지"
     result = MODULE.evaluate_target(
@@ -138,6 +142,9 @@ def test_sale_stop_surface_can_confirm_ended_for_exact_product() -> None:
         observed_at=NOW,
         availability_response=_response(stopped, url=target["availability_source"]["url"]),
     )
+    assert result["special_offer_terms"]["sale_start"] == "2023-12-04"
+    assert result["special_offer_terms"]["sale_end"] is None
+    assert "1만좌 한도 소진시까지" in result["special_offer_terms"]["early_termination_text"]
     assert result["availability"]["status"] == "confirmed_ended"
     assert "판매중지" in result["availability"]["assertion_text"]
 
