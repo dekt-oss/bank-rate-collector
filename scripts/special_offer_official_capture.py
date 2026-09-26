@@ -73,15 +73,25 @@ def _iso_date(value: str) -> str:
     return date(year, month, day).isoformat()
 
 
-def _period(text: str) -> tuple[str | None, str | None]:
+def _period_after(label_pattern: str, text: str) -> tuple[str | None, str | None]:
     match = re.search(
-        r"(20\d{2}[./-]\d{1,2}[./-]\d{1,2})\.?\s*(?:\([^)]*\))?\s*~\s*"
-        r"(20\d{2}[./-]\d{1,2}[./-]\d{1,2})",
+        label_pattern
+        + r"\s*:?\s*(20\d{2}[./-]\d{1,2}[./-]\d{1,2})\.?"
+        + r"\s*(?:\([^)]*\))?\s*~\s*"
+        + r"(20\d{2}[./-]\d{1,2}[./-]\d{1,2})",
         text,
     )
     if not match:
         return None, None
     return _iso_date(match.group(1)), _iso_date(match.group(2))
+
+
+def _date_after(label_pattern: str, text: str) -> str | None:
+    value = _first(
+        label_pattern + r"\s*:?\s*(20\d{2}[./-]\d{1,2}[./-]\d{1,2})",
+        text,
+    )
+    return _iso_date(value) if value else None
 
 
 def _first(pattern: str, text: str, *, flags: int = 0) -> str | None:
@@ -110,12 +120,11 @@ def _quota_accounts(text: str | None) -> int | None:
 
 
 def _terms(parser_name: str, text: str) -> dict[str, Any]:
-    sale_start, sale_end = _period(text)
     terms: dict[str, Any] = {
         "special_rate": None,
         "special_rate_basis": None,
-        "sale_start": sale_start,
-        "sale_end": sale_end,
+        "sale_start": None,
+        "sale_end": None,
         "quota_text": None,
         "quota_amount_krw": None,
         "quota_accounts": None,
@@ -126,8 +135,15 @@ def _terms(parser_name: str, text: str) -> dict[str, Any]:
     if parser_name == "welcome_likit":
         quota = _first(r"(1만좌\s*한도)", text)
         eligibility = _first(r"가입대상\s+(.+?)\s+가입기간", text)
-        early = _first(r"이벤트 기간\s*:\s*([^·※]+?한도\s*소진시까지)", text)
+        sale_start = _date_after(r"이벤트\s*기간", text)
+        early = _first(
+            r"이벤트\s*기간\s*:\s*20\d{2}[./-]\d{1,2}[./-]\d{1,2}\.?"
+            r"\s*~\s*([^·※]+?한도\s*소진시까지)",
+            text,
+        )
         terms.update(
+            sale_start=sale_start,
+            sale_end=None,
             quota_text=quota,
             quota_accounts=_quota_accounts(quota),
             eligibility_text=eligibility,
@@ -137,8 +153,11 @@ def _terms(parser_name: str, text: str) -> dict[str, Any]:
     elif parser_name == "welcome_digiloca":
         quota = _first(r"(1만좌\s*한도)", text)
         eligibility = _first(r"가입대상\s+(.+?)\s+가입기간", text)
+        sale_start, sale_end = _period_after(r"특판기간", text)
         early = _first(r"(특판소진\s*시\s*조기\s*종료)", text)
         terms.update(
+            sale_start=sale_start,
+            sale_end=sale_end,
             quota_text=quota,
             quota_accounts=_quota_accounts(quota),
             eligibility_text=eligibility,
@@ -158,14 +177,20 @@ def _terms(parser_name: str, text: str) -> dict[str, Any]:
         )
     elif parser_name == "daishin_corporate_free":
         rate = _first(r"특판금리\s*:\s*연\s*([0-9]+(?:\.[0-9]+)?)%", text)
+        sale_start, sale_end = _period_after(r"기간", text)
         quota = _first(r"([0-9][0-9,]*억\s*한도)", text)
-        target = _first(r"대상\s*:\s*(.+?)\s*상품안내", text)
+        target = _first(
+            r"\b대상\s*:\s*(.+?)(?=\s+5\.\s*상품안내|\s+상품안내)",
+            text,
+        )
         account = _first(r"가입대상\s*:\s*(.+?)\s+나\.", text)
         early = _first(r"([0-9][0-9,]*억\s*한도\s*소진시\s*조기마감)", text)
         eligibility = " / ".join(part for part in (target, account) if part) or None
         terms.update(
             special_rate=rate,
             special_rate_basis="explicit_notice_special_rate",
+            sale_start=sale_start,
+            sale_end=sale_end,
             quota_text=quota,
             quota_amount_krw=_amount_krw(quota),
             eligibility_text=eligibility,
