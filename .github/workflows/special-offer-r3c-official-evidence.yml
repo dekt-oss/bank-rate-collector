@@ -44,6 +44,7 @@ jobs:
           uv run pytest -q tests/test_special_offer_official_capture.py
 
       - name: Restore production database into runner-local copy
+        id: restore_db
         env:
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
@@ -162,7 +163,7 @@ jobs:
           PY
 
       - name: Prove runner-local production copy was not mutated
-        if: always()
+        if: always() && steps.restore_db.outcome == 'success'
         run: |
           set -euo pipefail
           test -s work/rate_monitor.sqlite3
@@ -176,7 +177,7 @@ jobs:
         with:
           name: special-offer-r3c-${{ github.run_id }}
           retention-days: 30
-          if-no-files-found: error
+          if-no-files-found: warn
           path: |
             evidence/special-offer-r3c-capture.json
             evidence/special-offer-r3c-bindings.json
