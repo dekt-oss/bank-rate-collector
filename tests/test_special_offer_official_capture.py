@@ -94,9 +94,9 @@ def test_daishin_current_notice_terms_do_not_imply_active_when_early_close_exist
         "required_phrases": ["기업자유예금", "특판"],
     }
     body = (
-        "기업자유예금 특판 안내 상품명 : 기업자유예금 특판금리 : 연 3.25%(세전) "
+        "기업자유예금 특판 안내 상품명 : 기업자유예금 특판금리 : 연 3.30%(세전) "
         "기간 : 2024.09.26(목)~2026.12.28(월), 2,000억한도 소진시 조기마감 "
-        "대상 : 해당기간 신규계좌로 50억원이상 예치 상품안내 "
+        "대상 : 해당기간 신규계좌로 50억원이상 예치 5. 상품안내 "
         "가. 가입대상 : 법인, 개인사업자 나. 이자의 지급시기"
     )
     result = MODULE.evaluate_target(
