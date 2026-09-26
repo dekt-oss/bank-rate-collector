@@ -440,6 +440,8 @@ def test_radar_presentation_is_read_only_and_idempotent() -> None:
     assert "판매상태 확인중" in rendered
     assert "특판금리" in rendered
     assert "조기종료 조건" in rendered
+    assert "판매상태·공식근거" in rendered
+    assert "availability_assertion" in rendered
     assert "unknown" in rendered
     assert "<form" not in rendered.lower()
     assert 'type="submit"' not in rendered.lower()
