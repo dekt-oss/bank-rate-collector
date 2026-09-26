@@ -190,9 +190,48 @@ def test_fsb_binding_audit_is_read_only_and_exact_alias_scoped(tmp_path: Path) -
 
     result = MODULE.audit_fsb_bindings({"version": 2, "targets": [_target()]}, db)
     assert result["unique_candidate_count"] == 1
-    assert result["targets"][0]["binding_status"] == "unique_candidate"
+    target = result["targets"][0]
+    assert target["binding_status"] == "unique_candidate"
+    assert target["institution_candidate_count"] == 1
+    assert target["institution_product_samples"] == [
+        {
+            "product_name": "웰컴 디지로카 100일적금",
+            "source_entity_key": "i1:CODE1",
+        }
+    ]
     assert result["scope"]["confirmation_written"] is False
     assert db.read_bytes() == before
+
+
+def test_binding_audit_reports_same_institution_products_without_confirming(
+    tmp_path: Path,
+) -> None:
+    db = tmp_path / "test.sqlite3"
+    conn = sqlite3.connect(db)
+    conn.executescript(
+        """
+        CREATE TABLE institutions(id TEXT PRIMARY KEY, canonical_name TEXT);
+        CREATE TABLE products(id TEXT PRIMARY KEY, institution_id TEXT, name TEXT);
+        CREATE TABLE source_entity_links(
+            source_id TEXT, entity_type TEXT, entity_id TEXT, source_entity_key TEXT,
+            match_method TEXT, valid_to TEXT
+        );
+        INSERT INTO institutions VALUES ('i1', '웰컴저축은행');
+        INSERT INTO products VALUES ('p1', 'i1', '다른 정기적금');
+        INSERT INTO source_entity_links VALUES
+            ('fsb', 'product', 'p1', 'i1:CODE2', 'exact_code', NULL);
+        """
+    )
+    conn.commit()
+    conn.close()
+
+    result = MODULE.audit_fsb_bindings({"version": 2, "targets": [_target()]}, db)
+    target = result["targets"][0]
+    assert target["binding_status"] == "no_exact_alias_match"
+    assert target["match_count"] == 0
+    assert target["institution_candidate_count"] == 1
+    assert target["institution_product_samples"][0]["product_name"] == "다른 정기적금"
+    assert target["confirmation_written"] is False
 
 
 def test_config_rejects_non_https_and_repository_config_is_valid() -> None:
