@@ -187,6 +187,81 @@ async function inspectRadar(page, label) {
   };
 }
 
+async function inspectSyntheticRadar(page) {
+  await page.goto(`${baseUrl}/radar-fixture.html`, { waitUntil: "networkidle" });
+  const panel = page.locator("#special-offer-radar");
+  invariant((await panel.count()) === 1, "synthetic: Radar panel missing");
+  invariant(await panel.isVisible(), "synthetic: Radar panel hidden");
+
+  const currentTab = panel.locator('[data-radar-tab="current"]');
+  const pastTab = panel.locator('[data-radar-tab="past"]');
+  invariant((await currentTab.count()) === 1, "synthetic: current tab missing");
+  invariant((await pastTab.count()) === 1, "synthetic: past tab missing");
+  invariant(
+    (await currentTab.getAttribute("aria-selected")) === "true",
+    "synthetic: current tab is not selected by default",
+  );
+
+  const currentPanel = panel.locator('[data-radar-panel="current"]');
+  const pastPanel = panel.locator('[data-radar-panel="past"]');
+  invariant(await currentPanel.isVisible(), "synthetic: current panel hidden");
+  invariant(!(await pastPanel.isVisible()), "synthetic: past panel visible before tab switch");
+
+  const currentText = await currentPanel.innerText();
+  for (const expected of [
+    "현재저축은행",
+    "현재 특판 정기예금",
+    "4.90%",
+    "2026-09-20 ~ 2026-10-31",
+    "100억원 한도",
+    "개인 고객",
+    "한도 소진 시 조기종료",
+    "현재 판매 중",
+  ]) {
+    invariant(currentText.includes(expected), `synthetic current: missing ${expected}`);
+  }
+
+  await pastTab.click();
+  invariant(
+    (await pastTab.getAttribute("aria-selected")) === "true",
+    "synthetic: past tab did not become selected",
+  );
+  invariant(!(await currentPanel.isVisible()), "synthetic: current panel remained visible");
+  invariant(await pastPanel.isVisible(), "synthetic: past panel did not become visible");
+
+  const pastText = await pastPanel.innerText();
+  for (const expected of [
+    "과거저축은행",
+    "종료 특판 정기적금",
+    "5.10%",
+    "2025-01-01 ~ 2025-03-31",
+    "1만좌 한도",
+    "실명의 개인",
+    "한도 소진 시 조기마감",
+    "판매 종료 확인",
+  ]) {
+    invariant(pastText.includes(expected), `synthetic past: missing ${expected}`);
+  }
+
+  const pageMetrics = await page.evaluate(() => ({
+    clientWidth: document.documentElement.clientWidth,
+    scrollWidth: document.documentElement.scrollWidth,
+  }));
+  invariant(
+    pageMetrics.scrollWidth <= pageMetrics.clientWidth + 1,
+    `synthetic: page horizontal overflow ${pageMetrics.scrollWidth} > ${pageMetrics.clientWidth}`,
+  );
+
+  await panel.screenshot({
+    path: path.join(workDir, "special-offer-radar-synthetic.png"),
+  });
+  return {
+    currentText,
+    pastText,
+    pageMetrics,
+  };
+}
+
 (async () => {
   const browser = await chromium.launch({ channel: "chrome", headless: true });
   try {
@@ -200,12 +275,17 @@ async function inspectRadar(page, label) {
     const mobile = await inspectRadar(mobilePage, "mobile");
     await mobileContext.close();
 
+    const syntheticContext = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+    const syntheticPage = await syntheticContext.newPage();
+    const synthetic = await inspectSyntheticRadar(syntheticPage);
+    await syntheticContext.close();
+
     fs.writeFileSync(
       path.join(workDir, "special-offer-radar-runtime-metrics.json"),
-      `${JSON.stringify({ desktop, mobile }, null, 2)}\n`,
+      `${JSON.stringify({ desktop, mobile, synthetic }, null, 2)}\n`,
       "utf8",
     );
-    console.log(JSON.stringify({ desktop, mobile }));
+    console.log(JSON.stringify({ desktop, mobile, synthetic }));
   } finally {
     await browser.close();
   }
