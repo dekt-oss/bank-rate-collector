@@ -441,6 +441,9 @@ def audit_fsb_bindings(config: dict[str, Any], db_path: Path) -> dict[str, Any]:
     for target in config["targets"]:
         institutions = set(target.get("fsb_institution_names") or [])
         products = set(target.get("fsb_product_names") or [])
+        institution_rows = [
+            row for row in rows if row["institution_name"] in institutions
+        ]
         matched = [
             {
                 "product_id": str(row["product_id"]),
@@ -448,12 +451,31 @@ def audit_fsb_bindings(config: dict[str, Any], db_path: Path) -> dict[str, Any]:
                 "institution_name": str(row["institution_name"]),
                 "source_entity_key": str(row["source_entity_key"]),
             }
-            for row in rows
-            if row["institution_name"] in institutions and row["product_name"] in products
+            for row in institution_rows
+            if row["product_name"] in products
         ]
+        diagnostic_products = sorted(
+            {
+                (
+                    str(row["product_name"]),
+                    str(row["source_entity_key"]),
+                )
+                for row in institution_rows
+            }
+        )[:25]
         results.append(
             {
                 "target_id": target["target_id"],
+                "configured_institution_aliases": sorted(institutions),
+                "configured_product_aliases": sorted(products),
+                "institution_candidate_count": len(institution_rows),
+                "institution_product_samples": [
+                    {
+                        "product_name": product_name,
+                        "source_entity_key": source_entity_key,
+                    }
+                    for product_name, source_entity_key in diagnostic_products
+                ],
                 "match_count": len(matched),
                 "binding_status": (
                     "unique_candidate"
