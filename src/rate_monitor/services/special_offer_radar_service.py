@@ -15,7 +15,10 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
+from sqlalchemy import select
+
 from rate_monitor.db.session import create_readonly_db_engine, make_session_factory
+from rate_monitor.db.special_offer_models import ProductSpecialOfferEvidence
 from rate_monitor.services.special_offer_evidence_service import (
     CONFIRMED_NORMAL,
     CONFIRMED_SPECIAL,
@@ -27,6 +30,18 @@ SOURCE_ID = "fsb"
 RADAR_ACTIVATION = "off_until_confirmed_evidence_is_reviewed_and_separately_approved"
 _CONFIRMED_RUN_STATUSES = ("success", "partial", "no_change")
 _BATCH_SIZE = 400
+_AVAILABILITY_STATUSES = frozenset({"confirmed_active", "confirmed_ended", "unknown"})
+_TERM_FIELDS = (
+    "special_rate",
+    "special_rate_basis",
+    "sale_start",
+    "sale_end",
+    "quota_text",
+    "quota_amount_krw",
+    "quota_accounts",
+    "eligibility_text",
+    "early_termination_text",
+)
 _EMPTY_RATE = {
     "representative_rate": None,
     "rate_source_effective_at": None,
@@ -61,10 +76,15 @@ def _unavailable(reason: str) -> dict[str, Any]:
             "conflict": 0,
         },
         "offers": [],
+        "current_offers": [],
+        "past_offers": [],
+        "availability_counts": {"confirmed_active": 0, "confirmed_ended": 0, "unknown": 0},
         "policy": {
             "unknown_is_special": False,
             "heuristic_confirmation": False,
             "ranking_population_changed": False,
+            "unknown_availability_in_current_tab": False,
+            "special_classification_implies_availability": False,
         },
     }
 
@@ -107,6 +127,24 @@ def _candidate_product_ids(
             as_of.isoformat(),
             as_of.isoformat(),
             as_of.isoformat(),
+        ),
+    ).fetchall()
+    return [str(row[0]) for row in rows]
+
+
+def _historical_special_product_ids(
+    conn: sqlite3.Connection,
+    *,
+    known_at: datetime,
+) -> list[str]:
+    rows = conn.execute(
+        "SELECT DISTINCT product_id FROM product_special_offer_evidence "
+        "WHERE source_id=? AND classification=? AND observed_at<=? "
+        "ORDER BY product_id",
+        (
+            SOURCE_ID,
+            CONFIRMED_SPECIAL,
+            known_at.isoformat(sep=" ", timespec="microseconds"),
         ),
     ).fetchall()
     return [str(row[0]) for row in rows]
@@ -206,6 +244,120 @@ def _current_fsb_rates(
     return rates
 
 
+def _unique_non_null(values: Iterable[Any]) -> Any | None:
+    cleaned = [value for value in values if value not in (None, "")]
+    if not cleaned:
+        return None
+    first = cleaned[0]
+    return first if all(value == first for value in cleaned) else None
+
+
+def _resolved_evidence_metadata(
+    session,
+    evidence_ids: tuple[str, ...],
+    *,
+    as_of: date,
+) -> dict[str, Any]:
+    if not evidence_ids:
+        return {
+            "special_offer_terms": {field: None for field in _TERM_FIELDS},
+            "availability_status": "unknown",
+            "availability_assertion": None,
+            "availability_observed_at": None,
+            "availability_source_locator": None,
+            "evidence_observed_at": None,
+            "evidence_source_locator": None,
+        }
+
+    rows = session.scalars(
+        select(ProductSpecialOfferEvidence).where(
+            ProductSpecialOfferEvidence.id.in_(evidence_ids)
+        )
+    ).all()
+    if not rows:
+        return {
+            "special_offer_terms": {field: None for field in _TERM_FIELDS},
+            "availability_status": "unknown",
+            "availability_assertion": None,
+            "availability_observed_at": None,
+            "availability_source_locator": None,
+            "evidence_observed_at": None,
+            "evidence_source_locator": None,
+        }
+
+    term_payloads = [
+        dict((row.evidence_json or {}).get("special_offer_terms") or {})
+        for row in rows
+    ]
+    terms = {
+        field: _unique_non_null(payload.get(field) for payload in term_payloads)
+        for field in _TERM_FIELDS
+    }
+    if terms["sale_start"] is None:
+        terms["sale_start"] = _unique_non_null(
+            row.source_effective_from.isoformat() if row.source_effective_from else None
+            for row in rows
+        )
+    if terms["sale_end"] is None:
+        terms["sale_end"] = _unique_non_null(
+            row.source_effective_to.isoformat() if row.source_effective_to else None
+            for row in rows
+        )
+
+    availability_payloads = [
+        dict((row.evidence_json or {}).get("availability") or {})
+        for row in rows
+    ]
+    statuses = {
+        str(payload.get("status"))
+        for payload in availability_payloads
+        if payload.get("status") in _AVAILABILITY_STATUSES
+    }
+    if len(statuses) == 1:
+        availability_status = next(iter(statuses))
+    elif len(statuses) > 1:
+        availability_status = "unknown"
+    else:
+        availability_status = "unknown"
+        effective_to = _unique_non_null(row.source_effective_to for row in rows)
+        if effective_to is not None and effective_to < as_of:
+            availability_status = "confirmed_ended"
+
+    availability_assertion = None
+    availability_observed_at = None
+    availability_source_locator = None
+    if availability_status != "unknown":
+        matching = [
+            payload
+            for payload in availability_payloads
+            if payload.get("status") == availability_status
+        ]
+        availability_assertion = _unique_non_null(
+            payload.get("assertion_text") for payload in matching
+        )
+        availability_observed_at = _unique_non_null(
+            payload.get("observed_at") for payload in matching
+        )
+        availability_source_locator = _unique_non_null(
+            payload.get("source_locator") for payload in matching
+        )
+        if availability_assertion is None and availability_status == "confirmed_ended":
+            ended = terms.get("sale_end")
+            if ended and date.fromisoformat(str(ended)) < as_of:
+                availability_assertion = f"explicit sale period ended on {ended}"
+
+    latest = max(rows, key=lambda row: (row.observed_at, row.id))
+    return {
+        "special_offer_terms": terms,
+        "availability_status": availability_status,
+        "availability_assertion": availability_assertion,
+        "availability_observed_at": availability_observed_at,
+        "availability_source_locator": availability_source_locator,
+        "evidence_observed_at": latest.observed_at.isoformat(),
+        "evidence_source_locator": latest.source_locator,
+    }
+
+
 def build_special_offer_radar(
     db_path: Path,
     *,
@@ -235,8 +387,13 @@ def build_special_offer_radar(
             as_of=resolved_as_of,
             known_at=resolved_known_at,
         )
-        product_context = _product_contexts(conn, product_ids)
-        rates = _current_fsb_rates(conn, product_ids)
+        historical_product_ids = _historical_special_product_ids(
+            conn,
+            known_at=resolved_known_at,
+        )
+        context_ids = sorted(set(product_ids) | set(historical_product_ids))
+        product_context = _product_contexts(conn, context_ids)
+        rates = _current_fsb_rates(conn, context_ids)
     finally:
         conn.close()
 
@@ -269,20 +426,87 @@ def build_special_offer_radar(
             context_row = product_context.get(product_id)
             if context_row is None:
                 continue
+            evidence_meta = _resolved_evidence_metadata(
+                session,
+                state.evidence_ids,
+                as_of=resolved_as_of,
+            )
             offers.append(
                 {
                     **context_row,
                     **rates[product_id],
+                    **evidence_meta,
                     "classification": state.classification,
                     "evidence_kind": state.evidence_kind,
                     "evidence_ref": state.evidence_ref,
                     "evidence_ids": list(state.evidence_ids),
                 }
             )
+        historical_offers: list[dict[str, Any]] = []
+        if historical_product_ids:
+            historical_rows = session.scalars(
+                select(ProductSpecialOfferEvidence).where(
+                    ProductSpecialOfferEvidence.source_id == SOURCE_ID,
+                    ProductSpecialOfferEvidence.product_id.in_(historical_product_ids),
+                    ProductSpecialOfferEvidence.classification == CONFIRMED_SPECIAL,
+                    ProductSpecialOfferEvidence.observed_at <= resolved_known_at,
+                )
+            ).all()
+            for evidence in historical_rows:
+                evidence_meta = _resolved_evidence_metadata(
+                    session,
+                    (evidence.id,),
+                    as_of=resolved_as_of,
+                )
+                if evidence_meta["availability_status"] != "confirmed_ended":
+                    continue
+                context_row = product_context.get(evidence.product_id)
+                if context_row is None:
+                    continue
+                historical_offers.append(
+                    {
+                        **context_row,
+                        **rates[evidence.product_id],
+                        **evidence_meta,
+                        "classification": CONFIRMED_SPECIAL,
+                        "evidence_kind": evidence.evidence_kind,
+                        "evidence_ref": evidence.evidence_ref,
+                        "evidence_ids": [evidence.id],
+                    }
+                )
     finally:
         session.close()
         engine.dispose()
 
+    def _rate_value(item: dict[str, Any]) -> float:
+        raw = (item.get("special_offer_terms") or {}).get("special_rate")
+        try:
+            return float(raw)
+        except (TypeError, ValueError):
+            return -1.0
+
+    current_offers = [
+        item for item in offers if item.get("availability_status") == "confirmed_active"
+    ]
+    pending_offers = [
+        item for item in offers if item.get("availability_status") == "unknown"
+    ]
+    past_offers = historical_offers
+    current_offers.sort(
+        key=lambda item: (
+            str(item.get("evidence_observed_at") or ""),
+            _rate_value(item),
+            str((item.get("special_offer_terms") or {}).get("sale_end") or ""),
+        ),
+        reverse=True,
+    )
+    past_offers.sort(
+        key=lambda item: (
+            str((item.get("special_offer_terms") or {}).get("sale_end") or ""),
+            str(item.get("evidence_observed_at") or ""),
+        ),
+        reverse=True,
+    )
     offers.sort(
         key=lambda item: (
             -(item["representative_rate"] if item["representative_rate"] is not None else -1.0),
@@ -290,19 +514,33 @@ def build_special_offer_radar(
             item["product_name"],
         )
     )
-    status = "confirmed_evidence_available" if offers else "collecting_confirmed_evidence"
+    availability_counts = {
+        "confirmed_active": len(current_offers),
+        "confirmed_ended": len(past_offers),
+        "unknown": len(pending_offers),
+    }
+    status = (
+        "confirmed_evidence_available"
+        if offers or past_offers
+        else "collecting_confirmed_evidence"
+    )
     return {
         "status": status,
-        "reason": None if offers else "no_confirmed_special_at_snapshot",
+        "reason": None if offers or past_offers else "no_confirmed_special_evidence",
         "source_id": SOURCE_ID,
         "as_of": resolved_as_of.isoformat(),
         "known_at": resolved_known_at.isoformat(),
         "activation": RADAR_ACTIVATION,
         "counts": counts,
         "offers": offers,
+        "current_offers": current_offers,
+        "past_offers": past_offers,
+        "availability_counts": availability_counts,
         "policy": {
             "unknown_is_special": False,
             "heuristic_confirmation": False,
             "ranking_population_changed": False,
+            "unknown_availability_in_current_tab": False,
+            "special_classification_implies_availability": False,
         },
     }
