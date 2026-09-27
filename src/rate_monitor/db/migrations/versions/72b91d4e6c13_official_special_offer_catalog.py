@@ -52,6 +52,10 @@ def upgrade() -> None:
             "source_effective_to >= source_effective_from)",
             name="ck_official_special_offer_catalog_effective_period",
         ),
+        sa.CheckConstraint(
+            "binding_status IN ('unbound', 'candidate', 'bound')",
+            name="ck_official_special_offer_catalog_binding_status",
+        ),
         sa.ForeignKeyConstraint(["canonical_product_id"], ["products.id"]),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint(
