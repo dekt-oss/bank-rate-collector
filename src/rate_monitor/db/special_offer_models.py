@@ -77,3 +77,67 @@ class ProductSpecialOfferEvidence(Base):
     evidence_key: Mapped[str] = mapped_column(String(80))
     evidence_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime)
+
+
+class OfficialSpecialOfferCatalogEvidence(Base):
+    """Canonical rate products와 분리된 bank-direct 특판 근거.
+
+    FSB 현재 상품 universe에 존재하지 않는 과거/별도 특판도 공식 상품키와
+    원문 근거를 append-only로 보존한다. canonical_product_id는 향후
+    검증된 cross-reference 용도일 뿐 필수 identity가 아니다.
+    """
+
+    __tablename__ = "official_special_offer_catalog_evidence"
+    __table_args__ = (
+        CheckConstraint(
+            "classification IN ('confirmed_special', 'confirmed_normal')",
+            name="ck_official_special_offer_catalog_classification",
+        ),
+        CheckConstraint(
+            "availability_status IN ('confirmed_active', 'confirmed_ended', 'unknown')",
+            name="ck_official_special_offer_catalog_availability",
+        ),
+        CheckConstraint(
+            "source_effective_to IS NULL OR "
+            "(source_effective_from IS NOT NULL AND "
+            "source_effective_to >= source_effective_from)",
+            name="ck_official_special_offer_catalog_effective_period",
+        ),
+        UniqueConstraint(
+            "evidence_key", name="uq_official_special_offer_catalog_evidence_key"
+        ),
+        Index(
+            "ix_official_special_offer_catalog_identity",
+            "source_namespace",
+            "institution_normalized",
+            "official_product_key",
+            "observed_at",
+        ),
+        Index(
+            "ix_official_special_offer_catalog_availability",
+            "availability_status",
+            "observed_at",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    source_namespace: Mapped[str] = mapped_column(String(64))
+    institution_name: Mapped[str] = mapped_column(Text)
+    institution_normalized: Mapped[str] = mapped_column(Text)
+    official_product_key: Mapped[str] = mapped_column(String(128))
+    product_name: Mapped[str] = mapped_column(Text)
+    classification: Mapped[str] = mapped_column(String(24))
+    availability_status: Mapped[str] = mapped_column(String(24))
+    snapshot_as_of: Mapped[date] = mapped_column(Date)
+    source_effective_from: Mapped[date | None] = mapped_column(Date, nullable=True)
+    source_effective_to: Mapped[date | None] = mapped_column(Date, nullable=True)
+    observed_at: Mapped[datetime] = mapped_column(DateTime)
+    source_locator: Mapped[str] = mapped_column(Text)
+    content_hash: Mapped[str] = mapped_column(String(80))
+    evidence_key: Mapped[str] = mapped_column(String(80))
+    evidence_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    canonical_product_id: Mapped[str | None] = mapped_column(
+        ForeignKey("products.id"), nullable=True
+    )
+    binding_status: Mapped[str] = mapped_column(String(32), default="unbound")
+    created_at: Mapped[datetime] = mapped_column(DateTime)
