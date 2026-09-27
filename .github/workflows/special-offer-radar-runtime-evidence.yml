@@ -5,6 +5,7 @@ on:
     branches:
       - "feat/special-offer-radar-*"
       - "feat/special-offer-r3c-*"
+      - "feat/special-offer-r3d-*"
     paths:
       - ".github/workflows/special-offer-radar-runtime-evidence.yml"
       - "scripts/special_offer_radar_runtime_smoke.js"
@@ -12,6 +13,10 @@ on:
       - "config/special_offer_official_targets.json"
       - "src/rate_monitor/services/special_offer_evidence_service.py"
       - "src/rate_monitor/services/special_offer_radar_service.py"
+      - "src/rate_monitor/services/special_offer_catalog_service.py"
+      - "src/rate_monitor/db/special_offer_models.py"
+      - "src/rate_monitor/db/migrations/versions/72b91d4e6c13_official_special_offer_catalog.py"
+      - "tests/test_special_offer_catalog.py"
       - "src/rate_monitor/services/special_offer_radar_presentation.py"
       - "src/rate_monitor/services/strategy_service.py"
       - "src/rate_monitor/services/strategy_decision_cockpit.py"
