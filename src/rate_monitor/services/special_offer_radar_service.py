@@ -156,8 +156,9 @@ def _official_catalog_offers(
     if not _table_exists(conn, "official_special_offer_catalog_evidence"):
         return [], [], 0
     rows = conn.execute(
-        "SELECT id, source_namespace, institution_name, official_product_key, "
-        "product_name, classification, availability_status, snapshot_as_of, "
+        "SELECT id, source_namespace, institution_name, institution_normalized, "
+        "official_product_key, product_name, classification, availability_status, "
+        "snapshot_as_of, "
         "source_effective_from, source_effective_to, observed_at, source_locator, "
         "content_hash, evidence_json, binding_status "
         "FROM official_special_offer_catalog_evidence "
@@ -171,15 +172,9 @@ def _official_catalog_offers(
     ).fetchall()
     latest: dict[tuple[str, str, str], sqlite3.Row] = {}
     for row in rows:
-        raw_evidence = row["evidence_json"]
-        evidence = (
-            json.loads(raw_evidence)
-            if isinstance(raw_evidence, str)
-            else dict(raw_evidence or {})
-        )
         identity = (
             str(row["source_namespace"]),
-            str(row["institution_name"]),
+            str(row["institution_normalized"]),
             str(row["official_product_key"]),
         )
         if identity in latest:
