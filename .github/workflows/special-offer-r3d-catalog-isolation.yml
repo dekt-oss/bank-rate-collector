@@ -1,0 +1,187 @@
+name: Special-offer R3-D catalog isolation
+
+on:
+  push:
+    branches:
+      - "feat/special-offer-r3d-*"
+    paths:
+      - ".github/workflows/special-offer-r3d-catalog-isolation.yml"
+      - "src/rate_monitor/db/special_offer_models.py"
+      - "src/rate_monitor/db/migrations/versions/72b91d4e6c13_official_special_offer_catalog.py"
+      - "src/rate_monitor/services/special_offer_catalog_service.py"
+      - "src/rate_monitor/services/special_offer_radar_service.py"
+      - "scripts/special_offer_catalog_import.py"
+      - "tests/test_special_offer_catalog.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: special-offer-r3d-catalog-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  production-copy-isolation:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Set up Python
+        run: uv python install 3.12
+      - name: Sync dependencies
+        run: uv sync --locked
+
+      - name: Targeted lint and tests
+        run: |
+          set -euo pipefail
+          uv run ruff check src/rate_monitor/db/special_offer_models.py src/rate_monitor/services/special_offer_catalog_service.py src/rate_monitor/services/special_offer_radar_service.py scripts/special_offer_catalog_import.py tests/test_special_offer_catalog.py
+          uv run pytest -q tests/test_special_offer_catalog.py tests/test_special_offer_radar.py
+
+      - name: Migration upgrade and downgrade contract
+        env:
+          RATE_MONITOR_DB_URL: sqlite+pysqlite:///${{ github.workspace }}/work/migration-test.sqlite3
+        run: |
+          set -euo pipefail
+          mkdir -p work
+          uv run alembic upgrade head
+          uv run python - <<'PY'
+          import sqlite3
+          conn = sqlite3.connect("work/migration-test.sqlite3")
+          assert conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='official_special_offer_catalog_evidence'").fetchone()
+          conn.close()
+          PY
+          uv run alembic downgrade 4d1c2a9e7b60
+          uv run python - <<'PY'
+          import sqlite3
+          conn = sqlite3.connect("work/migration-test.sqlite3")
+          assert conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='official_special_offer_catalog_evidence'").fetchone() is None
+          conn.close()
+          PY
+          uv run alembic upgrade head
+
+      - name: Restore production DB into runner-local candidate
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+          R2_REGION: ${{ vars.R2_REGION }}
+        run: |
+          set -euo pipefail
+          uv run rate-monitor storage restore --dest work/rate_monitor.sqlite3
+          test -s work/rate_monitor.sqlite3
+
+      - name: Apply migration only to runner-local candidate
+        env:
+          RATE_MONITOR_DB_URL: sqlite+pysqlite:///${{ github.workspace }}/work/rate_monitor.sqlite3
+        run: uv run alembic upgrade head
+
+      - name: Snapshot canonical outputs before catalog import
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          import json, sqlite3
+          from pathlib import Path
+          from rate_monitor.services.dashboard_service import build_summary
+          from rate_monitor.services.strategy_service import build_strategy_summary
+          db = Path("work/rate_monitor.sqlite3")
+          conn = sqlite3.connect(db)
+          counts = {table: conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] for table in ("products","product_variants","rate_observations")}
+          conn.close()
+          dashboard = build_summary(db)
+          strategy = build_strategy_summary(db)
+          strategy.pop("special_offer_radar", None)
+          payload = {"canonical_counts": counts, "dashboard": dashboard, "strategy_without_radar": strategy}
+          Path("work/catalog-before.json").write_text(json.dumps(payload, ensure_ascii=False, sort_keys=True), encoding="utf-8")
+          PY
+
+      - name: Create isolated bank-direct capture fixture
+        run: |
+          cat > work/catalog-capture.json <<'JSON'
+          {
+            "observed_at": "2026-09-27T01:00:00+00:00",
+            "captures": [
+              {
+                "target_id": "fixture-current",
+                "institution": "독립현재저축은행",
+                "product_name": "현재 공식 특판",
+                "official_product_key": "CURRENT-001",
+                "source_locator": "https://current.example/products/CURRENT-001",
+                "content_sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "identity_marker_present": true,
+                "explicit_phrases_present": true,
+                "classification_candidate": "confirmed_special_candidate",
+                "special_offer_terms": {"special_rate":"4.90","sale_start":"2026-09-20","sale_end":null,"quota_text":"100억원 한도","quota_amount_krw":10000000000,"quota_accounts":null,"eligibility_text":"개인","early_termination_text":"한도 소진 시 조기종료"},
+                "availability": {"status":"confirmed_active","assertion_text":"현재 판매 중","observed_at":"2026-09-27T01:00:00+00:00","source_locator":"https://current.example/products/CURRENT-001"}
+              },
+              {
+                "target_id": "fixture-past",
+                "institution": "독립과거저축은행",
+                "product_name": "과거 공식 특판",
+                "official_product_key": "PAST-001",
+                "source_locator": "https://past.example/notices/PAST-001",
+                "content_sha256": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                "identity_marker_present": true,
+                "explicit_phrases_present": true,
+                "classification_candidate": "confirmed_special_candidate",
+                "special_offer_terms": {"special_rate":"5.10","sale_start":"2025-01-01","sale_end":"2025-03-31","quota_text":"1만좌 한도","quota_amount_krw":null,"quota_accounts":10000,"eligibility_text":"실명의 개인","early_termination_text":"한도 소진 시 조기마감"},
+                "availability": {"status":"confirmed_ended","assertion_text":"판매 종료 확인","observed_at":"2025-04-01T00:00:00+00:00","source_locator":"https://past.example/notices/PAST-001"}
+              }
+            ]
+          }
+          JSON
+
+      - name: Import catalog twice to prove idempotency
+        run: |
+          set -euo pipefail
+          uv run python scripts/special_offer_catalog_import.py --db work/rate_monitor.sqlite3 --capture work/catalog-capture.json --out work/catalog-import-report.json
+          uv run python scripts/special_offer_catalog_import.py --db work/rate_monitor.sqlite3 --capture work/catalog-capture.json --out work/catalog-import-report-repeat.json
+
+      - name: Prove canonical outputs are unchanged and Radar alone expands
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          import json, sqlite3
+          from pathlib import Path
+          from rate_monitor.services.dashboard_service import build_summary
+          from rate_monitor.services.special_offer_radar_service import build_special_offer_radar
+          from rate_monitor.services.strategy_service import build_strategy_summary
+          db = Path("work/rate_monitor.sqlite3")
+          before = json.loads(Path("work/catalog-before.json").read_text())
+          conn = sqlite3.connect(db)
+          counts = {table: conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] for table in ("products","product_variants","rate_observations")}
+          catalog_rows = conn.execute("SELECT COUNT(*) FROM official_special_offer_catalog_evidence").fetchone()[0]
+          conn.close()
+          assert counts == before["canonical_counts"]
+          assert catalog_rows == 2
+          assert build_summary(db) == before["dashboard"]
+          strategy = build_strategy_summary(db)
+          radar = strategy.pop("special_offer_radar")
+          assert strategy == before["strategy_without_radar"]
+          assert any(item.get("official_product_key") == "CURRENT-001" for item in radar["current_offers"])
+          assert any(item.get("official_product_key") == "PAST-001" for item in radar["past_offers"])
+          assert radar["official_catalog_counts"] == {"confirmed_active":1,"confirmed_ended":1,"unknown":0}
+          assert radar["policy"]["official_catalog_changes_rate_population"] is False
+          report = {"canonical_counts":counts,"catalog_rows":catalog_rows,"dashboard_invariant":True,"strategy_non_radar_invariant":True,"catalog_counts":radar["official_catalog_counts"],"production_write":False}
+          Path("work/catalog-isolation-report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2)+"\n", encoding="utf-8")
+          print(json.dumps(report, ensure_ascii=False))
+          PY
+
+      - name: Upload isolation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: special-offer-r3d-isolation-${{ github.run_id }}
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            work/catalog-before.json
+            work/catalog-capture.json
+            work/catalog-import-report.json
+            work/catalog-import-report-repeat.json
+            work/catalog-isolation-report.json
