@@ -207,7 +207,7 @@ async function assertDecisionIA(page, label) {
     ["시장 금리 방향", "market-intelligence"],
     ["12개월 시장 추이", "workspace-market-trend"],
     ["신상품 금리 시뮬레이션", "planning-zone"],
-    ["경쟁사 · 기관 포지션", "workspace-competitor-position"],
+    ["경쟁 금리 · 수신규모", "workspace-competitor-position"],
     ["우대조건 · 상품구조", "preference-intelligence"],
     ["특판 · 시장기회", "special-offer-radar"],
   ];
