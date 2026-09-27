@@ -171,7 +171,12 @@ def _official_catalog_offers(
     ).fetchall()
     latest: dict[tuple[str, str, str], sqlite3.Row] = {}
     for row in rows:
-        evidence = json.loads(row["evidence_json"]) if isinstance(row["evidence_json"], str) else dict(row["evidence_json"] or {})
+        raw_evidence = row["evidence_json"]
+        evidence = (
+            json.loads(raw_evidence)
+            if isinstance(raw_evidence, str)
+            else dict(raw_evidence or {})
+        )
         identity = (
             str(row["source_namespace"]),
             str(row["institution_name"]),
@@ -184,7 +189,12 @@ def _official_catalog_offers(
     past: list[dict[str, Any]] = []
     unknown = 0
     for row in latest.values():
-        evidence = json.loads(row["evidence_json"]) if isinstance(row["evidence_json"], str) else dict(row["evidence_json"] or {})
+        raw_evidence = row["evidence_json"]
+        evidence = (
+            json.loads(raw_evidence)
+            if isinstance(raw_evidence, str)
+            else dict(raw_evidence or {})
+        )
         terms = dict(evidence.get("special_offer_terms") or {})
         availability = dict(evidence.get("availability") or {})
         item = {
