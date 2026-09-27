@@ -103,6 +103,10 @@ class OfficialSpecialOfferCatalogEvidence(Base):
             "source_effective_to >= source_effective_from)",
             name="ck_official_special_offer_catalog_effective_period",
         ),
+        CheckConstraint(
+            "binding_status IN ('unbound', 'candidate', 'bound')",
+            name="ck_official_special_offer_catalog_binding_status",
+        ),
         UniqueConstraint(
             "evidence_key", name="uq_official_special_offer_catalog_evidence_key"
         ),
