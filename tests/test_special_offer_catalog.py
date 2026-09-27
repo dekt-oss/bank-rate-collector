@@ -123,9 +123,11 @@ def test_confirmed_active_requires_explicit_availability_assertion(tmp_path: Pat
     broken = OfficialSpecialOfferCatalogInput(
         **{**item.__dict__, "evidence": evidence}
     )
-    with session_scope(factory) as session:
-        with pytest.raises(OfficialSpecialOfferCatalogError, match="assertion"):
-            append_official_catalog_evidence(session, broken)
+    with (
+        session_scope(factory) as session,
+        pytest.raises(OfficialSpecialOfferCatalogError, match="assertion"),
+    ):
+        append_official_catalog_evidence(session, broken)
 
 
 def test_import_capture_payload_only_appends_explicit_special_candidates(
