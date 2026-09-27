@@ -10,7 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from typing import Any
 from urllib.parse import urlparse
 
@@ -209,7 +209,7 @@ def import_capture_payload(
     observed_raw = _required(payload.get("observed_at"), "observed_at")
     observed = datetime.fromisoformat(observed_raw)
     if observed.tzinfo is not None:
-        observed = observed.astimezone().replace(tzinfo=None)
+        observed = observed.astimezone(UTC).replace(tzinfo=None)
     records: list[OfficialSpecialOfferCatalogEvidence] = []
     for captured in payload.get("captures") or []:
         if captured.get("classification_candidate") != "confirmed_special_candidate":
