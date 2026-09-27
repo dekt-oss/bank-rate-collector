@@ -661,5 +661,6 @@ def build_special_offer_radar(
             "ranking_population_changed": False,
             "unknown_availability_in_current_tab": False,
             "special_classification_implies_availability": False,
+            "official_catalog_changes_rate_population": False,
         },
     }
