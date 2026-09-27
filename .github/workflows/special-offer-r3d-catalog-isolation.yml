@@ -93,10 +93,26 @@ jobs:
           conn = sqlite3.connect(db)
           counts = {table: conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] for table in ("products","product_variants","rate_observations")}
           conn.close()
-          dashboard = build_summary(db)
+          def stable(value):
+              if isinstance(value, dict):
+                  return {
+                      key: stable(item)
+                      for key, item in value.items()
+                      if key != "generated_at"
+                  }
+              if isinstance(value, list):
+                  return [stable(item) for item in value]
+              return value
+
+          dashboard = stable(build_summary(db))
           strategy = build_strategy_summary(db)
           strategy.pop("special_offer_radar", None)
-          payload = {"canonical_counts": counts, "dashboard": dashboard, "strategy_without_radar": strategy}
+          strategy = stable(strategy)
+          payload = {
+              "canonical_counts": counts,
+              "dashboard": dashboard,
+              "strategy_without_radar": strategy,
+          }
           Path("work/catalog-before.json").write_text(json.dumps(payload, ensure_ascii=False, sort_keys=True), encoding="utf-8")
           PY
 
@@ -159,10 +175,21 @@ jobs:
           conn.close()
           assert counts == before["canonical_counts"]
           assert catalog_rows == 2
-          assert build_summary(db) == before["dashboard"]
+          def stable(value):
+              if isinstance(value, dict):
+                  return {
+                      key: stable(item)
+                      for key, item in value.items()
+                      if key != "generated_at"
+                  }
+              if isinstance(value, list):
+                  return [stable(item) for item in value]
+              return value
+
+          assert stable(build_summary(db)) == before["dashboard"]
           strategy = build_strategy_summary(db)
           radar = strategy.pop("special_offer_radar")
-          assert strategy == before["strategy_without_radar"]
+          assert stable(strategy) == before["strategy_without_radar"]
           assert any(item.get("official_product_key") == "CURRENT-001" for item in radar["current_offers"])
           assert any(item.get("official_product_key") == "PAST-001" for item in radar["past_offers"])
           assert radar["official_catalog_counts"] == {"confirmed_active":1,"confirmed_ended":1,"unknown":0}
