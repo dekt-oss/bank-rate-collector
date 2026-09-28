@@ -85,11 +85,30 @@ async function measure(browser, label, viewport) {
 
   const baselineMetrics = await evaluate(baseline.page);
   const candidateMetrics = await evaluate(candidate.page);
+  const compactCandidate = await candidate.page.evaluate(() => {
+    const detail = document.getElementById("lean-planning-detail");
+    const wasOpen = Boolean(detail?.open);
+    if (detail) detail.open = false;
+    const scrollHeight = Math.max(document.documentElement.scrollHeight, document.body.scrollHeight);
+    const scrollWidth = document.documentElement.scrollWidth;
+    const clientWidth = document.documentElement.clientWidth;
+    if (detail) detail.open = wasOpen;
+    return { scrollHeight, scrollWidth, clientWidth, planningDetailWasOpen: wasOpen };
+  });
   const reductionPct = ((baselineMetrics.scrollHeight - candidateMetrics.scrollHeight) / baselineMetrics.scrollHeight) * 100;
+  const compactReductionPct = ((baselineMetrics.scrollHeight - compactCandidate.scrollHeight) / baselineMetrics.scrollHeight) * 100;
 
   invariant(
     candidateMetrics.scrollWidth <= candidateMetrics.clientWidth + 1,
     label + ": candidate horizontal overflow",
+  );
+  invariant(
+    compactCandidate.scrollWidth <= compactCandidate.clientWidth + 1,
+    label + ": compact candidate horizontal overflow",
+  );
+  invariant(
+    compactCandidate.planningDetailWasOpen,
+    label + ": planning detail must be open by default before density-only collapse",
   );
   await baseline.page.screenshot({
     path: path.join(workDir, "strategy-density-baseline-" + label + ".png"),
@@ -107,7 +126,9 @@ async function measure(browser, label, viewport) {
     viewport,
     baseline: baselineMetrics,
     candidate: candidateMetrics,
+    compactCandidate,
     reductionPct: Number(reductionPct.toFixed(2)),
+    compactReductionPct: Number(compactReductionPct.toFixed(2)),
   };
 }
 
@@ -129,8 +150,8 @@ async function measure(browser, label, viewport) {
     console.log(JSON.stringify(metrics, null, 2));
     for (const label of ["desktop", "mobile"]) {
       invariant(
-        metrics[label].reductionPct >= minReductionPct,
-        label + ": document height reduction " + metrics[label].reductionPct.toFixed(2) + "% < " + minReductionPct + "%",
+        metrics[label].compactReductionPct >= minReductionPct,
+        label + ": compact document height reduction " + metrics[label].compactReductionPct.toFixed(2) + "% < " + minReductionPct + "% (default-open reduction=" + metrics[label].reductionPct.toFixed(2) + "%)",
       );
     }
     console.log("Strategy Lean IA density comparison: PASS");

@@ -363,3 +363,24 @@ PR merge만으로 완료로 보지 않는다.
 - `#relative-pricing-r1`과 `#rate-funding-matrix`는 계산/payload를 유지하되 기본 화면에서는 숨긴다.
 - 왼쪽 메뉴는 final DOM 기준으로 다시 만들며 `데이터 근거 · 품질`은 메뉴에서 제외한다.
 - 신규 finalizer가 production-data browser E2E를 자동으로 타도록 관련 workflow path filter를 보강한다.
+
+
+---
+
+## 12. 2026-09-28 금리설계 기본 열림과 density gate 보정
+
+금리설계 실사용 검토에서 예측엔진/조건 입력을 기본으로 펼쳐 두는 것으로 제품 결정을 변경했다.
+이 결정은 사용자가 별도 클릭 없이 `조건 입력 → 결과 출력`을 바로 볼 수 있게 하기 위한 것이다.
+
+기존 Lean IA의 20% document-height 감소 gate는 과거 기준 화면과 **접힌 보조영역**을 비교해
+중복 UI 제거 효과를 검증하는 목적이었다. 금리설계를 의도적으로 기본 open으로 바꾼 뒤
+그 높이를 그대로 density regression으로 계산하면 제품 요구사항과 gate가 충돌한다.
+
+따라서 production-data density smoke는 다음 두 값을 모두 기록한다.
+
+- `reductionPct`: 실제 기본-open 화면의 전체 높이 감소율(관측값)
+- `compactReductionPct`: `#lean-planning-detail`만 측정 순간 임시로 접어 기존 Lean IA 감량 효과를 비교한 값
+
+20% gate는 `compactReductionPct`에 유지한다. 별도의 Strategy workspace smoke가
+`#lean-planning-detail`과 `#prediction-panel`이 실제 기본 화면에서는 open/visible인지 검증한다.
+즉 density 기준을 완화하는 것이 아니라 **기본-open UX 계약과 중복 제거 계약을 분리해 검증**한다.
