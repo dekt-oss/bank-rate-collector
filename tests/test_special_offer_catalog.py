@@ -111,6 +111,25 @@ def test_newer_catalog_observation_does_not_shift_fsb_snapshot_context(
     assert resolved_known_at == datetime(2026, 9, 28, 1, 0)
 
 
+def test_catalog_canonical_cross_reference_uses_on_delete_set_null(
+    tmp_path: Path,
+) -> None:
+    db_path, _ = _db(tmp_path)
+    conn = sqlite3.connect(db_path)
+    foreign_keys = conn.execute(
+        "PRAGMA foreign_key_list('official_special_offer_catalog_evidence')"
+    ).fetchall()
+    conn.close()
+
+    catalog_fk = [
+        row
+        for row in foreign_keys
+        if row[3] == "canonical_product_id" and row[2] == "products"
+    ]
+    assert len(catalog_fk) == 1
+    assert catalog_fk[0][6].upper() == "SET NULL"
+
+
 def test_catalog_append_is_idempotent_without_creating_canonical_products(
     tmp_path: Path,
 ) -> None:
