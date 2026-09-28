@@ -98,7 +98,8 @@ def _latest_context(
     as_of: date | None,
     known_at: datetime | None,
 ) -> tuple[date, datetime] | None:
-    candidates: list[tuple[str, str]] = []
+    fsb_context: tuple[str, str] | None = None
+    catalog_context: tuple[str, str] | None = None
     if _table_exists(conn, "product_special_offer_evidence"):
         row = conn.execute(
             "SELECT MAX(snapshot_as_of), MAX(observed_at) "
@@ -106,19 +107,26 @@ def _latest_context(
             (SOURCE_ID,),
         ).fetchone()
         if row is not None and row[0] is not None and row[1] is not None:
-            candidates.append((str(row[0]), str(row[1])))
+            fsb_context = (str(row[0]), str(row[1]))
     if _table_exists(conn, "official_special_offer_catalog_evidence"):
         row = conn.execute(
             "SELECT MAX(snapshot_as_of), MAX(observed_at) "
             "FROM official_special_offer_catalog_evidence"
         ).fetchone()
         if row is not None and row[0] is not None and row[1] is not None:
-            candidates.append((str(row[0]), str(row[1])))
-    if not candidates:
+            catalog_context = (str(row[0]), str(row[1]))
+    contexts = [item for item in (fsb_context, catalog_context) if item is not None]
+    if not contexts:
         return None
-    resolved_as_of = as_of or max(date.fromisoformat(item[0]) for item in candidates)
+
+    # FSB snapshot_as_of is the current FSB coverage key. A newer bank-direct
+    # catalog observation must not move that key forward and make FSB unknown
+    # coverage disappear. Catalog rows are independently bounded by known_at.
+    snapshot_context = fsb_context or catalog_context
+    assert snapshot_context is not None
+    resolved_as_of = as_of or date.fromisoformat(snapshot_context[0])
     resolved_known_at = known_at or max(
-        datetime.fromisoformat(item[1]) for item in candidates
+        datetime.fromisoformat(item[1]) for item in contexts
     )
     return resolved_as_of, resolved_known_at
 
