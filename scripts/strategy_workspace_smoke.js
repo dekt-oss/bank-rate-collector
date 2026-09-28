@@ -350,20 +350,23 @@ async function assertMarketEvidence(page, label) {
 
 async function assertTrend(page, label) {
   await page.waitForSelector("#decision-trend-toggle", { timeout: 10_000 });
-  const delta = await page.evaluate(() => ({
+  const level = await page.evaluate(() => ({
     active: document.querySelector("#decision-trend-toggle button.active")?.dataset.trendMode,
     axis: [...document.querySelectorAll("#trend-grid .axistext")].map((x) => x.textContent),
     basis: document.getElementById("decision-trend-basis")?.textContent || "",
     markers: document.querySelectorAll('#trend-series [data-decision-trend="1"]').length,
   }));
-  invariant(delta.active === "delta", `${label}: trend default mode=${delta.active}`);
-  invariant(delta.axis.some((x) => x.includes("bp")) && delta.basis.includes("첫 관측값을 0bp"), `${label}: delta trend basis/axis missing`);
-  invariant(delta.markers > 0, `${label}: delta trend series not drawn`);
+  invariant(level.active === "level", `${label}: trend default mode=${level.active}`);
+  invariant(level.axis.some((x) => x.includes("%")) && level.basis.includes("실제 절대 금리 수준"), `${label}: absolute rate trend basis/axis missing`);
+  invariant(level.markers > 0, `${label}: absolute rate trend series not drawn`);
 
-  await page.locator('#decision-trend-toggle button[data-trend-mode="level"]').click();
-  const levelAxis = await page.locator("#trend-grid .axistext").allTextContents();
-  invariant(levelAxis.some((x) => x.includes("%")), `${label}: absolute rate mode did not render percent axis`);
   await page.locator('#decision-trend-toggle button[data-trend-mode="delta"]').click();
+  const delta = await page.evaluate(() => ({
+    axis: [...document.querySelectorAll("#trend-grid .axistext")].map((x) => x.textContent),
+    basis: document.getElementById("decision-trend-basis")?.textContent || "",
+  }));
+  invariant(delta.axis.some((x) => x.includes("bp")) && delta.basis.includes("첫 관측값을 0bp"), `${label}: delta trend basis/axis missing`);
+  await page.locator('#decision-trend-toggle button[data-trend-mode="level"]').click();
 }
 
 async function assertVisualRuntimeContracts(page, label) {
