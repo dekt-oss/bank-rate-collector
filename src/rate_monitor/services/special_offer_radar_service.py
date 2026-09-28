@@ -313,13 +313,19 @@ def _resolved_evidence_metadata(
         for payload in availability_payloads
         if payload.get("status") in _AVAILABILITY_STATUSES
     }
-    if len(statuses) == 1:
-        availability_status = next(iter(statuses))
-    elif len(statuses) > 1:
+    decisive_statuses = statuses - {"unknown"}
+    if len(decisive_statuses) == 1:
+        availability_status = next(iter(decisive_statuses))
+    elif len(decisive_statuses) > 1:
         availability_status = "unknown"
     else:
         availability_status = "unknown"
         effective_to = _unique_non_null(row.source_effective_to for row in rows)
+        if effective_to is None and terms.get("sale_end"):
+            try:
+                effective_to = date.fromisoformat(str(terms["sale_end"]))
+            except ValueError:
+                effective_to = None
         if effective_to is not None and effective_to < as_of:
             availability_status = "confirmed_ended"
 
@@ -452,26 +458,73 @@ def build_special_offer_radar(
                     ProductSpecialOfferEvidence.observed_at <= resolved_known_at,
                 )
             ).all()
+            campaigns: dict[tuple[str, date | None, date | None, date | None], date] = {}
             for evidence in historical_rows:
+                if evidence.source_effective_from is not None:
+                    campaign_key = (
+                        evidence.product_id,
+                        evidence.source_effective_from,
+                        evidence.source_effective_to,
+                        None,
+                    )
+                    resolution_as_of = min(
+                        evidence.source_effective_to or resolved_as_of,
+                        resolved_as_of,
+                    )
+                else:
+                    campaign_key = (
+                        evidence.product_id,
+                        None,
+                        None,
+                        evidence.snapshot_as_of,
+                    )
+                    resolution_as_of = evidence.snapshot_as_of
+                campaigns[campaign_key] = resolution_as_of
+
+            emitted_states: set[tuple[str, tuple[str, ...]]] = set()
+            for campaign_key, campaign_as_of in sorted(
+                campaigns.items(),
+                key=lambda item: (
+                    item[0][0],
+                    item[1],
+                    str(item[0][1] or ""),
+                    str(item[0][2] or ""),
+                    str(item[0][3] or ""),
+                ),
+            ):
+                product_id = campaign_key[0]
+                state = resolve_special_offer_state(
+                    session,
+                    product_id=product_id,
+                    as_of=campaign_as_of,
+                    known_at=resolved_known_at,
+                    source_id=SOURCE_ID,
+                )
+                if state.conflict or state.classification != CONFIRMED_SPECIAL:
+                    continue
+                resolved_key = (product_id, state.evidence_ids)
+                if resolved_key in emitted_states:
+                    continue
                 evidence_meta = _resolved_evidence_metadata(
                     session,
-                    (evidence.id,),
+                    state.evidence_ids,
                     as_of=resolved_as_of,
                 )
                 if evidence_meta["availability_status"] != "confirmed_ended":
                     continue
-                context_row = product_context.get(evidence.product_id)
+                context_row = product_context.get(product_id)
                 if context_row is None:
                     continue
+                emitted_states.add(resolved_key)
                 historical_offers.append(
                     {
                         **context_row,
-                        **rates[evidence.product_id],
+                        **rates[product_id],
                         **evidence_meta,
-                        "classification": CONFIRMED_SPECIAL,
-                        "evidence_kind": evidence.evidence_kind,
-                        "evidence_ref": evidence.evidence_ref,
-                        "evidence_ids": [evidence.id],
+                        "classification": state.classification,
+                        "evidence_kind": state.evidence_kind,
+                        "evidence_ref": state.evidence_ref,
+                        "evidence_ids": list(state.evidence_ids),
                     }
                 )
     finally:

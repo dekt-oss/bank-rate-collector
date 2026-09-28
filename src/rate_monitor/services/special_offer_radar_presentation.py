@@ -29,7 +29,7 @@ const availability=payload.availability_counts||{};
 const offers=Array.isArray(payload.offers)?payload.offers:[];
 const currentOffers=Array.isArray(payload.current_offers)?payload.current_offers:[];
 const pastOffers=Array.isArray(payload.past_offers)?payload.past_offers:[];
-const rate=v=>Number.isFinite(Number(v))?`${Number(v).toFixed(2)}%`:"—";
+const rate=v=>v==null||String(v).trim()===""?"—":Number.isFinite(Number(v))?`${Number(v).toFixed(2)}%`:"—";
 const metric=(label,value,note)=>`<div class="special-radar-metric"><span>${label}</span><b>${Number(value||0).toLocaleString("ko-KR")}</b><small>${note}</small></div>`;
 const terms=x=>x?.special_offer_terms||{};
 const period=x=>{const t=terms(x),a=t.sale_start,b=t.sale_end;if(a&&b)return `${esc(a)} ~ ${esc(b)}`;if(a)return `${esc(a)} ~`;if(b)return `~ ${esc(b)}`;return "—"};
