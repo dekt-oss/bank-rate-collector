@@ -120,7 +120,7 @@ def test_market_evidence_copy_separates_flows_rates_snapshot_and_events() -> Non
     assert "상위군 churn" not in html
 
 
-def test_trend_defaults_to_absolute_rate_and_recent_events_start_open_but_remain_closeable() -> None:
+def test_trend_defaults_to_absolute_rate_and_events_remain_closeable() -> None:
     html = inject_strategy_decision_evidence_refinement(_fixture())
 
     assert 'const trendState={mode:"level"}' in html
