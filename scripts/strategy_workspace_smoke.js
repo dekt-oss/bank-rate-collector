@@ -401,6 +401,7 @@ async function assertRateDecisionSimulator(page, label) {
       basis: document.getElementById("rds-result-basis")?.textContent || "",
       rateTitle: document.getElementById("rds-rate-title")?.textContent || "",
       reviewRateVisible: visible(document.getElementById("rds-review-rate")),
+      reviewRateSliderVisible: visible(document.getElementById("rds-review-rate-range")),
       termSlotOwnsSelector: Boolean(document.getElementById("rds-term-slot")?.contains(document.getElementById("term-segment"))),
       legacyBaseVisible: visible(document.getElementById("base-n")?.closest(".simrow")),
       legacyBonusVisible: visible(document.getElementById("bonus-n")?.closest(".simrow")),
@@ -409,7 +410,7 @@ async function assertRateDecisionSimulator(page, label) {
   invariant(initial.inputVisible && initial.outputVisible, `${label}: simulator input/output panels are not visibly separated ${JSON.stringify(initial)}`);
   invariant(initial.activeMode === "rate" && initial.enrollment === "all", `${label}: simulator defaults=${JSON.stringify(initial)}`);
   invariant(initial.rateTitle === "검토금리", `${label}: default rate result label=${initial.rateTitle}`);
-  invariant(initial.reviewRateVisible && initial.termSlotOwnsSelector, `${label}: unified simulator conditions missing=${JSON.stringify(initial)}`);
+  invariant(initial.reviewRateVisible && initial.reviewRateSliderVisible && initial.termSlotOwnsSelector, `${label}: unified simulator conditions missing=${JSON.stringify(initial)}`);
   invariant(!initial.legacyBaseVisible && !initial.legacyBonusVisible, `${label}: duplicate legacy rate controls still visible=${JSON.stringify(initial)}`);
   const enteredRate=(Number(await page.locator("#rds-review-rate").inputValue())+0.07).toFixed(2);
   await page.locator("#rds-review-rate").fill(enteredRate);
@@ -417,8 +418,10 @@ async function assertRateDecisionSimulator(page, label) {
     const review=Number(document.getElementById("rds-review-rate")?.value);
     const base=Number(document.getElementById("base-n")?.value);
     const bonus=Number(document.getElementById("bonus-n")?.value);
+    const slider=Number(document.getElementById("rds-review-rate-range")?.value);
     const summary=document.getElementById("sim-max")?.textContent||"";
     return Math.abs(review-Number(expected))<.00005
+      && Math.abs(slider-review)<.00005
       && Math.abs(base-review)<.00005
       && Math.abs(bonus)<.00005
       && summary.includes(Number(expected).toFixed(2));
