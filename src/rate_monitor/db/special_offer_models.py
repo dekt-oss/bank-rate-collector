@@ -141,7 +141,7 @@ class OfficialSpecialOfferCatalogEvidence(Base):
     evidence_key: Mapped[str] = mapped_column(String(80))
     evidence_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     canonical_product_id: Mapped[str | None] = mapped_column(
-        ForeignKey("products.id"), nullable=True
+        ForeignKey("products.id", ondelete="SET NULL"), nullable=True
     )
     binding_status: Mapped[str] = mapped_column(String(32), default="unbound")
     created_at: Mapped[datetime] = mapped_column(DateTime)
