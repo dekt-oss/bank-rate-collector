@@ -56,7 +56,9 @@ def upgrade() -> None:
             "binding_status IN ('unbound', 'candidate', 'bound')",
             name="ck_official_special_offer_catalog_binding_status",
         ),
-        sa.ForeignKeyConstraint(["canonical_product_id"], ["products.id"]),
+        sa.ForeignKeyConstraint(
+            ["canonical_product_id"], ["products.id"], ondelete="SET NULL"
+        ),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint(
             "evidence_key", name="uq_official_special_offer_catalog_evidence_key"
