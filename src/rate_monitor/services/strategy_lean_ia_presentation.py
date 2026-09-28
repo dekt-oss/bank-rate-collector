@@ -94,6 +94,7 @@ _SCRIPT = r'''
     if(!detail){
       detail=document.createElement("details");detail.id=id;detail.className="lean-secondary-disclosure";
       detail.innerHTML='<summary>'+label+'</summary><div class="lean-secondary-disclosure-body"></div>';
+      if(id==="lean-planning-detail")detail.open=true;
       const firstNode=nodes.find(node=>node&&node.parentElement===host);
       if(firstNode)host.insertBefore(detail,firstNode);else host.appendChild(detail);
     }
@@ -122,15 +123,17 @@ _SCRIPT = r'''
     const form=sim.querySelector(":scope>.simform")||sim.querySelector(".simform");
     const detail=ensureDisclosure(sim,"lean-planning-detail","금리·기간 입력 및 수신 시뮬레이션 상세",[engineSummary,scopeWarning,form]);
     const toggle=$("prediction-toggle"),panel=$("prediction-panel");
-    if(detail&&detail.dataset.userToggled!=="1"&&!detail.open){
-      if(panel&&!panel.hidden)panel.hidden=true;
+    if(detail&&detail.dataset.userToggled!=="1"){
+      if(!detail.open)detail.open=true;
+      if(panel&&panel.hidden)panel.hidden=false;
       if(toggle){
-        if(toggle.getAttribute("aria-expanded")!=="false")toggle.setAttribute("aria-expanded","false");
-        if(toggle.textContent!=="예측엔진 보기")toggle.textContent="예측엔진 보기";
+        if(toggle.getAttribute("aria-expanded")!=="true")toggle.setAttribute("aria-expanded","true");
+        if(toggle.textContent!=="예측엔진 닫기")toggle.textContent="예측엔진 닫기";
       }
     }
     if(toggle&&toggle.dataset.leanDisclosureBound!=="1"){
       toggle.addEventListener("click",()=>{
+        if(detail)detail.dataset.userToggled="1";
         if(detail&&!detail.open){
           const currentPanel=$("prediction-panel");
           if(currentPanel&&!currentPanel.hidden)currentPanel.hidden=true;
