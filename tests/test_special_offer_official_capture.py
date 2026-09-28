@@ -174,6 +174,7 @@ def test_conflicting_period_end_and_active_surface_fail_closed() -> None:
     )
     assert result["availability"]["status"] == "unknown"
     assert "conflicting official availability evidence" in result["availability"]["assertion_text"]
+    assert result["availability"]["source_locator"] == target["availability_source"]["url"]
 
 
 def test_explicit_active_surface_can_confirm_current_sale() -> None:
