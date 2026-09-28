@@ -92,28 +92,54 @@ jobs:
           capture = json.loads(Path("evidence/special-offer-r3c-capture.json").read_text())
           bindings = json.loads(Path("evidence/special-offer-r3c-bindings.json").read_text())
 
-          assert capture["coverage"]["configured_targets"] >= 4
-          assert (
-              capture["coverage"]["successful_captures"] + capture["coverage"]["failures"]
-              == capture["coverage"]["configured_targets"]
-          )
-          assert capture["coverage"]["successful_captures"] >= 3
-          assert capture["coverage"]["failures"] <= 1
-          assert capture["coverage"]["availability_failures"] == 0
-          successful_ids = {item["target_id"] for item in capture["captures"]}
-          assert {
+          coverage = capture["coverage"]
+          captures = capture["captures"]
+          failures = capture["failures"]
+          expected_required = {
               "welcome-likit-1130313563",
               "welcome-digiloca-1130313564",
               "daishin-corporate-free-588",
-          } <= successful_ids
-          if capture["failures"]:
-              assert capture["failures"] == [
-                  {
-                      "target_id": "ibksb-blue-dragon-502132836",
-                      "reason": capture["failures"][0]["reason"],
-                  }
-              ]
-              assert "CERTIFICATE_VERIFY_FAILED" in capture["failures"][0]["reason"]
+          }
+          successful_ids = {item["target_id"] for item in captures}
+
+          if coverage["configured_targets"] < 4:
+              raise AssertionError({"coverage": coverage, "reason": "configured target regression"})
+          if coverage["successful_captures"] != len(captures):
+              raise AssertionError({"coverage": coverage, "capture_count": len(captures)})
+          if coverage["failures"] != len(failures):
+              raise AssertionError({"coverage": coverage, "failure_count": len(failures)})
+          if len(captures) + len(failures) != coverage["configured_targets"]:
+              raise AssertionError({
+                  "coverage": coverage,
+                  "capture_count": len(captures),
+                  "failure_count": len(failures),
+              })
+          if coverage["availability_failures"] != len(capture["availability_failures"]):
+              raise AssertionError({
+                  "coverage": coverage,
+                  "availability_failures": capture["availability_failures"],
+              })
+          if capture["availability_failures"]:
+              raise AssertionError(capture["availability_failures"])
+          if not expected_required <= successful_ids:
+              raise AssertionError({
+                  "missing_required_targets": sorted(expected_required - successful_ids),
+                  "capture_failures": failures,
+              })
+
+          # IBK currently fails strict TLS chain verification on GitHub's runner.
+          # Keep verification ON. Treat that one source as degraded evidence, not as
+          # permission to infer or confirm anything from it.
+          unexpected_failures = [
+              item
+              for item in failures
+              if item.get("target_id") != "ibksb-blue-dragon-502132836"
+              or "CERTIFICATE_VERIFY_FAILED" not in str(item.get("reason") or "")
+          ]
+          if unexpected_failures:
+              raise AssertionError({"unexpected_capture_failures": unexpected_failures})
+          if len(failures) > 1:
+              raise AssertionError({"too_many_capture_failures": failures})
           assert capture["scope"]["production_state_mutated"] is False
           assert capture["scope"]["special_offer_registry_mutated"] is False
           assert capture["scope"]["availability_inferred_from_future_end_date"] is False
