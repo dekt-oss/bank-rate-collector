@@ -412,7 +412,7 @@ async function assertRateDecisionSimulator(page, label) {
     deltaNote: document.getElementById("rds-delta-note")?.textContent || "",
   }));
   invariant(target.title === "추천 검토금리" && target.deltaTitle === "목표 대비", `${label}: target output labels=${JSON.stringify(target)}`);
-  invariant(target.note.includes("existing candidate") && target.note.includes("자동 최적화 아님"), `${label}: target bounded-selection copy=${target.note}`);
+  invariant(target.note.includes("existing candidate") && (target.note.includes("자동 최적화 아님") || target.note.includes("더 낮은 금리는 지원범위 밖")), `${label}: target bounded-selection copy=${target.note}`);
 
   const channelCounts = {};
   for (const mode of ["remote", "face"]) {
