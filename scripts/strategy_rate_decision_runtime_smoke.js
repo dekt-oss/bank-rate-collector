@@ -45,7 +45,7 @@ async function assertPrimaryFlow(page, simulator, label) {
   invariant(text.includes("조건 입력") && text.includes("결과 출력"), `${label}: 입력/결과 구분이 없음`);
   invariant((await simulator.locator(".rds-input-panel").isVisible()), `${label}: 조건 입력 panel이 보이지 않음`);
   invariant((await simulator.locator(".rds-output-panel").isVisible()), `${label}: 결과 출력 panel이 보이지 않음`);
-  invariant((await simulator.locator('[data-rds-enrollment="all"].active').count()) === 1, `${label}: 가입방식 기본값이 전체가 아님`);
+  invariant((await simulator.locator('[data-rds-enrollment="all"].active').count()) === 1, `${label}: 가입방식 기본값이 전체가 아님`);\n  invariant(await simulator.locator(".rds-rate-mode").isVisible(), `${label}: 금리 mode에서 검토금리 입력이 숨겨짐`);\n  invariant(await simulator.locator(".rds-target-mode").isHidden(), `${label}: 금리 mode에서 희망금액 입력이 함께 노출됨`);
   invariant(!text.includes("추천금리"), `${label}: 금지 표현 추천금리 노출`);
   invariant(!text.includes("최적금리"), `${label}: 금지 표현 최적금리 노출`);
   invariant(!text.includes("필요금리"), `${label}: 금지 표현 필요금리 노출`);
@@ -104,7 +104,7 @@ async function assertPrimaryFlow(page, simulator, label) {
 
   const targetTab = page.locator('[data-rds-mode="target"]');
   await targetTab.click();
-  invariant(await page.locator(".rds-target-mode").isVisible(), `${label}: 목표금액 입력이 보이지 않음`);
+  invariant(await page.locator(".rds-target-mode").isVisible(), `${label}: 목표금액 입력이 보이지 않음`);\n  invariant(await page.locator(".rds-rate-mode").isHidden(), `${label}: 희망금액 mode에서 검토금리 입력이 함께 노출됨`);
   await page.waitForFunction(
     () => {
       const rank = document.getElementById("rds-rank")?.textContent || "";
