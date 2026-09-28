@@ -1,4 +1,5 @@
 name: Special-offer R3-D catalog isolation
+# Revalidate the integrated latest-main head before merge.
 
 on:
   push:

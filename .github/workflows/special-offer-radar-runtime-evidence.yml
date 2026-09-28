@@ -1,4 +1,5 @@
 name: Special-offer Radar runtime evidence
+# Revalidate the integrated latest-main head before merge.
 
 on:
   push:
