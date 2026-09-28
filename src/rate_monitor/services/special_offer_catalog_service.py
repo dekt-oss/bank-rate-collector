@@ -106,15 +106,15 @@ def _validate(item: OfficialSpecialOfferCatalogInput) -> dict[str, Any]:
         raise OfficialSpecialOfferCatalogError(
             "catalog evidence requires explicit special-offer source phrases"
         )
-    if availability == "confirmed_active":
+    if availability in {"confirmed_active", "confirmed_ended"}:
         availability_evidence = dict(evidence.get("availability") or {})
-        if availability_evidence.get("status") != "confirmed_active":
+        if availability_evidence.get("status") != availability:
             raise OfficialSpecialOfferCatalogError(
-                "confirmed_active requires explicit availability evidence"
+                f"{availability} requires matching explicit availability evidence"
             )
         if not str(availability_evidence.get("assertion_text") or "").strip():
             raise OfficialSpecialOfferCatalogError(
-                "confirmed_active requires an availability assertion"
+                f"{availability} requires an availability assertion"
             )
     return evidence
 
