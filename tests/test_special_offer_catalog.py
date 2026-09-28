@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+import sqlite3
 from datetime import UTC, date, datetime
 from pathlib import Path
-import sqlite3
 
 import pytest
 from sqlalchemy import func, select
