@@ -19,6 +19,7 @@ from rate_monitor.services.special_offer_catalog_service import (
 )
 from rate_monitor.services.special_offer_radar_service import (
     _latest_context,
+    _official_catalog_offers,
     build_special_offer_radar,
 )
 
@@ -133,6 +134,7 @@ def test_catalog_append_is_idempotent_without_creating_canonical_products(
     assert radar["past_offers"][0]["evidence_source"] == "bank_direct_catalog"
     assert radar["official_catalog_counts"]["confirmed_ended"] == 1
     assert radar["policy"]["official_catalog_changes_rate_population"] is False
+    assert radar["policy"]["catalog_active_requires_current_snapshot"] is True
 
 
 def test_catalog_current_offer_sets_confirmed_radar_status(tmp_path: Path) -> None:
@@ -150,6 +152,28 @@ def test_catalog_current_offer_sets_confirmed_radar_status(tmp_path: Path) -> No
     assert radar["past_offers"] == []
     assert radar["offers"] == []
     assert radar["current_offers"][0]["evidence_source"] == "bank_direct_catalog"
+
+
+def test_stale_active_catalog_evidence_is_not_current(tmp_path: Path) -> None:
+    db_path, factory = _db(tmp_path)
+    with session_scope(factory) as session:
+        append_official_catalog_evidence(
+            session,
+            _item(key="STALE-ACTIVE", availability="confirmed_active"),
+        )
+
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    current, past, unknown = _official_catalog_offers(
+        conn,
+        as_of=date(2026, 9, 28),
+        known_at=datetime(2026, 9, 28, 1, 0),
+    )
+    conn.close()
+
+    assert current == []
+    assert past == []
+    assert unknown == 1
 
 
 def test_unknown_availability_stays_out_of_current_and_history(tmp_path: Path) -> None:
