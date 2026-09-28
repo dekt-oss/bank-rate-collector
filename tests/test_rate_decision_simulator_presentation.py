@@ -39,7 +39,7 @@ def test_runtime_bundle_keeps_nearby_sector_and_fail_closed_state_contract() -> 
     assert "clearDecisionState" in rendered
     assert "현재 계산이 차단되어 주변 상품을 표시하지 않습니다." in rendered
     assert "현재 계산이 차단되어 pricing peer gap을 표시하지 않습니다." in rendered
-    assert "가장 낮은 existing candidate도 목표 이상" in rendered
+    assert "가장 낮은 existing candidate도 희망금액 이상" in rendered
     assert "더 낮은 금리는 지원범위 밖" in rendered
 
 
