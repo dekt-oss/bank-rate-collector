@@ -57,6 +57,7 @@ def test_prediction_readability_formula_and_three_sensitivity_contracts_are_expl
     assert "logit(p1) = logit(현재 재예치율) + γ × rate_steps" in html
     assert "총수신 = 신규자금 + 재예치액" in html
     assert "모형 근거 · 외부 연구 / 가정 경계" in html
+    assert 'detail.open=false;detail.dataset.decisionDefaultState="1"' in html
     assert 'className="decision-model-evidence"' in html
     assert 'data-sensitivity="${esc(s.key)}"' in html
     assert "decision-range-legacy" in html
