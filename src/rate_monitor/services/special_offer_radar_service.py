@@ -628,16 +628,18 @@ def build_special_offer_radar(
         "confirmed_ended": len(past_offers),
         "unknown": len(pending_offers) + catalog_unknown,
     }
-    has_visible_confirmed_offer = bool(current_offers or past_offers)
+    has_confirmed_special_evidence = bool(offers or current_offers or past_offers)
     status = (
         "confirmed_evidence_available"
-        if has_visible_confirmed_offer
+        if has_confirmed_special_evidence
         else "collecting_confirmed_evidence"
     )
     return {
         "status": status,
         "reason": (
-            None if has_visible_confirmed_offer else "no_confirmed_special_evidence"
+            None
+            if has_confirmed_special_evidence
+            else "no_confirmed_special_evidence"
         ),
         "source_id": SOURCE_ID,
         "as_of": resolved_as_of.isoformat(),
