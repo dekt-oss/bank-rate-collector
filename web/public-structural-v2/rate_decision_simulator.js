@@ -411,7 +411,7 @@
         &&lowest.total>target;
       $("rds-rate-note").textContent=lowestAlreadyAbove
         ?"추천: 가장 낮은 existing candidate도 희망금액 이상 · 더 낮은 금리는 지원범위 밖"
-        :`추천: 희망 ${amount(target)} 이상이 되는 첫 후보금리 · 자동 최적화 아님`;
+        :`추천: 희망 ${amount(target)} 이상이 되는 첫 existing candidate · 자동 최적화 아님`;
       renderFacts(context,selection.rate_pct,surface,target);
     }catch(error){
       clearDecisionState(
