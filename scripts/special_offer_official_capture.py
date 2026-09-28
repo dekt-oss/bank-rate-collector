@@ -299,6 +299,8 @@ def _availability_from_surface(
                 surface_assertion = f"{product} / {required}"
                 source_locator = str(response.get("final_url") or availability["url"])
                 if period_status != "unknown" and surface_status != period_status:
+                    # Conflicting official assertions stay unknown. Keep the
+                    # surface locator for audit provenance without choosing it.
                     status = "unknown"
                     assertion = (
                         "conflicting official availability evidence: "
