@@ -56,7 +56,7 @@ def test_runtime_bundle_exposes_input_output_and_target_rate_contract() -> None:
     assert "희망 총수신액" in rendered
     assert "추천 검토금리" in rendered
     assert "목표 대비" in rendered
-    assert "first existing candidate" in rendered
+    assert "첫 existing candidate" in rendered
     assert "보간/외삽/자동 최적화 아님" in rendered
     assert "strategy-rds-enrollment-change" in rendered
     assert "가입방식별 peer 계약이 없습니다" in rendered
