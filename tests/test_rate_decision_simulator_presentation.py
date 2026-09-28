@@ -60,7 +60,7 @@ def test_runtime_bundle_exposes_input_output_and_target_rate_contract() -> None:
     assert "syncReviewRange" in rendered
     assert "installUnifiedInputs" in rendered
     assert "syncLegacyProposal" in rendered
-    assert 'data.rdsLegacyRate="1"' in rendered
+    assert 'row.dataset.rdsLegacyRate="1"' in rendered
     assert '[data-rds-legacy-rate="1"]{display:none!important}' in rendered
     assert "아래 시뮬레이터 입력과 동기화" in rendered
     assert ".rds-controls [hidden]{display:none!important}" in rendered
