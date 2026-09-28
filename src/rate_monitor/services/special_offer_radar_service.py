@@ -172,13 +172,10 @@ def _official_catalog_offers(
         "source_effective_from, source_effective_to, observed_at, source_locator, "
         "content_hash, evidence_json, binding_status "
         "FROM official_special_offer_catalog_evidence "
-        "WHERE observed_at<=? AND classification=? "
+        "WHERE observed_at<=? "
         "ORDER BY source_namespace, institution_normalized, official_product_key, "
         "observed_at DESC, id DESC",
-        (
-            known_at.isoformat(sep=" ", timespec="microseconds"),
-            CONFIRMED_SPECIAL,
-        ),
+        (known_at.isoformat(sep=" ", timespec="microseconds"),),
     ).fetchall()
     latest: dict[tuple[str, str, str], sqlite3.Row] = {}
     for row in rows:
@@ -194,6 +191,10 @@ def _official_catalog_offers(
     past: list[dict[str, Any]] = []
     unknown = 0
     for row in latest.values():
+        # Append-only catalog는 identity별 최신 판정이 authoritative하다.
+        # 과거 special 뒤에 confirmed_normal이 오면 과거 special을 되살리지 않는다.
+        if str(row["classification"]) != CONFIRMED_SPECIAL:
+            continue
         raw_evidence = row["evidence_json"]
         evidence = (
             json.loads(raw_evidence)
