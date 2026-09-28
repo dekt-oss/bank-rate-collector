@@ -43,6 +43,26 @@ def test_runtime_bundle_keeps_nearby_sector_and_fail_closed_state_contract() -> 
     assert "더 낮은 금리는 지원범위 밖" in rendered
 
 
+def test_runtime_bundle_exposes_input_output_and_target_rate_contract() -> None:
+    rendered = inject_rate_decision_simulator(BASE_HTML)
+
+    assert "조건 입력" in rendered
+    assert "결과 출력" in rendered
+    assert "금리 → 결과 계산" in rendered
+    assert "희망금액 → 금리 찾기" in rendered
+    assert 'data-rds-enrollment="all"' in rendered
+    assert 'data-rds-enrollment="remote"' in rendered
+    assert 'data-rds-enrollment="face"' in rendered
+    assert "희망 총수신액" in rendered
+    assert "추천 검토금리" in rendered
+    assert "목표 대비" in rendered
+    assert "first existing candidate" in rendered
+    assert "보간/외삽/자동 최적화 아님" in rendered
+    assert "strategy-rds-enrollment-change" in rendered
+    assert "가입방식별 peer 계약이 없습니다" in rendered
+    assert "StrategyEnrollmentFilter.matches" in rendered
+
+
 def test_runtime_bundle_separates_size_peer_from_relative_pricing() -> None:
     rendered = inject_rate_decision_simulator(BASE_HTML)
 
