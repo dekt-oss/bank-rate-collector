@@ -100,6 +100,23 @@ def test_catalog_append_is_idempotent_without_creating_canonical_products(
     assert radar["policy"]["official_catalog_changes_rate_population"] is False
 
 
+def test_catalog_current_offer_sets_confirmed_radar_status(tmp_path: Path) -> None:
+    db_path, factory = _db(tmp_path)
+    with session_scope(factory) as session:
+        append_official_catalog_evidence(
+            session,
+            _item(key="ACTIVE", availability="confirmed_active"),
+        )
+
+    radar = build_special_offer_radar(db_path)
+    assert radar["status"] == "confirmed_evidence_available"
+    assert radar["reason"] is None
+    assert len(radar["current_offers"]) == 1
+    assert radar["past_offers"] == []
+    assert radar["offers"] == []
+    assert radar["current_offers"][0]["evidence_source"] == "bank_direct_catalog"
+
+
 def test_unknown_availability_stays_out_of_current_and_history(tmp_path: Path) -> None:
     db_path, factory = _db(tmp_path)
     with session_scope(factory) as session:
