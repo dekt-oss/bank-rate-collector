@@ -494,6 +494,7 @@ def test_history_deduplicates_repeated_confirmation_and_honors_later_correction(
 
     repeated = build_special_offer_radar(db_path, known_at=later)
     assert len(repeated["past_offers"]) == 1
+    assert len(repeated["past_offers"][0]["evidence_ids"]) == 1
 
     with session_scope(factory) as session:
         append_special_offer_evidence(
