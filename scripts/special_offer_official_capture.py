@@ -279,7 +279,12 @@ def _availability_from_surface(
     observed_at: datetime,
     terms: dict[str, Any],
 ) -> dict[str, Any]:
-    status, assertion = _availability_from_period(terms, observed_at=observed_at)
+    period_status, period_assertion = _availability_from_period(
+        terms,
+        observed_at=observed_at,
+    )
+    status = period_status
+    assertion = period_assertion
     source_locator = None
     availability = target.get("availability_source")
     if availability and response is not None:
@@ -290,9 +295,18 @@ def _availability_from_surface(
         if product_at >= 0:
             local = text[product_at : product_at + 500]
             if required and required in local:
-                status = str(availability["status"])
-                assertion = f"{product} / {required}"
+                surface_status = str(availability["status"])
+                surface_assertion = f"{product} / {required}"
                 source_locator = str(response.get("final_url") or availability["url"])
+                if period_status != "unknown" and surface_status != period_status:
+                    status = "unknown"
+                    assertion = (
+                        "conflicting official availability evidence: "
+                        f"period={period_status}; surface={surface_status}"
+                    )
+                else:
+                    status = surface_status
+                    assertion = surface_assertion
     return {
         "status": status,
         "assertion_text": assertion,
