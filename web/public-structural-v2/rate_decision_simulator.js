@@ -17,6 +17,7 @@
   let marketEnrollmentMode="all";
   let sizePeerMode="remote";
   let renderToken=0;
+  let reviewRateTouched=false;
 
   const finite=value=>{
     if(value===null||value===undefined||String(value).trim()==="")return null;
@@ -157,9 +158,39 @@
   }
   const hasScenarioInputs=inputs=>Object.values(inputs).every(value=>value!==null);
 
-  function canonicalProposal(){
-    const base=finite($("base-n")?.value),bonus=finite($("bonus-n")?.value);
-    return base===null||bonus===null?null:Number((base+bonus).toFixed(4));
+  function syncLegacyProposal(rate){
+    const normalized=finite(rate);
+    if(normalized===null)return;
+    const base=$("base-n"),bonus=$("bonus-n"),baseRange=$("base-r"),bonusRange=$("bonus-r");
+    const baseValue=normalized.toFixed(2),bonusValue="0.00";
+    const changed=Boolean((base&&base.value!==baseValue)||(bonus&&bonus.value!==bonusValue));
+    if(base)base.value=baseValue;
+    if(bonus)bonus.value=bonusValue;
+    if(baseRange){
+      const min=finite(baseRange.min)??normalized,max=finite(baseRange.max)??normalized;
+      baseRange.value=String(Math.max(min,Math.min(max,normalized)));
+    }
+    if(bonusRange)bonusRange.value=bonusValue;
+    if(changed&&base)base.dispatchEvent(new Event("input",{bubbles:true}));
+  }
+
+  function installUnifiedInputs(host){
+    const termSlot=host.querySelector("#rds-term-slot");
+    const termChoice=document.querySelector("#sim-form > .choice-box");
+    if(termSlot&&termChoice&&!termSlot.contains(termChoice)){
+      termChoice.dataset.rdsCondition="term";
+      termSlot.appendChild(termChoice);
+    }
+    document.querySelectorAll("#sim-form > .simrow").forEach(row=>{
+      row.hidden=true;
+      row.dataset.rdsLegacyRate="1";
+    });
+    const proposalCard=$("sim-max")?.closest(".simresult");
+    if(proposalCard){
+      const label=proposalCard.querySelector("span"),note=proposalCard.querySelector("small");
+      if(label)label.textContent="검토 최고금리";
+      if(note)note.textContent="아래 시뮬레이터 입력과 동기화";
+    }
   }
 
   function buildSurface(context,proposal,inputs){
@@ -289,7 +320,7 @@
   }
 
   function shell(){
-    return `<div class="rds-head"><div><h3>금리결정 시뮬레이터</h3><p>조건을 먼저 정하고, 같은 조건의 시장 비교군과 미보정 수신 시나리오를 결과로 확인합니다.</p></div><span class="rds-safety">내부 실적 미보정 · 구조 시나리오</span></div><section class="rds-input-panel"><div class="rds-step-head"><div><span>1</span><b>조건 입력</b></div><small>계산 방식 · 가입방식 · 금리/희망금액</small></div><div class="rds-input-grid"><div class="rds-field-group"><span class="rds-field-label">계산 방식</span><div class="rds-tabs"><button class="rds-tab active" data-rds-mode="rate" type="button">금리 → 결과 계산</button><button class="rds-tab" data-rds-mode="target" type="button">희망금액 → 금리 찾기</button></div></div><div class="rds-field-group"><span class="rds-field-label">가입 방식</span><div class="rds-market-enrollment" role="group" aria-label="시장 비교 가입방식"><button class="rds-choice active" data-rds-enrollment="all" type="button">전체</button><button class="rds-choice" data-rds-enrollment="remote" type="button">비대면</button><button class="rds-choice" data-rds-enrollment="face" type="button">대면</button></div><small>비대면/대면 선택 시 명시 채널·상품명 근거가 없는 행은 비교군에서 제외합니다.</small></div><div class="rds-field-group rds-value-group"><span class="rds-field-label">계산 값</span><div class="rds-controls"><label class="rds-rate-mode">검토금리 <input id="rds-review-rate" type="number" step="0.01" min="0" max="15"> %</label><label class="rds-target-mode" hidden>희망 총수신액 <input id="rds-target-total" type="number" step="1" min="0"> 억원</label></div></div></div></section><section class="rds-output-panel"><div class="rds-step-head"><div><span>2</span><b>결과 출력</b></div><small id="rds-result-basis">조건 확인 중</small></div><div class="rds-metrics"><div class="rds-primary-metric"><span id="rds-rate-title">검토금리</span><b id="rds-rate">—</b><small id="rds-rate-note">입력 확인 중</small></div><div><span>예상 총수신 · 구조 시나리오</span><b id="rds-total">—</b><small id="rds-range">입력 확인 중</small></div><div><span id="rds-delta-title">현재 대비</span><b id="rds-delta">—</b><small id="rds-delta-note">현재금리 기준</small></div><div><span>시장 위치</span><b id="rds-rank">—</b><small id="rds-threshold">—</small></div></div></section><div class="rds-analysis-head"><span>3</span><b>근거 비교</b><small>동일 가입방식 시장상품과 별도 peer 근거</small></div><div class="rds-grid"><section><h4>현재 이 금리 주변 경쟁상품</h4><div id="rds-nearby"></div></section><section><h4>공식 가격 경쟁기관 <small>Relative Pricing R1</small></h4><div id="rds-peers"></div></section></div><section class="rds-size-peer-section"><div class="rds-size-peer-head"><div><h4>유사 규모 기관 <small>Size Peer</small></h4><p>Size Peer는 가격 비교와 별도 기준입니다. 기존 계약대로 비대면 또는 부산 대면 eligibility를 선택합니다.</p></div><div class="rds-enrollment" role="group" aria-label="Size Peer 가입조건"><button class="rds-choice active" data-size-peer-mode="remote" type="button">비대면</button><button class="rds-choice" data-size-peer-mode="branch_busan" type="button">부산 대면</button></div></div><div id="rds-size-peers"></div></section><div class="rds-evidence"><div><b>과거 당사 사례</b><span>당시 시장 snapshot과 상품별 실적 연결 전에는 사례를 추정하지 않습니다.</span></div><div><b>목표금액 해석</b><span>추천 검토금리 = 목표 이상이 되는 첫 existing candidate · 보간/외삽/자동 최적화 아님</span></div></div><details class="rds-details"><summary>상세 분석 · 후보금리표 / Response Surface / Market Position Ladder</summary><div id="rds-legacy"></div></details>`;
+    return `<div class="rds-head"><div><h3>금리결정 시뮬레이터</h3><p>조건을 먼저 정하고, 같은 조건의 시장 비교군과 미보정 수신 시나리오를 결과로 확인합니다.</p></div><span class="rds-safety">내부 실적 미보정 · 구조 시나리오</span></div><section class="rds-input-panel"><div class="rds-step-head"><div><span>1</span><b>조건 입력</b></div><small>계산 방식 · 가입기간 · 가입방식 · 검토금리/희망금액</small></div><div class="rds-input-grid"><div class="rds-field-group"><span class="rds-field-label">계산 방식</span><div class="rds-tabs"><button class="rds-tab active" data-rds-mode="rate" type="button">금리 → 결과 계산</button><button class="rds-tab" data-rds-mode="target" type="button">희망금액 → 금리 찾기</button></div></div><div class="rds-field-group rds-term-group"><span class="rds-field-label">가입기간</span><div id="rds-term-slot" class="rds-term-slot"></div><small>선택 기간을 시장 비교와 수신 시나리오에 동일하게 적용합니다.</small></div><div class="rds-field-group"><span class="rds-field-label">가입 방식</span><div class="rds-market-enrollment" role="group" aria-label="시장 비교 가입방식"><button class="rds-choice active" data-rds-enrollment="all" type="button">전체</button><button class="rds-choice" data-rds-enrollment="remote" type="button">비대면</button><button class="rds-choice" data-rds-enrollment="face" type="button">대면</button></div><small>비대면/대면 선택 시 명시 채널·상품명 근거가 없는 행은 비교군에서 제외합니다.</small></div><div class="rds-field-group rds-value-group"><span class="rds-field-label">계산 값</span><div class="rds-controls"><label class="rds-rate-mode">검토금리 <input id="rds-review-rate" type="number" step="0.01" min="0" max="15"> %</label><label class="rds-target-mode" hidden>희망 총수신액 <input id="rds-target-total" type="number" step="1" min="0"> 억원</label></div><small>검토금리는 이 입력값을 단일 기준으로 사용하며 위쪽의 기존 기본/우대 금리 입력은 표시하지 않습니다.</small></div></div></section><section class="rds-output-panel"><div class="rds-step-head"><div><span>2</span><b>결과 출력</b></div><small id="rds-result-basis">조건 확인 중</small></div><div class="rds-metrics"><div class="rds-primary-metric"><span id="rds-rate-title">검토금리</span><b id="rds-rate">—</b><small id="rds-rate-note">입력 확인 중</small></div><div><span>예상 총수신 · 구조 시나리오</span><b id="rds-total">—</b><small id="rds-range">입력 확인 중</small></div><div><span id="rds-delta-title">현재 대비</span><b id="rds-delta">—</b><small id="rds-delta-note">현재금리 기준</small></div><div><span>시장 위치</span><b id="rds-rank">—</b><small id="rds-threshold">—</small></div></div></section><div class="rds-analysis-head"><span>3</span><b>근거 비교</b><small>동일 가입방식 시장상품과 별도 peer 근거</small></div><div class="rds-grid"><section><h4>현재 이 금리 주변 경쟁상품</h4><div id="rds-nearby"></div></section><section><h4>공식 가격 경쟁기관 <small>Relative Pricing R1</small></h4><div id="rds-peers"></div></section></div><section class="rds-size-peer-section"><div class="rds-size-peer-head"><div><h4>유사 규모 기관 <small>Size Peer</small></h4><p>Size Peer는 가격 비교와 별도 기준입니다. 기존 계약대로 비대면 또는 부산 대면 eligibility를 선택합니다.</p></div><div class="rds-enrollment" role="group" aria-label="Size Peer 가입조건"><button class="rds-choice active" data-size-peer-mode="remote" type="button">비대면</button><button class="rds-choice" data-size-peer-mode="branch_busan" type="button">부산 대면</button></div></div><div id="rds-size-peers"></div></section><div class="rds-evidence"><div><b>과거 당사 사례</b><span>당시 시장 snapshot과 상품별 실적 연결 전에는 사례를 추정하지 않습니다.</span></div><div><b>목표금액 해석</b><span>추천 검토금리 = 목표 이상이 되는 첫 existing candidate · 보간/외삽/자동 최적화 아님</span></div></div><details class="rds-details"><summary>상세 분석 · 후보금리표 / Response Surface / Market Position Ladder</summary><div id="rds-legacy"></div></details>`;
   }
 
   function updateResultLabels(context){
@@ -369,9 +400,16 @@
     try{
       const rows=await loadTable();
       if(token!==renderToken)return;
-      const context=marketContext(rows),inputs=scenarioInputs();
-      const review=finite($("rds-review-rate")?.value)??canonicalProposal()??context.anchor.max_rate;
-      if(!$("rds-review-rate").value)$("rds-review-rate").value=review.toFixed(2);
+      const context=marketContext(rows),inputs=scenarioInputs(),reviewInput=$("rds-review-rate");
+      let review=finite(reviewInput?.value);
+      if(mode==="rate"&&!reviewRateTouched){
+        review=context.anchor.max_rate;
+        if(reviewInput)reviewInput.value=review.toFixed(2);
+      }else if(review===null){
+        review=context.anchor.max_rate;
+        if(reviewInput)reviewInput.value=review.toFixed(2);
+      }
+      if(mode==="rate")syncLegacyProposal(review);
 
       if(!hasScenarioInputs(inputs)){
         renderFacts(context,review,{forecast:{scenarios:[]},market_positions:[]});
@@ -401,6 +439,8 @@
         return;
       }
       $("rds-review-rate").value=selection.rate_pct.toFixed(2);
+      reviewRateTouched=true;
+      syncLegacyProposal(selection.rate_pct);
       const validCandidates=(surface.forecast?.scenarios||[])
         .map(row=>({rate:finite(row?.rate_pct),total:finite(row?.predicted_total)}))
         .filter(row=>row.rate!==null&&row.total!==null)
@@ -431,6 +471,7 @@
     host.innerHTML=shell();
     const inputs=panel.querySelector(".predict-inputs");
     (inputs||panel.firstElementChild)?.insertAdjacentElement("afterend",host);
+    installUnifiedInputs(host);
 
     host.querySelectorAll("[data-rds-mode]").forEach(button=>button.addEventListener("click",()=>{
       mode=button.dataset.rdsMode;
@@ -450,9 +491,14 @@
       host.querySelectorAll("[data-size-peer-mode]").forEach(item=>item.classList.toggle("active",item===button));
       renderSizePeers();
     }));
-    $("rds-review-rate")?.addEventListener("input",render);
+    $("rds-review-rate")?.addEventListener("input",()=>{
+      reviewRateTouched=true;
+      const rate=finite($("rds-review-rate")?.value);
+      if(rate!==null)syncLegacyProposal(rate);
+      render();
+    });
     $("rds-target-total")?.addEventListener("input",render);
-    ["baseline-new","maturity-amount","rollover-rate","base-n","bonus-n"].forEach(id=>
+    ["baseline-new","maturity-amount","rollover-rate"].forEach(id=>
       $(id)?.addEventListener("change",()=>setTimeout(render,0))
     );
     document.querySelectorAll("[data-market-mode],[data-sector],#term-segment button").forEach(el=>
