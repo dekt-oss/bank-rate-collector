@@ -182,7 +182,8 @@ def test_final_navigation_is_explicit_and_mobile_hidden() -> None:
     assert '"lean-planning-detail"' in rendered
     assert '.lean-secondary-disclosure:not([open])>.lean-secondary-disclosure-body{display:none!important}' in rendered
     assert 'compactPlanning(planning)' in rendered
-    assert 'if(id==="lean-planning-detail")detail.open=true' in rendered
+    assert 'if(id==="lean-planning-detail"||id==="lean-preference-detail")detail.open=true' in rendered
+    assert 'compactProductPanel(pref,"lean-preference-detail","우대조건 침투율·당사조건 상세")' in rendered
     assert 'if(detail&&detail.dataset.userToggled!=="1")' in rendered
     assert 'if(!detail.open)detail.open=true' in rendered
     assert 'if(panel&&panel.hidden)panel.hidden=false' in rendered
