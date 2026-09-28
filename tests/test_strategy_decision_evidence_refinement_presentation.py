@@ -120,10 +120,11 @@ def test_market_evidence_copy_separates_flows_rates_snapshot_and_events() -> Non
     assert "상위군 churn" not in html
 
 
-def test_trend_defaults_to_bp_delta_and_recent_events_start_open_but_remain_closeable() -> None:
+def test_trend_defaults_to_absolute_rate_and_events_remain_closeable() -> None:
     html = inject_strategy_decision_evidence_refinement(_fixture())
 
-    assert 'const trendState={mode:"delta"}' in html
+    assert 'const trendState={mode:"level"}' in html
+    assert '<button type="button" data-trend-mode="level" class="active">금리수준</button>' in html
     assert "기준일 대비 변화(bp)" in html
     assert "각 선의 첫 관측값을 0bp" in html
     assert "절대 금리 수준(%)" in html
