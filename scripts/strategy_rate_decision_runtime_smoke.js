@@ -21,11 +21,12 @@ async function ensureSimulatorVisible(page, label) {
   invariant(response && response.ok(), `${label}: strategy.html HTTP ${response ? response.status() : "no response"}`);
   const simulator = page.locator(".strategy-rate-decision-simulator");
   await simulator.waitFor({ state: "attached", timeout: 30_000 });
-  if (!(await simulator.isVisible())) {
-    const toggle = page.locator("#prediction-toggle");
-    invariant(await toggle.isVisible(), `${label}: 예측엔진 열기 버튼이 보이지 않음`);
-    if ((await toggle.getAttribute("aria-expanded")) !== "true") await toggle.click();
-  }
+  const detail = page.locator("#lean-planning-detail");
+  const toggle = page.locator("#prediction-toggle");
+  invariant(await detail.isVisible(), `${label}: 금리설계 상세 disclosure가 보이지 않음`);
+  invariant(await detail.evaluate((node) => node.open), `${label}: 금리설계 상세가 기본 펼침 상태가 아님`);
+  invariant(await toggle.isVisible(), `${label}: 예측엔진 토글이 보이지 않음`);
+  invariant((await toggle.getAttribute("aria-expanded")) === "true", `${label}: 예측엔진이 기본 expanded 상태가 아님`);
   await simulator.waitFor({ state: "visible", timeout: 10_000 });
   return simulator;
 }
@@ -39,8 +40,12 @@ async function populateScenarioInputs(page) {
 async function assertPrimaryFlow(page, simulator, label) {
   const text = await simulator.textContent();
   invariant(text.includes("금리결정 시뮬레이터"), `${label}: simulator 제목이 없음`);
-  invariant(text.includes("금리로 계산"), `${label}: 금리 mode가 없음`);
-  invariant(text.includes("목표금액으로 찾기"), `${label}: 목표금액 mode가 없음`);
+  invariant(text.includes("금리 → 결과 계산"), `${label}: 금리 계산 mode가 없음`);
+  invariant(text.includes("희망금액 → 금리 찾기"), `${label}: 희망금액 역산 mode가 없음`);
+  invariant(text.includes("조건 입력") && text.includes("결과 출력"), `${label}: 입력/결과 구분이 없음`);
+  invariant((await simulator.locator(".rds-input-panel").isVisible()), `${label}: 조건 입력 panel이 보이지 않음`);
+  invariant((await simulator.locator(".rds-output-panel").isVisible()), `${label}: 결과 출력 panel이 보이지 않음`);
+  invariant((await simulator.locator('[data-rds-enrollment="all"].active').count()) === 1, `${label}: 가입방식 기본값이 전체가 아님`);
   invariant(!text.includes("추천금리"), `${label}: 금지 표현 추천금리 노출`);
   invariant(!text.includes("최적금리"), `${label}: 금지 표현 최적금리 노출`);
   invariant(!text.includes("필요금리"), `${label}: 금지 표현 필요금리 노출`);
@@ -123,6 +128,8 @@ async function assertPrimaryFlow(page, simulator, label) {
     { timeout: 10_000 },
   );
   const targetText = await simulator.textContent();
+  invariant((await page.locator("#rds-rate-title").textContent()) === "추천 검토금리", `${label}: 목표금액 결과가 추천 검토금리로 표시되지 않음`);
+  invariant((await page.locator("#rds-delta-title").textContent()) === "목표 대비", `${label}: 목표금액 결과가 목표 대비로 표시되지 않음`);
   invariant(targetText.includes("existing candidate") || targetText.includes("후보"), `${label}: 목표금액 bounded candidate 의미가 사라짐`);
   invariant(targetText.includes("보간/외삽/자동 최적화 아님"), `${label}: no-interpolation disclosure가 없음`);
 }
