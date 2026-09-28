@@ -94,7 +94,7 @@ _SCRIPT = r'''
     if(!detail){
       detail=document.createElement("details");detail.id=id;detail.className="lean-secondary-disclosure";
       detail.innerHTML='<summary>'+label+'</summary><div class="lean-secondary-disclosure-body"></div>';
-      if(id==="lean-planning-detail")detail.open=true;
+      if(id==="lean-planning-detail"||id==="lean-preference-detail")detail.open=true;
       const firstNode=nodes.find(node=>node&&node.parentElement===host);
       if(firstNode)host.insertBefore(detail,firstNode);else host.appendChild(detail);
     }
