@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, date, datetime
 from pathlib import Path
+import sqlite3
 
 import pytest
 from sqlalchemy import func, select
@@ -16,7 +17,10 @@ from rate_monitor.services.special_offer_catalog_service import (
     append_official_catalog_evidence,
     import_capture_payload,
 )
-from rate_monitor.services.special_offer_radar_service import build_special_offer_radar
+from rate_monitor.services.special_offer_radar_service import (
+    _latest_context,
+    build_special_offer_radar,
+)
 
 NOW = datetime(2026, 9, 27, 1, 0, tzinfo=UTC).replace(tzinfo=None)
 HASH = "sha256:" + "a" * 64
@@ -72,6 +76,37 @@ def _item(
             },
         },
     )
+
+
+def test_newer_catalog_observation_does_not_shift_fsb_snapshot_context(
+    tmp_path: Path,
+) -> None:
+    db = tmp_path / "context.sqlite3"
+    conn = sqlite3.connect(db)
+    conn.executescript(
+        """
+        CREATE TABLE product_special_offer_evidence(
+            source_id TEXT,
+            snapshot_as_of TEXT,
+            observed_at TEXT
+        );
+        CREATE TABLE official_special_offer_catalog_evidence(
+            snapshot_as_of TEXT,
+            observed_at TEXT
+        );
+        INSERT INTO product_special_offer_evidence
+        VALUES ('fsb', '2026-09-27', '2026-09-27 03:00:00');
+        INSERT INTO official_special_offer_catalog_evidence
+        VALUES ('2026-09-28', '2026-09-28 01:00:00');
+        """
+    )
+    resolved = _latest_context(conn, as_of=None, known_at=None)
+    conn.close()
+
+    assert resolved is not None
+    resolved_as_of, resolved_known_at = resolved
+    assert resolved_as_of == date(2026, 9, 27)
+    assert resolved_known_at == datetime(2026, 9, 28, 1, 0)
 
 
 def test_catalog_append_is_idempotent_without_creating_canonical_products(
