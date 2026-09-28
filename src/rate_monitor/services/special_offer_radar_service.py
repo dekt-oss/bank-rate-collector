@@ -88,6 +88,7 @@ def _unavailable(reason: str) -> dict[str, Any]:
             "unknown_availability_in_current_tab": False,
             "special_classification_implies_availability": False,
             "official_catalog_changes_rate_population": False,
+            "catalog_active_requires_current_snapshot": True,
         },
     }
 
@@ -159,6 +160,7 @@ def _candidate_product_ids(
 def _official_catalog_offers(
     conn: sqlite3.Connection,
     *,
+    as_of: date,
     known_at: datetime,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], int]:
     if not _table_exists(conn, "official_special_offer_catalog_evidence"):
@@ -224,7 +226,13 @@ def _official_catalog_offers(
             "binding_status": str(row["binding_status"]),
         }
         if row["availability_status"] == "confirmed_active":
-            current.append(item)
+            # "현재 판매 중"은 현재 Radar 기준일에 재확인된 근거만 허용한다.
+            # 과거 active observation은 종료로 추정하지 않고 unknown으로 내린다.
+            snapshot_as_of = date.fromisoformat(str(row["snapshot_as_of"]))
+            if snapshot_as_of == as_of:
+                current.append(item)
+            else:
+                unknown += 1
         elif row["availability_status"] == "confirmed_ended":
             past.append(item)
         else:
@@ -505,6 +513,7 @@ def build_special_offer_radar(
         )
         catalog_current, catalog_past, catalog_unknown = _official_catalog_offers(
             conn,
+            as_of=resolved_as_of,
             known_at=resolved_known_at,
         )
         context_ids = sorted(set(product_ids) | set(historical_product_ids))
