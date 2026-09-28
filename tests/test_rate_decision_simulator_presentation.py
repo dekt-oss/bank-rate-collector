@@ -55,6 +55,9 @@ def test_runtime_bundle_exposes_input_output_and_target_rate_contract() -> None:
     assert 'data-rds-enrollment="face"' in rendered
     assert "희망 총수신액" in rendered
     assert 'id="rds-term-slot"' in rendered
+    assert 'id="rds-review-rate-range"' in rendered
+    assert 'aria-label="검토금리 조정"' in rendered
+    assert "syncReviewRange" in rendered
     assert "installUnifiedInputs" in rendered
     assert "syncLegacyProposal" in rendered
     assert 'data.rdsLegacyRate="1"' in rendered
