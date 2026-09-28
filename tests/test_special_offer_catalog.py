@@ -11,6 +11,7 @@ from rate_monitor.db.models import Base, Product, ProductVariant, RateObservatio
 from rate_monitor.db.session import create_db_engine, make_session_factory, session_scope
 from rate_monitor.db.special_offer_models import OfficialSpecialOfferCatalogEvidence
 from rate_monitor.services.special_offer_catalog_service import (
+    CONFIRMED_NORMAL,
     CONFIRMED_SPECIAL,
     OfficialSpecialOfferCatalogError,
     OfficialSpecialOfferCatalogInput,
@@ -174,6 +175,66 @@ def test_stale_active_catalog_evidence_is_not_current(tmp_path: Path) -> None:
     assert current == []
     assert past == []
     assert unknown == 1
+
+
+def test_latest_confirmed_normal_suppresses_older_special_catalog_state(
+    tmp_path: Path,
+) -> None:
+    db_path, factory = _db(tmp_path)
+    special = _item(key="RECLASSIFIED", availability="confirmed_active")
+    with session_scope(factory) as session:
+        append_official_catalog_evidence(session, special)
+        normal_evidence = dict(special.evidence or {})
+        normal_evidence["availability"] = {
+            "status": "unknown",
+            "assertion_text": None,
+            "observed_at": datetime(2026, 9, 28, 1, 0).isoformat(),
+            "source_locator": special.source_locator,
+        }
+        append_official_catalog_evidence(
+            session,
+            OfficialSpecialOfferCatalogInput(
+                **{
+                    **special.__dict__,
+                    "classification": CONFIRMED_NORMAL,
+                    "availability_status": "unknown",
+                    "snapshot_as_of": date(2026, 9, 28),
+                    "observed_at": datetime(2026, 9, 28, 1, 0),
+                    "content_hash": "sha256:" + "b" * 64,
+                    "evidence": normal_evidence,
+                }
+            ),
+        )
+
+    radar = build_special_offer_radar(
+        db_path,
+        as_of=date(2026, 9, 28),
+        known_at=datetime(2026, 9, 28, 2, 0),
+    )
+    assert radar["current_offers"] == []
+    assert radar["past_offers"] == []
+    assert radar["official_catalog_counts"] == {
+        "confirmed_active": 0,
+        "confirmed_ended": 0,
+        "unknown": 0,
+    }
+
+
+def test_bound_catalog_evidence_requires_canonical_product_id(tmp_path: Path) -> None:
+    _, factory = _db(tmp_path)
+    item = _item()
+    broken = OfficialSpecialOfferCatalogInput(
+        **{
+            **item.__dict__,
+            "binding_status": "bound",
+            "canonical_product_id": None,
+        }
+    )
+    with (
+        session_scope(factory) as session,
+        pytest.raises(OfficialSpecialOfferCatalogError, match="canonical_product_id"),
+    ):
+        append_official_catalog_evidence(session, broken)
 
 
 def test_unknown_availability_stays_out_of_current_and_history(tmp_path: Path) -> None:
