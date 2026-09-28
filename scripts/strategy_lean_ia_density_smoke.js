@@ -86,14 +86,15 @@ async function measure(browser, label, viewport) {
   const baselineMetrics = await evaluate(baseline.page);
   const candidateMetrics = await evaluate(candidate.page);
   const compactCandidate = await candidate.page.evaluate(() => {
-    const detail = document.getElementById("lean-planning-detail");
-    const wasOpen = Boolean(detail?.open);
-    if (detail) detail.open = false;
+    const ids = ["lean-planning-detail", "lean-preference-detail"];
+    const details = ids.map((id) => document.getElementById(id)).filter(Boolean);
+    const openStates = Object.fromEntries(details.map((detail) => [detail.id, Boolean(detail.open)]));
+    details.forEach((detail) => { detail.open = false; });
     const scrollHeight = Math.max(document.documentElement.scrollHeight, document.body.scrollHeight);
     const scrollWidth = document.documentElement.scrollWidth;
     const clientWidth = document.documentElement.clientWidth;
-    if (detail) detail.open = wasOpen;
-    return { scrollHeight, scrollWidth, clientWidth, planningDetailWasOpen: wasOpen };
+    details.forEach((detail) => { detail.open = openStates[detail.id]; });
+    return { scrollHeight, scrollWidth, clientWidth, openStates };
   });
   const reductionPct = ((baselineMetrics.scrollHeight - candidateMetrics.scrollHeight) / baselineMetrics.scrollHeight) * 100;
   const compactReductionPct = ((baselineMetrics.scrollHeight - compactCandidate.scrollHeight) / baselineMetrics.scrollHeight) * 100;
@@ -107,8 +108,9 @@ async function measure(browser, label, viewport) {
     label + ": compact candidate horizontal overflow",
   );
   invariant(
-    compactCandidate.planningDetailWasOpen,
-    label + ": planning detail must be open by default before density-only collapse",
+    compactCandidate.openStates["lean-planning-detail"] === true
+      && compactCandidate.openStates["lean-preference-detail"] === true,
+    label + ": planning/preference details must be open by default before density-only collapse",
   );
   await baseline.page.screenshot({
     path: path.join(workDir, "strategy-density-baseline-" + label + ".png"),
