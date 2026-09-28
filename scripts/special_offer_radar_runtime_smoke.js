@@ -76,24 +76,38 @@ async function inspectRadar(page, label) {
   invariant((await panel.locator("form").count()) === 0, `${label}: mutation form exposed`);
   invariant((await panel.locator('[type="submit"]').count()) === 0, `${label}: submit action exposed`);
 
+  await page.waitForFunction(
+    () => document.documentElement.dataset.strategyLeanIa === "v3"
+      && Boolean(document.getElementById("lean-special-detail")),
+    null,
+    { timeout: 15_000 },
+  );
   const disclosure = page.locator("#lean-special-detail");
-  if ((await disclosure.count()) === 1) {
-    invariant(
-      !(await disclosure.evaluate((node) => node.open)),
-      `${label}: Lean IA special-offer detail should be collapsed by default`,
-    );
-    await disclosure.evaluate((node) => {
-      node.open = true;
-    });
-    await page.waitForFunction(
-      () => {
-        const metrics = document.querySelector("#special-offer-radar .special-radar-metrics");
-        return Boolean(metrics && metrics.getBoundingClientRect().width > 0);
-      },
-      null,
-      { timeout: 10_000 },
-    );
-  }
+  invariant((await disclosure.count()) === 1, `${label}: Lean IA special-offer detail missing`);
+  invariant(
+    !(await disclosure.evaluate((node) => node.open)),
+    `${label}: Lean IA special-offer detail should be collapsed by default`,
+  );
+  await disclosure.evaluate((node) => {
+    node.open = true;
+  });
+  await page.waitForFunction(
+    () => {
+      const metrics = document.querySelector("#special-offer-radar .special-radar-metrics");
+      const cards = [...document.querySelectorAll("#special-offer-radar .special-radar-metric")];
+      return Boolean(
+        metrics
+        && metrics.getBoundingClientRect().width > 0
+        && cards.length === 4
+        && cards.every((card) => {
+          const box = card.getBoundingClientRect();
+          return box.width > 0 && box.height > 0;
+        })
+      );
+    },
+    null,
+    { timeout: 10_000 },
+  );
 
   const payload = await page.evaluate(() => {
     const raw = document.getElementById("rate-monitor-data")?.textContent || "{}";
