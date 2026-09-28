@@ -77,6 +77,15 @@ def _validate(item: OfficialSpecialOfferCatalogInput) -> dict[str, Any]:
         raise OfficialSpecialOfferCatalogError(
             f"unsupported availability_status: {availability}"
         )
+    binding_status = _required(item.binding_status, "binding_status")
+    if binding_status not in {"unbound", "candidate", "bound"}:
+        raise OfficialSpecialOfferCatalogError(
+            f"unsupported binding_status: {binding_status}"
+        )
+    if binding_status == "bound" and not str(item.canonical_product_id or "").strip():
+        raise OfficialSpecialOfferCatalogError(
+            "bound catalog evidence requires canonical_product_id"
+        )
     if item.source_effective_to is not None and item.source_effective_from is None:
         raise OfficialSpecialOfferCatalogError(
             "source_effective_to requires source_effective_from"
