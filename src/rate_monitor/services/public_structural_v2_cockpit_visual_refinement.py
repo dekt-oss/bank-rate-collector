@@ -29,6 +29,7 @@ SCRIPT_MARKER = 'id="public-structural-v2-cockpit-visual-refinement-script"'
 _CSS = r"""
 <style id="public-structural-v2-cockpit-visual-refinement-style">
 .psv2-rung[data-merged-rate-markers] label:after{content:" · 동일금리"!important;color:#8a6f36}
+.psv2-rung label,.psv2-rung strong{transform:translateY(var(--ladder-text-shift,0px))}
 .psv2>div,.psv2-chart-wrap,.chartwrap{min-width:0;max-width:100%}
 @media(max-width:640px){
   .psv2-chart-wrap,.chartwrap{overflow-x:auto!important;overflow-y:hidden!important;overscroll-behavior-inline:contain;scrollbar-width:thin;-webkit-overflow-scrolling:touch}
@@ -107,6 +108,25 @@ _SCRIPT = r"""
     }
   }
 
+  function deconflictLadderText(){
+    const ladder=document.querySelector(`#${HOST_ID} .psv2-ladder`);
+    if(!ladder)return;
+    const rows=[...ladder.querySelectorAll(":scope > .psv2-rung")];
+    for(const rung of rows)rung.style.setProperty("--ladder-text-shift","0px");
+    const measured=rows.map(rung=>{
+      const label=rung.querySelector("label"),rate=rung.querySelector("strong");
+      if(!label||!rate)return null;
+      const left=label.getBoundingClientRect(),right=rate.getBoundingClientRect();
+      return {rung,top:Math.min(left.top,right.top),bottom:Math.max(left.bottom,right.bottom)};
+    }).filter(Boolean).sort((a,b)=>a.top-b.top);
+    let previousBottom=null;
+    for(const row of measured){
+      const shift=previousBottom===null?0:Math.max(0,previousBottom+2-row.top);
+      row.rung.style.setProperty("--ladder-text-shift",`${shift.toFixed(1)}px`);
+      previousBottom=row.bottom+shift;
+    }
+  }
+
   function deconflictLabels(ticks){
     if(!ticks.length)return;
     for(const tick of ticks)tick.style.visibility="";
@@ -172,6 +192,7 @@ _SCRIPT = r"""
       queueMicrotask(()=>{
         queued=false;
         mergeSameRateRungs();
+        deconflictLadderText();
         deconflictChartAxisLabels();
         deconflictLegacyTrendAxisLabels();
         annotateMobileChartScroll();
