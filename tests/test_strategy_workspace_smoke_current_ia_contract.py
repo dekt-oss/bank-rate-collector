@@ -15,6 +15,6 @@ def test_strategy_workspace_smoke_tracks_current_lean_ia_contract() -> None:
     assert 'hidden(".ux-decision-menu")' in source
     assert 'hidden("#relative-pricing-r1")' in source
     assert 'hidden("#rate-funding-matrix")' in source
-    assert '["경쟁사 · 기관 포지션", "workspace-competitor-position"]' in source
+    assert '["경쟁 금리 · 수신규모", "workspace-competitor-position"]' in source
     assert "Lean IA order=" in source
     assert "market -> readiness -> TOP5 -> secondary insight -> planning" not in source
