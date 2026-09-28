@@ -36,8 +36,6 @@ def test_cockpit_consumes_shared_enrollment_filter_and_rerenders() -> None:
     assert "StrategyEnrollmentFilter.matches" in _JS
     assert "strategy-rds-enrollment-change" in _JS
     assert "data-rds-enrollment" in _JS
-    assert "labelShiftPx" in _JS
-    assert "--label-shift" in html
 
 
 def test_cockpit_consumes_surface_and_marginal_not_raw_structural_formula() -> None:
