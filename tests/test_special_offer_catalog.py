@@ -130,6 +130,44 @@ def test_confirmed_active_requires_explicit_availability_assertion(tmp_path: Pat
         append_official_catalog_evidence(session, broken)
 
 
+def test_confirmed_ended_requires_explicit_availability_assertion(
+    tmp_path: Path,
+) -> None:
+    _, factory = _db(tmp_path)
+    item = _item(availability="confirmed_ended")
+    evidence = dict(item.evidence or {})
+    evidence["availability"] = {
+        "status": "confirmed_ended",
+        "assertion_text": None,
+    }
+    broken = OfficialSpecialOfferCatalogInput(
+        **{**item.__dict__, "evidence": evidence}
+    )
+    with (
+        session_scope(factory) as session,
+        pytest.raises(OfficialSpecialOfferCatalogError, match="assertion"),
+    ):
+        append_official_catalog_evidence(session, broken)
+
+
+def test_availability_evidence_status_must_match_catalog_status(tmp_path: Path) -> None:
+    _, factory = _db(tmp_path)
+    item = _item(availability="confirmed_ended")
+    evidence = dict(item.evidence or {})
+    evidence["availability"] = {
+        "status": "confirmed_active",
+        "assertion_text": "현재 판매 중",
+    }
+    broken = OfficialSpecialOfferCatalogInput(
+        **{**item.__dict__, "evidence": evidence}
+    )
+    with (
+        session_scope(factory) as session,
+        pytest.raises(OfficialSpecialOfferCatalogError, match="matching"),
+    ):
+        append_official_catalog_evidence(session, broken)
+
+
 def test_import_capture_payload_only_appends_explicit_special_candidates(
     tmp_path: Path,
 ) -> None:
