@@ -279,6 +279,10 @@ jobs:
                   for component in item["score_components"]
               )
 
+          census = report["ambiguity_census"]
+          census_summary = census["summary"]
+          masking = census["queue_masking_indicator"]
+
           decision_attention = report["decision_attention"]
           decision_summary = decision_attention["summary"]
           assert decision_payload["decision_attention"] == decision_attention
