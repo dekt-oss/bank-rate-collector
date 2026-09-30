@@ -15,13 +15,13 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
+from special_offer_official_capture import capture
 from sqlalchemy import func, select
 
 from rate_monitor.db.models import Product, ProductVariant, RateObservation
 from rate_monitor.db.session import create_db_engine, make_session_factory, session_scope
 from rate_monitor.db.special_offer_models import OfficialSpecialOfferCatalogEvidence
 from rate_monitor.services.special_offer_catalog_service import import_capture_payload
-from special_offer_official_capture import capture
 
 
 def _counts(session) -> dict[str, int]:
