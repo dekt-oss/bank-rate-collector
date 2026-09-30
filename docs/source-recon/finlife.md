@@ -184,6 +184,7 @@ finlife 상품 API(`depositProductsSearch`, `savingProductsSearch`)의 `baseList
 - 요청 간격 1.0초 이상 (명세서 v3 §15.3 `request_interval_seconds: 1.0`).
 - `err_cd != "000"`이면 저장하지 않고 실행을 `failed`로 기록한다.
 - `dcls_month`(공시 제출월)와 수집시각(`observed_at`)을 분리 저장한다.
+- `dcls_strt_day`가 `fin_co_subm_day`의 날짜보다 미래이면 원천 날짜를 임의 보정하지 않는다. 금리는 보존하되 `source_effective_at=NULL`로 fail-closed하고 경고를 남긴다. (2026-09-30 실측: IBK모으기통장 원본이 시작일 2029-06-21, 제출일 2026-09-21을 동시에 반환.)
 - `intr_rate2`가 비어 있으면 `max_rate`를 `base_rate`와 같게 두지 않고 `NULL`로 둔다
   (명세서 v3 §8.4).
 - 원본 JSON은 `data/raw/` 아래 그대로 보존하고 레포에는 커밋하지 않는다.

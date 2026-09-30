@@ -113,6 +113,28 @@ def _parse_dcls_day(value: object) -> date | None:
         return None
 
 
+def _parse_submission_day(value: object) -> date | None:
+    """금융회사 제출시각 YYYYMMDDhhmm의 날짜 부분만 검증해 읽는다."""
+    if not isinstance(value, str) or len(value) < 8 or not value[:8].isdigit():
+        return None
+    return _parse_dcls_day(value[:8])
+
+
+def _source_effective_day(base: dict[str, Any]) -> date | None:
+    """제출일보다 미래인 공시 시작일은 추정 보정하지 않고 기준일에서 제외한다.
+
+    FINLIFE 원본은 2026-09-30 실측에서 한 상품의 dcls_strt_day를
+    2029-06-21로 주면서 fin_co_subm_day는 2026-09-21로 제공했다.
+    날짜를 2026-09-21로 고쳐 쓰는 것은 근거 없는 보정이므로 금리 자체는
+    보존하되 source_effective_at만 fail-closed(NULL)한다.
+    """
+    start = _parse_dcls_day(base.get("dcls_strt_day"))
+    submitted = _parse_submission_day(base.get("fin_co_subm_day"))
+    if start is not None and submitted is not None and start > submitted:
+        return None
+    return start
+
+
 def _join_channel(join_way: object) -> str:
     if not isinstance(join_way, str) or not join_way.strip():
         return JoinChannel.UNKNOWN
@@ -207,6 +229,16 @@ def parse(
         raise ParseError(f"API 오류 err_cd={err_cd} err_msg={result.get('err_msg')}")
 
     warnings = check_schema(result)
+    for base in result.get("baseList") or []:
+        start = _parse_dcls_day(base.get("dcls_strt_day"))
+        submitted = _parse_submission_day(base.get("fin_co_subm_day"))
+        if start is not None and submitted is not None and start > submitted:
+            warnings.append(
+                "공시 시작일이 제출일보다 미래여서 source_effective_at 제외: "
+                f"{base.get('fin_co_no')}/{base.get('fin_prdt_cd')} "
+                f"dcls_strt_day={base.get('dcls_strt_day')} "
+                f"fin_co_subm_day={base.get('fin_co_subm_day')}"
+            )
     product_type = SERVICE_PRODUCT_TYPE[service]
     rate_scope = GROUP_RATE_SCOPE.get(top_fin_grp_no, RateScope.UNKNOWN)
     sector = GROUP_SECTOR.get(top_fin_grp_no, Sector.BANK)
@@ -326,7 +358,7 @@ def _build_row(
         base_source_locator=f"$.result.baseList[{base_idx}]",
         option_source_locator=f"$.result.optionList[{opt_idx}]",
         source_record_hash=_record_hash(base, option),
-        source_effective_at=_parse_dcls_day(base.get("dcls_strt_day")),
+        source_effective_at=_source_effective_day(base),
         validation_status=status,
         validation_message=message,
         extra={

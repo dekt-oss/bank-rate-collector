@@ -206,6 +206,39 @@ def test_missing_dcls_strt_day_stays_null() -> None:
     assert row.source_effective_at is None
 
 
+def test_dcls_month_mismatch_alone_does_not_reject_effective_date() -> None:
+    """제출월 문자열이 아니라 실제 제출일과 비교한다."""
+    rows, warnings = parser.parse(load(EDGE), "depositProductsSearch", "030300")
+    row = next(r for r in rows if r.source_product_key == "depositProductsSearch:EDGE001")
+
+    assert row.source_effective_at == date(2026, 8, 3)
+    assert not any("공시 시작일이 제출일보다 미래" in warning for warning in warnings)
+
+
+def test_future_disclosure_start_after_submission_is_fail_closed() -> None:
+    """원천의 미래 시작일을 임의 교정하지 않고 기준일만 NULL 처리한다."""
+    payload = json.loads(json.dumps(load(EDGE)))
+    base = next(
+        item for item in payload["result"]["baseList"] if item["fin_prdt_cd"] == "EDGE001"
+    )
+    base["dcls_strt_day"] = "20290621"
+    base["fin_co_subm_day"] = "202609210937"
+
+    rows, warnings = parser.parse(payload, "depositProductsSearch", "030300")
+    row = next(r for r in rows if r.source_product_key == "depositProductsSearch:EDGE001")
+
+    assert row.source_effective_at is None
+    assert row.base_rate == Decimal("2.5")
+    assert row.validation_status == ValidationStatus.VALID
+    assert any(
+        "공시 시작일이 제출일보다 미래여서 source_effective_at 제외" in warning
+        and "EDGE001" in warning
+        and "20290621" in warning
+        and "202609210937" in warning
+        for warning in warnings
+    )
+
+
 def test_orphan_option_is_warned_not_dropped_silently() -> None:
     """대응 상품이 없는 옵션은 경고를 남긴다."""
     rows, warnings = parser.parse(load(EDGE), "depositProductsSearch", "030300")
