@@ -28,6 +28,21 @@ Morning child workflow인 `.github/workflows/collect-nh.yml`, `.github/workflows
 
 **예약 시각 ≠ 실제 수집 시각**이다. `전날 14:50`은 데이터를 14:50에 읽는다는 뜻이 아니다. Morning parent가 일찍 생성되면 gate에서 기다렸다가 **실제 수집 시작 하한 20:45 KST** 이후에만 NH 원천 요청을 시작한다.
 
+### Fast refresh queue 계약
+
+Fast refresh도 authoritative R2/DB/rate-data를 쓰므로 `rate-data-writer` 직렬화에서 예외가 아니다. 따라서 scheduled run이 생성됐더라도 다른 canonical writer가 실행 중이면 GitHub run은 `pending/queued/waiting` 상태로 기다릴 수 있다. 이 경우 **수집 장애로 오인하지 않고**, 현재 writer가 끝난 뒤 순차 실행되는 정상 queue인지 별도로 판정한다.
+
+2026-09-30 실제 Actions evidence:
+- 10:00 KST fast target → run `36677697686`이 15:20 KST에 생성되어 15:29 KST SUCCESS.
+- 15:00 KST fast target → run `36712569869`이 21:05 KST에 생성.
+- 같은 날 morning run `36708247146`은 20:45 KST부터 NH writer를 실행 중이어서, 21:05에 생성된 fast run은 job 0개인 `pending`으로 writer queue에서 대기했다.
+
+따라서 지연은 두 층으로 나눠 본다.
+1. **scheduler delay**: cron target → run 생성 시각 지연.
+2. **writer queue delay**: run 생성 → `rate-data-writer` 획득까지 지연.
+
+`web/api/health.js`는 fast run이 pending일 때 active morning/core/NH/funding writer evidence를 확인한다. writer가 실제 점유 중이면 `canonical_writer_serialization`, 점유 근거가 없으면 `github_actions_pending`으로 구분한다. 이 판정은 수집 순서나 writer lock을 바꾸지 않는 read-only observability다.
+
 ## 2. Morning cycle 실행 순서
 
 ```text
