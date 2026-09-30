@@ -14,6 +14,7 @@ on:
       - "src/rate_monitor/services/special_offer_catalog_service.py"
       - "src/rate_monitor/services/special_offer_radar_service.py"
       - "tests/test_special_offer_catalog.py"
+      - "tests/test_special_offer_r3e_workflow_contract.py"
   workflow_dispatch:
 
 permissions:
