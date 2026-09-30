@@ -34,6 +34,10 @@ async function waitForDashboard(page) {
   invariant(await page.locator("#error").isHidden(), "strategy runtime error banner is visible");
   try {
     await page.waitForSelector('html[data-strategy-lean-ia="v3"]', { timeout: 30_000 });
+    await page.waitForSelector(
+      'html[data-strategy-decision-evidence-refinement="v1"]',
+      { timeout: 30_000 },
+    );
   } catch (error) {
     const leanDiagnostic = await page.evaluate(() => {
       const ids = [
