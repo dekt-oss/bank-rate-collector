@@ -119,39 +119,88 @@ jobs:
 
       - name: Create isolated bank-direct capture fixture
         run: |
-          cat > work/catalog-capture.json <<'JSON'
-          {
-            "observed_at": "2026-09-27T01:00:00+00:00",
-            "captures": [
-              {
-                "target_id": "fixture-current",
-                "institution": "독립현재저축은행",
-                "product_name": "현재 공식 특판",
-                "official_product_key": "CURRENT-001",
-                "source_locator": "https://current.example/products/CURRENT-001",
-                "content_sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-                "identity_marker_present": true,
-                "explicit_phrases_present": true,
-                "classification_candidate": "confirmed_special_candidate",
-                "special_offer_terms": {"special_rate":"4.90","sale_start":"2026-09-20","sale_end":null,"quota_text":"100억원 한도","quota_amount_krw":10000000000,"quota_accounts":null,"eligibility_text":"개인","early_termination_text":"한도 소진 시 조기종료"},
-                "availability": {"status":"confirmed_active","assertion_text":"현재 판매 중","observed_at":"2026-09-27T01:00:00+00:00","source_locator":"https://current.example/products/CURRENT-001"}
-              },
-              {
-                "target_id": "fixture-past",
-                "institution": "독립과거저축은행",
-                "product_name": "과거 공식 특판",
-                "official_product_key": "PAST-001",
-                "source_locator": "https://past.example/notices/PAST-001",
-                "content_sha256": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-                "identity_marker_present": true,
-                "explicit_phrases_present": true,
-                "classification_candidate": "confirmed_special_candidate",
-                "special_offer_terms": {"special_rate":"5.10","sale_start":"2025-01-01","sale_end":"2025-03-31","quota_text":"1만좌 한도","quota_amount_krw":null,"quota_accounts":10000,"eligibility_text":"실명의 개인","early_termination_text":"한도 소진 시 조기마감"},
-                "availability": {"status":"confirmed_ended","assertion_text":"판매 종료 확인","observed_at":"2025-04-01T00:00:00+00:00","source_locator":"https://past.example/notices/PAST-001"}
-              }
-            ]
+          set -euo pipefail
+          uv run python - <<'PY'
+          import json
+          import sqlite3
+          from pathlib import Path
+
+          db = Path("work/rate_monitor.sqlite3")
+          conn = sqlite3.connect(db)
+          row = conn.execute(
+              "SELECT MAX(snapshot_as_of) FROM product_special_offer_evidence "
+              "WHERE source_id='fsb'"
+          ).fetchone()
+          conn.close()
+          assert row is not None and row[0] is not None
+          current_as_of = str(row[0])
+          observed_at = f"{current_as_of}T12:00:00+00:00"
+
+          payload = {
+              "observed_at": observed_at,
+              "captures": [
+                  {
+                      "target_id": "fixture-current",
+                      "institution": "독립현재저축은행",
+                      "product_name": "현재 공식 특판",
+                      "official_product_key": "CURRENT-001",
+                      "source_locator": "https://current.example/products/CURRENT-001",
+                      "content_sha256": "sha256:" + "a" * 64,
+                      "identity_marker_present": True,
+                      "explicit_phrases_present": True,
+                      "classification_candidate": "confirmed_special_candidate",
+                      "special_offer_terms": {
+                          "special_rate": "4.90",
+                          "sale_start": current_as_of,
+                          "sale_end": None,
+                          "quota_text": "100억원 한도",
+                          "quota_amount_krw": 10000000000,
+                          "quota_accounts": None,
+                          "eligibility_text": "개인",
+                          "early_termination_text": "한도 소진 시 조기종료",
+                      },
+                      "availability": {
+                          "status": "confirmed_active",
+                          "assertion_text": "현재 판매 중",
+                          "observed_at": observed_at,
+                          "source_locator": "https://current.example/products/CURRENT-001",
+                      },
+                  },
+                  {
+                      "target_id": "fixture-past",
+                      "institution": "독립과거저축은행",
+                      "product_name": "과거 공식 특판",
+                      "official_product_key": "PAST-001",
+                      "source_locator": "https://past.example/notices/PAST-001",
+                      "content_sha256": "sha256:" + "b" * 64,
+                      "identity_marker_present": True,
+                      "explicit_phrases_present": True,
+                      "classification_candidate": "confirmed_special_candidate",
+                      "special_offer_terms": {
+                          "special_rate": None,
+                          "sale_start": "2025-01-01",
+                          "sale_end": "2025-03-31",
+                          "quota_text": "1만좌 한도",
+                          "quota_amount_krw": None,
+                          "quota_accounts": 10000,
+                          "eligibility_text": "실명의 개인",
+                          "early_termination_text": "한도 소진 시 조기마감",
+                      },
+                      "availability": {
+                          "status": "confirmed_ended",
+                          "assertion_text": "판매 종료 확인",
+                          "observed_at": observed_at,
+                          "source_locator": "https://past.example/notices/PAST-001",
+                      },
+                  },
+              ],
           }
-          JSON
+          Path("work/catalog-capture.json").write_text(
+              json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          print(json.dumps({"fixture_as_of": current_as_of, "observed_at": observed_at}))
+          PY
 
       - name: Import catalog twice to prove idempotency
         run: |
