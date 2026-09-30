@@ -1,0 +1,326 @@
+name: Special-offer R3-E writer simulation
+
+on:
+  push:
+    branches:
+      - "feat/special-offer-r3e-*"
+    paths:
+      - ".github/workflows/special-offer-r3e-writer-simulation.yml"
+      - ".github/workflows/collect.yml"
+      - ".github/workflows/special-offer-catalog-refresh.yml"
+      - "scripts/special_offer_catalog_refresh.py"
+      - "scripts/special_offer_official_capture.py"
+      - "config/special_offer_official_targets.json"
+      - "src/rate_monitor/services/special_offer_catalog_service.py"
+      - "src/rate_monitor/services/special_offer_radar_service.py"
+      - "tests/test_special_offer_catalog.py"
+      - "tests/test_special_offer_r3e_workflow_contract.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: special-offer-r3e-writer-simulation-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  production-copy-writer-simulation:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Set up Python
+        run: uv python install 3.12
+      - name: Sync dependencies
+        run: uv sync --locked
+
+      - name: Targeted lint and tests
+        run: |
+          set -euo pipefail
+          uv run ruff check \
+            src/rate_monitor/services/special_offer_catalog_service.py \
+            scripts/special_offer_catalog_refresh.py \
+            scripts/special_offer_official_capture.py \
+            tests/test_special_offer_catalog.py
+          uv run pytest -q \
+            tests/test_special_offer_catalog.py \
+            tests/test_special_offer_official_capture.py \
+            tests/test_writer_workflow_concurrency.py
+
+      - name: Restore authoritative production DB into runner-local candidate
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+          R2_REGION: ${{ vars.R2_REGION }}
+        run: |
+          set -euo pipefail
+          mkdir -p work
+          uv run rate-monitor storage restore --dest work/rate_monitor.sqlite3
+          test -s work/rate_monitor.sqlite3
+
+      - name: Apply migrations only to runner-local candidate
+        env:
+          RATE_MONITOR_DB_URL: sqlite+pysqlite:///${{ github.workspace }}/work/rate_monitor.sqlite3
+        run: uv run alembic upgrade head
+
+      - name: Snapshot canonical and non-Radar outputs
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          import json
+          import sqlite3
+          from pathlib import Path
+          from rate_monitor.services.dashboard_service import build_summary
+          from rate_monitor.services.strategy_service import build_strategy_summary
+
+          db = Path("work/rate_monitor.sqlite3")
+          conn = sqlite3.connect(db)
+          counts = {
+              table: conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+              for table in ("products", "product_variants", "rate_observations")
+          }
+          conn.close()
+
+          def stable(value):
+              if isinstance(value, dict):
+                  return {
+                      key: stable(item)
+                      for key, item in value.items()
+                      if key != "generated_at"
+                  }
+              if isinstance(value, list):
+                  return [stable(item) for item in value]
+              return value
+
+          strategy = build_strategy_summary(db)
+          strategy.pop("special_offer_radar", None)
+          payload = {
+              "canonical_counts": counts,
+              "dashboard": stable(build_summary(db)),
+              "strategy_without_radar": stable(strategy),
+          }
+          Path("work/r3e-before.json").write_text(
+              json.dumps(payload, ensure_ascii=False, sort_keys=True),
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Create deterministic partial-source fixture
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          import json
+          import sqlite3
+          from pathlib import Path
+
+          conn = sqlite3.connect("work/rate_monitor.sqlite3")
+          row = conn.execute(
+              "SELECT MAX(snapshot_as_of) FROM product_special_offer_evidence "
+              "WHERE source_id='fsb'"
+          ).fetchone()
+          conn.close()
+          assert row is not None and row[0] is not None
+          as_of = str(row[0])
+          observed = f"{as_of}T12:00:00+00:00"
+          payload = {
+              "observed_at": observed,
+              "coverage": {
+                  "configured_targets": 3,
+                  "successful_captures": 2,
+                  "failures": 1,
+                  "availability_failures": 0,
+              },
+              "captures": [
+                  {
+                      "target_id": "r3e-current",
+                      "institution": "R3E현재저축은행",
+                      "product_name": "R3E 현재 특판",
+                      "official_product_key": "R3E-CURRENT",
+                      "source_locator": "https://current.example/products/R3E-CURRENT",
+                      "content_sha256": "sha256:" + "c" * 64,
+                      "identity_marker_present": True,
+                      "explicit_phrases_present": True,
+                      "classification_candidate": "confirmed_special_candidate",
+                      "special_offer_terms": {
+                          "special_rate": "4.80",
+                          "sale_start": as_of,
+                          "sale_end": None,
+                          "quota_text": "50억원 한도",
+                          "quota_amount_krw": 5000000000,
+                          "quota_accounts": None,
+                          "eligibility_text": "개인",
+                          "early_termination_text": "한도 소진 시 조기종료",
+                      },
+                      "availability": {
+                          "status": "confirmed_active",
+                          "assertion_text": "현재 판매 중",
+                          "observed_at": observed,
+                          "source_locator": "https://current.example/products/R3E-CURRENT",
+                      },
+                  },
+                  {
+                      "target_id": "r3e-ended",
+                      "institution": "R3E과거저축은행",
+                      "product_name": "R3E 종료 특판",
+                      "official_product_key": "R3E-ENDED",
+                      "source_locator": "https://past.example/notices/R3E-ENDED",
+                      "content_sha256": "sha256:" + "d" * 64,
+                      "identity_marker_present": True,
+                      "explicit_phrases_present": True,
+                      "classification_candidate": "confirmed_special_candidate",
+                      "special_offer_terms": {
+                          "special_rate": None,
+                          "sale_start": "2025-01-01",
+                          "sale_end": "2025-02-28",
+                          "quota_text": "1만좌 한도",
+                          "quota_amount_krw": None,
+                          "quota_accounts": 10000,
+                          "eligibility_text": "실명의 개인",
+                          "early_termination_text": "한도 소진 시 조기마감",
+                      },
+                      "availability": {
+                          "status": "confirmed_ended",
+                          "assertion_text": "판매 종료 확인",
+                          "observed_at": observed,
+                          "source_locator": "https://past.example/notices/R3E-ENDED",
+                      },
+                  },
+              ],
+              "failures": [
+                  {
+                      "target_id": "r3e-source-failure",
+                      "reason": "synthetic TLS/source failure",
+                  }
+              ],
+              "availability_failures": [],
+          }
+          Path("work/r3e-fixture.json").write_text(
+              json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          print(json.dumps({"fixture_as_of": as_of}))
+          PY
+
+      - name: Run refresh twice and prove same-day idempotency
+        run: |
+          set -euo pipefail
+          uv run python scripts/special_offer_catalog_refresh.py \
+            --db work/rate_monitor.sqlite3 \
+            --capture-input work/r3e-fixture.json \
+            --capture-out work/r3e-capture-1.json \
+            --report-out work/r3e-refresh-1.json
+          uv run python scripts/special_offer_catalog_refresh.py \
+            --db work/rate_monitor.sqlite3 \
+            --capture-input work/r3e-fixture.json \
+            --capture-out work/r3e-capture-2.json \
+            --report-out work/r3e-refresh-2.json
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+
+          first = json.loads(Path("work/r3e-refresh-1.json").read_text())
+          second = json.loads(Path("work/r3e-refresh-2.json").read_text())
+          assert first["status"] == "partial", first
+          assert first["coverage"] == {
+              "configured": 3,
+              "captured": 2,
+              "failed": 1,
+              "availability_failed": 0,
+          }
+          assert first["catalog"]["inserted"] == 2, first
+          assert first["catalog"]["confirmed_active"] == 1, first
+          assert first["catalog"]["confirmed_ended"] == 1, first
+          assert first["canonical_counts_unchanged"] is True
+          assert second["status"] == "partial", second
+          assert second["catalog"]["inserted"] == 0, second
+          assert second["catalog"]["existing"] == 2, second
+          assert second["canonical_counts_unchanged"] is True
+          PY
+
+      - name: Prove canonical and non-Radar invariants
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          import json
+          import sqlite3
+          from pathlib import Path
+          from rate_monitor.services.dashboard_service import build_summary
+          from rate_monitor.services.special_offer_radar_service import build_special_offer_radar
+          from rate_monitor.services.strategy_service import build_strategy_summary
+
+          def stable(value):
+              if isinstance(value, dict):
+                  return {
+                      key: stable(item)
+                      for key, item in value.items()
+                      if key != "generated_at"
+                  }
+              if isinstance(value, list):
+                  return [stable(item) for item in value]
+              return value
+
+          db = Path("work/rate_monitor.sqlite3")
+          before = json.loads(Path("work/r3e-before.json").read_text())
+          conn = sqlite3.connect(db)
+          counts = {
+              table: conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+              for table in ("products", "product_variants", "rate_observations")
+          }
+          catalog_rows = conn.execute(
+              "SELECT COUNT(*) FROM official_special_offer_catalog_evidence "
+              "WHERE official_product_key LIKE 'R3E-%'"
+          ).fetchone()[0]
+          conn.close()
+          assert counts == before["canonical_counts"]
+          assert catalog_rows == 2
+          assert stable(build_summary(db)) == before["dashboard"]
+          strategy = build_strategy_summary(db)
+          radar = strategy.pop("special_offer_radar")
+          assert stable(strategy) == before["strategy_without_radar"]
+          assert radar["official_catalog_counts"] == {
+              "confirmed_active": 1,
+              "confirmed_ended": 1,
+              "unknown": 0,
+          }
+          report = {
+              "canonical_counts": counts,
+              "catalog_rows": catalog_rows,
+              "dashboard_invariant": True,
+              "strategy_non_radar_invariant": True,
+              "catalog_counts": radar["official_catalog_counts"],
+              "production_write": False,
+          }
+          Path("work/r3e-invariant.json").write_text(
+              json.dumps(report, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          print(json.dumps(report, ensure_ascii=False))
+          PY
+
+      - name: Live official-source capture on runner-local candidate
+        run: |
+          set -euo pipefail
+          uv run python scripts/special_offer_catalog_refresh.py \
+            --db work/rate_monitor.sqlite3 \
+            --config config/special_offer_official_targets.json \
+            --raw-dir data/raw/special-offer-r3e-live \
+            --capture-out work/r3e-live-capture.json \
+            --report-out work/r3e-live-refresh.json
+
+      - name: Upload R3-E simulation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: special-offer-r3e-writer-simulation-${{ github.run_id }}
+          retention-days: 30
+          path: |
+            work/r3e-*.json
+            data/raw/special-offer-r3e-live/
+          if-no-files-found: warn

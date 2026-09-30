@@ -1,0 +1,18 @@
+name: Special-offer catalog refresh
+
+# R3-E production writer is implemented but not scheduled automatically yet.
+# Keep activation manual until the production-copy evidence gate is reviewed.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  refresh:
+    uses: ./.github/workflows/collect.yml
+    with:
+      manual_target: "특판만"
+      accept_volume_drop: false
+    secrets: inherit
