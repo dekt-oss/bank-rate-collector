@@ -167,12 +167,16 @@ async function runMobile(browser, payload) {
     invariant(Number(payload.anchor?.total_assets) > 0, "anchor total assets missing");
     invariant(/^\d{4}-\d{2}$/.test(payload.financial_as_of || ""), "financial_as_of invalid");
     invariant(/^\d{4}-\d{2}-\d{2}$/.test(payload.eligibility_as_of || ""), "eligibility_as_of invalid");
+    const supported = JSON.stringify(payload.supported_sectors);
+    const baseline = JSON.stringify(["savings_bank", "nh_local"]);
+    const withCu = JSON.stringify(["savings_bank", "nh_local", "cu"]);
     invariant(
-      JSON.stringify(payload.supported_sectors) === JSON.stringify(["savings_bank", "nh_local", "cu"]),
-      "CU-enabled supported sector coverage missing",
+      supported === baseline || supported === withCu,
+      "supported sector coverage changed outside optional-CU contract",
     );
+    const expectedUnsupported = supported === withCu ? ["kfcc"] : ["cu", "kfcc"];
     invariant(
-      JSON.stringify(payload.unsupported_sectors) === JSON.stringify(["kfcc"]),
+      JSON.stringify(payload.unsupported_sectors) === JSON.stringify(expectedUnsupported),
       "unsupported sector coverage changed",
     );
     const pairCoverage = payload.financial_pair_coverage || {};
