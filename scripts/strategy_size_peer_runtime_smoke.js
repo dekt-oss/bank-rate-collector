@@ -67,7 +67,8 @@ async function assertMode(page, payload, mode, label) {
   const text = await page.locator("#rds-size-peers").textContent();
   invariant(text.includes(payload.financial_as_of), `${label}: financial clock is not visible`);
   invariant(text.includes(payload.eligibility_as_of), `${label}: eligibility clock is not visible`);
-  invariant(text.includes("저축은행 · 농·축협"), `${label}: coverage note is not visible`);
+  invariant(text.includes(payload.coverage_note), `${label}: exact coverage note is not visible`);
+  invariant(text.includes("공통월 pair:"), `${label}: common-month pair coverage is not visible`);
   invariant(text.includes("가격 경쟁기관과 별도 기준"), `${label}: R1 separation note is not visible`);
   return actual;
 }
@@ -167,12 +168,31 @@ async function runMobile(browser, payload) {
     invariant(/^\d{4}-\d{2}$/.test(payload.financial_as_of || ""), "financial_as_of invalid");
     invariant(/^\d{4}-\d{2}-\d{2}$/.test(payload.eligibility_as_of || ""), "eligibility_as_of invalid");
     invariant(
-      JSON.stringify(payload.supported_sectors) === JSON.stringify(["savings_bank", "nh_local"]),
-      "supported sector coverage changed",
+      JSON.stringify(payload.supported_sectors) === JSON.stringify(["savings_bank", "nh_local", "cu"]),
+      "CU-enabled supported sector coverage missing",
     );
     invariant(
-      JSON.stringify(payload.unsupported_sectors) === JSON.stringify(["cu", "kfcc"]),
+      JSON.stringify(payload.unsupported_sectors) === JSON.stringify(["kfcc"]),
       "unsupported sector coverage changed",
+    );
+    const pairCoverage = payload.financial_pair_coverage || {};
+    for (const sector of payload.supported_sectors) {
+      const evidence = pairCoverage[sector];
+      invariant(evidence, `pair coverage missing for ${sector}`);
+      invariant(
+        evidence.financial_as_of === payload.financial_as_of,
+        `pair coverage month differs for ${sector}`,
+      );
+      invariant(
+        Number.isInteger(Number(evidence.pair_complete_institutions))
+          && Number(evidence.pair_complete_institutions) > 0,
+        `pair coverage count missing for ${sector}`,
+      );
+    }
+    invariant(payload.coverage_note.includes("공통월 pair:"), "common-month pair note missing");
+    invariant(
+      !(payload.modes?.branch_busan?.display_rows || []).some((row) => row.sector === "cu"),
+      "CU query-region evidence was incorrectly promoted to Busan branch locality",
     );
     await probe.context.close();
 
@@ -185,6 +205,8 @@ async function runMobile(browser, payload) {
       eligibility_as_of: payload.eligibility_as_of,
       supported_sectors: payload.supported_sectors,
       unsupported_sectors: payload.unsupported_sectors,
+      financial_pair_coverage: payload.financial_pair_coverage,
+      coverage_note: payload.coverage_note,
       anchor: payload.anchor,
       remote: {
         eligible_count: payload.modes.remote.eligible_count,
