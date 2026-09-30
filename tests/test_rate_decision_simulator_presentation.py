@@ -54,6 +54,15 @@ def test_runtime_bundle_exposes_input_output_and_target_rate_contract() -> None:
     assert 'data-rds-enrollment="remote"' in rendered
     assert 'data-rds-enrollment="face"' in rendered
     assert "희망 총수신액" in rendered
+    assert 'id="rds-term-slot"' in rendered
+    assert 'id="rds-review-rate-range"' in rendered
+    assert 'aria-label="검토금리 조정"' in rendered
+    assert "syncReviewRange" in rendered
+    assert "installUnifiedInputs" in rendered
+    assert "syncLegacyProposal" in rendered
+    assert 'row.dataset.rdsLegacyRate="1"' in rendered
+    assert '[data-rds-legacy-rate="1"]{display:none!important}' in rendered
+    assert "아래 시뮬레이터 입력과 동기화" in rendered
     assert ".rds-controls [hidden]{display:none!important}" in rendered
     assert "추천 검토금리" in rendered
     assert "목표 대비" in rendered

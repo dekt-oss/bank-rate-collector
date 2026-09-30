@@ -182,10 +182,11 @@ async function assertSyntheticOffGridMeaning(page, label) {
 async function assertFinderProposalIndependence(page, finder, label) {
   const beforeSignature = await finder.getAttribute("data-finder-signature");
   const beforeProposal = await page.locator("#sim-max").textContent();
-  const base = page.locator("#base-n");
-  const baseValue = Number(await base.inputValue());
-  invariant(Number.isFinite(baseValue), `${label}: 기본금리 입력값을 읽지 못함`);
-  await base.fill((baseValue + 0.01).toFixed(2));
+  const review = page.locator("#rds-review-rate");
+  invariant(await review.isVisible(), `${label}: 단일 검토금리 입력이 보이지 않음`);
+  const reviewValue = Number(await review.inputValue());
+  invariant(Number.isFinite(reviewValue), `${label}: 검토금리 입력값을 읽지 못함`);
+  await review.fill((reviewValue + 0.01).toFixed(2));
   await page.waitForFunction(
     (previous) => document.getElementById("sim-max")?.textContent !== previous,
     beforeProposal,

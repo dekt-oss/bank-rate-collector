@@ -34,6 +34,10 @@ async function waitForDashboard(page) {
   invariant(await page.locator("#error").isHidden(), "strategy runtime error banner is visible");
   try {
     await page.waitForSelector('html[data-strategy-lean-ia="v3"]', { timeout: 30_000 });
+    await page.waitForSelector(
+      'html[data-strategy-decision-evidence-refinement="v1"]',
+      { timeout: 30_000 },
+    );
   } catch (error) {
     const leanDiagnostic = await page.evaluate(() => {
       const ids = [
@@ -229,6 +233,10 @@ async function runDesktop(browser) {
   invariant(await page.locator("#sim-form").isVisible(), "기본 펼침 금리설계에서 시뮬레이터가 보이지 않음");
   invariant(await page.locator("#prediction-panel").isVisible(), "예측엔진이 기본 노출되지 않음");
   invariant(await page.locator("#prediction-toggle").getAttribute("aria-expanded") === "true", "예측엔진 기본 expanded 상태가 아님");
+  invariant(await page.locator("#lean-preference-detail").evaluate((node) => node.open), "상품 우대조건 상세가 기본 펼침 상태가 아님");
+  invariant(!(await page.locator(".workspace-model-detail").evaluate((node) => node.open)), "예측모형 상세가 기본 닫힘 상태가 아님");
+  invariant(await page.locator("#base-n").isHidden() && await page.locator("#bonus-n").isHidden(), "중복 기본/우대 금리 입력이 노출됨");
+  invariant((await page.locator("#rds-term-slot #term-segment").count()) === 1, "가입기간 selector가 시뮬레이터 조건영역으로 이동하지 않음");
   await assertMarketIntelligence(page);
   await assertExternalMarketContext(page);
   await assertStrategyRoleSplit(page, "desktop");
