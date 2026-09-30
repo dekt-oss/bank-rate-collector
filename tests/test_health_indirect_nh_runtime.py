@@ -36,7 +36,8 @@ def _script(repository_runs: str, nh_runs: str = "[]", repository_ok: bool = Tru
         const value = String(url);
         if (value.includes('/actions/workflows/collect-morning-cycle.yml/runs') ||
             value.includes('/actions/workflows/collect.yml/runs') ||
-            value.includes('/actions/workflows/collect-institution-funding.yml/runs')) {{
+            value.includes('/actions/workflows/collect-institution-funding.yml/runs') ||
+            value.includes('/actions/workflows/collect-savings-fast.yml/runs')) {{
           return {{ ok: true, status: 200, json: async () => ({{ workflow_runs: [] }}) }};
         }}
         if (value.includes('/actions/workflows/collect-nh.yml/runs?per_page=30')) {{
