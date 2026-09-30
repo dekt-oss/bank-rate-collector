@@ -577,7 +577,6 @@ export default async function handler(req, res) {
     coreRunsResult,
     nhRunsResult,
     fundingRunsResult,
-    fastRunsResult,
   ].find((result) => !result.ok);
   if (failed) {
     return json(res, 502, {
@@ -604,14 +603,23 @@ export default async function handler(req, res) {
   const activePublish = runs.find((run) => run.event === "push" && ACTIVE.has(run.status)) || null;
   const latestCollection = collections[0] || null;
   const latestPublish = runs.find((run) => run.conclusion === "success") || null;
-  const latestFast = fastRunsResult.runs.find((run) => run.event === "schedule")
-    || fastRunsResult.runs[0]
-    || null;
+  const latestFast = fastRunsResult.ok
+    ? (fastRunsResult.runs.find((run) => run.event === "schedule")
+      || fastRunsResult.runs[0]
+      || null)
+    : null;
   const detailRun = activeCollection || latestCollection;
 
   const detail = await loadRunSteps(token, slug, detailRun);
   const now = healthNow();
-  const fastState = fastRefreshHealth(latestFast, activeCollection, detail, now);
+  const fastState = fastRunsResult.ok
+    ? fastRefreshHealth(latestFast, activeCollection, detail, now)
+    : {
+      status: "unknown",
+      reason: "fast_workflow_evidence_unavailable",
+      wait_minutes: null,
+      writer_queue_wait: false,
+    };
   const scheduleState = scheduleTriggerHealth(scheduledRuns, now);
   const cycleDate = scheduleState.cycle_date_kst;
   const cycleRuns = cycleDate
