@@ -2878,6 +2878,23 @@
     const text = `${healthDot(sig)} ${label} #${esc(run.run_number)} · ${esc(state)} · ${healthDate(run.started_at)}`;
     return run.html_url ? `<a href="${esc(run.html_url)}" target="_blank" rel="noopener">${text}</a>` : text;
   };
+  const fastRefreshLine = (fast) => {
+    if (!fast || !fast.latest_run) return "";
+    const base = runLine("은행권 경량 수집", fast.latest_run);
+    if (fast.reason === "canonical_writer_serialization") {
+      const wait = fast.wait_minutes == null ? "" : ` · 대기 ${num(fast.wait_minutes)}분`;
+      const blocker = fast.blocking_run
+        ? ` · 현재 수집 #${esc(fast.blocking_run.run_number)} 종료 후 순차 실행`
+        : " · 현재 canonical writer 종료 후 순차 실행";
+      return `${base} · writer 직렬 대기${wait}${blocker}`;
+    }
+    if (fast.reason === "github_actions_pending") {
+      const wait = fast.wait_minutes == null ? "" : ` · ${num(fast.wait_minutes)}분`;
+      return `${base} · GitHub Actions 대기${wait}`;
+    }
+    return base;
+  };
+
   const slaLine = (sla) => {
     if (!sla) return "";
     const sig = (sla.status === "breached" || sla.status === "degraded") ? "red"
@@ -2913,6 +2930,7 @@
         + runLine("마지막 수집", body.latest_collection) + "<br>"
         + runLine("마지막 발행", body.latest_publish)
         + (body.active_publish ? "<br>" + runLine("현재 발행", body.active_publish) : "")
+        + (body.fast_refresh ? "<br>" + fastRefreshLine(body.fast_refresh) : "")
         + (body.sla ? "<br>" + slaLine(body.sla) : "")
         + (focus && steps ? `<br><span style="color:var(--ink-3)">${steps}</span>` : "");
     } catch (err) {
