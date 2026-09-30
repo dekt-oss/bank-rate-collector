@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+from collections import Counter
 from pathlib import Path
 from typing import Any
 
@@ -24,13 +25,25 @@ from rate_monitor.services.relative_pricing_live_service import build_relative_p
 from rate_monitor.services.relative_pricing_strategy_payload import (
     build_relative_pricing_unavailable_payload,
 )
-from rate_monitor.services.size_peer_strategy_payload import build_size_peer_strategy_payload
+from rate_monitor.services.size_peer_strategy_payload import (
+    FINANCIAL_SOURCE_BY_SECTOR,
+    _connect_read_only,
+    _financial_candidates,
+    _financial_rows,
+    build_size_peer_strategy_payload,
+)
 from rate_monitor.services.special_offer_radar_service import build_special_offer_radar
 from rate_monitor.services.strategy_product_history_service import build_product_history
 from rate_monitor.services.strategy_savings_trend_policy import (
     build_savings_trend_display_policy,
 )
 from rate_monitor.services.strategy_service_base import *  # noqa: F403
+
+_SIZE_PEER_SECTOR_LABELS = {
+    "savings_bank": "저축은행",
+    "nh_local": "농·축협",
+    "cu": "신협",
+}
 
 
 def __getattr__(name: str) -> Any:
@@ -82,6 +95,55 @@ def _our_canonical_institution_id(db_path: Path) -> str | None:
     return str(rows[0][0]) if rows else None
 
 
+def _size_peer_with_pair_coverage(db_path: Path, payload: dict[str, Any]) -> dict[str, Any]:
+    """Expose exact common-month pair completeness without changing peer selection.
+
+    The Size Peer core already validates the financial rows and chooses the global
+    ``financial_as_of`` month. This presentation/API adapter intentionally reuses the
+    same read-only candidate contract to report how many institutions in each
+    supported sector have a complete, positive, same-month two-axis pair. In
+    particular, total CU bootstrap coverage across mixed disclosure months is never
+    presented as common-month peer coverage.
+    """
+
+    enriched = dict(payload)
+    enriched["financial_pair_coverage"] = {}
+    month = str(payload.get("financial_as_of") or "").strip()
+    supported = tuple(str(value) for value in payload.get("supported_sectors") or ())
+    if not month or not supported:
+        return enriched
+
+    conn = _connect_read_only(db_path)
+    try:
+        candidates = _financial_candidates(
+            _financial_rows(conn),
+            month=month,
+            sectors=supported,
+        )
+    finally:
+        conn.close()
+
+    counts = Counter(candidate.sector for candidate in candidates)
+    coverage = {
+        sector: {
+            "source_id": FINANCIAL_SOURCE_BY_SECTOR[sector],
+            "financial_as_of": month,
+            "pair_complete_institutions": counts.get(sector, 0),
+        }
+        for sector in supported
+    }
+    enriched["financial_pair_coverage"] = coverage
+
+    pair_note = "공통월 pair: " + " · ".join(
+        f"{_SIZE_PEER_SECTOR_LABELS.get(sector, sector)} "
+        f"{coverage[sector]['pair_complete_institutions']:,}"
+        for sector in supported
+    )
+    base_note = str(payload.get("coverage_note") or "").strip()
+    enriched["coverage_note"] = f"{base_note} | {pair_note}" if base_note else pair_note
+    return enriched
+
+
 def _relative_pricing_availability(
     db_path: Path,
 ) -> RelativePricingAvailabilityResolution | None:
@@ -115,7 +177,10 @@ def build_strategy_summary(db_path: Path) -> dict[str, Any]:
     # Size Peer is a separate financial/eligibility contract, not an R1 pricing input.
     # Build it before the Relative Pricing early returns so an R1 availability failure
     # can never remove or mutate the Size Peer evidence surface.
-    summary["size_peer"] = build_size_peer_strategy_payload(db_path)
+    summary["size_peer"] = _size_peer_with_pair_coverage(
+        db_path,
+        build_size_peer_strategy_payload(db_path),
+    )
 
     availability = _relative_pricing_availability(db_path)
     if availability is None:
