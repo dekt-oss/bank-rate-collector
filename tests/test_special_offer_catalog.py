@@ -1,0 +1,371 @@
+from __future__ import annotations
+
+import sqlite3
+from datetime import UTC, date, datetime
+from pathlib import Path
+
+import pytest
+from sqlalchemy import func, select
+
+from rate_monitor.db.models import Base, Product, ProductVariant, RateObservation
+from rate_monitor.db.session import create_db_engine, make_session_factory, session_scope
+from rate_monitor.db.special_offer_models import OfficialSpecialOfferCatalogEvidence
+from rate_monitor.services.special_offer_catalog_service import (
+    CONFIRMED_NORMAL,
+    CONFIRMED_SPECIAL,
+    OfficialSpecialOfferCatalogError,
+    OfficialSpecialOfferCatalogInput,
+    append_official_catalog_evidence,
+    import_capture_payload,
+)
+from rate_monitor.services.special_offer_radar_service import (
+    _latest_context,
+    _official_catalog_offers,
+    build_special_offer_radar,
+)
+
+NOW = datetime(2026, 9, 27, 1, 0, tzinfo=UTC).replace(tzinfo=None)
+HASH = "sha256:" + "a" * 64
+
+
+def _db(tmp_path: Path):
+    path = tmp_path / "catalog.sqlite3"
+    engine = create_db_engine(path)
+    Base.metadata.create_all(engine)
+    return path, make_session_factory(engine)
+
+
+def _item(
+    *,
+    key: str = "P1",
+    availability: str = "confirmed_ended",
+) -> OfficialSpecialOfferCatalogInput:
+    assertion = "판매 종료" if availability == "confirmed_ended" else None
+    if availability == "confirmed_active":
+        assertion = "현재 판매 중"
+    return OfficialSpecialOfferCatalogInput(
+        institution_name="테스트저축은행",
+        official_product_key=key,
+        product_name=f"특판 {key}",
+        classification=CONFIRMED_SPECIAL,
+        availability_status=availability,
+        snapshot_as_of=date(2026, 9, 27),
+        observed_at=NOW,
+        source_locator=f"https://bank.example/products/{key}",
+        content_hash=HASH,
+        source_effective_from=date(2026, 1, 1),
+        source_effective_to=(
+            date(2026, 6, 30) if availability == "confirmed_ended" else None
+        ),
+        evidence={
+            "identity_marker_present": True,
+            "explicit_phrases_present": True,
+            "special_offer_terms": {
+                "special_rate": "4.10",
+                "sale_start": "2026-01-01",
+                "sale_end": (
+                    "2026-06-30" if availability == "confirmed_ended" else None
+                ),
+                "quota_text": "100억원 한도",
+                "eligibility_text": "개인",
+                "early_termination_text": "한도 소진 시 조기종료",
+            },
+            "availability": {
+                "status": availability,
+                "assertion_text": assertion,
+                "observed_at": NOW.isoformat(),
+                "source_locator": f"https://bank.example/products/{key}",
+            },
+        },
+    )
+
+
+def test_newer_catalog_observation_does_not_shift_fsb_snapshot_context(
+    tmp_path: Path,
+) -> None:
+    db = tmp_path / "context.sqlite3"
+    conn = sqlite3.connect(db)
+    conn.executescript(
+        """
+        CREATE TABLE product_special_offer_evidence(
+            source_id TEXT,
+            snapshot_as_of TEXT,
+            observed_at TEXT
+        );
+        CREATE TABLE official_special_offer_catalog_evidence(
+            snapshot_as_of TEXT,
+            observed_at TEXT
+        );
+        INSERT INTO product_special_offer_evidence
+        VALUES ('fsb', '2026-09-27', '2026-09-27 03:00:00');
+        INSERT INTO official_special_offer_catalog_evidence
+        VALUES ('2026-09-28', '2026-09-28 01:00:00');
+        """
+    )
+    resolved = _latest_context(conn, as_of=None, known_at=None)
+    conn.close()
+
+    assert resolved is not None
+    resolved_as_of, resolved_known_at = resolved
+    assert resolved_as_of == date(2026, 9, 27)
+    assert resolved_known_at == datetime(2026, 9, 28, 1, 0)
+
+
+def test_catalog_canonical_cross_reference_uses_on_delete_set_null(
+    tmp_path: Path,
+) -> None:
+    db_path, _ = _db(tmp_path)
+    conn = sqlite3.connect(db_path)
+    foreign_keys = conn.execute(
+        "PRAGMA foreign_key_list('official_special_offer_catalog_evidence')"
+    ).fetchall()
+    conn.close()
+
+    catalog_fk = [
+        row
+        for row in foreign_keys
+        if row[3] == "canonical_product_id" and row[2] == "products"
+    ]
+    assert len(catalog_fk) == 1
+    assert catalog_fk[0][6].upper() == "SET NULL"
+
+
+def test_catalog_append_is_idempotent_without_creating_canonical_products(
+    tmp_path: Path,
+) -> None:
+    db_path, factory = _db(tmp_path)
+    with session_scope(factory) as session:
+        first = append_official_catalog_evidence(session, _item())
+        second = append_official_catalog_evidence(session, _item())
+        assert first.id == second.id
+        assert session.scalar(select(func.count()).select_from(Product)) == 0
+        assert session.scalar(select(func.count()).select_from(ProductVariant)) == 0
+        assert session.scalar(select(func.count()).select_from(RateObservation)) == 0
+        assert (
+            session.scalar(
+                select(func.count()).select_from(OfficialSpecialOfferCatalogEvidence)
+            )
+            == 1
+        )
+
+    radar = build_special_offer_radar(db_path)
+    assert radar["current_offers"] == []
+    assert len(radar["past_offers"]) == 1
+    assert radar["past_offers"][0]["evidence_source"] == "bank_direct_catalog"
+    assert radar["official_catalog_counts"]["confirmed_ended"] == 1
+    assert radar["policy"]["official_catalog_changes_rate_population"] is False
+    assert radar["policy"]["catalog_active_requires_current_snapshot"] is True
+
+
+def test_catalog_current_offer_sets_confirmed_radar_status(tmp_path: Path) -> None:
+    db_path, factory = _db(tmp_path)
+    with session_scope(factory) as session:
+        append_official_catalog_evidence(
+            session,
+            _item(key="ACTIVE", availability="confirmed_active"),
+        )
+
+    radar = build_special_offer_radar(db_path)
+    assert radar["status"] == "confirmed_evidence_available"
+    assert radar["reason"] is None
+    assert len(radar["current_offers"]) == 1
+    assert radar["past_offers"] == []
+    assert radar["offers"] == []
+    assert radar["current_offers"][0]["evidence_source"] == "bank_direct_catalog"
+
+
+def test_stale_active_catalog_evidence_is_not_current(tmp_path: Path) -> None:
+    db_path, factory = _db(tmp_path)
+    with session_scope(factory) as session:
+        append_official_catalog_evidence(
+            session,
+            _item(key="STALE-ACTIVE", availability="confirmed_active"),
+        )
+
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    current, past, unknown = _official_catalog_offers(
+        conn,
+        as_of=date(2026, 9, 28),
+        known_at=datetime(2026, 9, 28, 1, 0),
+    )
+    conn.close()
+
+    assert current == []
+    assert past == []
+    assert unknown == 1
+
+
+def test_latest_confirmed_normal_suppresses_older_special_catalog_state(
+    tmp_path: Path,
+) -> None:
+    db_path, factory = _db(tmp_path)
+    special = _item(key="RECLASSIFIED", availability="confirmed_active")
+    with session_scope(factory) as session:
+        append_official_catalog_evidence(session, special)
+        normal_evidence = dict(special.evidence or {})
+        normal_evidence["availability"] = {
+            "status": "unknown",
+            "assertion_text": None,
+            "observed_at": datetime(2026, 9, 28, 1, 0).isoformat(),
+            "source_locator": special.source_locator,
+        }
+        append_official_catalog_evidence(
+            session,
+            OfficialSpecialOfferCatalogInput(
+                **{
+                    **special.__dict__,
+                    "classification": CONFIRMED_NORMAL,
+                    "availability_status": "unknown",
+                    "snapshot_as_of": date(2026, 9, 28),
+                    "observed_at": datetime(2026, 9, 28, 1, 0),
+                    "content_hash": "sha256:" + "b" * 64,
+                    "evidence": normal_evidence,
+                }
+            ),
+        )
+
+    radar = build_special_offer_radar(
+        db_path,
+        as_of=date(2026, 9, 28),
+        known_at=datetime(2026, 9, 28, 2, 0),
+    )
+    assert radar["current_offers"] == []
+    assert radar["past_offers"] == []
+    assert radar["official_catalog_counts"] == {
+        "confirmed_active": 0,
+        "confirmed_ended": 0,
+        "unknown": 0,
+    }
+
+
+def test_bound_catalog_evidence_requires_canonical_product_id(tmp_path: Path) -> None:
+    _, factory = _db(tmp_path)
+    item = _item()
+    broken = OfficialSpecialOfferCatalogInput(
+        **{
+            **item.__dict__,
+            "binding_status": "bound",
+            "canonical_product_id": None,
+        }
+    )
+    with (
+        session_scope(factory) as session,
+        pytest.raises(OfficialSpecialOfferCatalogError, match="canonical_product_id"),
+    ):
+        append_official_catalog_evidence(session, broken)
+
+
+def test_unknown_availability_stays_out_of_current_and_history(tmp_path: Path) -> None:
+    db_path, factory = _db(tmp_path)
+    with session_scope(factory) as session:
+        append_official_catalog_evidence(session, _item(availability="unknown"))
+
+    radar = build_special_offer_radar(db_path)
+    assert radar["current_offers"] == []
+    assert radar["past_offers"] == []
+    assert radar["availability_counts"]["unknown"] == 1
+    assert radar["official_catalog_counts"]["unknown"] == 1
+
+
+def test_confirmed_active_requires_explicit_availability_assertion(tmp_path: Path) -> None:
+    _, factory = _db(tmp_path)
+    item = _item(availability="confirmed_active")
+    evidence = dict(item.evidence or {})
+    evidence["availability"] = {
+        "status": "confirmed_active",
+        "assertion_text": None,
+    }
+    broken = OfficialSpecialOfferCatalogInput(
+        **{**item.__dict__, "evidence": evidence}
+    )
+    with (
+        session_scope(factory) as session,
+        pytest.raises(OfficialSpecialOfferCatalogError, match="assertion"),
+    ):
+        append_official_catalog_evidence(session, broken)
+
+
+def test_confirmed_ended_requires_explicit_availability_assertion(
+    tmp_path: Path,
+) -> None:
+    _, factory = _db(tmp_path)
+    item = _item(availability="confirmed_ended")
+    evidence = dict(item.evidence or {})
+    evidence["availability"] = {
+        "status": "confirmed_ended",
+        "assertion_text": None,
+    }
+    broken = OfficialSpecialOfferCatalogInput(
+        **{**item.__dict__, "evidence": evidence}
+    )
+    with (
+        session_scope(factory) as session,
+        pytest.raises(OfficialSpecialOfferCatalogError, match="assertion"),
+    ):
+        append_official_catalog_evidence(session, broken)
+
+
+def test_availability_evidence_status_must_match_catalog_status(tmp_path: Path) -> None:
+    _, factory = _db(tmp_path)
+    item = _item(availability="confirmed_ended")
+    evidence = dict(item.evidence or {})
+    evidence["availability"] = {
+        "status": "confirmed_active",
+        "assertion_text": "현재 판매 중",
+    }
+    broken = OfficialSpecialOfferCatalogInput(
+        **{**item.__dict__, "evidence": evidence}
+    )
+    with (
+        session_scope(factory) as session,
+        pytest.raises(OfficialSpecialOfferCatalogError, match="matching"),
+    ):
+        append_official_catalog_evidence(session, broken)
+
+
+def test_import_capture_payload_only_appends_explicit_special_candidates(
+    tmp_path: Path,
+) -> None:
+    _, factory = _db(tmp_path)
+    base_capture = {
+        "institution": "웰컴저축은행",
+        "official_product_key": "1130313564",
+        "product_name": "웰컴 디지로카 100일적금",
+        "source_locator": "https://www.welcomebank.co.kr/product?prdCd=1130313564",
+        "content_sha256": HASH,
+        "identity_marker_present": True,
+        "explicit_phrases_present": True,
+        "special_offer_terms": {
+            "special_rate": None,
+            "sale_start": "2024-07-22",
+            "sale_end": "2024-12-31",
+            "quota_text": "1만좌 한도",
+            "eligibility_text": "실명의 개인",
+            "early_termination_text": "특판소진 시 조기 종료",
+        },
+        "availability": {
+            "status": "confirmed_ended",
+            "assertion_text": "explicit sale period ended on 2024-12-31",
+            "observed_at": "2026-09-27T01:00:00+00:00",
+            "source_locator": None,
+        },
+    }
+    payload = {
+        "observed_at": "2026-09-27T01:00:00+00:00",
+        "captures": [
+            {**base_capture, "classification_candidate": "confirmed_special_candidate"},
+            {
+                **base_capture,
+                "official_product_key": "UNVERIFIED",
+                "classification_candidate": "unverified",
+            },
+        ],
+    }
+    with session_scope(factory) as session:
+        rows = import_capture_payload(session, payload)
+        assert len(rows) == 1
+        assert rows[0].official_product_key == "1130313564"
+        assert rows[0].canonical_product_id is None
+        assert rows[0].binding_status == "unbound"
+        assert session.scalar(select(func.count()).select_from(Product)) == 0

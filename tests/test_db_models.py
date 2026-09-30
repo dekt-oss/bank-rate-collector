@@ -29,6 +29,7 @@ EXPECTED_TABLES = {
     "institutions",
     "manual_overrides",
     "market_indicators",
+    "official_special_offer_catalog_evidence",
     "outlets",
     "preference_conditions",
     "product_variants",

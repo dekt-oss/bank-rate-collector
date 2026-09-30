@@ -9,6 +9,7 @@ separate release decision.
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from collections.abc import Iterable
 from datetime import date, datetime
@@ -42,6 +43,7 @@ _TERM_FIELDS = (
     "eligibility_text",
     "early_termination_text",
 )
+# R3-D catalog augments Radar only; FSB history still resolves through R3-C fail-closed state.
 _EMPTY_RATE = {
     "representative_rate": None,
     "rate_source_effective_at": None,
@@ -79,12 +81,15 @@ def _unavailable(reason: str) -> dict[str, Any]:
         "current_offers": [],
         "past_offers": [],
         "availability_counts": {"confirmed_active": 0, "confirmed_ended": 0, "unknown": 0},
+        "official_catalog_counts": {"confirmed_active": 0, "confirmed_ended": 0, "unknown": 0},
         "policy": {
             "unknown_is_special": False,
             "heuristic_confirmation": False,
             "ranking_population_changed": False,
             "unknown_availability_in_current_tab": False,
             "special_classification_implies_availability": False,
+            "official_catalog_changes_rate_population": False,
+            "catalog_active_requires_current_snapshot": True,
         },
     }
 
@@ -95,15 +100,36 @@ def _latest_context(
     as_of: date | None,
     known_at: datetime | None,
 ) -> tuple[date, datetime] | None:
-    row = conn.execute(
-        "SELECT MAX(snapshot_as_of), MAX(observed_at) "
-        "FROM product_special_offer_evidence WHERE source_id=?",
-        (SOURCE_ID,),
-    ).fetchone()
-    if row is None or row[0] is None or row[1] is None:
+    fsb_context: tuple[str, str] | None = None
+    catalog_context: tuple[str, str] | None = None
+    if _table_exists(conn, "product_special_offer_evidence"):
+        row = conn.execute(
+            "SELECT MAX(snapshot_as_of), MAX(observed_at) "
+            "FROM product_special_offer_evidence WHERE source_id=?",
+            (SOURCE_ID,),
+        ).fetchone()
+        if row is not None and row[0] is not None and row[1] is not None:
+            fsb_context = (str(row[0]), str(row[1]))
+    if _table_exists(conn, "official_special_offer_catalog_evidence"):
+        row = conn.execute(
+            "SELECT MAX(snapshot_as_of), MAX(observed_at) "
+            "FROM official_special_offer_catalog_evidence"
+        ).fetchone()
+        if row is not None and row[0] is not None and row[1] is not None:
+            catalog_context = (str(row[0]), str(row[1]))
+    contexts = [item for item in (fsb_context, catalog_context) if item is not None]
+    if not contexts:
         return None
-    resolved_as_of = as_of or date.fromisoformat(str(row[0]))
-    resolved_known_at = known_at or datetime.fromisoformat(str(row[1]))
+
+    # FSB snapshot_as_of is the current FSB coverage key. A newer bank-direct
+    # catalog observation must not move that key forward and make FSB unknown
+    # coverage disappear. Catalog rows are independently bounded by known_at.
+    snapshot_context = fsb_context or catalog_context
+    assert snapshot_context is not None
+    resolved_as_of = as_of or date.fromisoformat(snapshot_context[0])
+    resolved_known_at = known_at or max(
+        datetime.fromisoformat(item[1]) for item in contexts
+    )
     return resolved_as_of, resolved_known_at
 
 
@@ -130,6 +156,90 @@ def _candidate_product_ids(
         ),
     ).fetchall()
     return [str(row[0]) for row in rows]
+
+
+def _official_catalog_offers(
+    conn: sqlite3.Connection,
+    *,
+    as_of: date,
+    known_at: datetime,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], int]:
+    if not _table_exists(conn, "official_special_offer_catalog_evidence"):
+        return [], [], 0
+    rows = conn.execute(
+        "SELECT id, source_namespace, institution_name, institution_normalized, "
+        "official_product_key, product_name, classification, availability_status, "
+        "snapshot_as_of, "
+        "source_effective_from, source_effective_to, observed_at, source_locator, "
+        "content_hash, evidence_json, binding_status "
+        "FROM official_special_offer_catalog_evidence "
+        "WHERE observed_at<=? "
+        "ORDER BY source_namespace, institution_normalized, official_product_key, "
+        "observed_at DESC, id DESC",
+        (known_at.isoformat(sep=" ", timespec="microseconds"),),
+    ).fetchall()
+    latest: dict[tuple[str, str, str], sqlite3.Row] = {}
+    for row in rows:
+        identity = (
+            str(row["source_namespace"]),
+            str(row["institution_normalized"]),
+            str(row["official_product_key"]),
+        )
+        if identity in latest:
+            continue
+        latest[identity] = row
+    current: list[dict[str, Any]] = []
+    past: list[dict[str, Any]] = []
+    unknown = 0
+    for row in latest.values():
+        # Append-only catalog는 identity별 최신 판정이 authoritative하다.
+        # 과거 special 뒤에 confirmed_normal이 오면 과거 special을 되살리지 않는다.
+        if str(row["classification"]) != CONFIRMED_SPECIAL:
+            continue
+        raw_evidence = row["evidence_json"]
+        evidence = (
+            json.loads(raw_evidence)
+            if isinstance(raw_evidence, str)
+            else dict(raw_evidence or {})
+        )
+        terms = dict(evidence.get("special_offer_terms") or {})
+        availability = dict(evidence.get("availability") or {})
+        item = {
+            "product_id": None,
+            "product_name": str(row["product_name"]),
+            "product_type": "special_offer_catalog",
+            "institution_id": None,
+            "institution_name": str(row["institution_name"]),
+            "sector": "savings_bank",
+            **_EMPTY_RATE,
+            "special_offer_terms": terms,
+            "availability_status": str(row["availability_status"]),
+            "availability_assertion": availability.get("assertion_text"),
+            "availability_observed_at": availability.get("observed_at"),
+            "availability_source_locator": availability.get("source_locator"),
+            "evidence_observed_at": str(row["observed_at"]),
+            "evidence_source_locator": str(row["source_locator"]),
+            "classification": CONFIRMED_SPECIAL,
+            "evidence_kind": "bank_direct_official_catalog",
+            "evidence_ref": str(row["source_locator"]),
+            "evidence_ids": [str(row["id"])],
+            "evidence_source": "bank_direct_catalog",
+            "official_product_key": str(row["official_product_key"]),
+            "binding_status": str(row["binding_status"]),
+        }
+        if row["availability_status"] == "confirmed_active":
+            # "현재 판매 중"은 현재 Radar 기준일에 재확인된 근거만 허용한다.
+            # 과거 active observation은 종료로 추정하지 않고 unknown으로 내린다.
+            snapshot_as_of = date.fromisoformat(str(row["snapshot_as_of"]))
+            if snapshot_as_of == as_of:
+                current.append(item)
+            else:
+                unknown += 1
+        elif row["availability_status"] == "confirmed_ended":
+            past.append(item)
+        else:
+            unknown += 1
+    return current, past, unknown
 
 
 def _historical_special_product_ids(
@@ -382,19 +492,36 @@ def build_special_offer_radar(
     conn = sqlite3.connect(uri, uri=True)
     conn.row_factory = sqlite3.Row
     try:
-        if not _table_exists(conn, "product_special_offer_evidence"):
+        has_fsb_registry = _table_exists(conn, "product_special_offer_evidence")
+        has_official_catalog = _table_exists(
+            conn, "official_special_offer_catalog_evidence"
+        )
+        if not has_fsb_registry and not has_official_catalog:
             return _unavailable("evidence_registry_missing")
         context = _latest_context(conn, as_of=as_of, known_at=known_at)
         if context is None:
             return _unavailable("no_special_offer_evidence")
         resolved_as_of, resolved_known_at = context
-        product_ids = _candidate_product_ids(
+        product_ids = (
+            _candidate_product_ids(
+                conn,
+                as_of=resolved_as_of,
+                known_at=resolved_known_at,
+            )
+            if has_fsb_registry
+            else []
+        )
+        historical_product_ids = (
+            _historical_special_product_ids(
+                conn,
+                known_at=resolved_known_at,
+            )
+            if has_fsb_registry
+            else []
+        )
+        catalog_current, catalog_past, catalog_unknown = _official_catalog_offers(
             conn,
             as_of=resolved_as_of,
-            known_at=resolved_known_at,
-        )
-        historical_product_ids = _historical_special_product_ids(
-            conn,
             known_at=resolved_known_at,
         )
         context_ids = sorted(set(product_ids) | set(historical_product_ids))
@@ -544,7 +671,8 @@ def build_special_offer_radar(
     pending_offers = [
         item for item in offers if item.get("availability_status") == "unknown"
     ]
-    past_offers = historical_offers
+    current_offers.extend(catalog_current)
+    past_offers = [*historical_offers, *catalog_past]
     current_offers.sort(
         key=lambda item: (
             str(item.get("evidence_observed_at") or ""),
@@ -570,16 +698,21 @@ def build_special_offer_radar(
     availability_counts = {
         "confirmed_active": len(current_offers),
         "confirmed_ended": len(past_offers),
-        "unknown": len(pending_offers),
+        "unknown": len(pending_offers) + catalog_unknown,
     }
+    has_confirmed_special_evidence = bool(offers or current_offers or past_offers)
     status = (
         "confirmed_evidence_available"
-        if offers or past_offers
+        if has_confirmed_special_evidence
         else "collecting_confirmed_evidence"
     )
     return {
         "status": status,
-        "reason": None if offers or past_offers else "no_confirmed_special_evidence",
+        "reason": (
+            None
+            if has_confirmed_special_evidence
+            else "no_confirmed_special_evidence"
+        ),
         "source_id": SOURCE_ID,
         "as_of": resolved_as_of.isoformat(),
         "known_at": resolved_known_at.isoformat(),
@@ -589,11 +722,18 @@ def build_special_offer_radar(
         "current_offers": current_offers,
         "past_offers": past_offers,
         "availability_counts": availability_counts,
+        "official_catalog_counts": {
+            "confirmed_active": len(catalog_current),
+            "confirmed_ended": len(catalog_past),
+            "unknown": catalog_unknown,
+        },
         "policy": {
             "unknown_is_special": False,
             "heuristic_confirmation": False,
             "ranking_population_changed": False,
             "unknown_availability_in_current_tab": False,
             "special_classification_implies_availability": False,
+            "official_catalog_changes_rate_population": False,
+            "catalog_active_requires_current_snapshot": True,
         },
     }
