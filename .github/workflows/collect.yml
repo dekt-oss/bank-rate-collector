@@ -13,6 +13,11 @@ on:
         type: string
         required: false
         default: ""
+      require_password:
+        description: "wrapper 수동 실행이면 관리자 수집 암호 검증을 강제"
+        type: boolean
+        required: false
+        default: false
       kfcc_scope:
         description: "새마을금고 수집 범위"
         type: string
@@ -91,7 +96,7 @@ jobs:
       SKIP_KFCC_THIS_RUN: ${{ inputs.manual_target != '새마을금고만' && inputs.manual_target != '아침 전체' }}
     steps:
       - name: Check collect password
-        if: ${{ github.event_name == 'workflow_dispatch' }}
+        if: ${{ github.event_name == 'workflow_dispatch' || inputs.require_password }}
         env:
           EXPECTED: ${{ secrets.DASHBOARD_PASSWORD }}
           GIVEN: ${{ inputs.password }}
