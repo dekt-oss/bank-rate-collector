@@ -43,6 +43,11 @@ jobs:
       PARENT_WORKFLOW: ${{ github.event.workflow_run.name }}
       PARENT_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
     steps:
+      - name: Checkout current main control plane
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
       - name: Determine current-main morning recovery suffix
         id: morning_plan
         run: |
@@ -54,50 +59,9 @@ jobs:
           fi
 
           gh api "repos/$GITHUB_REPOSITORY/actions/runs/$PARENT_RUN_ID/jobs?per_page=100" > parent-jobs.json
-
-          python - <<'PY'
-          import json
-          import os
-
-          with open("parent-jobs.json", encoding="utf-8") as fh:
-              payload = json.load(fh)
-
-          jobs = payload.get("jobs", [])
-          expected = {
-              "nh": "nh / surface",
-              "funding": "funding / collect",
-              "market": "market / collect",
-          }
-
-          conclusions = {}
-          for stage, job_name in expected.items():
-              matches = [
-                  job.get("conclusion")
-                  for job in jobs
-                  if job.get("name") == job_name
-              ]
-              if len(matches) > 1:
-                  raise SystemExit(
-                      f"ambiguous morning recovery evidence: {job_name} count={len(matches)}"
-                  )
-              conclusions[stage] = matches[0] if matches else "not_run"
-
-          if conclusions["nh"] != "success":
-              start_stage = "nh"
-          elif conclusions["funding"] != "success":
-              start_stage = "funding"
-          elif conclusions["market"] != "success":
-              start_stage = "market"
-          else:
-              raise SystemExit(
-                  "morning parent failed but nh/funding/market all succeeded; "
-                  "refusing unproven collection replay"
-              )
-
-          print(f"morning recovery evidence={conclusions} start_stage={start_stage}")
-          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
-              fh.write(f"start_stage={start_stage}\n")
-          PY
+          python scripts/morning_failure_recovery_plan.py \
+            --jobs-json parent-jobs.json \
+            --github-output "$GITHUB_OUTPUT"
 
   morning_recover:
     needs: plan
