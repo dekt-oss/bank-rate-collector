@@ -282,6 +282,17 @@ jobs:
           decision_attention = report["decision_attention"]
           decision_summary = decision_attention["summary"]
           assert decision_payload["decision_attention"] == decision_attention
+          masked_risk = decision_payload["masked_payment_method_risk"]
+          assert masked_risk["high_risk_threshold"].endswith(">= 0.20pp")
+          assert masked_risk["high_risk_count"] == masking["blocked_ge_0_20pp_count"]
+          assert masked_risk["high_risk_count"] <= census_summary["ambiguity_blocked_count"]
+          assert "not P0/P1" in masked_risk["semantics"]
+          assert "resolve the variant" in masked_risk["semantics"]
+          assert all(
+              item["blocked_delta"]["blocked_risk_band"]
+              in {"ge_0.20pp", "ge_0.50pp", "ge_1.00pp"}
+              for item in masked_risk["items"]
+          )
           assert decision_attention["scope"] == "triage_P0_P1_only"
           assert "does_not_select_source_authority" in decision_attention["semantics"]
           assert decision_summary["queue_size"] == (
