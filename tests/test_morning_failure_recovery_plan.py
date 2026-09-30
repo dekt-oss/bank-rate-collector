@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import pytest
-
 from scripts.morning_failure_recovery_plan import (
     MorningRecoveryPlanError,
     determine_start_stage,
