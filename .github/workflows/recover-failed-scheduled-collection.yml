@@ -53,7 +53,7 @@ jobs:
             exit 0
           fi
 
-          gh api             "repos/$GITHUB_REPOSITORY/actions/runs/$PARENT_RUN_ID/jobs?per_page=100"             > parent-jobs.json
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$PARENT_RUN_ID/jobs?per_page=100" > parent-jobs.json
 
           python - <<'PY'
           import json
@@ -102,6 +102,9 @@ jobs:
   morning_recover:
     needs: plan
     if: ${{ needs.plan.outputs.morning_start_stage != '' }}
+    permissions:
+      contents: write
+      actions: read
     uses: ./.github/workflows/recover-morning-current-main.yml
     with:
       start_stage: ${{ needs.plan.outputs.morning_start_stage }}
