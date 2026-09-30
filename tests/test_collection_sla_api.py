@@ -168,6 +168,12 @@ def _fast_state(
     blocker_status: str | None,
     active_writer_jobs: list[str] | None = None,
 ) -> dict:
+    blocker = None if blocker_path is None else {
+        "id": 701,
+        "path": blocker_path,
+        "status": blocker_status,
+        "conclusion": None,
+    }
     script = f"""
       import {{ fastRefreshHealth }} from {json.dumps(HEALTH_API)};
       const fast = {{
@@ -177,12 +183,7 @@ def _fast_state(
         conclusion: {json.dumps(fast_conclusion)},
         created_at: '2026-09-30T12:05:28Z',
       }};
-      const blocker = {json.dumps(None) if blocker_path is None else f"""{{
-        id: 701,
-        path: {json.dumps(blocker_path)},
-        status: {json.dumps(blocker_status)},
-        conclusion: null,
-      }}"""};
+      const blocker = {json.dumps(blocker)};
       const detail = {{
         activeWriterJobs: {json.dumps(active_writer_jobs or [])},
       }};
