@@ -1,9 +1,21 @@
 name: Special-offer catalog refresh
 
-# R3-E production writer is implemented but not scheduled automatically yet.
-# Keep activation manual until the production-copy evidence gate is reviewed.
+# R3-E production writer activation.
+# Radar current exposure is fail-closed to same-day confirmed_active evidence, so a
+# daily refresh is the minimum cadence that keeps "현재 판매 중" meaningful without
+# weakening the freshness contract. 08:17 KST avoids the normal 07:30 morning SLA
+# target and top-of-hour scheduler congestion; the shared rate-data-writer lock still
+# serializes this writer with every canonical production writer.
 on:
+  schedule:
+    # Daily 08:17 KST = 23:17 UTC on the previous calendar day.
+    - cron: "17 23 * * *"
   workflow_dispatch:
+    inputs:
+      password:
+        description: "관리자 수집 암호"
+        required: true
+        default: ""
 
 permissions:
   contents: write
@@ -13,6 +25,8 @@ jobs:
   refresh:
     uses: ./.github/workflows/collect.yml
     with:
+      password: ${{ inputs.password || '' }}
+      require_password: ${{ github.event_name == 'workflow_dispatch' }}
       manual_target: "특판만"
       accept_volume_drop: false
     secrets: inherit
