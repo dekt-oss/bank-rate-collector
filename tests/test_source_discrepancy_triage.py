@@ -269,3 +269,68 @@ def test_queue_is_deterministic_and_counts_institution_clusters() -> None:
     assert triage["summary"]["institutions"] == 2
     min_guk = [item for item in triage["queue"] if item["institution"] == "민국저축은행"]
     assert {item["institution_mismatch_count"] for item in min_guk} == {2}
+
+
+
+def test_decision_attention_separates_p0_p1_from_full_mismatch_queue() -> None:
+    high = _match(
+        institution="금화저축은행",
+        product="정기적금",
+        rate_primary="3.00",
+        rate_secondary="3.30",
+        primary_date="2026-08-20",
+        secondary_date="2026-08-20",
+        status="rate_mismatch",
+    )
+    low = _match(
+        institution="민국저축은행",
+        product="정기예금",
+        rate_primary="3.99",
+        rate_secondary="4.00",
+        primary_date="2026-08-20",
+        secondary_date="2026-08-05",
+        status="rate_mismatch_date_diff",
+    )
+
+    annotated = annotate_discrepancy_triage(_report([low, high]))
+    attention = annotated["decision_attention"]
+
+    assert annotated["triage"]["summary"]["queue_size"] == 2
+    assert attention["summary"]["queue_size"] == 1
+    assert attention["summary"]["P0"] == 0
+    assert attention["summary"]["P1"] == 1
+    assert attention["summary"]["direct_rate_decision_risk_count"] == 1
+
+    item = attention["queue"][0]
+    assert item["institution"] == "금화저축은행"
+    assert item["priority"] == "P1"
+    assert item["triage_rank"] == 1
+    assert item["decision_rank"] == 1
+    assert item["direct_rate_decision_risk"] is True
+    assert "same_effective_date_conflict" in item["decision_risk_flags"]
+    assert "material_max_rate_gap_ge_0_20pp" in item["decision_risk_flags"]
+    assert annotated["scope"]["decision_attention_mutates_canonical"] is False
+    assert annotated["scope"]["decision_attention_selects_authority"] is False
+
+
+def test_high_investigation_priority_can_remain_non_direct_decision_risk() -> None:
+    report = _report(
+        [
+            _match(
+                institution="예시저축은행",
+                product="정기예금",
+                rate_primary="3.99",
+                rate_secondary="4.00",
+                primary_date="2025-01-01",
+                secondary_date=None,
+                status="rate_mismatch_date_unknown",
+            )
+        ]
+    )
+
+    item = annotate_discrepancy_triage(report)["decision_attention"]["queue"][0]
+
+    assert item["priority"] in {"P0", "P1"}
+    assert item["direct_rate_decision_risk"] is False
+    assert "effective_date_unknown" in item["decision_risk_flags"]
+    assert "stale_source_effective_date_ge_90d" in item["decision_risk_flags"]
