@@ -70,11 +70,21 @@ def test_special_offer_manual_refresh_requires_and_forwards_password() -> None:
         "required": False,
         "default": "",
     }
+    assert call_inputs["require_password"] == {
+        "description": "wrapper 수동 실행이면 관리자 수집 암호 검증을 강제",
+        "type": "boolean",
+        "required": False,
+        "default": False,
+    }
 
     refresh_with = refresh["jobs"]["refresh"]["with"]
     assert refresh_with["password"] == "${{ inputs.password || '' }}"
+    assert refresh_with["require_password"] == "${{ github.event_name == 'workflow_dispatch' }}"
     assert refresh_with["manual_target"] == "특판만"
 
     collect_text = COLLECT.read_text(encoding="utf-8")
-    assert "if: ${{ github.event_name == 'workflow_dispatch' }}" in collect_text
+    assert (
+        "if: ${{ github.event_name == 'workflow_dispatch' || inputs.require_password }}"
+        in collect_text
+    )
     assert "GIVEN: ${{ inputs.password }}" in collect_text
