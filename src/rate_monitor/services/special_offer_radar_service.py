@@ -43,7 +43,7 @@ _TERM_FIELDS = (
     "eligibility_text",
     "early_termination_text",
 )
-_EMPTY_RATE = {
+# R3-D catalog augments Radar only; FSB history still resolves through R3-C fail-closed state.\n_EMPTY_RATE = {
     "representative_rate": None,
     "rate_source_effective_at": None,
     "rate_last_seen_at": None,
