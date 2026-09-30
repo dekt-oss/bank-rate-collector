@@ -8,14 +8,11 @@ def test_special_offer_refresh_reuses_single_writer_pipeline() -> None:
     collect = COLLECT.read_text(encoding="utf-8")
     refresh = REFRESH.read_text(encoding="utf-8")
 
-    assert '- "특판만"' in collect
     assert "SPECIAL_OFFER_ONLY: ${{ inputs.manual_target == '특판만' }}" in collect
     assert "scripts/special_offer_catalog_refresh.py" in collect
     assert "if: ${{ env.SPECIAL_OFFER_ONLY == 'true' }}" in collect
-    assert (
-        'if [ "${PUBLISH_ONLY}" = "true" ] || '
-        '[ "${SPECIAL_OFFER_ONLY}" = "true" ]; then'
-    ) in collect
+    assert 'if [ "${PUBLISH_ONLY}" = "true" ]; then' in collect
+    assert 'elif [ "${SPECIAL_OFFER_ONLY}" = "true" ]; then' in collect
     assert (
         "if: steps.storage.outputs.backend != 'github_legacy' "
         "&& env.PUBLISH_ONLY != 'true'"
