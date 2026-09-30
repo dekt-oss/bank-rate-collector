@@ -6,6 +6,7 @@ on:
     branches:
       - "feat/special-offer-radar-*"
       - "feat/special-offer-r3c-*"
+      - "fix/special-offer-r3c-*"
       - "feat/special-offer-r3d-*"
     paths:
       - ".github/workflows/special-offer-radar-runtime-evidence.yml"
@@ -188,7 +189,7 @@ jobs:
               "institution_name": "과거저축은행",
               "product_name": "종료 특판 정기적금",
               "special_offer_terms": {
-                  "special_rate": "5.10",
+                  "special_rate": None,
                   "special_rate_basis": "explicit_notice_special_rate",
                   "sale_start": "2025-01-01",
                   "sale_end": "2025-03-31",
