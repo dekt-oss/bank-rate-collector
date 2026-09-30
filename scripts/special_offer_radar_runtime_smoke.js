@@ -233,7 +233,7 @@ async function inspectSyntheticRadar(page) {
   for (const expected of [
     "과거저축은행",
     "종료 특판 정기적금",
-    "5.10%",
+    "—",
     "2025-01-01 ~ 2025-03-31",
     "1만좌 한도",
     "실명의 개인",

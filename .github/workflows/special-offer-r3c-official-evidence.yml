@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - "feat/special-offer-r3c-*"
+      - "fix/special-offer-r3c-*"
     paths:
       - ".github/workflows/special-offer-r3c-official-evidence.yml"
       - "config/special_offer_official_targets.json"
@@ -135,6 +136,20 @@ jobs:
               "binding_targets": bindings["targets"],
           }, ensure_ascii=False, indent=2))
 
+          captures_by_id = {item["target_id"]: item for item in capture["captures"]}
+          expected_confirmed = {
+              "welcome-likit-1130313563",
+              "welcome-digiloca-1130313564",
+              "daishin-corporate-free-588",
+          }
+          for target_id in expected_confirmed:
+              assert captures_by_id[target_id]["classification_candidate"] == "confirmed_special_candidate"
+          if "ibksb-blue-dragon-502132836" in captures_by_id:
+              assert (
+                  captures_by_id["ibksb-blue-dragon-502132836"]["classification_candidate"]
+                  == "confirmed_special_candidate"
+              )
+
           candidates = [
               item for item in capture["captures"]
               if item["classification_candidate"] == "confirmed_special_candidate"
@@ -143,9 +158,11 @@ jobs:
           assert any(item["availability"]["status"] == "confirmed_ended" for item in candidates)
 
           for item in candidates:
-              assert item["availability"]["status"] in {"confirmed_active", "confirmed_ended", "unknown"}
-              if item["availability"]["status"] == "confirmed_active":
-                  raise AssertionError("R3-C capture must not infer active sale without explicit source")
+              status = item["availability"]["status"]
+              assert status in {"confirmed_active", "confirmed_ended", "unknown"}
+              if status == "confirmed_active":
+                  assert item["availability"]["source_locator"]
+                  assert item["availability"]["assertion_text"]
 
           daishin = next(item for item in candidates if item['target_id'] == 'daishin-corporate-free-588')
           assert daishin["special_offer_terms"]["special_rate"] is not None

@@ -150,6 +150,9 @@ def _evidence(
     observed_at: datetime = T0,
     content_hash: str,
     evidence_extra: dict | None = None,
+    snapshot_as_of: date = DAY,
+    effective_from: date | None = None,
+    effective_to: date | None = None,
 ) -> SpecialOfferEvidenceInput:
     confirming = classification != UNKNOWN
     return SpecialOfferEvidenceInput(
@@ -158,11 +161,13 @@ def _evidence(
         source_product_key="source-product-1",
         classification=classification,
         evidence_kind=EXPLICIT_SOURCE_FIELD if confirming else SOURCE_SNAPSHOT,
-        snapshot_as_of=DAY,
+        snapshot_as_of=snapshot_as_of,
         observed_at=observed_at,
         source_locator="$.REC[0]",
         evidence_ref="https://bank.example/products/1",
         content_hash=content_hash,
+        source_effective_from=effective_from,
+        source_effective_to=effective_to,
         evidence={
             "identity_scope": "exact_product",
             **({"explicit_assertion": classification} if confirming else {}),
@@ -395,6 +400,124 @@ def test_confirmed_ended_offer_enters_history_not_current_tab(tmp_path: Path) ->
     assert payload["availability_counts"]["confirmed_ended"] == 1
 
 
+def test_unknown_availability_moves_to_history_after_explicit_period_expires(
+    tmp_path: Path,
+) -> None:
+    db_path, factory = _db(tmp_path)
+    ended_on = DAY
+    with session_scope(factory) as session:
+        _seed(session)
+        append_special_offer_evidence(
+            session,
+            _evidence(
+                CONFIRMED_SPECIAL,
+                content_hash="sha256:period-special",
+                effective_from=DAY - timedelta(days=30),
+                effective_to=ended_on,
+                evidence_extra={
+                    "special_offer_terms": {
+                        "special_rate": None,
+                        "special_rate_basis": "explicit_special_rate_not_single-valued",
+                        "sale_start": (DAY - timedelta(days=30)).isoformat(),
+                        "sale_end": ended_on.isoformat(),
+                        "quota_text": None,
+                        "quota_amount_krw": None,
+                        "quota_accounts": None,
+                        "eligibility_text": None,
+                        "early_termination_text": None,
+                    },
+                    "availability": {
+                        "status": "unknown",
+                        "assertion_text": None,
+                        "observed_at": T0.isoformat(),
+                        "source_locator": None,
+                    },
+                },
+            ),
+        )
+
+    payload = build_special_offer_radar(
+        db_path,
+        as_of=DAY + timedelta(days=1),
+        known_at=T0,
+    )
+    assert payload["current_offers"] == []
+    assert len(payload["past_offers"]) == 1
+    assert payload["past_offers"][0]["availability_status"] == "confirmed_ended"
+    assert payload["availability_counts"]["confirmed_ended"] == 1
+
+
+def test_history_deduplicates_repeated_confirmation_and_honors_later_correction(
+    tmp_path: Path,
+) -> None:
+    db_path, factory = _db(tmp_path)
+    later = T0 + timedelta(hours=1)
+    corrected = T0 + timedelta(hours=2)
+    ended = {
+        "special_offer_terms": {
+            "special_rate": "3.25",
+            "special_rate_basis": "explicit_notice_special_rate",
+            "sale_start": "2024-09-26",
+            "sale_end": DAY.isoformat(),
+            "quota_text": "2,000억 한도",
+            "quota_amount_krw": 200_000_000_000,
+            "quota_accounts": None,
+            "eligibility_text": "법인, 개인사업자",
+            "early_termination_text": "한도 소진시 조기마감",
+        },
+        "availability": {
+            "status": "confirmed_ended",
+            "assertion_text": "판매 종료",
+            "observed_at": T0.isoformat(),
+            "source_locator": "https://bank.example/notices/1",
+        },
+    }
+    with session_scope(factory) as session:
+        _seed(session)
+        append_special_offer_evidence(
+            session,
+            _evidence(
+                CONFIRMED_SPECIAL,
+                content_hash="sha256:ended-special-v1",
+                evidence_extra=ended,
+            ),
+        )
+        append_special_offer_evidence(
+            session,
+            _evidence(
+                CONFIRMED_SPECIAL,
+                observed_at=later,
+                content_hash="sha256:ended-special-v2",
+                evidence_extra=ended,
+            ),
+        )
+
+    repeated = build_special_offer_radar(db_path, known_at=later)
+    assert len(repeated["past_offers"]) == 1
+    assert len(repeated["past_offers"][0]["evidence_ids"]) == 1
+
+    with session_scope(factory) as session:
+        append_special_offer_evidence(
+            session,
+            _evidence(
+                CONFIRMED_NORMAL,
+                observed_at=corrected,
+                content_hash="sha256:corrected-normal",
+                evidence_extra={
+                    "availability": {
+                        "status": "confirmed_ended",
+                        "assertion_text": "판매 종료",
+                        "observed_at": corrected.isoformat(),
+                        "source_locator": "https://bank.example/notices/1",
+                    }
+                },
+            ),
+        )
+
+    corrected_payload = build_special_offer_radar(db_path, known_at=corrected)
+    assert corrected_payload["past_offers"] == []
+
+
 def test_confirmed_normal_and_conflict_are_excluded(tmp_path: Path) -> None:
     db_path, factory = _db(tmp_path)
     with session_scope(factory) as session:
@@ -442,6 +565,7 @@ def test_radar_presentation_is_read_only_and_idempotent() -> None:
     assert "조기종료 조건" in rendered
     assert "판매상태·공식근거" in rendered
     assert "availability_assertion" in rendered
+    assert 'v==null||String(v).trim()===""?"—"' in rendered
     assert "unknown" in rendered
     assert "<form" not in rendered.lower()
     assert 'type="submit"' not in rendered.lower()

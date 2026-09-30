@@ -16,6 +16,7 @@ ENGINE_MARKER = 'id="public-structural-v2-engine-bundle"'
 SCRIPT_MARKER = 'id="public-structural-v2-cockpit-script"'
 
 _ENGINE_FILES = (
+    "enrollment_filter.js",
     "inflow_engine.js",
     "market_position.js",
     "decision_contract.js",
@@ -89,7 +90,9 @@ _JS = r"""
       sector:get(row,"sector"),product_type:get(row,"product_type"),term_months:Number(get(row,"term_months")),
       max_rate:finite(get(row,"max_rate")),product_id:String(get(row,"product_id")??""),
       institution:String(get(row,"institution")??""),product:String(get(row,"product")??""),
-      source_effective_at:String(get(row,"source_effective_at")??"")
+      source_effective_at:String(get(row,"source_effective_at")??""),
+      join_channel:String(get(row,"join_channel")??""),
+      preference_tags:String(get(row,"preference_tags")??"")
     }));
   }
   async function loadTable(){
@@ -111,6 +114,17 @@ _JS = r"""
     return["savings_bank",...mutual];
   }
   function selectedTerm(){return Number(document.querySelector("#term-segment button.active")?.dataset.term||12);}
+  function enrollmentMode(){return document.querySelector("[data-rds-enrollment].active")?.dataset.rdsEnrollment||"all";}
+  function enrollmentLabel(mode){
+    return typeof StrategyEnrollmentFilter==="object"
+      ?StrategyEnrollmentFilter.label(mode)
+      :(mode==="remote"?"비대면":mode==="face"?"대면":"전체");
+  }
+  function enrollmentMatches(row,mode){
+    if(mode==="all")return true;
+    if(typeof StrategyEnrollmentFilter!=="object")throw new Error("가입방식 분류 계약이 없습니다.");
+    return StrategyEnrollmentFilter.matches(row,mode);
+  }
   function proposalRate(){
     const base=finite($("base-n")?.value),bonus=finite($("bonus-n")?.value);
     return base===null||bonus===null?null:Number((base+bonus).toFixed(4));
@@ -122,22 +136,22 @@ _JS = r"""
       current_rollover_rate_pct:finite($("rollover-rate")?.value)
     };
   }
-  function aggregate(rows,term,sectors){
+  function aggregate(rows,term,sectors,enrollment){
     const allowed=new Set(sectors),map=new Map();
     for(const row of rows){
-      if(!allowed.has(row.sector)||row.product_type!=="term_deposit"||row.term_months!==term||row.max_rate===null||!row.product_id)continue;
+      if(!allowed.has(row.sector)||row.product_type!=="term_deposit"||row.term_months!==term||row.max_rate===null||!row.product_id||!enrollmentMatches(row,enrollment))continue;
       const key=`${row.sector}\0${row.product_id}\0${term}`,old=map.get(key);
       if(!old||row.max_rate>old.max_rate||(row.max_rate===old.max_rate&&row.source_effective_at>old.source_effective_at))map.set(key,row);
     }
     return [...map.values()].sort((a,b)=>b.max_rate-a.max_rate||a.institution.localeCompare(b.institution,"ko")||a.product.localeCompare(b.product,"ko"));
   }
   function marketContext(rows){
-    const term=selectedTerm(),sectors=activeSectors(),products=aggregate(rows,term,sectors);
+    const term=selectedTerm(),sectors=activeSectors(),enrollment=enrollmentMode(),products=aggregate(rows,term,sectors,enrollment);
     const anchor=products.filter(row=>row.sector==="savings_bank"&&row.institution===OUR_INSTITUTION)
       .sort((a,b)=>b.max_rate-a.max_rate||a.product_id.localeCompare(b.product_id))[0];
-    if(!anchor)throw new Error("현재 선택 범위에서 고려저축은행 anchor 상품을 찾지 못했습니다.");
+    if(!anchor)throw new Error(`현재 ${enrollmentLabel(enrollment)} 조건에서 고려저축은행 anchor 상품을 찾지 못했습니다.`);
     const marketRows=products.map(row=>({product_id:`${row.sector}:${row.product_id}`,rate:row.max_rate}));
-    return {term,sectors,products,anchor,anchorId:`${anchor.sector}:${anchor.product_id}`,marketRows};
+    return {term,sectors,enrollment,products,anchor,anchorId:`${anchor.sector}:${anchor.product_id}`,marketRows};
   }
   function ensureHost(){
     const panel=$("prediction-panel");if(!panel)return null;
@@ -195,13 +209,13 @@ _JS = r"""
     }).join("");
   }
   function marketOnlyHtml(position,current,proposal){
-    return `<div class="psv2-head"><div><h3>금리결정 Cockpit</h3><p>실제 시장위치와 미보정 구조 시나리오를 분리해 비교합니다.</p></div><span class="psv2-badge">PUBLIC STRUCTURAL v2</span></div><div class="psv2-decision"><div class="psv2-card"><span class="psv2-kicker">제안금리</span><strong>${pct(proposal)}</strong><small>현재 ${pct(current)} · ${proposal>=current?"+":""}${((proposal-current)*100).toFixed(0)}bp</small></div><div class="psv2-card market"><span class="psv2-kicker">실제 시장 위치</span><strong class="green">${rankText(position)}</strong><small>동률 비교상품 ${position.tie_competitor_count}개 · TOP10 ${pct(position.top10_cutoff)}</small><div class="minor">TOP25 ${pct(position.top25_cutoff)} · 중앙값 ${pct(position.median_rate)}</div></div><div class="psv2-card scenario"><span class="psv2-kicker">미보정 구조 시나리오</span><strong class="gold">입력 3개 필요</strong><small>최근 월 신규수신 · 다음 만기도래액 · 현재 재예치율을 입력하면 stress range를 표시합니다.</small></div></div><div class="psv2-separator">시장 사실과 구조 시나리오는 별도 정보입니다</div><div class="psv2-grid"><div class="psv2-panel"><div class="psv2-panel-head"><b>Market Position Ladder</b><span>동일금리는 동률로 겹쳐 표시</span></div><div class="psv2-ladder"><div class="psv2-ladder-line"></div>${ladderHtml(position,current,proposal)}</div><div class="psv2-crowding"><div class="psv2-mini"><span>정확 동률</span><b>${position.exact_tie_count}개</b></div><div class="psv2-mini"><span>±5bp 내</span><b>${position.within_5bp_count}개</b></div><div class="psv2-mini"><span>새로 엄격 우위</span><b>${position.newly_outpriced}개</b></div><div class="psv2-mini"><span>새로 동률</span><b>${position.newly_tied}개</b></div></div></div><div class="psv2-panel"><div class="psv2-panel-head"><b>수신반응 Response Surface</b><span>수신 입력 전에는 계산하지 않음</span></div><div class="psv2-empty">세 입력값을 넣으면 기준 민감도 선과 min/max stress band를 표시합니다.<br>시장 순위·밀집도는 금액식에 직접 반영되지 않습니다.</div></div></div>`;
+    return `<div class="psv2-head"><div><h3>금리결정 Cockpit</h3><p>실제 시장위치와 미보정 구조 시나리오를 분리해 비교합니다.</p></div><span class="psv2-badge">PUBLIC STRUCTURAL v2</span></div><div class="psv2-decision"><div class="psv2-card"><span class="psv2-kicker">제안금리</span><strong>${pct(proposal)}</strong><small>현재 ${pct(current)} · ${proposal>=current?"+":""}${((proposal-current)*100).toFixed(0)}bp</small></div><div class="psv2-card market"><span class="psv2-kicker">실제 시장 위치 · ${enrollmentLabel(enrollmentMode())}</span><strong class="green">${rankText(position)}</strong><small>동률 비교상품 ${position.tie_competitor_count}개 · TOP10 ${pct(position.top10_cutoff)}</small><div class="minor">TOP25 ${pct(position.top25_cutoff)} · 중앙값 ${pct(position.median_rate)}</div></div><div class="psv2-card scenario"><span class="psv2-kicker">미보정 구조 시나리오</span><strong class="gold">입력 3개 필요</strong><small>최근 월 신규수신 · 다음 만기도래액 · 현재 재예치율을 입력하면 stress range를 표시합니다.</small></div></div><div class="psv2-separator">시장 사실과 구조 시나리오는 별도 정보입니다</div><div class="psv2-grid"><div class="psv2-panel"><div class="psv2-panel-head"><b>Market Position Ladder</b><span>동일금리는 동률로 겹쳐 표시</span></div><div class="psv2-ladder"><div class="psv2-ladder-line"></div>${ladderHtml(position,current,proposal)}</div><div class="psv2-crowding"><div class="psv2-mini"><span>정확 동률</span><b>${position.exact_tie_count}개</b></div><div class="psv2-mini"><span>±5bp 내</span><b>${position.within_5bp_count}개</b></div><div class="psv2-mini"><span>새로 엄격 우위</span><b>${position.newly_outpriced}개</b></div><div class="psv2-mini"><span>새로 동률</span><b>${position.newly_tied}개</b></div></div></div><div class="psv2-panel"><div class="psv2-panel-head"><b>수신반응 Response Surface</b><span>수신 입력 전에는 계산하지 않음</span></div><div class="psv2-empty">세 입력값을 넣으면 기준 민감도 선과 min/max stress band를 표시합니다.<br>시장 순위·밀집도는 금액식에 직접 반영되지 않습니다.</div></div></div>`;
   }
   function fullHtml(surface,marginal,current,proposal){
     const proposalKey=Number(proposal).toFixed(4),forecast=(surface.forecast?.scenarios||[]).find(row=>Number(row.rate_pct).toFixed(4)===proposalKey),position=(surface.market_positions||[]).find(row=>Number(row.proposal_rate).toFixed(4)===proposalKey);
     const nextMarginal=(marginal?.marginals||[]).find(row=>Math.abs(row.from_rate_pct-proposal)<.00005)||null;
     const costCopy=nextMarginal?`${pct(nextMarginal.from_rate_pct)} → ${pct(nextMarginal.to_rate_pct)} · ${signedAmount(nextMarginal.surface_interest_delta)}`:"제안금리가 5bp grid 밖이면 비교 없음";
-    return `<div class="psv2-head"><div><h3>금리결정 Cockpit</h3><p>실제 시장위치 → 별도 구조 시나리오 → 고정 5bp 표면비용 순서로 읽습니다.</p></div><span class="psv2-badge">PUBLIC STRUCTURAL v2</span></div><div class="psv2-decision"><div class="psv2-card"><span class="psv2-kicker">제안금리</span><strong>${pct(proposal)}</strong><small>현재 ${pct(current)} · ${proposal>=current?"+":""}${((proposal-current)*100).toFixed(0)}bp</small></div><div class="psv2-card market"><span class="psv2-kicker">실제 시장 위치</span><strong class="green">${rankText(position)}</strong><small>동률 ${position.tie_competitor_count}개 · TOP10 ${pct(position.top10_cutoff)} · TOP25 ${pct(position.top25_cutoff)}</small><div class="minor">±5bp 경쟁상품 ${position.within_5bp_count}개 · 새로 엄격 우위 ${position.newly_outpriced}개</div></div><div class="psv2-card scenario"><span class="psv2-kicker">미보정 구조 시나리오</span><strong class="gold">${amount(forecast.predicted_total)}</strong><small>stress range ${amount(forecast.predicted_total_lower)} ~ ${amount(forecast.predicted_total_upper)}</small><div class="minor">현재 대비 ${signedAmount(forecast.incremental_total)} · 다음 5bp 표면비용 ${costCopy}</div></div></div><div class="psv2-separator">시장 사실 ≠ 수신금액의 직접 원인</div><div class="psv2-grid"><div class="psv2-panel"><div class="psv2-panel-head"><b>Market Position Ladder</b><span>시장 최고 · TOP10 · TOP25 · 중앙값 · 현재 · 제안</span></div><div class="psv2-ladder"><div class="psv2-ladder-line"></div>${ladderHtml(position,current,proposal)}</div><div class="psv2-crowding"><div class="psv2-mini"><span>정확 동률</span><b>${position.exact_tie_count}개</b></div><div class="psv2-mini"><span>±5bp 내</span><b>${position.within_5bp_count}개</b></div><div class="psv2-mini"><span>새로 엄격 우위</span><b>${position.newly_outpriced}개</b></div><div class="psv2-mini"><span>새로 동률</span><b>${position.newly_tied}개</b></div></div></div><div class="psv2-panel"><div class="psv2-panel-head"><b>Response Surface</b><span>기준 민감도 + 실제 min/max stress band</span></div>${chartHtml(surface,proposal)}</div></div><div class="psv2-disclosure"><b>해석 주의:</b> ${surface.disclosure} 음영은 confidence/prediction interval이 아니라 저·기준·고 민감도 결과의 실제 최소~최대 범위입니다.</div><div><div class="psv2-panel-head"><b>후보금리 비교</b><span>고정 5bp grid + 현재 제안 · off-grid 제안의 marginal은 —</span></div><div class="psv2-table-wrap"><table class="psv2-table"><thead><tr><th>금리</th><th>공동순위 범위</th><th>동률</th><th>시장 threshold</th><th>기준 총수신</th><th>stress range</th><th>현재 대비</th><th>직전 5bp 표면비용</th></tr></thead><tbody>${candidateTable(surface,marginal,current,proposal)}</tbody></table></div><div class="psv2-table-foot"><span>표면비용은 단순 표면이자 변화액이며 FTP/ALM 경제원가가 아닙니다.</span><span>수신 1억원당 비용·연환산 한계조달금리는 현재 버전에서 노출하지 않습니다.</span></div></div>`;
+    return `<div class="psv2-head"><div><h3>금리결정 Cockpit</h3><p>실제 시장위치 → 별도 구조 시나리오 → 고정 5bp 표면비용 순서로 읽습니다.</p></div><span class="psv2-badge">PUBLIC STRUCTURAL v2</span></div><div class="psv2-decision"><div class="psv2-card"><span class="psv2-kicker">제안금리</span><strong>${pct(proposal)}</strong><small>현재 ${pct(current)} · ${proposal>=current?"+":""}${((proposal-current)*100).toFixed(0)}bp</small></div><div class="psv2-card market"><span class="psv2-kicker">실제 시장 위치 · ${enrollmentLabel(enrollmentMode())}</span><strong class="green">${rankText(position)}</strong><small>동률 ${position.tie_competitor_count}개 · TOP10 ${pct(position.top10_cutoff)} · TOP25 ${pct(position.top25_cutoff)}</small><div class="minor">±5bp 경쟁상품 ${position.within_5bp_count}개 · 새로 엄격 우위 ${position.newly_outpriced}개</div></div><div class="psv2-card scenario"><span class="psv2-kicker">미보정 구조 시나리오</span><strong class="gold">${amount(forecast.predicted_total)}</strong><small>stress range ${amount(forecast.predicted_total_lower)} ~ ${amount(forecast.predicted_total_upper)}</small><div class="minor">현재 대비 ${signedAmount(forecast.incremental_total)} · 다음 5bp 표면비용 ${costCopy}</div></div></div><div class="psv2-separator">시장 사실 ≠ 수신금액의 직접 원인</div><div class="psv2-grid"><div class="psv2-panel"><div class="psv2-panel-head"><b>Market Position Ladder</b><span>시장 최고 · TOP10 · TOP25 · 중앙값 · 현재 · 제안</span></div><div class="psv2-ladder"><div class="psv2-ladder-line"></div>${ladderHtml(position,current,proposal)}</div><div class="psv2-crowding"><div class="psv2-mini"><span>정확 동률</span><b>${position.exact_tie_count}개</b></div><div class="psv2-mini"><span>±5bp 내</span><b>${position.within_5bp_count}개</b></div><div class="psv2-mini"><span>새로 엄격 우위</span><b>${position.newly_outpriced}개</b></div><div class="psv2-mini"><span>새로 동률</span><b>${position.newly_tied}개</b></div></div></div><div class="psv2-panel"><div class="psv2-panel-head"><b>Response Surface</b><span>기준 민감도 + 실제 min/max stress band</span></div>${chartHtml(surface,proposal)}</div></div><div class="psv2-disclosure"><b>해석 주의:</b> ${surface.disclosure} 음영은 confidence/prediction interval이 아니라 저·기준·고 민감도 결과의 실제 최소~최대 범위입니다.</div><div><div class="psv2-panel-head"><b>후보금리 비교</b><span>고정 5bp grid + 현재 제안 · off-grid 제안의 marginal은 —</span></div><div class="psv2-table-wrap"><table class="psv2-table"><thead><tr><th>금리</th><th>공동순위 범위</th><th>동률</th><th>시장 threshold</th><th>기준 총수신</th><th>stress range</th><th>현재 대비</th><th>직전 5bp 표면비용</th></tr></thead><tbody>${candidateTable(surface,marginal,current,proposal)}</tbody></table></div><div class="psv2-table-foot"><span>표면비용은 단순 표면이자 변화액이며 FTP/ALM 경제원가가 아닙니다.</span><span>수신 1억원당 비용·연환산 한계조달금리는 현재 버전에서 노출하지 않습니다.</span></div></div>`;
   }
   async function render(){
     const token=++renderToken,host=ensureHost();if(!host)return;
@@ -230,6 +244,7 @@ _JS = r"""
     const host=ensureHost();if(!host)return;host.dataset.installed="1";
     ["baseline-new","maturity-amount","rollover-rate","base-n","bonus-n","base-r","bonus-r"].forEach(id=>{const el=$(id);if(el){el.addEventListener("input",()=>setTimeout(render,0));el.addEventListener("change",()=>setTimeout(render,0));}});
     document.querySelectorAll("[data-market-mode],[data-sector],#term-segment button").forEach(el=>el.addEventListener("click",()=>setTimeout(render,40)));
+    document.addEventListener("strategy-rds-enrollment-change",()=>setTimeout(render,0));
     render();
   }
   if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",install,{once:true});else install();

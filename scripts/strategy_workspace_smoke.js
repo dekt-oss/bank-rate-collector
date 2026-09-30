@@ -163,7 +163,10 @@ async function assertDecisionIA(page, label) {
       navItems,
       navVisible: visible(nav),
       planningHeadlineVisible: visible(document.getElementById("lean-planning-headline")),
-      planningDetailClosed: Boolean(document.getElementById("lean-planning-detail") && !document.getElementById("lean-planning-detail").open),
+      planningDetailOpen: Boolean(document.getElementById("lean-planning-detail")?.open),
+      predictionPanelVisible: visible(document.getElementById("prediction-panel")),
+      predictionExpanded: document.getElementById("prediction-toggle")?.getAttribute("aria-expanded") || "",
+      predictionToggleText: document.getElementById("prediction-toggle")?.textContent.trim() || "",
       coreSimulatorVisible: visible(document.getElementById("sim-form")),
       institutionDetailClosed: Boolean(document.getElementById("lean-institution-detail") && !document.getElementById("lean-institution-detail").open),
       preferenceDetailClosed: Boolean(document.getElementById("lean-preference-detail") && !document.getElementById("lean-preference-detail").open),
@@ -186,14 +189,20 @@ async function assertDecisionIA(page, label) {
   invariant(result.eventTileHidden && result.duplicateHidden.every(Boolean), label + ": redundant/event surfaces remain visible " + JSON.stringify(result.duplicateHidden));
   invariant(
     result.planningHeadlineVisible
-      && result.planningDetailClosed
-      && !result.coreSimulatorVisible
+      && result.planningDetailOpen
+      && result.predictionPanelVisible
+      && result.predictionExpanded === "true"
+      && result.predictionToggleText === "예측엔진 닫기"
+      && result.coreSimulatorVisible
       && result.institutionDetailClosed
       && result.preferenceDetailClosed
       && result.specialDetailClosed,
     label + ": progressive disclosure defaults wrong " + JSON.stringify({
       planningHeadline: result.planningHeadlineVisible,
-      planningDetail: result.planningDetailClosed,
+      planningDetailOpen: result.planningDetailOpen,
+      predictionPanel: result.predictionPanelVisible,
+      predictionExpanded: result.predictionExpanded,
+      predictionToggleText: result.predictionToggleText,
       coreSimulator: result.coreSimulatorVisible,
       institution: result.institutionDetailClosed,
       preference: result.preferenceDetailClosed,
@@ -369,6 +378,68 @@ async function assertTrend(page, label) {
   await page.locator('#decision-trend-toggle button[data-trend-mode="level"]').click();
 }
 
+async function assertRateDecisionSimulator(page, label) {
+  await page.waitForSelector("#strategy-rate-decision-simulator", { state: "visible", timeout: 10_000 });
+  const initial = await page.evaluate(() => {
+    const visible = (node) => Boolean(node && !node.hidden && getComputedStyle(node).display !== "none" && node.getClientRects().length > 0);
+    return {
+      inputVisible: visible(document.querySelector(".rds-input-panel")),
+      outputVisible: visible(document.querySelector(".rds-output-panel")),
+      activeMode: document.querySelector("[data-rds-mode].active")?.dataset.rdsMode || "",
+      enrollment: document.querySelector("[data-rds-enrollment].active")?.dataset.rdsEnrollment || "",
+      basis: document.getElementById("rds-result-basis")?.textContent || "",
+      rateTitle: document.getElementById("rds-rate-title")?.textContent || "",
+    };
+  });
+  invariant(initial.inputVisible && initial.outputVisible, `${label}: simulator input/output panels are not visibly separated ${JSON.stringify(initial)}`);
+  invariant(initial.activeMode === "rate" && initial.enrollment === "all", `${label}: simulator defaults=${JSON.stringify(initial)}`);
+  invariant(initial.rateTitle === "검토금리", `${label}: default rate result label=${initial.rateTitle}`);
+
+  await page.locator('[data-rds-mode="target"]').click();
+  await page.locator("#rds-target-total").fill("1");
+  await page.waitForFunction(() => {
+    const rate = document.getElementById("rds-rate")?.textContent || "";
+    const title = document.getElementById("rds-rate-title")?.textContent || "";
+    const note = document.getElementById("rds-rate-note")?.textContent || "";
+    return title === "추천 검토금리" && rate.includes("%") && note.includes("추천");
+  });
+  const target = await page.evaluate(() => ({
+    title: document.getElementById("rds-rate-title")?.textContent || "",
+    rate: document.getElementById("rds-rate")?.textContent || "",
+    note: document.getElementById("rds-rate-note")?.textContent || "",
+    deltaTitle: document.getElementById("rds-delta-title")?.textContent || "",
+    delta: document.getElementById("rds-delta")?.textContent || "",
+    deltaNote: document.getElementById("rds-delta-note")?.textContent || "",
+  }));
+  invariant(target.title === "추천 검토금리" && target.deltaTitle === "목표 대비", `${label}: target output labels=${JSON.stringify(target)}`);
+  invariant(target.note.includes("existing candidate") && (target.note.includes("자동 최적화 아님") || target.note.includes("더 낮은 금리는 지원범위 밖")), `${label}: target bounded-selection copy=${target.note}`);
+
+  const channelCounts = {};
+  for (const mode of ["remote", "face"]) {
+    await page.locator(`[data-rds-enrollment="${mode}"]`).click();
+    const labelText = mode === "remote" ? "비대면" : "대면";
+    await page.waitForFunction(
+      (expected) => (document.getElementById("rds-result-basis")?.textContent || "").includes(expected),
+      labelText,
+    );
+    const state = await page.evaluate(() => ({
+      basis: document.getElementById("rds-result-basis")?.textContent || "",
+      rate: document.getElementById("rds-rate")?.textContent || "",
+      peerText: document.getElementById("rds-peers")?.textContent || "",
+    }));
+    const count = Number((state.basis.match(/비교상품\s+([\d,]+)개/)?.[1] || "0").replace(/,/g, ""));
+    channelCounts[mode] = count;
+    invariant(count > 0 && state.rate.includes("%"), `${label}: ${labelText} scoped result unavailable ${JSON.stringify(state)}`);
+    invariant(state.peerText.includes("가입방식별 peer 계약이 없습니다"), `${label}: Relative Pricing must fail closed for ${labelText}`);
+  }
+  invariant(channelCounts.remote !== channelCounts.face, `${label}: channel filter did not change market universe ${JSON.stringify(channelCounts)}`);
+
+  await page.locator('[data-rds-enrollment="all"]').click();
+  await page.waitForFunction(() => (document.getElementById("rds-result-basis")?.textContent || "").includes("전체"));
+  await page.locator('[data-rds-mode="rate"]').click();
+  await page.waitForFunction(() => document.getElementById("rds-rate-title")?.textContent === "검토금리");
+}
+
 async function assertVisualRuntimeContracts(page, label) {
   await page.waitForSelector("#strategy-rate-decision-simulator", { state: "visible", timeout: 10_000 });
   const legacyDetails = page.locator("#strategy-rate-decision-simulator details.rds-details");
@@ -528,7 +599,7 @@ async function runViewport(browser, label, viewport) {
   const predictionToggle = page.locator("#prediction-toggle");
   const predictionPanel = page.locator("#prediction-panel");
   await predictionToggle.waitFor({ state: "visible", timeout: 10_000 });
-  if (await predictionPanel.isHidden()) await predictionToggle.click();
+  invariant(!(await predictionPanel.isHidden()), `${label}: prediction engine must be visible by default`);
   await page.waitForFunction(() => document.getElementById("lean-planning-detail")?.open === true, null, { timeout: 10_000 });
   await page.waitForFunction(
     () => document.getElementById("prediction-panel")?.hidden === false
@@ -538,6 +609,7 @@ async function runViewport(browser, label, viewport) {
   );
   await page.locator("#baseline-new").waitFor({ state: "visible", timeout: 10_000 });
   await assertPrediction(page, label);
+  await assertRateDecisionSimulator(page, label);
   await assertVisualRuntimeContracts(page, label);
   await assertMarketEvidence(page, label);
   await assertTrend(page, label);

@@ -149,6 +149,62 @@ def test_sale_stop_surface_can_confirm_ended_for_exact_product() -> None:
     assert "판매중지" in result["availability"]["assertion_text"]
 
 
+def test_conflicting_period_end_and_active_surface_fail_closed() -> None:
+    target = {
+        **_target(),
+        "availability_source": {
+            "url": "https://www.welcomebank.co.kr/active",
+            "status": "confirmed_active",
+            "required_phrase": "판매중",
+        },
+    }
+    primary = (
+        "웰컴 디지로카 100일적금 특판 상품 가입대상 실명의 개인 가입기간 100일 "
+        "특판기간 : 2024.07.22. ~ 2024.12.31. 특판소진 시 조기 종료"
+    )
+    active = "웰컴 디지로카 100일적금 판매중"
+    result = MODULE.evaluate_target(
+        target,
+        _response(primary),
+        observed_at=NOW,
+        availability_response=_response(
+            active,
+            url=target["availability_source"]["url"],
+        ),
+    )
+    assert result["availability"]["status"] == "unknown"
+    assert "conflicting official availability evidence" in result["availability"]["assertion_text"]
+    assert result["availability"]["source_locator"] == target["availability_source"]["url"]
+
+
+def test_explicit_active_surface_can_confirm_current_sale() -> None:
+    target = {
+        **_target(),
+        "availability_source": {
+            "url": "https://www.welcomebank.co.kr/active",
+            "status": "confirmed_active",
+            "required_phrase": "판매중",
+        },
+    }
+    primary = (
+        "웰컴 디지로카 100일적금 특판 상품 가입대상 실명의 개인 가입기간 100일 "
+        "특판기간 : 2026.09.01. ~ 2026.10.31. 특판소진 시 조기 종료"
+    )
+    active = "웰컴 디지로카 100일적금 판매중"
+    result = MODULE.evaluate_target(
+        target,
+        _response(primary),
+        observed_at=NOW,
+        availability_response=_response(
+            active,
+            url=target["availability_source"]["url"],
+        ),
+    )
+    assert result["availability"]["status"] == "confirmed_active"
+    assert result["availability"]["source_locator"] == target["availability_source"]["url"]
+    assert "판매중" in result["availability"]["assertion_text"]
+
+
 def test_future_end_date_alone_never_confirms_active() -> None:
     terms = {"sale_end": "2026-12-28"}
     status, assertion = MODULE._availability_from_period(terms, observed_at=NOW)

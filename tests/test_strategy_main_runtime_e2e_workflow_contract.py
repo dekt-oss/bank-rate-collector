@@ -177,6 +177,9 @@ def test_strategy_lean_ia_density_smoke_compares_same_snapshot_main_and_candidat
     assert "strategy-density-candidate-" in text
     assert "scrollHeight" in text
     assert "reductionPct" in text
+    assert "compactReductionPct" in text
+    assert "planning detail must be open by default before density-only collapse" in text
     assert 'STRATEGY_DENSITY_MIN_REDUCTION_PCT || "20"' in text
     assert 'html[data-strategy-lean-ia="v3"]' in text
     assert "candidate horizontal overflow" in text
+    assert "compact candidate horizontal overflow" in text

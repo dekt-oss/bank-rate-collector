@@ -27,6 +27,17 @@ def test_built_strategy_contains_public_structural_v2_cockpit_and_engines() -> N
     assert "Public Structural v2 금리결정 Cockpit" in html
 
 
+def test_cockpit_consumes_shared_enrollment_filter_and_rerenders() -> None:
+    html = built_strategy_html()
+
+    assert "StrategyEnrollmentFilter=api" in html
+    assert "join_channel" in _JS
+    assert "preference_tags" in _JS
+    assert "StrategyEnrollmentFilter.matches" in _JS
+    assert "strategy-rds-enrollment-change" in _JS
+    assert "data-rds-enrollment" in _JS
+
+
 def test_cockpit_consumes_surface_and_marginal_not_raw_structural_formula() -> None:
     assert "PublicStructuralV2Surface.buildSurface" in _JS
     assert "PublicStructuralV2Marginal.buildFixed5bpMarginals" in _JS

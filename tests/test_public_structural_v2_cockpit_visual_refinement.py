@@ -50,6 +50,15 @@ def test_visual_refinement_merges_same_rate_ladder_markers() -> None:
     assert 'content:" · 동일금리"!important' in _CSS
 
 
+def test_visual_refinement_deconflicts_ladder_text_without_moving_markers() -> None:
+    assert "--ladder-text-shift" in _CSS
+    assert "deconflictLadderText" in _SCRIPT
+    assert 'rung.style.setProperty("--ladder-text-shift","0px")' in _SCRIPT
+    assert 'rung.querySelector("label")' in _SCRIPT
+    assert 'rung.querySelector("strong")' in _SCRIPT
+    assert "deconflictLadderText();" in _SCRIPT
+
+
 def test_visual_refinement_deconflicts_enlarged_chart_x_axis_labels() -> None:
     assert "deconflictChartAxisLabels" in _SCRIPT
     assert '.psv2-chart text.axis[text-anchor="middle"]' in _SCRIPT
