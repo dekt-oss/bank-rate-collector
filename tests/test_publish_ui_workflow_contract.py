@@ -13,3 +13,8 @@ def test_special_offer_radar_changes_trigger_publish_ui() -> None:
 
     for path in required_paths:
         assert f'- "{path}"' in text
+
+
+def test_publish_ui_completion_triggers_production_smoke() -> None:
+    text = Path(".github/workflows/production-smoke.yml").read_text(encoding="utf-8")
+    assert '- "Publish UI — main presentation changes"' in text
