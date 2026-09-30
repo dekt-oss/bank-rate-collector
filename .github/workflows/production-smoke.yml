@@ -19,6 +19,7 @@ on:
       - "수집 — 일반·새마을금고"
       - "Collect bank rates fast"
       - "수집 — 농·축협"
+      - "Publish UI — main presentation changes"
     types: [completed]
 
 permissions:
