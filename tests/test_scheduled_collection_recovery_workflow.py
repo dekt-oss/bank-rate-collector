@@ -5,6 +5,7 @@ from pathlib import Path
 import yaml
 
 WORKFLOW = Path(".github/workflows/recover-failed-scheduled-collection.yml")
+MORNING_RECOVERY = Path(".github/workflows/recover-morning-current-main.yml")
 
 
 def _text() -> str:
@@ -12,8 +13,9 @@ def _text() -> str:
 
 
 def test_recovery_workflow_yaml_parses() -> None:
-    payload = yaml.safe_load(_text())
-    assert isinstance(payload, dict)
+    for path in (WORKFLOW, MORNING_RECOVERY):
+        payload = yaml.safe_load(path.read_text(encoding="utf-8"))
+        assert isinstance(payload, dict)
 
 
 def test_recovery_is_bounded_to_terminal_schedules_and_proven_soft_failures() -> None:
@@ -42,6 +44,12 @@ def test_recovery_covers_all_canonical_scheduled_collectors() -> None:
     assert "nh_local_scope=\"전국\"" in text
     assert "mode=incremental" in text
 
+    morning = MORNING_RECOVERY.read_text(encoding="utf-8")
+    assert 'uses: ./.github/workflows/collect-nh.yml' in morning
+    assert 'uses: ./.github/workflows/collect-institution-funding.yml' in morning
+    assert 'uses: ./.github/workflows/collect.yml' in morning
+    assert 'manual_target: "아침 전체"' in morning
+
 
 def test_ambiguous_general_schedule_recovery_fails_closed() -> None:
     text = _text()
@@ -59,3 +67,40 @@ def test_complete_checkpoint_terminal_recovery_restarts_fresh() -> None:
     assert '-f nh_resume_mode="$NH_RESUME_MODE"' in text
     assert text.count('-f kfcc_resume_mode="$KFCC_RESUME_MODE"') == 1
     assert text.count('-f kfcc_resume_mode=auto') == 1
+
+
+def test_morning_terminal_failure_recovers_suffix_on_current_main() -> None:
+    text = _text()
+    morning = MORNING_RECOVERY.read_text(encoding="utf-8")
+
+    assert '"nh / surface"' in text
+    assert '"funding / collect"' in text
+    assert '"market / collect"' in text
+    assert "morning_start_stage" in text
+    assert "recover-morning-current-main.yml" in text
+
+    # Re-running the parent would keep the old scheduled SHA and can repeat a
+    # stale-writer failure. The recovery must instead run the remaining suffix
+    # from the recovery workflow's current-main commit.
+    assert 'gh run rerun "$PARENT_RUN_ID"' not in text
+    assert "--failed" not in text
+
+    assert "workflow_call:" in morning
+    assert "workflow_dispatch:" not in morning
+    assert "start_stage:" in morning
+    assert "needs: nh" in morning
+    assert "needs: [nh, funding]" in morning
+    assert 'nh_resume_mode: "auto"' in text
+    assert 'kfcc_resume_mode: "auto"' in text
+
+
+def test_morning_recovery_preserves_successful_prefix() -> None:
+    morning = MORNING_RECOVERY.read_text(encoding="utf-8")
+
+    assert "inputs.start_stage == 'nh'" in morning
+    assert "inputs.start_stage == 'funding'" in morning
+    assert "inputs.start_stage == 'market'" in morning
+    assert 'test "$NH_RESULT" = "skipped"' in morning
+    assert 'test "$FUNDING_RESULT" = "skipped"' in morning
+    assert 'test "$MARKET_RESULT" = "success"' in morning
+    assert "group: rate-data-writer" not in morning
