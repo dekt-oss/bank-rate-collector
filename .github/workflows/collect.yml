@@ -79,6 +79,7 @@ jobs:
       PUBLISH_ONLY: ${{ inputs.manual_target == '화면만 재발행' }}
       KFCC_ONLY: ${{ inputs.manual_target == '새마을금고만' }}
       MORNING_CYCLE: ${{ inputs.manual_target == '아침 전체' }}
+      SPECIAL_OFFER_ONLY: ${{ inputs.manual_target == '특판만' }}
       # 저장 전 source volume gate(직전 정상 전국 실행 대비 75%)의 운영자 승인.
       # 발행 게이트의 --accept와 같은 입력이다. 절대 하한·0건 판정은 풀지 않는다.
       RATE_MONITOR_ACCEPT_VOLUME_DROP: ${{ inputs.accept_volume_drop || false }}
@@ -178,6 +179,18 @@ jobs:
         env:
           RATE_MONITOR_DB_URL: sqlite+pysqlite:///${{ github.workspace }}/work/rate_monitor.sqlite3
         run: uv run alembic upgrade head
+
+      - name: Refresh official special-offer catalog
+        if: ${{ env.SPECIAL_OFFER_ONLY == 'true' }}
+        run: |
+          set -euo pipefail
+          uv run python scripts/special_offer_catalog_refresh.py \
+            --db work/rate_monitor.sqlite3 \
+            --config config/special_offer_official_targets.json \
+            --raw-dir data/raw/special-offer-official \
+            --capture-out work/special-offer-catalog-capture.json \
+            --report-out work/special-offer-catalog-refresh.json
+
 
       - name: Collect finlife savings bank
         if: ${{ env.PUBLISH_ONLY != 'true' && env.KFCC_ONLY != 'true' && (inputs.manual_target == '일반 전체' || inputs.manual_target == '저축은행만' || inputs.manual_target == '아침 전체') }}
@@ -367,6 +380,8 @@ jobs:
           SKIP_RAW=""
           if [ "${PUBLISH_ONLY}" = "true" ]; then
             SKIP_RAW="--no-collection"
+          elif [ "${SPECIAL_OFFER_ONLY}" = "true" ]; then
+            SKIP_RAW="--no-collection"
           fi
           uv run python scripts/verify_gate.py \
             --db publish/rate_monitor.sqlite3 \
@@ -387,6 +402,8 @@ jobs:
             publish/manifest.json
             publish/summary.json
             publish/export/
+            work/special-offer-catalog-capture.json
+            work/special-offer-catalog-refresh.json
           if-no-files-found: warn
 
       - name: Upload dashboard

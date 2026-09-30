@@ -135,6 +135,15 @@ def _evidence_key(
     item: OfficialSpecialOfferCatalogInput,
     evidence: dict[str, Any],
 ) -> str:
+    evidence_for_key = json.loads(json.dumps(evidence, ensure_ascii=False))
+    availability = dict(evidence_for_key.get("availability") or {})
+    # Same-day refreshes must be idempotent. The observation timestamp is audit
+    # provenance, not evidence identity; snapshot_as_of already creates the daily
+    # freshness boundary required for confirmed_active Radar rows.
+    availability.pop("observed_at", None)
+    if availability:
+        evidence_for_key["availability"] = availability
+
     payload = {
         "source_namespace": source_namespace,
         "institution_normalized": institution_normalized,
@@ -152,7 +161,7 @@ def _evidence_key(
             item.source_effective_to.isoformat() if item.source_effective_to else None
         ),
         "content_hash": item.content_hash,
-        "evidence": evidence,
+        "evidence": evidence_for_key,
     }
     encoded = json.dumps(
         payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")

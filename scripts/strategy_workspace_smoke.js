@@ -169,7 +169,7 @@ async function assertDecisionIA(page, label) {
       predictionToggleText: document.getElementById("prediction-toggle")?.textContent.trim() || "",
       coreSimulatorVisible: visible(document.getElementById("sim-form")),
       institutionDetailClosed: Boolean(document.getElementById("lean-institution-detail") && !document.getElementById("lean-institution-detail").open),
-      preferenceDetailClosed: Boolean(document.getElementById("lean-preference-detail") && !document.getElementById("lean-preference-detail").open),
+      preferenceDetailOpen: Boolean(document.getElementById("lean-preference-detail")?.open),
       specialDetailClosed: Boolean(document.getElementById("lean-special-detail") && !document.getElementById("lean-special-detail").open),
       scrollWidth: document.documentElement.scrollWidth,
       clientWidth: document.documentElement.clientWidth,
@@ -195,7 +195,7 @@ async function assertDecisionIA(page, label) {
       && result.predictionToggleText === "예측엔진 닫기"
       && result.coreSimulatorVisible
       && result.institutionDetailClosed
-      && result.preferenceDetailClosed
+      && result.preferenceDetailOpen
       && result.specialDetailClosed,
     label + ": progressive disclosure defaults wrong " + JSON.stringify({
       planningHeadline: result.planningHeadlineVisible,
@@ -205,7 +205,7 @@ async function assertDecisionIA(page, label) {
       predictionToggleText: result.predictionToggleText,
       coreSimulator: result.coreSimulatorVisible,
       institution: result.institutionDetailClosed,
-      preference: result.preferenceDetailClosed,
+      preferenceOpen: result.preferenceDetailOpen,
       special: result.specialDetailClosed,
     }),
   );
@@ -246,6 +246,7 @@ async function assertPrediction(page, label) {
     const stripValue = strip?.querySelector("b");
     const predictionTitle = planning?.querySelector(".prediction-head b");
     const inputLabel = planning?.querySelector(".predict-inputs label");
+    const modelDetail = planning?.querySelector(".workspace-model-detail");
     const formula = planning?.querySelector(".decision-formula");
     const evidence = planning?.querySelector(".decision-model-evidence");
     const responseDisclosure = planning?.querySelector(".rate-response-disclosure");
@@ -257,6 +258,8 @@ async function assertPrediction(page, label) {
       stripValueFont: parseFloat(style(stripValue)?.fontSize || "0"),
       predictionTitleFont: parseFloat(style(predictionTitle)?.fontSize || "0"),
       inputLabelFont: parseFloat(style(inputLabel)?.fontSize || "0"),
+      modelDetailExists: Boolean(modelDetail),
+      modelDetailOpen: Boolean(modelDetail?.open),
       formulaExists: Boolean(formula),
       formulaOpen: Boolean(formula?.open),
       formulaText: formula?.textContent || "",
@@ -272,6 +275,7 @@ async function assertPrediction(page, label) {
   invariant(initial.stripValueFont >= 15, `${label}: planning strip visible value font=${initial.stripValueFont}`);
   invariant(initial.predictionTitleFont >= 15, `${label}: prediction title font=${initial.predictionTitleFont}`);
   invariant(initial.inputLabelFont >= 12, `${label}: prediction input label font=${initial.inputLabelFont}`);
+  invariant(initial.modelDetailExists && !initial.modelDetailOpen, `${label}: prediction model detail must start collapsed`);
   invariant(initial.formulaExists && initial.formulaOpen && initial.formulaText.includes("rate_steps"), `${label}: formula detail missing/not open`);
   invariant(initial.evidenceExists && !initial.evidenceOpen, `${label}: model evidence should start collapsed`);
   invariant(initial.responseDisclosureExists && !initial.responseDisclosureOpen, `${label}: rate-response detail should start collapsed`);
@@ -284,8 +288,15 @@ async function assertPrediction(page, label) {
   await page.locator("#baseline-new").fill("100");
   await page.locator("#maturity-amount").fill("200");
   await page.locator("#rollover-rate").fill("60");
-  await page.locator("#bonus-n").fill("0.10");
-  await page.locator("#bonus-n").dispatchEvent("input");
+  const currentReview = Number(await page.locator("#rds-review-rate").inputValue());
+  invariant(Number.isFinite(currentReview), `${label}: visible simulator review rate is not numeric`);
+  await page.locator("#rds-review-rate").fill((currentReview + 0.10).toFixed(2));
+  await page.waitForFunction(() => {
+    const review = Number(document.getElementById("rds-review-rate")?.value);
+    const base = Number(document.getElementById("base-n")?.value);
+    const bonus = Number(document.getElementById("bonus-n")?.value);
+    return Number.isFinite(review) && Math.abs(base-review)<.00005 && Math.abs(bonus)<.00005;
+  }, null, { timeout: 10_000 });
   await page.waitForFunction(() => document.querySelectorAll(".decision-sensitivity-card").length === 3, null, { timeout: 10_000 });
 
   const result = await page.evaluate(() => {
@@ -389,11 +400,32 @@ async function assertRateDecisionSimulator(page, label) {
       enrollment: document.querySelector("[data-rds-enrollment].active")?.dataset.rdsEnrollment || "",
       basis: document.getElementById("rds-result-basis")?.textContent || "",
       rateTitle: document.getElementById("rds-rate-title")?.textContent || "",
+      reviewRateVisible: visible(document.getElementById("rds-review-rate")),
+      reviewRateSliderVisible: visible(document.getElementById("rds-review-rate-range")),
+      termSlotOwnsSelector: Boolean(document.getElementById("rds-term-slot")?.contains(document.getElementById("term-segment"))),
+      legacyBaseVisible: visible(document.getElementById("base-n")?.closest(".simrow")),
+      legacyBonusVisible: visible(document.getElementById("bonus-n")?.closest(".simrow")),
     };
   });
   invariant(initial.inputVisible && initial.outputVisible, `${label}: simulator input/output panels are not visibly separated ${JSON.stringify(initial)}`);
   invariant(initial.activeMode === "rate" && initial.enrollment === "all", `${label}: simulator defaults=${JSON.stringify(initial)}`);
   invariant(initial.rateTitle === "검토금리", `${label}: default rate result label=${initial.rateTitle}`);
+  invariant(initial.reviewRateVisible && initial.reviewRateSliderVisible && initial.termSlotOwnsSelector, `${label}: unified simulator conditions missing=${JSON.stringify(initial)}`);
+  invariant(!initial.legacyBaseVisible && !initial.legacyBonusVisible, `${label}: duplicate legacy rate controls still visible=${JSON.stringify(initial)}`);
+  const enteredRate=(Number(await page.locator("#rds-review-rate").inputValue())+0.07).toFixed(2);
+  await page.locator("#rds-review-rate").fill(enteredRate);
+  await page.waitForFunction((expected) => {
+    const review=Number(document.getElementById("rds-review-rate")?.value);
+    const base=Number(document.getElementById("base-n")?.value);
+    const bonus=Number(document.getElementById("bonus-n")?.value);
+    const slider=Number(document.getElementById("rds-review-rate-range")?.value);
+    const summary=document.getElementById("sim-max")?.textContent||"";
+    return Math.abs(review-Number(expected))<.00005
+      && Math.abs(slider-review)<.00005
+      && Math.abs(base-review)<.00005
+      && Math.abs(bonus)<.00005
+      && summary.includes(Number(expected).toFixed(2));
+  }, enteredRate, { timeout: 10_000 });
 
   await page.locator('[data-rds-mode="target"]').click();
   await page.locator("#rds-target-total").fill("1");
