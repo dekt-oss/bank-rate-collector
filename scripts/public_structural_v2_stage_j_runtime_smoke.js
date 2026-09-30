@@ -97,6 +97,16 @@ async function activateLegacyControl(page, selector, label) {
   await control.evaluate((node) => node.click());
 }
 
+async function setLegacyInput(page, selector, value, label) {
+  const input = page.locator(selector);
+  invariant(await input.count() === 1, `${label}: legacy input 없음 ${selector}`);
+  await input.evaluate((node, nextValue) => {
+    node.value = nextValue;
+    node.dispatchEvent(new Event("input", { bubbles: true }));
+    node.dispatchEvent(new Event("change", { bubbles: true }));
+  }, String(value));
+}
+
 async function setVisibleReviewRate(page, value, label) {
   const input = page.locator("#rds-review-rate");
   invariant(await input.count() === 1, `${label}: visible review-rate input 없음`);
