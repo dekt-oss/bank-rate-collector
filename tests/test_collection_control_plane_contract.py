@@ -62,15 +62,16 @@ def test_soft_failure_recovery_is_bounded_targeted_and_non_recursive() -> None:
     assert "workflow_dispatch:" not in trigger
 
 
-def test_morning_terminal_failure_reruns_failed_jobs_once() -> None:
+def test_morning_terminal_failure_resumes_on_current_main_once() -> None:
     text = RECOVERY.read_text(encoding="utf-8")
 
     assert "env.PARENT_CONCLUSION == 'failure'" in text
-    assert '"수집 — 아침 SLA 체인")' in text
-    assert 'gh run rerun "$PARENT_RUN_ID"' in text
-    assert "--failed" in text
+    assert "morning_failure_recovery_plan.py" in text
+    assert "recover-morning-current-main.yml" in text
+    assert 'gh run rerun "$PARENT_RUN_ID"' not in text
+    assert "--failed" not in text
     assert "PARENT_RUN_ATTEMPT" in text
-    # attempt 2 completion must not dispatch another parent rerun.
+    # Only scheduled parent attempt 1 can create the automatic recovery chain.
     assert "github.event.workflow_run.run_attempt == 1" in text
 
 

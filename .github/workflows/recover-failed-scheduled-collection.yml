@@ -10,10 +10,12 @@ on:
       - "Collect bank rates fast"
     types: [completed]
 
-# Morning production scheduling is owned by the parent SLA chain. A terminal parent
-# failure gets exactly one failed-jobs rerun; GitHub re-runs the failed job and its
-# dependent jobs, preserving the successful prefix of the chain. Standalone/manual
-# child workflows keep the legacy recovery paths below.
+# Morning production scheduling is owned by the parent SLA chain. If a scheduled
+# parent fails after main has moved, re-running failed jobs would keep the parent's
+# old SHA and can repeat a stale-writer failure forever. We therefore inspect the
+# completed parent stage results, preserve the successful prefix, and resume the
+# remaining suffix through a reusable recovery chain running on current main.
+# Standalone/manual child workflows keep the legacy current-main dispatch paths below.
 concurrency:
   group: failed-scheduled-collection-recovery-control-plane
   cancel-in-progress: false
@@ -23,14 +25,67 @@ permissions:
   contents: read
 
 jobs:
-  recover:
-    # 정기 실행(schedule)만, 그리고 default branch에서 돈 실행만 재실행한다.
-    # Morning-chain rerun attempt 2는 다시 복구하지 않아 bounded one-shot을 보장한다.
+  plan:
+    # 정기 실행(schedule)만, 그리고 default branch에서 돈 실행만 복구 대상으로 본다.
+    # Morning parent attempt 2는 자동 복구를 다시 만들지 않아 bounded one-shot을 보장한다.
     if: >-
       ${{ github.event.workflow_run.event == 'schedule' &&
           github.event.workflow_run.head_branch == 'main' &&
           (github.event.workflow_run.name != '수집 — 아침 SLA 체인' ||
            github.event.workflow_run.run_attempt == 1) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      morning_start_stage: ${{ steps.morning_plan.outputs.start_stage }}
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      PARENT_RUN_ID: ${{ github.event.workflow_run.id }}
+      PARENT_WORKFLOW: ${{ github.event.workflow_run.name }}
+      PARENT_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+    steps:
+      - name: Checkout current main control plane
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Determine current-main morning recovery suffix
+        id: morning_plan
+        run: |
+          set -euo pipefail
+
+          echo "start_stage=" >> "$GITHUB_OUTPUT"
+          if [ "$PARENT_WORKFLOW" != "수집 — 아침 SLA 체인" ] || [ "$PARENT_CONCLUSION" != "failure" ]; then
+            exit 0
+          fi
+
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$PARENT_RUN_ID/jobs?per_page=100" > parent-jobs.json
+          python scripts/morning_failure_recovery_plan.py \
+            --jobs-json parent-jobs.json \
+            --github-output "$GITHUB_OUTPUT"
+
+  morning_recover:
+    needs: plan
+    if: ${{ needs.plan.outputs.morning_start_stage != '' }}
+    permissions:
+      contents: write
+      actions: read
+    uses: ./.github/workflows/recover-morning-current-main.yml
+    with:
+      start_stage: ${{ needs.plan.outputs.morning_start_stage }}
+      # Same business-cycle recovery reuses durable checkpoints. The child
+      # collectors remain fail-closed if a checkpoint cannot be replayed safely.
+      nh_resume_mode: "auto"
+      kfcc_resume_mode: "auto"
+    secrets: inherit
+
+  recover:
+    needs: plan
+    # Morning terminal failure is handled by the current-main reusable suffix
+    # above. This job preserves legacy terminal dispatch and successful soft recovery.
+    if: >-
+      ${{ needs.plan.result == 'success' &&
+          (github.event.workflow_run.name != '수집 — 아침 SLA 체인' ||
+           github.event.workflow_run.conclusion != 'failure') }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
@@ -64,15 +119,6 @@ jobs:
           set -euo pipefail
 
           case "$PARENT_WORKFLOW" in
-            "수집 — 아침 SLA 체인")
-              # GitHub rerun-failed-jobs re-runs failed jobs and their dependent
-              # jobs. The successful prefix (for example NH) is not repeated.
-              echo "recovery target=morning chain failed jobs + dependents"
-              gh run rerun "$PARENT_RUN_ID" \
-                --repo "$GITHUB_REPOSITORY" \
-                --failed
-              ;;
-
             "수집 — 일반·새마을금고")
               # Legacy/manual compatibility path. Scheduled production collection
               # is now owned by the parent morning chain.
