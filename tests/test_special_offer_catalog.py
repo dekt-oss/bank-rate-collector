@@ -369,3 +369,60 @@ def test_import_capture_payload_only_appends_explicit_special_candidates(
         assert rows[0].canonical_product_id is None
         assert rows[0].binding_status == "unbound"
         assert session.scalar(select(func.count()).select_from(Product)) == 0
+
+def test_same_day_refresh_ignores_volatile_availability_observed_at(
+    tmp_path: Path,
+) -> None:
+    _, factory = _db(tmp_path)
+    first = _item(key="DAILY", availability="confirmed_active")
+    later_evidence = dict(first.evidence or {})
+    later_availability = dict(later_evidence.get("availability") or {})
+    later_availability["observed_at"] = datetime(2026, 9, 27, 8, 0).isoformat()
+    later_evidence["availability"] = later_availability
+    later = OfficialSpecialOfferCatalogInput(
+        **{
+            **first.__dict__,
+            "observed_at": datetime(2026, 9, 27, 8, 0),
+            "evidence": later_evidence,
+        }
+    )
+
+    with session_scope(factory) as session:
+        first_row = append_official_catalog_evidence(session, first)
+        later_row = append_official_catalog_evidence(session, later)
+        assert first_row.id == later_row.id
+        assert (
+            session.scalar(
+                select(func.count()).select_from(OfficialSpecialOfferCatalogEvidence)
+            )
+            == 1
+        )
+
+
+def test_next_day_refresh_creates_new_freshness_evidence(tmp_path: Path) -> None:
+    _, factory = _db(tmp_path)
+    first = _item(key="DAILY", availability="confirmed_active")
+    next_evidence = dict(first.evidence or {})
+    next_availability = dict(next_evidence.get("availability") or {})
+    next_availability["observed_at"] = datetime(2026, 9, 28, 1, 0).isoformat()
+    next_evidence["availability"] = next_availability
+    next_day = OfficialSpecialOfferCatalogInput(
+        **{
+            **first.__dict__,
+            "snapshot_as_of": date(2026, 9, 28),
+            "observed_at": datetime(2026, 9, 28, 1, 0),
+            "evidence": next_evidence,
+        }
+    )
+
+    with session_scope(factory) as session:
+        first_row = append_official_catalog_evidence(session, first)
+        next_row = append_official_catalog_evidence(session, next_day)
+        assert first_row.id != next_row.id
+        assert (
+            session.scalar(
+                select(func.count()).select_from(OfficialSpecialOfferCatalogEvidence)
+            )
+            == 2
+        )
+
