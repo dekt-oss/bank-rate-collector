@@ -41,7 +41,6 @@ on:
           - "새마을금고만"
           - "참고지표만"
           - "화면만 재발행"
-          - "특판만"
       kfcc_scope:
         description: "[새마을금고만] 수집 범위 — 보통 전국"
         type: choice
@@ -379,7 +378,9 @@ jobs:
       - name: Verify P1-A gate
         run: |
           SKIP_RAW=""
-          if [ "${PUBLISH_ONLY}" = "true" ] || [ "${SPECIAL_OFFER_ONLY}" = "true" ]; then
+          if [ "${PUBLISH_ONLY}" = "true" ]; then
+            SKIP_RAW="--no-collection"
+          elif [ "${SPECIAL_OFFER_ONLY}" = "true" ]; then
             SKIP_RAW="--no-collection"
           fi
           uv run python scripts/verify_gate.py \
