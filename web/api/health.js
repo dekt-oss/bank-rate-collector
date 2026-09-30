@@ -5,6 +5,7 @@ const MORNING_WORKFLOW = "collect-morning-cycle.yml";
 const CORE_WORKFLOW = "collect.yml";
 const NH_WORKFLOW = "collect-nh.yml";
 const FUNDING_WORKFLOW = "collect-institution-funding.yml";
+const FAST_WORKFLOW = "collect-savings-fast.yml";
 const ACTIVE = new Set(["in_progress", "queued", "waiting", "pending"]);
 
 const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
@@ -270,6 +271,85 @@ export const operationalSignal = (sla, activeCollection = null) => {
   };
 };
 
+
+const canonicalWriterPath = (run) => String(run?.path || "").replace(/^\.github\/workflows\//, "");
+
+export const fastRefreshHealth = (
+  fastRun,
+  blockingCollection = null,
+  blockingDetail = null,
+  now = new Date(),
+) => {
+  if (!fastRun) {
+    return {
+      status: "unknown",
+      reason: "no_fast_run_evidence",
+      wait_minutes: null,
+      writer_queue_wait: false,
+    };
+  }
+
+  const createdMs = createdTime(fastRun);
+  const nowMs = new Date(now).getTime();
+  const waitMinutes = ACTIVE.has(fastRun.status) && createdMs
+    ? Math.max(0, Math.floor((nowMs - createdMs) / 60000))
+    : null;
+
+  if (fastRun.conclusion === "success") {
+    return {
+      status: "normal",
+      reason: "fast_refresh_complete",
+      wait_minutes: null,
+      writer_queue_wait: false,
+    };
+  }
+  if (fastRun.status === "in_progress") {
+    return {
+      status: "running",
+      reason: "fast_refresh_running",
+      wait_minutes: waitMinutes,
+      writer_queue_wait: false,
+    };
+  }
+  if (["failure", "cancelled", "timed_out", "action_required", "startup_failure"]
+    .includes(fastRun.conclusion)) {
+    return {
+      status: "failed",
+      reason: "fast_refresh_failed",
+      wait_minutes: null,
+      writer_queue_wait: false,
+    };
+  }
+
+  if (["pending", "queued", "waiting"].includes(fastRun.status)) {
+    const blockerPath = canonicalWriterPath(blockingCollection);
+    const directWriter = [CORE_WORKFLOW, NH_WORKFLOW, FUNDING_WORKFLOW]
+      .includes(blockerPath);
+    const morningWriter = blockerPath === MORNING_WORKFLOW
+      && (blockingDetail?.activeWriterJobs || []).length > 0;
+    const writerQueueWait = Boolean(
+      blockingCollection
+      && ACTIVE.has(blockingCollection.status)
+      && (directWriter || morningWriter)
+    );
+    return {
+      status: writerQueueWait ? "waiting_writer" : "pending",
+      reason: writerQueueWait
+        ? "canonical_writer_serialization"
+        : "github_actions_pending",
+      wait_minutes: waitMinutes,
+      writer_queue_wait: writerQueueWait,
+    };
+  }
+
+  return {
+    status: "unknown",
+    reason: "fast_refresh_state_unknown",
+    wait_minutes: waitMinutes,
+    writer_queue_wait: false,
+  };
+};
+
 const SOURCE_STEPS = {
   "Collect finlife savings bank": "finlife_savings_bank",
   "Collect finlife bank": "finlife_bank",
@@ -329,11 +409,23 @@ const stepView = (step) => ({
 const loadRunSteps = async (token, slug, run) => {
   const sourceSteps = {};
   const pipelineSteps = {};
-  if (!run) return { sourceSteps, pipelineSteps, evidenceAvailable: true };
+  const activeWriterJobs = [];
+  if (!run) return {
+    sourceSteps, pipelineSteps, activeWriterJobs, evidenceAvailable: true,
+  };
   const jobsRes = await gh(token, `/repos/${slug}/actions/runs/${run.id}/jobs?per_page=20`);
-  if (!jobsRes.ok) return { sourceSteps, pipelineSteps, evidenceAvailable: false };
+  if (!jobsRes.ok) return {
+    sourceSteps, pipelineSteps, activeWriterJobs, evidenceAvailable: false,
+  };
   const jobs = (await jobsRes.json()).jobs || [];
   for (const job of jobs) {
+    if (ACTIVE.has(job.status) && (
+      String(job.name || "").startsWith("nh / attempt_")
+      || job.name === "funding / collect"
+      || job.name === "market / collect"
+    )) {
+      activeWriterJobs.push(job.name);
+    }
     for (const step of job.steps || []) {
       if (SOURCE_STEPS[step.name]) {
         const sourceId = SOURCE_STEPS[step.name];
@@ -347,7 +439,7 @@ const loadRunSteps = async (token, slug, run) => {
       }
     }
   }
-  return { sourceSteps, pipelineSteps, evidenceAvailable: true };
+  return { sourceSteps, pipelineSteps, activeWriterJobs, evidenceAvailable: true };
 };
 
 const cycleSourceState = (cycleDetails, publishCompletedAt) => {
@@ -468,6 +560,7 @@ export default async function handler(req, res) {
     coreRunsResult,
     nhRunsResult,
     fundingRunsResult,
+    fastRunsResult,
     repositoryRunsResult,
   ] = await Promise.all([
     loadWorkflowRuns(token, slug, MORNING_WORKFLOW),
@@ -475,6 +568,7 @@ export default async function handler(req, res) {
     loadWorkflowRuns(token, slug, CORE_WORKFLOW),
     loadWorkflowRuns(token, slug, NH_WORKFLOW),
     loadWorkflowRuns(token, slug, FUNDING_WORKFLOW),
+    loadWorkflowRuns(token, slug, FAST_WORKFLOW),
     loadRecentRepositoryRuns(token, slug),
   ]);
   const failed = [
@@ -483,6 +577,7 @@ export default async function handler(req, res) {
     coreRunsResult,
     nhRunsResult,
     fundingRunsResult,
+    fastRunsResult,
   ].find((result) => !result.ok);
   if (failed) {
     return json(res, 502, {
@@ -509,10 +604,14 @@ export default async function handler(req, res) {
   const activePublish = runs.find((run) => run.event === "push" && ACTIVE.has(run.status)) || null;
   const latestCollection = collections[0] || null;
   const latestPublish = runs.find((run) => run.conclusion === "success") || null;
+  const latestFast = fastRunsResult.runs.find((run) => run.event === "schedule")
+    || fastRunsResult.runs[0]
+    || null;
   const detailRun = activeCollection || latestCollection;
 
   const detail = await loadRunSteps(token, slug, detailRun);
   const now = healthNow();
+  const fastState = fastRefreshHealth(latestFast, activeCollection, detail, now);
   const scheduleState = scheduleTriggerHealth(scheduledRuns, now);
   const cycleDate = scheduleState.cycle_date_kst;
   const cycleRuns = cycleDate
@@ -541,5 +640,10 @@ export default async function handler(req, res) {
     schedule: scheduleState,
     sla,
     signal,
+    fast_refresh: {
+      ...fastState,
+      latest_run: runView(latestFast),
+      blocking_run: fastState.writer_queue_wait ? runView(activeCollection) : null,
+    },
   });
 }
