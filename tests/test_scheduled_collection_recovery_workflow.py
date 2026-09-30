@@ -6,6 +6,7 @@ import yaml
 
 WORKFLOW = Path(".github/workflows/recover-failed-scheduled-collection.yml")
 MORNING_RECOVERY = Path(".github/workflows/recover-morning-current-main.yml")
+MORNING_PLAN = Path("scripts/morning_failure_recovery_plan.py")
 
 
 def _text() -> str:
@@ -73,9 +74,11 @@ def test_morning_terminal_failure_recovers_suffix_on_current_main() -> None:
     text = _text()
     morning = MORNING_RECOVERY.read_text(encoding="utf-8")
 
-    assert '"nh / surface"' in text
-    assert '"funding / collect"' in text
-    assert '"market / collect"' in text
+    plan = MORNING_PLAN.read_text(encoding="utf-8")
+    assert '"nh / surface"' in plan
+    assert '"funding / collect"' in plan
+    assert '"market / collect"' in plan
+    assert "morning_failure_recovery_plan.py" in text
     assert "morning_start_stage" in text
     assert "recover-morning-current-main.yml" in text
 
