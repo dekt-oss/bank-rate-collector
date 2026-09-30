@@ -1,0 +1,103 @@
+name: 복구 — Morning current-main 후속 구간
+
+on:
+  workflow_call:
+    inputs:
+      start_stage:
+        description: "복구를 시작할 단계: nh / funding / market"
+        type: string
+        required: true
+      nh_resume_mode:
+        description: "NH durable checkpoint 재시작 방식"
+        type: string
+        required: false
+        default: "auto"
+      kfcc_resume_mode:
+        description: "KFCC durable checkpoint 재시작 방식"
+        type: string
+        required: false
+        default: "auto"
+
+# 이 workflow 자체는 canonical writer가 아니다. 각 child workflow가 기존
+# rate-data-writer lock을 소유한다. start_stage 이전의 성공 prefix는 건너뛰고,
+# 실패 단계부터 current-main code로 순차 복구한다.
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  nh:
+    if: ${{ inputs.start_stage == 'nh' }}
+    uses: ./.github/workflows/collect-nh.yml
+    with:
+      called_by_morning_cycle: true
+      nh_local_scope: "전국"
+      nh_resume_mode: ${{ inputs.nh_resume_mode }}
+      accept_volume_drop: false
+    secrets: inherit
+
+  funding:
+    needs: nh
+    if: >-
+      ${{ always() &&
+          (inputs.start_stage == 'funding' ||
+           (inputs.start_stage == 'nh' && needs.nh.result == 'success')) }}
+    uses: ./.github/workflows/collect-institution-funding.yml
+    with:
+      mode: incremental
+      periods: 12
+    secrets: inherit
+
+  market:
+    needs: [nh, funding]
+    if: >-
+      ${{ always() &&
+          (inputs.start_stage == 'market' ||
+           (inputs.start_stage == 'funding' && needs.funding.result == 'success') ||
+           (inputs.start_stage == 'nh' &&
+            needs.nh.result == 'success' &&
+            needs.funding.result == 'success')) }}
+    uses: ./.github/workflows/collect.yml
+    with:
+      manual_target: "아침 전체"
+      kfcc_scope: "전국"
+      kfcc_resume_mode: ${{ inputs.kfcc_resume_mode }}
+      accept_volume_drop: false
+    secrets: inherit
+
+  surface:
+    needs: [nh, funding, market]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify current-main recovery chain
+        env:
+          START_STAGE: ${{ inputs.start_stage }}
+          NH_RESULT: ${{ needs.nh.result }}
+          FUNDING_RESULT: ${{ needs.funding.result }}
+          MARKET_RESULT: ${{ needs.market.result }}
+        run: |
+          set -euo pipefail
+          echo "start_stage=$START_STAGE nh=$NH_RESULT funding=$FUNDING_RESULT market=$MARKET_RESULT"
+
+          case "$START_STAGE" in
+            nh)
+              test "$NH_RESULT" = "success"
+              test "$FUNDING_RESULT" = "success"
+              test "$MARKET_RESULT" = "success"
+              ;;
+            funding)
+              test "$NH_RESULT" = "skipped"
+              test "$FUNDING_RESULT" = "success"
+              test "$MARKET_RESULT" = "success"
+              ;;
+            market)
+              test "$NH_RESULT" = "skipped"
+              test "$FUNDING_RESULT" = "skipped"
+              test "$MARKET_RESULT" = "success"
+              ;;
+            *)
+              echo "::error::unsupported morning recovery start_stage=$START_STAGE"
+              exit 1
+              ;;
+          esac
