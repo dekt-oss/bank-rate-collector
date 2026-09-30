@@ -313,3 +313,20 @@ Production read-only audit에서는 다음 순서로 본다.
 - DB/R2/rate-data write 없음
 - 기존 triage threshold/score 변경 없음
 - `decision_attention`은 조사·판단 우선순위용 read-only view
+
+
+### 12.5 Payment-method ambiguity masking 경고
+
+`decision_attention`의 P0/P1 queue는 **비교 가능한 6D variant**만 대상으로 한다.
+payment_method 후보가 여러 개이고 rate pair도 달라 비교를 fail-closed한 항목은
+P0/P1이 아니더라도 금리 판단에 영향을 줄 수 있다.
+
+따라서 별도 `source-discrepancy-decision-attention.json`에는
+`masked_payment_method_risk`를 함께 싣는다.
+
+- P0/P1로 자동 승격하지 않는다.
+- source error라고 확정하지 않는다.
+- blocked candidate max-rate gap >= 0.20%p인 항목만 high-risk masking으로 표출한다.
+- 사용 전 payment_method variant를 먼저 해소해야 한다.
+- `queue_masking_indicator`를 같이 보존해 P0/P1 숫자만으로 전체 데이터 위험을
+  과소평가하지 않게 한다.
