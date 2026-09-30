@@ -1,6 +1,5 @@
 from pathlib import Path
 
-
 COLLECT = Path(".github/workflows/collect.yml")
 REFRESH = Path(".github/workflows/special-offer-catalog-refresh.yml")
 
