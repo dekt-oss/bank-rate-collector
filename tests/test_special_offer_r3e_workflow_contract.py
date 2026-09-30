@@ -1,3 +1,4 @@
+# Exact-head gate: R3-E stays manual-only until recurring activation is separately approved.
 from pathlib import Path
 
 COLLECT = Path(".github/workflows/collect.yml")
