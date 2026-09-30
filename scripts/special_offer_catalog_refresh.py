@@ -130,14 +130,24 @@ def refresh_catalog(
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--db", type=Path, required=True)
-    parser.add_argument("--config", type=Path, required=True)
-    parser.add_argument("--raw-dir", type=Path, required=True)
+    source = parser.add_mutually_exclusive_group(required=True)
+    source.add_argument("--config", type=Path)
+    source.add_argument("--capture-input", type=Path)
+    parser.add_argument(
+        "--raw-dir",
+        type=Path,
+        default=Path("data/raw/special-offer-official"),
+    )
     parser.add_argument("--capture-out", type=Path, required=True)
     parser.add_argument("--report-out", type=Path, required=True)
     args = parser.parse_args()
 
-    config = json.loads(args.config.read_text(encoding="utf-8"))
-    capture_payload = capture(config, args.raw_dir)
+    if args.capture_input is not None:
+        capture_payload = json.loads(args.capture_input.read_text(encoding="utf-8"))
+    else:
+        assert args.config is not None
+        config = json.loads(args.config.read_text(encoding="utf-8"))
+        capture_payload = capture(config, args.raw_dir)
     _write(args.capture_out, capture_payload)
     report, exit_code = refresh_catalog(
         db_path=args.db,
