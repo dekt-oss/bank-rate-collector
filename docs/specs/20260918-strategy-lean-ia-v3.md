@@ -379,8 +379,8 @@ PR merge만으로 완료로 보지 않는다.
 따라서 production-data density smoke는 다음 두 값을 모두 기록한다.
 
 - `reductionPct`: 실제 기본-open 화면의 전체 높이 감소율(관측값)
-- `compactReductionPct`: `#lean-planning-detail`만 측정 순간 임시로 접어 기존 Lean IA 감량 효과를 비교한 값
+- `compactReductionPct`: 실제 기본-open surface 중 `#lean-planning-detail`과 `#lean-preference-detail`만 측정 순간 임시로 접어 기존 Lean IA 감량 효과를 비교한 값
 
 20% gate는 `compactReductionPct`에 유지한다. 별도의 Strategy workspace smoke가
-`#lean-planning-detail`과 `#prediction-panel`이 실제 기본 화면에서는 open/visible인지 검증한다.
+`#lean-planning-detail`, `#prediction-panel`, `#lean-preference-detail`이 실제 기본 화면에서는 open/visible인지 검증한다.
 즉 density 기준을 완화하는 것이 아니라 **기본-open UX 계약과 중복 제거 계약을 분리해 검증**한다.
