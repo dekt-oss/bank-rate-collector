@@ -70,7 +70,8 @@ def _handler(*, nh_conclusion: str = "success", jobs_ok: bool = True) -> dict:
         }}
         if (value.includes('/actions/workflows/collect.yml/runs?per_page=30') ||
             value.includes('/actions/workflows/collect-nh.yml/runs?per_page=30') ||
-            value.includes('/actions/workflows/collect-institution-funding.yml/runs?per_page=30')) {{
+            value.includes('/actions/workflows/collect-institution-funding.yml/runs?per_page=30') ||
+            value.includes('/actions/workflows/collect-savings-fast.yml/runs?per_page=30')) {{
           return {{ ok: true, status: 200, json: async () => ({{ workflow_runs: [] }}) }};
         }}
         if (value.endsWith('/actions/runs?per_page=50')) {{
