@@ -8,6 +8,11 @@ on:
         type: string
         required: false
         default: "일반 전체"
+      password:
+        description: "wrapper workflow에서 전달하는 관리자 수집 암호"
+        type: string
+        required: false
+        default: ""
       kfcc_scope:
         description: "새마을금고 수집 범위"
         type: string
