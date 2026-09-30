@@ -69,3 +69,18 @@ def test_cycle_sla_does_not_hide_failed_sources() -> None:
     assert "일부 원천 실패" in SITE
     assert 'status = "unknown"' in API
     assert "판정 불가" in SITE
+
+
+
+def test_live_health_explains_fast_writer_queue_without_changing_core_sla() -> None:
+    assert 'const FAST_WORKFLOW = "collect-savings-fast.yml"' in API
+    assert "export const fastRefreshHealth" in API
+    assert '"canonical_writer_serialization"' in API
+    assert '"github_actions_pending"' in API
+    assert '"fast_workflow_evidence_unavailable"' in API
+    assert "fast_refresh:" in API
+
+    assert "const fastRefreshLine = (fast) =>" in SITE
+    assert "writer 직렬 대기" in SITE
+    assert "GitHub Actions 대기" in SITE
+    assert 'body.fast_refresh ? "<br>" + fastRefreshLine(body.fast_refresh)' in SITE
