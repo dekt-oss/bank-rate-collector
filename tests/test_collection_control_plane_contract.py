@@ -66,9 +66,7 @@ def test_morning_terminal_failure_resumes_on_current_main_once() -> None:
     text = RECOVERY.read_text(encoding="utf-8")
 
     assert "env.PARENT_CONCLUSION == 'failure'" in text
-    assert '"nh / surface"' in text
-    assert '"funding / collect"' in text
-    assert '"market / collect"' in text
+    assert "morning_failure_recovery_plan.py" in text
     assert "recover-morning-current-main.yml" in text
     assert 'gh run rerun "$PARENT_RUN_ID"' not in text
     assert "--failed" not in text
