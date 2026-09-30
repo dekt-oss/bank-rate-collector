@@ -111,12 +111,14 @@ GitHub scheduler는 최근 production에서 약 **4시간 46분~6시간 41분** 
 2026-09-16 PR #333에서 확립한 `COMPLETE_REPLAY_UNPROVEN` 방어를 유지한다.
 
 - 새 business cycle의 parent `run_attempt == 1`: NH/KFCC `fresh`.
-- 동일 parent의 `rerun-failed-jobs`인 `run_attempt > 1`: NH/KFCC `auto`.
+- 새 business cycle의 자동 current-main recovery: NH/KFCC `auto`.
 - NH child 내부 attempt 2/3: `auto`.
 - KFCC 첫 attempt 실패 뒤 bounded checkpoint recovery: `auto`.
 - volume drop, 0건, source minimum, P1-A 등의 fail-closed 안전 gate는 자동 승인하지 않는다.
 
-Parent scheduled attempt 1이 terminal failure면 `.github/workflows/recover-failed-scheduled-collection.yml`이 `rerun-failed-jobs`를 한 번 수행한다. 성공한 선행 단계는 다시 실행하지 않고 실패 job과 dependent downstream만 재실행한다.
+Parent scheduled attempt 1이 terminal failure면 `.github/workflows/recover-failed-scheduled-collection.yml`이 parent job evidence(`nh / surface`, `funding / collect`, `market / collect`)를 읽어 최초 미성공 단계를 확정한다. 성공한 선행 단계는 보존하고, `.github/workflows/recover-morning-current-main.yml`이 **현재 main 코드**에서 그 단계부터 `NH → funding → 일반+KFCC`의 남은 suffix만 순차 실행한다.
+
+기존 parent에 대한 `rerun-failed-jobs`는 사용하지 않는다. 같은 scheduled run을 재실행하면 parent의 old SHA가 유지되어, 그 사이 collector/workflow/parser 계약이 main에서 바뀐 경우 동일 stale-writer 차단을 반복할 수 있기 때문이다. Parent가 실패했지만 NH/funding/market이 모두 success로 기록된 경우에는 수집 replay 근거가 없으므로 자동 복구하지 않고 fail-closed한다.
 
 ## 6. health 계약
 
