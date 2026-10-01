@@ -43,6 +43,10 @@ Fast refresh도 authoritative R2/DB/rate-data를 쓰므로 `rate-data-writer` �
 
 `web/api/health.js`는 fast run이 pending일 때 active morning/core/NH/funding writer evidence를 확인한다. writer가 실제 점유 중이면 `canonical_writer_serialization`, 점유 근거가 없으면 `github_actions_pending`으로 구분한다. 이 판정은 수집 순서나 writer lock을 바꾸지 않는 read-only observability다.
 
+2026-09-30 실제 run은 이후 writer queue에서 풀린 뒤 old SHA(`3972c27...`)로 실행되어 FINLIFE/FSB 수집 자체는 성공했지만 snapshot에서 stale-main guard가 정상 차단했다. terminal failure recovery는 current main을 dispatch했으나, 당시 recovery workflow가 Morning current-main 복구와 동일한 단일 control-plane concurrency group을 공유해 **약 8시간 추가 대기**했다.
+
+이를 source writer lock과 분리한다. recovery control-plane concurrency는 parent workflow 이름별로 나누고, 실제 DB/R2/rate-data 쓰기는 계속 child의 공통 `rate-data-writer`가 직렬화한다. 따라서 Morning 복구가 길어져도 Fast/NH/funding recovery control-plane 자체는 즉시 판정·dispatch할 수 있고, 실제 canonical write 충돌 방지는 기존 계약 그대로 유지된다.
+
 ## 2. Morning cycle 실행 순서
 
 ```text
