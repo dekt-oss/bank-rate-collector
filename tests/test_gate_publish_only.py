@@ -109,3 +109,50 @@ def test_the_workflow_passes_the_flag_only_on_a_publish_only_run() -> None:
     assert "--no-collection" in body
     assert '"${PUBLISH_ONLY}" = "true"' in body, body
     assert "${PUBLISH_ONLY:+" not in body, "빈 값 검사로는 false를 못 거른다"
+
+
+def test_special_offer_only_requires_and_accepts_only_official_special_raw(
+    tmp_path: Path,
+) -> None:
+    """특판 전용 실행은 raw가 없어야 하는 발행 전용 실행과 다르다."""
+    raw_root = tmp_path / "raw"
+    special = raw_root / "special-offer-official"
+    special.mkdir(parents=True)
+    (special / "official-1.json").write_text('{"ok": true}', encoding="utf-8")
+
+    out = _run_gate(tmp_path, "--special-offer-only")
+
+    assert "[PASS] 특판 공식 원본 보존 — 공식 원본 1개" in out, out
+    assert "[PASS] Current Run 원본 경계 — 특판 공식 원본만 1개" in out, out
+    assert "[PASS] [건너뜀] max_rate 대조용 finlife 원본 확보" in out, out
+
+
+def test_special_offer_only_rejects_non_special_raw(tmp_path: Path) -> None:
+    """특판 전용 플래그가 임의의 다른 raw를 숨기는 우회로가 되면 안 된다."""
+    raw_root = tmp_path / "raw"
+    special = raw_root / "special-offer-official"
+    special.mkdir(parents=True)
+    (special / "official-1.json").write_text('{"ok": true}', encoding="utf-8")
+    other = raw_root / "unexpected-source"
+    other.mkdir(parents=True)
+    (other / "unexpected.json").write_text('{"bad": true}', encoding="utf-8")
+
+    out = _run_gate(tmp_path, "--special-offer-only")
+
+    assert "[PASS] 특판 공식 원본 보존 — 공식 원본 1개" in out, out
+    assert "[FAIL] Current Run 원본 경계 — 특판 외 원본 1개" in out, out
+
+
+def test_workflow_uses_distinct_special_offer_gate_mode() -> None:
+    workflow = yaml.safe_load(
+        (REPO_ROOT / ".github/workflows/collect.yml").read_text(encoding="utf-8")
+    )
+    step = next(
+        s for s in workflow["jobs"]["collect"]["steps"]
+        if s.get("name") == "Verify P1-A gate"
+    )
+    body = step["run"]
+
+    assert 'SPECIAL_OFFER_ONLY' in body
+    assert 'SKIP_RAW="--special-offer-only"' in body
+    assert body.count('SKIP_RAW="--no-collection"') == 1
