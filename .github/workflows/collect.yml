@@ -391,7 +391,7 @@ jobs:
           if [ "${PUBLISH_ONLY}" = "true" ]; then
             SKIP_RAW="--no-collection"
           elif [ "${SPECIAL_OFFER_ONLY}" = "true" ]; then
-            SKIP_RAW="--no-collection"
+            SKIP_RAW="--special-offer-only"
           fi
           uv run python scripts/verify_gate.py \
             --db publish/rate_monitor.sqlite3 \
