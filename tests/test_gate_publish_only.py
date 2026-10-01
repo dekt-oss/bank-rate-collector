@@ -53,7 +53,7 @@ def _run_gate(tmp_path: Path, *extra: str) -> str:
         "utf-8",
     )
     raw_root = tmp_path / "raw"
-    raw_root.mkdir()
+    raw_root.mkdir(exist_ok=True)
 
     done = subprocess.run(
         [sys.executable, str(GATE),
