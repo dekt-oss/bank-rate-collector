@@ -107,3 +107,17 @@ def test_morning_recovery_preserves_successful_prefix() -> None:
     assert 'test "$FUNDING_RESULT" = "skipped"' in morning
     assert 'test "$MARKET_RESULT" = "success"' in morning
     assert "group: rate-data-writer" not in morning
+
+
+def test_recovery_control_plane_isolated_by_parent_workflow() -> None:
+    text = _text()
+
+    assert (
+        "group: failed-scheduled-collection-recovery-"
+        "${{ github.event.workflow_run.name }}"
+    ) in text
+    assert "group: failed-scheduled-collection-recovery-control-plane" not in text
+
+    # Separating control-plane queues must not weaken canonical write serialization.
+    morning = MORNING_RECOVERY.read_text(encoding="utf-8")
+    assert "group: rate-data-writer" not in morning

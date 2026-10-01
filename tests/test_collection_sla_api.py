@@ -34,7 +34,12 @@ def _sla(completed: str | None, now: str, source_state: dict | None = None) -> d
     return _node(script)
 
 
-def _handler(*, nh_conclusion: str = "success", jobs_ok: bool = True) -> dict:
+def _handler(
+    *,
+    nh_conclusion: str = "success",
+    jobs_ok: bool = True,
+    fast_runs_ok: bool = True,
+) -> dict:
     script = f"""
       import handler from {json.dumps(HEALTH_API)};
       process.env.GITHUB_DISPATCH_TOKEN = 'test-token';
@@ -72,6 +77,11 @@ def _handler(*, nh_conclusion: str = "success", jobs_ok: bool = True) -> dict:
             value.includes('/actions/workflows/collect-nh.yml/runs?per_page=30') ||
             value.includes('/actions/workflows/collect-institution-funding.yml/runs?per_page=30')) {{
           return {{ ok: true, status: 200, json: async () => ({{ workflow_runs: [] }}) }};
+        }}
+        if (value.includes('/actions/workflows/collect-savings-fast.yml/runs?per_page=30')) {{
+          return {str(fast_runs_ok).lower()}
+            ? {{ ok: true, status: 200, json: async () => ({{ workflow_runs: [] }}) }}
+            : {{ ok: false, status: 503, json: async () => ({{}}) }};
         }}
         if (value.endsWith('/actions/runs?per_page=50')) {{
           return {{ ok: true, status: 200, json: async () => ({{ workflow_runs: [] }}) }};
@@ -158,3 +168,93 @@ def test_jobs_api_failure_is_unknown_not_false_normal() -> None:
     assert result["source_status"] == "unknown"
     assert result["status"] == "unknown"
     assert result["failed_sources"] == []
+
+
+def _fast_state(
+    *,
+    fast_status: str,
+    fast_conclusion: str | None,
+    blocker_path: str | None,
+    blocker_status: str | None,
+    active_writer_jobs: list[str] | None = None,
+) -> dict:
+    blocker = None if blocker_path is None else {
+        "id": 701,
+        "path": blocker_path,
+        "status": blocker_status,
+        "conclusion": None,
+    }
+    script = f"""
+      import {{ fastRefreshHealth }} from {json.dumps(HEALTH_API)};
+      const fast = {{
+        id: 700,
+        path: '.github/workflows/collect-savings-fast.yml',
+        status: {json.dumps(fast_status)},
+        conclusion: {json.dumps(fast_conclusion)},
+        created_at: '2026-09-30T12:05:28Z',
+      }};
+      const blocker = {json.dumps(blocker)};
+      const detail = {{
+        activeWriterJobs: {json.dumps(active_writer_jobs or [])},
+      }};
+      console.log(JSON.stringify(fastRefreshHealth(
+        fast,
+        blocker,
+        detail,
+        new Date('2026-09-30T13:35:28Z'),
+      )));
+    """
+    return _node(script)
+
+
+def test_fast_pending_behind_active_morning_writer_is_explicit_queue_wait() -> None:
+    result = _fast_state(
+        fast_status="pending",
+        fast_conclusion=None,
+        blocker_path=".github/workflows/collect-morning-cycle.yml",
+        blocker_status="in_progress",
+        active_writer_jobs=["nh / attempt_1 / attempt"],
+    )
+
+    assert result["status"] == "waiting_writer"
+    assert result["reason"] == "canonical_writer_serialization"
+    assert result["writer_queue_wait"] is True
+    assert result["wait_minutes"] == 90
+
+
+def test_fast_pending_without_writer_evidence_stays_generic_pending() -> None:
+    result = _fast_state(
+        fast_status="pending",
+        fast_conclusion=None,
+        blocker_path=".github/workflows/collect-morning-cycle.yml",
+        blocker_status="in_progress",
+        active_writer_jobs=[],
+    )
+
+    assert result["status"] == "pending"
+    assert result["reason"] == "github_actions_pending"
+    assert result["writer_queue_wait"] is False
+
+
+def test_fast_success_is_not_reported_as_queue_wait() -> None:
+    result = _fast_state(
+        fast_status="completed",
+        fast_conclusion="success",
+        blocker_path=None,
+        blocker_status=None,
+    )
+
+    assert result["status"] == "normal"
+    assert result["reason"] == "fast_refresh_complete"
+    assert result["writer_queue_wait"] is False
+
+
+
+def test_fast_workflow_api_failure_does_not_take_down_core_health() -> None:
+    result = _handler(fast_runs_ok=False)
+
+    assert result["ok"] is True
+    assert result["sla"]["status"] == "normal"
+    assert result["fast_refresh"]["status"] == "unknown"
+    assert result["fast_refresh"]["reason"] == "fast_workflow_evidence_unavailable"
+    assert result["fast_refresh"]["latest_run"] is None

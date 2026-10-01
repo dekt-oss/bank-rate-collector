@@ -17,7 +17,11 @@ on:
 # remaining suffix through a reusable recovery chain running on current main.
 # Standalone/manual child workflows keep the legacy current-main dispatch paths below.
 concurrency:
-  group: failed-scheduled-collection-recovery-control-plane
+  # A long current-main morning recovery can run for hours. Do not let it block
+  # unrelated Fast/NH/funding recovery control planes. Same-parent-workflow
+  # recoveries remain serialized, while every canonical child writer is still
+  # protected by the shared rate-data-writer lock.
+  group: failed-scheduled-collection-recovery-${{ github.event.workflow_run.name }}
   cancel-in-progress: false
 
 permissions:
