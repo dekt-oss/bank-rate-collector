@@ -107,7 +107,17 @@ def main() -> int:
         action="store_true",
         help="이번 실행은 수집을 하지 않았다. 원본 파일을 보는 항목을 건너뛴다",
     )
+    parser.add_argument(
+        "--special-offer-only",
+        action="store_true",
+        help=(
+            "금리 수집은 하지 않고 공식 특판 원본만 수집했다. "
+            "특판 원본 존재와 raw 경계를 별도로 검증한다"
+        ),
+    )
     args = parser.parse_args()
+    if args.no_collection and args.special_offer_only:
+        parser.error("--no-collection and --special-offer-only are mutually exclusive")
 
     conn = sqlite3.connect(args.db)
 
@@ -161,6 +171,27 @@ def main() -> int:
             "Current Run 원본 경계",
             f"발행 전용 실행의 원본 {len(workspace_files)}개",
         )
+    elif args.special_offer_only:
+        special_root = args.raw_root / "special-offer-official"
+        special_files = [
+            p for p in workspace_files
+            if p == special_root or special_root in p.parents
+        ]
+        unexpected_files = [p for p in workspace_files if p not in special_files]
+        check(
+            len(special_files) > 0,
+            "특판 공식 원본 보존",
+            f"공식 원본 {len(special_files)}개",
+        )
+        check(
+            len(unexpected_files) == 0,
+            "Current Run 원본 경계",
+            (
+                f"특판 공식 원본만 {len(special_files)}개"
+                if not unexpected_files
+                else f"특판 외 원본 {len(unexpected_files)}개"
+            ),
+        )
     else:
         check(
             len(workspace_files) > 0,
@@ -209,16 +240,21 @@ def main() -> int:
     finlife_files, source_missing = _finlife_source_missing(current_finlife_files)
     finlife_rows, finlife_null = _finlife_observation_nulls(conn, current_finlife_run_ids)
 
-    if args.no_collection:
+    if args.no_collection or args.special_offer_only:
+        reason = (
+            "이번 실행은 수집을 하지 않았다"
+            if args.no_collection
+            else "이번 실행은 금리 수집 없이 특판 공식 원본만 수집했다"
+        )
         check(
             True,
             "[건너뜀] max_rate 대조용 finlife 원본 확보",
-            "이번 실행은 수집을 하지 않았다",
+            reason,
         )
         check(
             True,
             "[건너뜀] max_rate NULL 규칙 — finlife (원본 대조)",
-            "대조할 원본이 이번 실행에 없다",
+            "대조할 finlife 원본이 이번 실행에 없다",
         )
     elif not current_finlife_run_ids:
         check(
