@@ -16,6 +16,7 @@ from rate_monitor.domain.normalization import normalize_product_name
 from rate_monitor.services.institution_matching import normalize_institution
 
 TRIAGE_POLICY_VERSION = "2026-08-23-v3"
+DECISION_ATTENTION_POLICY_VERSION = "2026-09-30-v1"
 MISMATCH_STATUSES = {
     "rate_mismatch",
     "rate_mismatch_date_diff",
@@ -298,6 +299,129 @@ def _suggested_action(
     return "공식 evidence를 확보하고 두 source의 현재값을 재확인한다."
 
 
+def _decision_attention_flags(item: dict[str, Any]) -> tuple[list[str], bool]:
+    """Explain why a P0/P1 discrepancy deserves rate-decision attention.
+
+    This is not an authority decision. It only separates the small high-priority
+    review queue from the full discrepancy census and highlights signals that can
+    directly change a rate comparison if the discrepancy is real.
+    """
+
+    flags: list[str] = []
+    direct = False
+
+    official = item.get("official_evidence")
+    official_signal = (
+        str(official.get("reconciliation_signal") or "")
+        if isinstance(official, dict)
+        else ""
+    )
+    if official_signal in {
+        "official_conflict",
+        "neither_supported",
+        "primary_supported",
+        "secondary_supported",
+    }:
+        flags.append("current_official_evidence_discrepancy")
+        direct = True
+
+    status = str(item.get("status") or "")
+    if status == "rate_mismatch":
+        flags.append("same_effective_date_conflict")
+        direct = True
+    elif status == "incomplete_rate":
+        flags.append("incomplete_max_rate")
+        direct = True
+    elif status == "rate_mismatch_date_unknown":
+        flags.append("effective_date_unknown")
+    elif status == "rate_mismatch_date_diff":
+        flags.append("effective_date_gap")
+
+    max_rate = item.get("max_rate")
+    delta_abs = _decimal(
+        max_rate.get("absolute_delta") if isinstance(max_rate, dict) else None
+    )
+    if delta_abs is not None and delta_abs >= Decimal("0.20"):
+        flags.append("material_max_rate_gap_ge_0_20pp")
+        direct = True
+    elif delta_abs is not None and delta_abs >= Decimal("0.10"):
+        flags.append("max_rate_gap_ge_0_10pp")
+
+    effective = item.get("effective_date")
+    max_age = (
+        effective.get("max_source_age_days")
+        if isinstance(effective, dict)
+        else None
+    )
+    if isinstance(max_age, int) and max_age >= 90:
+        flags.append("stale_source_effective_date_ge_90d")
+
+    return flags, direct
+
+
+def _decision_attention(queue: list[dict[str, Any]]) -> dict[str, Any]:
+    attention: list[dict[str, Any]] = []
+    for item in queue:
+        if item.get("priority") not in {"P0", "P1"}:
+            continue
+        flags, direct = _decision_attention_flags(item)
+        attention.append(
+            {
+                "decision_rank": len(attention) + 1,
+                "triage_rank": item.get("rank"),
+                "priority": item.get("priority"),
+                "score": item.get("score"),
+                "classification": item.get("classification"),
+                "institution": item.get("institution"),
+                "product": item.get("product"),
+                "product_type": item.get("product_type"),
+                "term_months": item.get("term_months"),
+                "join_channel": item.get("join_channel"),
+                "interest_method": item.get("interest_method"),
+                "status": item.get("status"),
+                "max_rate": item.get("max_rate"),
+                "effective_date": item.get("effective_date"),
+                "decision_risk_flags": flags,
+                "direct_rate_decision_risk": direct,
+                "suggested_action": item.get("suggested_action"),
+                "provenance": item.get("provenance"),
+            }
+        )
+
+    counts = Counter(str(item["priority"]) for item in attention)
+    flags = Counter(
+        flag
+        for item in attention
+        for flag in item["decision_risk_flags"]
+    )
+    return {
+        "policy_version": DECISION_ATTENTION_POLICY_VERSION,
+        "scope": "triage_P0_P1_only",
+        "semantics": (
+            "rate-decision review priority only; does_not_select_source_authority "
+            "and does_not_mutate_canonical"
+        ),
+        "direct_rate_decision_risk_semantics": (
+            "true means the discrepancy, if genuine, can directly alter a max-rate "
+            "comparison through current official conflict, same-date conflict, "
+            "incomplete max rate, or >=0.20pp max-rate gap"
+        ),
+        "summary": {
+            "queue_size": len(attention),
+            "P0": counts["P0"],
+            "P1": counts["P1"],
+            "direct_rate_decision_risk_count": sum(
+                bool(item["direct_rate_decision_risk"]) for item in attention
+            ),
+            "institutions": len(
+                {str(item["institution"] or "") for item in attention}
+            ),
+            "risk_flags": dict(sorted(flags.items())),
+        },
+        "queue": attention,
+    }
+
+
 def annotate_discrepancy_triage(report: dict[str, Any]) -> dict[str, Any]:
     """Mismatch 행에 deterministic 조사 우선순위를 부여한다."""
     official_by_base = _official_groups_by_base(report)
@@ -508,7 +632,13 @@ def annotate_discrepancy_triage(report: dict[str, Any]) -> dict[str, Any]:
         },
         "queue": queue,
     }
+    report["decision_attention"] = _decision_attention(queue)
     report.setdefault("summary", {})["triage_queue_size"] = len(queue)
+    report["summary"]["decision_attention_queue_size"] = report[
+        "decision_attention"
+    ]["summary"]["queue_size"]
     report["scope"]["triage_mutates_canonical"] = False
     report["scope"]["triage_selects_authority"] = False
+    report["scope"]["decision_attention_mutates_canonical"] = False
+    report["scope"]["decision_attention_selects_authority"] = False
     return report

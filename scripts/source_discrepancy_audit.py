@@ -36,6 +36,11 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="공식 evidence와 중앙 원천의 모순 queue JSON. canonical 값은 수정하지 않는다.",
     )
+    parser.add_argument(
+        "--decision-attention-out",
+        default=None,
+        help="금리 판단 전 우선 검토할 P0/P1 queue JSON. source authority는 선택하지 않는다.",
+    )
     parser.add_argument("--primary-source", default="fsb")
     parser.add_argument("--secondary-source", default="finlife_savings_bank")
     parser.add_argument(
@@ -93,6 +98,62 @@ def _write_named_queue(
     )
 
 
+def _write_decision_attention(path: Path, report: dict[str, object]) -> None:
+    census = report.get("ambiguity_census")
+    census = census if isinstance(census, dict) else {}
+    indicator = census.get("queue_masking_indicator")
+    indicator = indicator if isinstance(indicator, dict) else {}
+    items = census.get("items")
+    items = items if isinstance(items, list) else []
+
+    high_bands = {"ge_0.20pp", "ge_0.50pp", "ge_1.00pp"}
+    masked = [
+        item
+        for item in items
+        if isinstance(item, dict)
+        and isinstance(item.get("blocked_delta"), dict)
+        and item["blocked_delta"].get("blocked_risk_band") in high_bands
+    ]
+
+    def delta_key(item: dict[str, object]) -> tuple[float, str, str, int]:
+        blocked = item.get("blocked_delta")
+        blocked = blocked if isinstance(blocked, dict) else {}
+        raw = blocked.get("max_absolute_delta")
+        try:
+            value = float(str(raw))
+        except (TypeError, ValueError):
+            value = -1.0
+        return (
+            -value,
+            str(item.get("institution") or ""),
+            str(item.get("product") or ""),
+            int(item.get("term_months") or 0),
+        )
+
+    masked.sort(key=delta_key)
+    payload = {
+        "generated_at": report.get("generated_at"),
+        "source_runs": report.get("source_runs"),
+        "decision_attention": report["decision_attention"],
+        "masked_payment_method_risk": {
+            "semantics": (
+                "not P0/P1 and not a proven source error; payment-method ambiguity "
+                "blocks comparable triage, so resolve the variant before using these "
+                "candidate gaps for a rate decision"
+            ),
+            "queue_masking_indicator": indicator,
+            "high_risk_threshold": "blocked candidate max-rate gap >= 0.20pp",
+            "high_risk_count": len(masked),
+            "items": masked,
+        },
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2, default=str) + "\n",
+        encoding="utf-8",
+    )
+
+
 def main() -> int:
     args = build_parser().parse_args()
     out_path = Path(args.out)
@@ -113,12 +174,16 @@ def main() -> int:
             report,
             key="official_contradictions",
         )
+    if args.decision_attention_out:
+        _write_decision_attention(Path(args.decision_attention_out), report)
 
     summary = report["summary"]
     triage = report["triage"]
     triage_summary = triage["summary"]
     contradictions = report["official_contradictions"]
     contradiction_summary = contradictions["summary"]
+    decision_attention = report["decision_attention"]
+    decision_summary = decision_attention["summary"]
     census = report["ambiguity_census"]
     census_summary = census["summary"]
     masking = census["queue_masking_indicator"]
@@ -127,6 +192,8 @@ def main() -> int:
         print(f"triage queue              : {args.triage_out}")
     if args.official_contradiction_out:
         print(f"official contradiction    : {args.official_contradiction_out}")
+    if args.decision_attention_out:
+        print(f"decision attention        : {args.decision_attention_out}")
     print(f"primary products          : {summary['primary_products']}")
     print(f"secondary products        : {summary['secondary_products']}")
     print(f"exact matches             : {summary['exact_matches']}")
@@ -155,6 +222,13 @@ def main() -> int:
         f"P3={triage_summary['P3']}",
     )
     print(
+        "decision attention         :",
+        f"queue={decision_summary['queue_size']}",
+        f"P0={decision_summary['P0']}",
+        f"P1={decision_summary['P1']}",
+        f"direct={decision_summary['direct_rate_decision_risk_count']}",
+    )
+    print(
         "payment ambiguity census   :",
         f"blocked={census_summary['ambiguity_blocked_count']}",
         f"counterpart={census_summary['counterpart_coverage']}",
@@ -173,6 +247,22 @@ def main() -> int:
         f"P1={contradiction_summary['P1']}",
         f"consensus={contradiction_summary['source_consensus_contradictions']}",
     )
+    for item in decision_attention["queue"]:
+        print(
+            "decision-attention",
+            f"#{item['decision_rank']}",
+            item["priority"],
+            f"triage_rank={item['triage_rank']}",
+            f"score={item['score']}",
+            item["classification"],
+            item["institution"],
+            item["product"],
+            f"term={item['term_months']}",
+            f"variant={item['join_channel']}/{item['interest_method']}",
+            f"delta={item['max_rate']['absolute_delta']}",
+            f"direct={item['direct_rate_decision_risk']}",
+            f"flags={item['decision_risk_flags']}",
+        )
     for item in triage["queue"][:10]:
         print(
             "triage",

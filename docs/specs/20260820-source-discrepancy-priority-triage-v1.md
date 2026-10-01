@@ -241,3 +241,92 @@ A0는 `last_seen_at`을 representative classification input으로 새로 승격�
 A0 완료 전 production R2 read-only audit을 다시 실행하여 current mismatch 6건이 같은 계약으로
 재생성되는지 확인한다. 결과가 달라지면 해당 차이는 source data 변화인지 classification 회귀인지
 분리해서 보고한 뒤 A1/A2 forensic으로 넘어간다.
+
+
+## 12. 2026-09-30 Decision Attention 확장
+
+사용자가 전체 mismatch census보다 실제 금리 비교·상품 의사결정 전에 먼저 확인해야 할
+고위험 항목을 빠르게 보고 싶다는 운영 요구를 추가했다.
+
+기존 `triage.priority` 점수와 P0/P1/P2/P3 threshold는 변경하지 않는다.
+대신 기존 queue 중 **P0/P1만 추출한 additive read-only view**인
+`decision_attention`을 별도로 만든다.
+
+### 12.1 출력
+
+- `policy_version`: `2026-09-30-v1`
+- `scope`: `triage_P0_P1_only`
+- `summary.queue_size`
+- `summary.P0`, `summary.P1`
+- `summary.direct_rate_decision_risk_count`
+- `summary.risk_flags`
+- `queue[]`
+  - `decision_rank`
+  - 원래 `triage_rank`
+  - priority / score / classification
+  - 기관 / 상품 / 기간 / channel / interest method
+  - 양 source 최고금리와 absolute delta
+  - effective-date metadata
+  - `decision_risk_flags`
+  - `direct_rate_decision_risk`
+  - suggested action / provenance
+
+### 12.2 direct rate-decision risk
+
+`direct_rate_decision_risk=true`는 **어느 source가 틀렸다는 판정이 아니다.**
+해당 discrepancy가 사실일 경우 실제 최고금리 비교를 직접 바꿀 수 있는 신호가 있다는 뜻이다.
+
+현재 direct 신호:
+
+- current official evidence가 source와 직접 충돌
+- 동일 effective date인데 최고금리 불일치
+- 최고금리 한쪽이 incomplete
+- 최고금리 absolute delta >= **0.20%p**
+
+보조 risk flag:
+
+- effective date unknown
+- effective date gap
+- 0.10%p 이상 gap
+- source effective age >= 90일
+
+보조 flag만 있는 P0/P1도 decision-attention queue에는 남지만
+`direct_rate_decision_risk=false`로 구분한다.
+
+### 12.3 운영 표출 순서
+
+Production read-only audit에서는 다음 순서로 본다.
+
+1. `decision_attention` P0/P1
+2. full `triage` P0~P3
+3. official contradiction queue
+4. payment-method ambiguity census / unmatched identity
+
+즉 전체 불일치 건수를 먼저 세는 방식에서,
+**현재 금리 판단 전에 검토해야 할 상위 queue를 먼저 보는 방식**으로 바꾼다.
+
+### 12.4 불변 조건
+
+- canonical rate 수정 없음
+- source precedence/authority 자동 선택 없음
+- FSB/FINLIFE 어느 쪽도 자동 정답 판정하지 않음
+- DB/R2/rate-data write 없음
+- 기존 triage threshold/score 변경 없음
+- `decision_attention`은 조사·판단 우선순위용 read-only view
+
+
+### 12.5 Payment-method ambiguity masking 경고
+
+`decision_attention`의 P0/P1 queue는 **비교 가능한 6D variant**만 대상으로 한다.
+payment_method 후보가 여러 개이고 rate pair도 달라 비교를 fail-closed한 항목은
+P0/P1이 아니더라도 금리 판단에 영향을 줄 수 있다.
+
+따라서 별도 `source-discrepancy-decision-attention.json`에는
+`masked_payment_method_risk`를 함께 싣는다.
+
+- P0/P1로 자동 승격하지 않는다.
+- source error라고 확정하지 않는다.
+- blocked candidate max-rate gap >= 0.20%p인 항목만 high-risk masking으로 표출한다.
+- 사용 전 payment_method variant를 먼저 해소해야 한다.
+- `queue_masking_indicator`를 같이 보존해 P0/P1 숫자만으로 전체 데이터 위험을
+  과소평가하지 않게 한다.

@@ -140,6 +140,7 @@ jobs:
             --out work/source-discrepancy-report.json \
             --triage-out work/source-discrepancy-priority-queue.json \
             --official-contradiction-out work/source-discrepancy-official-contradictions.json \
+            --decision-attention-out work/source-discrepancy-decision-attention.json \
             --official-evidence docs/evidence/source-discrepancy/20260823-official-savings-bank.json
 
       - name: Inspect payment-method ambiguity and current evidence
@@ -158,6 +159,11 @@ jobs:
                   encoding="utf-8"
               )
           )
+          decision_payload = json.loads(
+              Path("work/source-discrepancy-decision-attention.json").read_text(
+                  encoding="utf-8"
+              )
+          )
 
           scope = report["scope"]
           assert scope["canonical_mutated"] is False
@@ -173,6 +179,8 @@ jobs:
           assert scope["official_current_support_max_capture_age_days"] == 30
           assert scope["triage_mutates_canonical"] is False
           assert scope["triage_selects_authority"] is False
+          assert scope["decision_attention_mutates_canonical"] is False
+          assert scope["decision_attention_selects_authority"] is False
           assert scope["official_contradiction_mutates_canonical"] is False
           assert scope["official_contradiction_selects_authority"] is False
 
@@ -271,6 +279,44 @@ jobs:
                   for component in item["score_components"]
               )
 
+          census = report["ambiguity_census"]
+          census_summary = census["summary"]
+          masking = census["queue_masking_indicator"]
+
+          decision_attention = report["decision_attention"]
+          decision_summary = decision_attention["summary"]
+          assert decision_payload["decision_attention"] == decision_attention
+          masked_risk = decision_payload["masked_payment_method_risk"]
+          assert masked_risk["high_risk_threshold"].endswith(">= 0.20pp")
+          assert masked_risk["high_risk_count"] == masking["blocked_ge_0_20pp_count"]
+          assert masked_risk["high_risk_count"] <= census_summary["ambiguity_blocked_count"]
+          assert "not P0/P1" in masked_risk["semantics"]
+          assert "resolve the variant" in masked_risk["semantics"]
+          assert all(
+              item["blocked_delta"]["blocked_risk_band"]
+              in {"ge_0.20pp", "ge_0.50pp", "ge_1.00pp"}
+              for item in masked_risk["items"]
+          )
+          assert decision_attention["scope"] == "triage_P0_P1_only"
+          assert "does_not_select_source_authority" in decision_attention["semantics"]
+          assert decision_summary["queue_size"] == (
+              triage["summary"]["P0"] + triage["summary"]["P1"]
+          )
+          assert summary["decision_attention_queue_size"] == decision_summary["queue_size"]
+          assert [item["decision_rank"] for item in decision_attention["queue"]] == list(
+              range(1, decision_summary["queue_size"] + 1)
+          )
+          assert all(
+              item["priority"] in {"P0", "P1"}
+              for item in decision_attention["queue"]
+          )
+          assert [item["triage_rank"] for item in decision_attention["queue"]] == sorted(
+              item["triage_rank"] for item in decision_attention["queue"]
+          )
+          assert decision_summary["direct_rate_decision_risk_count"] <= decision_summary[
+              "queue_size"
+          ]
+
           contradictions = report["official_contradictions"]
           assert contradiction_payload["official_contradictions"] == contradictions
           assert contradictions["authority_semantics"] == (
@@ -332,6 +378,18 @@ jobs:
                   f"payment={item['candidate_payment_methods']}",
                   f"rates={[v.get('max_rate') for v in item['candidate_variants']]}",
               )
+          print("decision attention queue:")
+          for item in decision_attention["queue"]:
+              print(
+                  f"#{item['decision_rank']}", item["priority"],
+                  f"triage_rank={item['triage_rank']}",
+                  item["classification"], item["institution"], item["product"],
+                  f"term={item['term_months']}",
+                  f"variant={item['join_channel']}/{item['interest_method']}",
+                  f"delta={item['max_rate']['absolute_delta']}",
+                  f"direct={item['direct_rate_decision_risk']}",
+                  f"flags={item['decision_risk_flags']}",
+              )
           print("priority queue:")
           for item in triage["queue"]:
               print(
@@ -360,6 +418,7 @@ jobs:
             work/source-discrepancy-report.json
             work/source-discrepancy-priority-queue.json
             work/source-discrepancy-official-contradictions.json
+            work/source-discrepancy-decision-attention.json
             docs/evidence/source-discrepancy/20260823-official-savings-bank.json
           retention-days: 30
 
