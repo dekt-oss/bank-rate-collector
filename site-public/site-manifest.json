@@ -1,0 +1,18 @@
+{
+  "generated_at": "2026-10-11T10:55:25.763670+09:00",
+  "page_bytes": 563642,
+  "data_bytes": 27660497,
+  "rows": 430927,
+  "files": [
+    "index.html",
+    "strategy.html",
+    "assets/korea-sido.svg",
+    "data/table.json",
+    "data/table.json.gz",
+    "data/strategy-table.json",
+    "data/strategy-table.json.gz",
+    "data/rates.csv.gz",
+    "data/rates.json.gz",
+    "robots.txt"
+  ]
+}
