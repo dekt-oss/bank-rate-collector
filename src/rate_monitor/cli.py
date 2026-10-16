@@ -6,6 +6,7 @@
 
 import argparse
 import asyncio
+import json
 import sys
 import tempfile
 from pathlib import Path
@@ -295,6 +296,23 @@ def _storage(args: argparse.Namespace) -> int:
         print(f"\n  왕복 확인 — {result['bytes']:,} bytes, sha256 {result['sha256'][:16]}…")
         return 0
 
+    if args.action == "inventory":
+        # 읽기만 한다. 버킷 전체를 계열별로 묶어 크기를 센다.
+        from rate_monitor.services.storage_inventory import (
+            build_inventory,
+            render_inventory,
+        )
+
+        report = build_inventory(_storage_store(args))
+        print(render_inventory(report))
+        if args.json_out:
+            out = Path(args.json_out)
+            out.parent.mkdir(parents=True, exist_ok=True)
+            out.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n",
+                           encoding="utf-8")
+            print(f"\nJSON: {out}")
+        return 0
+
     if args.action == "status":
         secrets = R2Config.from_env()
         print(f"R2 시크릿: {'있음' if secrets else '없음'}")
@@ -454,8 +472,9 @@ def build_parser() -> argparse.ArgumentParser:
     storage = sub.add_parser("storage", help="상태 DB 저장소를 다룬다 (R2)")
     storage.add_argument(
         "action",
-        choices=["check", "status", "upload", "restore", "migrate", "verify"],
+        choices=["check", "status", "inventory", "upload", "restore", "migrate", "verify"],
         help="check=쓰기·읽기·삭제 왕복 시험, status=현황만 본다, "
+             "inventory=버킷 전체 용량을 계열별로 센다(읽기 전용), "
              "upload=올린다, restore=받는다, "
              "migrate=기존 GitHub DB를 R2로 옮긴다, verify=받아서 확인만 한다",
     )
@@ -472,6 +491,8 @@ def build_parser() -> argparse.ArgumentParser:
         default=[],
         help="upload 뒤 보관 개수 정리에서도 삭제하지 않을 snapshot key (반복 가능)",
     )
+    storage.add_argument("--json-out", default=None,
+                         help="inventory 결과를 JSON으로도 쓴다")
     storage.add_argument(
         "--local-root", default=None,
         help="R2 대신 이 디렉터리를 저장소처럼 쓴다. 시크릿 없이 전 구간을 "
