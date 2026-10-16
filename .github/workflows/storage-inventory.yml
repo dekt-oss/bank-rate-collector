@@ -8,12 +8,6 @@ name: Storage inventory (R2, read-only)
 
 on:
   workflow_dispatch:
-  # One-shot: 이 PR 브랜치에서 처음 한 번 실측하기 위한 트리거. 실측 뒤 지운다.
-  push:
-    branches:
-      - claude/optimistic-allen-yj0ti3
-    paths:
-      - ".github/workflows/storage-inventory.yml"
 
 concurrency:
   group: storage-inventory
