@@ -82,6 +82,28 @@ def _recovery_decision(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cleanup(args: argparse.Namespace) -> int:
+    from datetime import date
+
+    from rate_monitor.domain.timeutil import now_kst
+    from rate_monitor.services.checkpoint_retention import cleanup_checkpoints
+
+    today = date.fromisoformat(args.today) if args.today else now_kst().date()
+    result = cleanup_checkpoints(
+        _store(args.local_root),
+        today_kst=today,
+        retention_days=args.retention_days,
+        dry_run=not args.apply,
+    )
+    body = json.dumps(result, ensure_ascii=False, indent=2) + "\n"
+    if args.json:
+        path = Path(args.json)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(body, encoding="utf-8")
+    sys.stdout.write(body)
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="rate-monitor-checkpoint")
     sub = parser.add_subparsers(dest="action", required=True)
@@ -132,6 +154,17 @@ def build_parser() -> argparse.ArgumentParser:
         help="테스트용 ObjectStore 디렉터리. 생략하면 R2 env를 요구한다",
     )
     recovery.set_defaults(func=_recovery_decision)
+
+    cleanup = sub.add_parser(
+        "cleanup",
+        help="보관 기간이 지난 수집일의 checkpoint를 지운다. 기본은 dry-run",
+    )
+    cleanup.add_argument("--retention-days", type=int, default=7)
+    cleanup.add_argument("--apply", action="store_true", help="실제로 지운다")
+    cleanup.add_argument("--today", default=None, help="기준일 KST YYYY-MM-DD. 생략하면 오늘")
+    cleanup.add_argument("--json", default=None, help="동일 JSON을 저장할 경로")
+    cleanup.add_argument("--local-root", default=None, help="테스트용 ObjectStore 디렉터리")
+    cleanup.set_defaults(func=_cleanup)
     return parser
 
 
