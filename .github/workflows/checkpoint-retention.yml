@@ -19,12 +19,6 @@ on:
   schedule:
     # 매일 12:13 KST. 아침 체인의 실제 수집(20:45 KST~)과 겹치지 않는 시각.
     - cron: "13 3 * * *"
-  # One-shot: 이 PR 브랜치에서 운영 R2에 dry-run(목록만)을 한 번 돌려 본다. 확인 뒤 지운다.
-  push:
-    branches:
-      - claude/optimistic-allen-yj0ti3
-    paths:
-      - ".github/workflows/checkpoint-retention.yml"
   workflow_dispatch:
     inputs:
       apply:
