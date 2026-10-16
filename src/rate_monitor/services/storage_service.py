@@ -611,6 +611,20 @@ class R2ObjectStore:
     def delete(self, key: str) -> None:
         self._client.delete_object(Bucket=self._bucket, Key=key)
 
+    def list_sizes(self, prefix: str = "") -> "list[tuple[str, int]]":
+        """키와 크기(bytes). 용량 조회 전용이고 아무것도 바꾸지 않는다."""
+        items: list[tuple[str, int]] = []
+        token: str | None = None
+        while True:
+            kwargs: dict[str, Any] = {"Bucket": self._bucket, "Prefix": prefix}
+            if token:
+                kwargs["ContinuationToken"] = token
+            page = self._client.list_objects_v2(**kwargs)
+            items.extend((item["Key"], int(item["Size"])) for item in page.get("Contents", []))
+            if not page.get("IsTruncated"):
+                return items
+            token = page.get("NextContinuationToken")
+
 
 class LocalObjectStore:
     """디렉터리를 객체 저장소처럼 쓴다. 시험용이고 R2 없이 전 구간을 돈다."""
@@ -646,6 +660,9 @@ class LocalObjectStore:
 
     def delete(self, key: str) -> None:
         self._path(key).unlink(missing_ok=True)
+
+    def list_sizes(self, prefix: str = "") -> "list[tuple[str, int]]":
+        return [(key, self._path(key).stat().st_size) for key in self.list(prefix)]
 
 
 def open_store(config: R2Config | None, local_root: Path | None = None) -> ObjectStore:
