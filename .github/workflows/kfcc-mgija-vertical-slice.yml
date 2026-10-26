@@ -1,0 +1,60 @@
+name: KFCC / MG Ija vertical-slice evidence (read-only)
+
+on:
+  push:
+    branches: [diagnostic/kfcc-mgija-slice-20261026]
+
+permissions:
+  contents: read
+
+jobs:
+  mgija-slice:
+    if: github.ref == 'refs/heads/diagnostic/kfcc-mgija-slice-20261026'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Probe only two public MG Ija pages
+        shell: bash
+        run: |
+          python - <<'PY'
+          import hashlib, html, json, re, urllib.request, urllib.error
+          from urllib.parse import urljoin
+
+          user_agent = "bank-rate-collector-readonly-diagnostic/1 (public single-page check)"
+          for path in ("/", "/rates/time-deposit"):
+              req = urllib.request.Request("https://mgija.com" + path,
+                                           headers={"User-Agent": user_agent, "Accept": "text/html"})
+              try:
+                  with urllib.request.urlopen(req, timeout=20) as response:
+                      body = response.read(1_500_000)
+                      status = response.status
+                      headers = dict(response.headers.items())
+              except urllib.error.HTTPError as exc:
+                  status, body, headers = exc.code, exc.read(4096), dict(exc.headers.items())
+              except Exception as exc:
+                  print("SLICE " + json.dumps({"path": path, "error": type(exc).__name__,
+                                               "message": str(exc)[:200]}, ensure_ascii=False))
+                  continue
+              text = body.decode("utf-8", "replace")
+              srcs = re.findall(r'<script[^>]+src=["\']([^"\']+)["\']', text)
+              root_markers = {key: bool(re.search(expr, text, re.I)) for key,expr in {
+                  "embedded_next_data": r"__NEXT_DATA__",
+                  "next_rsc": r"\\$\\$?RSC|self\\.__next_f\\.push",
+                  "rendered_rates": r"MG더뱅킹정기예금|정기예탁금|MG더뱅킹정기적금",
+                  "zero_banks": r"전체 금고",
+                  "last_updated": r"업데이트|수집.*(시각|일시)|기준일",
+                  "loading": r"불러오는 중|Loading",
+              }.items()}
+              print("SLICE " + json.dumps({
+                  "path": path, "status": status,
+                  "bytes": len(body),
+                  "sha256_prefix": hashlib.sha256(body).hexdigest()[:16],
+                  "content_type": headers.get("Content-Type", headers.get("content-type", "")),
+                  "markers": root_markers,
+                  "scripts_count": len(srcs),
+                  "script_sources": [urljoin("https://mgija.com" + path, s) for s in srcs[:10]],
+                  "visible_context": html.unescape(re.sub(r"<[^>]+>", " ", text))[:380].replace("\n", " "),
+              }, ensure_ascii=False))
+              if status in (400, 401, 403, 429) or "Request Blocked" in text:
+                  break
+          PY
