@@ -35,9 +35,7 @@ jobs:
                   headers={"User-Agent": UA}, timeout=timeout, follow_redirects=True,
               ) as client:
                   for name, path, params in [
-                      ("home", "/", None),
-                      ("main", "/map/main.do", None),
-                      ("list_seoul", "/map/list.do", {"r1": "서울", "r2": ""}),
+                      ("home_body_signature", "/", None),
                   ]:
                       try:
                           response = await client.get("https://www.kfcc.co.kr" + path, params=params)
@@ -50,6 +48,8 @@ jobs:
                               "sha256": hashlib.sha256(content).hexdigest()[:20],
                               "headers": {k: response.headers[k] for k in HEADERS if k in response.headers},
                               "blocked_marker": bool(re.search("Request Blocked|Access Denied", body, re.I)),
+                              "body_preview": re.sub(r"[\\r\\n\\t]+", " ", body[:240]) if response.status_code == 400 else "",
+                              "http_version": response.http_version,
                           }
                           print("KFCC_DIAG " + json.dumps(report, ensure_ascii=False))
                           if report["blocked_marker"] or response.status_code in (403, 429):
