@@ -1,0 +1,62 @@
+name: KFCC diagnostic (one-shot, read-only)
+
+on:
+  push:
+    branches: [diagnostic/kfcc-block-20261026]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    if: github.ref == 'refs/heads/diagnostic/kfcc-block-20261026'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Install HTTP client
+        run: python -m pip install --disable-pip-version-check httpx==0.28.1
+      - name: Read-only one-shot KFCC reachability
+        shell: bash
+        run: |
+          python - <<'PY'
+          import asyncio
+          import hashlib
+          import json
+          import re
+          import httpx
+
+          UA = "rate-monitor/1 (+public rate disclosure collector; 1 req/s)"
+          HEADERS = ("server", "content-type", "date", "via",
+                     "x-request-id", "x-correlation-id", "cf-ray", "x-cache")
+          async def main():
+              timeout = httpx.Timeout(connect=10.0, read=20.0, write=20.0, pool=10.0)
+              async with httpx.AsyncClient(
+                  headers={"User-Agent": UA}, timeout=timeout, follow_redirects=True,
+              ) as client:
+                  for name, path, params in [
+                      ("main", "/map/main.do", None),
+                      ("list_seoul", "/map/list.do", {"r1": "서울", "r2": ""}),
+                  ]:
+                      try:
+                          response = await client.get("https://www.kfcc.co.kr" + path, params=params)
+                          content = response.content
+                          body = content[:2048].decode("utf-8", "replace")
+                          report = {
+                              "probe": name,
+                              "status": response.status_code,
+                              "bytes": len(content),
+                              "sha256": hashlib.sha256(content).hexdigest()[:20],
+                              "headers": {k: response.headers[k] for k in HEADERS if k in response.headers},
+                              "blocked_marker": bool(re.search("Request Blocked|Access Denied", body, re.I)),
+                          }
+                          print("KFCC_DIAG " + json.dumps(report, ensure_ascii=False))
+                          if report["blocked_marker"] or response.status_code in (403, 429):
+                              break
+                      except (httpx.HTTPError, httpx.TimeoutException) as exc:
+                          print("KFCC_DIAG " + json.dumps(
+                              {"probe": name, "error_class": type(exc).__name__}))
+                          break
+                      await asyncio.sleep(1.0)
+          asyncio.run(main())
+          PY
