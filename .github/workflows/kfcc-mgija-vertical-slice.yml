@@ -119,6 +119,33 @@ jobs:
                   signals={word:body.find(word)>=0 for word in
                            ("불러오는 중", "서울미래", "MG더뱅킹정기예금", "부산", "12개월",
                             "기준일", "수집일", "업데이트", "데이터가 없습니다")}
+                  first_row_html=rows.first.evaluate("(node) => node.outerHTML.slice(0, 1600)") if rows.count() else ""
+                  busan_nodes=page.get_by_text("부산",exact=True)
+                  busan_examples=[]
+                  for idx in range(min(3,busan_nodes.count())):
+                      busan_examples.append(busan_nodes.nth(idx).evaluate("(el) => el.outerHTML.slice(0, 450)"))
+                  selects=page.locator("select")
+                  select_examples=[]
+                  for idx in range(min(4,selects.count())):
+                      select_examples.append(selects.nth(idx).evaluate("(el) => el.outerHTML.slice(0, 450)"))
+                  print("BROWSER_STRUCTURE "+json.dumps({
+                      "first_row_html":first_row_html,
+                      "busan_nodes":busan_nodes.count(),
+                      "busan_examples":busan_examples,
+                      "select_count":selects.count(),
+                      "select_examples":select_examples,
+                  },ensure_ascii=False))
+                  if busan_nodes.count() == 1:
+                      busan_nodes.first.click(timeout=3000)
+                      page.wait_for_timeout(2500)
+                      changed=page.locator("body").inner_text()
+                      changed_rows=page.locator("table tbody tr")
+                      print("BROWSER_BUSAN "+json.dumps({
+                          "url":page.url,
+                          "rows":changed_rows.count(),
+                          "first_two":[changed_rows.nth(i).inner_text()[:230] for i in range(min(2,changed_rows.count()))],
+                          "search_result_context":changed[changed.find("검색 결과"):changed.find("검색 결과")+95] if "검색 결과" in changed else None,
+                      },ensure_ascii=False))
                   print("BROWSER_SLICE "+json.dumps({
                       "status":response.status if response else None,
                       "title":page.title(),
