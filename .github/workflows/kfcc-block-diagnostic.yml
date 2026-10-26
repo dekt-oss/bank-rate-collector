@@ -35,6 +35,7 @@ jobs:
                   headers={"User-Agent": UA}, timeout=timeout, follow_redirects=True,
               ) as client:
                   for name, path, params in [
+                      ("home", "/", None),
                       ("main", "/map/main.do", None),
                       ("list_seoul", "/map/list.do", {"r1": "서울", "r2": ""}),
                   ]:
