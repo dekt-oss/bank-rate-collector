@@ -39,7 +39,6 @@ jobs:
               srcs = re.findall(r'<script[^>]+src=["\']([^"\']+)["\']', text)
               root_markers = {key: bool(re.search(expr, text, re.I)) for key,expr in {
                   "embedded_next_data": r"__NEXT_DATA__",
-                  "next_rsc": r"\\$\\$?RSC|self\\.__next_f\\.push",
                   "rendered_rates": r"MG더뱅킹정기예금|정기예탁금|MG더뱅킹정기적금",
                   "zero_banks": r"전체 금고",
                   "last_updated": r"업데이트|수집.*(시각|일시)|기준일",
