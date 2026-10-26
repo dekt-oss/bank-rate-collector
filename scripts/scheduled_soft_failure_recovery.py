@@ -170,13 +170,25 @@ def build_recovery_plan(
             "empty_result": latest_empty,
         }
 
+    # SourceBlockedError means the upstream refused access. This is not a
+    # transient collector failure: immediately redispatching the same request
+    # can repeat the block, consume Actions minutes and burden the source.
+    # Keep the source in failed_sources for incident/staleness reporting, but
+    # exclude it from the one-shot automatic retry targets.
+    blocked_sources = sorted(
+        source_id
+        for source_id, result in evidence.items()
+        if result.get("status") == "blocked"
+    )
+
     return {
         "workflow": workflow,
         "run_started_at": parent_started.isoformat(),
         "kfcc_only": kfcc_only,
         "expected_sources": sorted(expected),
         "failed_sources": sorted(failed),
-        "targets": _targets_for_failures(failed),
+        "blocked_sources": blocked_sources,
+        "targets": _targets_for_failures(failed - set(blocked_sources)),
         "evidence": evidence,
     }
 
