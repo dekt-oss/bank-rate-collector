@@ -157,6 +157,39 @@ jobs:
                       "signals":signals,
                       "api_requests":api[:15],
                   },ensure_ascii=False))
+                  # Controlled access classification: homepage only; no bank list,
+                  # scraping, header spoofing, proxy hopping or retry.
+                  import urllib.request, urllib.error
+                  req=urllib.request.Request(
+                      "https://www.kfcc.co.kr/",
+                      headers={"User-Agent":"bank-rate-collector-readonly-diagnostic/1"})
+                  try:
+                      with urllib.request.urlopen(req,timeout=12) as result:
+                          py_status=result.status
+                  except urllib.error.HTTPError as exc:
+                      py_status=exc.code
+                  except Exception as exc:
+                      py_status=type(exc).__name__
+                  browser_status=None
+                  browser_block=None
+                  try:
+                      control=browser.new_page()
+                      page_response=control.goto(
+                          "https://www.kfcc.co.kr/",
+                          wait_until="domcontentloaded", timeout=15000)
+                      browser_status=page_response.status if page_response else None
+                      browser_block="Request Blocked" in control.locator("body").inner_text()[:600]
+                      control.close()
+                  except Exception as exc:
+                      browser_status=type(exc).__name__
+                  print("KFCC_SAME_RUN_CLIENT_COMPARISON "+json.dumps({
+                      "urllib_status":py_status,
+                      "chrome_status":browser_status,
+                      "chrome_block_marker":browser_block,
+                      "endpoint":"/",
+                      "requests_per_client":1,
+                      "scope":"diagnostic-only",
+                  },ensure_ascii=False))
               finally:
                   browser.close()
           PY
