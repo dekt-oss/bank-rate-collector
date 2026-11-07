@@ -1,0 +1,17 @@
+{
+  "foreign_key_check_violations": 0,
+  "generated_at": "2026-11-07T11:47:59.348117+09:00",
+  "integrity_check": "ok",
+  "row_counts": {
+    "collection_runs": 1238,
+    "institutions": 7128,
+    "product_variants": 447561,
+    "products": 83368,
+    "rate_observations": 770671,
+    "raw_artifacts": 771493,
+    "review_items": 1178313
+  },
+  "run_id": null,
+  "sqlite_bytes": 3956060160,
+  "sqlite_sha256": "8102e591d01ebaf13c7a1c11d830c2a78b5ba4c5fe05c6addb2564d16dca4bde"
+}
