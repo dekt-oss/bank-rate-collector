@@ -15,6 +15,7 @@ build_recovery_plan = MODULE.build_recovery_plan
 RecoveryPlanError = MODULE.RecoveryPlanError
 GENERAL_WORKFLOW = MODULE.GENERAL_WORKFLOW
 FAST_WORKFLOW = MODULE.FAST_WORKFLOW
+MORNING_WORKFLOW = MODULE.MORNING_WORKFLOW
 
 PARENT_START = "2026-09-10T00:00:00+00:00"
 
@@ -116,6 +117,61 @@ def test_kfcc_terminal_soft_failure_gets_kfcc_only_recovery() -> None:
     )
 
     assert plan["failed_sources"] == ["kfcc"]
+    assert plan["targets"] == ["새마을금고만"]
+
+
+def test_kfcc_blocked_is_incident_but_never_immediately_redispatched() -> None:
+    summary = _summary(("kfcc", "blocked", "2026-09-10T09:00:01+09:00"))
+
+    plan = build_recovery_plan(
+        summary,
+        workflow=GENERAL_WORKFLOW,
+        run_started_at=PARENT_START,
+        kfcc_only=True,
+    )
+
+    assert plan["failed_sources"] == ["kfcc"]
+    assert plan["blocked_sources"] == ["kfcc"]
+    assert plan["targets"] == []
+    assert plan["evidence"]["kfcc"]["status"] == "blocked"
+
+
+def test_morning_blocked_kfcc_does_not_suppress_other_transient_recovery() -> None:
+    summary = _summary(
+        ("finlife_bank", "success", "2026-09-10T09:00:01+09:00"),
+        ("bok_ecos", "failed", "2026-09-10T09:00:02+09:00"),
+        ("bok_ecos_macro", "no_change", "2026-09-10T09:00:03+09:00"),
+        ("fsb", "success", "2026-09-10T09:00:04+09:00"),
+        ("cu", "success", "2026-09-10T09:00:05+09:00"),
+        ("kfcc", "blocked", "2026-09-10T09:00:06+09:00"),
+    )
+
+    plan = build_recovery_plan(
+        summary,
+        workflow=MORNING_WORKFLOW,
+        run_started_at=PARENT_START,
+    )
+
+    assert plan["failed_sources"] == ["bok_ecos", "kfcc"]
+    assert plan["blocked_sources"] == ["kfcc"]
+    assert plan["targets"] == ["참고지표만"]
+
+
+def test_kfcc_recovered_after_block_no_longer_skips_next_failure() -> None:
+    summary = _summary(
+        ("kfcc", "blocked", "2026-09-10T09:00:01+09:00"),
+        ("kfcc", "failed", "2026-09-10T09:10:01+09:00"),
+    )
+
+    plan = build_recovery_plan(
+        summary,
+        workflow=GENERAL_WORKFLOW,
+        run_started_at=PARENT_START,
+        kfcc_only=True,
+    )
+
+    assert plan["failed_sources"] == ["kfcc"]
+    assert plan["blocked_sources"] == []
     assert plan["targets"] == ["새마을금고만"]
 
 
